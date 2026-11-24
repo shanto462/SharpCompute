@@ -40,7 +40,7 @@ public enum MouseButton
     Other,
 }
 
-/// <summary>Data for <see cref="MetalWindow.KeyDown"/>.</summary>
+/// <summary>Data for <see cref="MetalWindow.KeyDown"/> and <see cref="MetalWindow.KeyUp"/>.</summary>
 public sealed class KeyEventArgs(Key key, char character, KeyModifiers modifiers, bool isRepeat) : EventArgs
 {
     /// <summary>The key, or <see cref="Key.Unknown"/>.</summary>
@@ -48,13 +48,15 @@ public sealed class KeyEventArgs(Key key, char character, KeyModifiers modifiers
 
     /// <summary>
     /// The character the key produces with Shift applied but other modifiers ignored, or <c>'\0'</c>
-    /// for keys that produce none (arrows, function keys).
+    /// for keys that produce none (arrows, function keys). For a key-up, the character recorded at
+    /// the matching key-down.
     /// </summary>
     public char Character { get; } = character;
 
+    /// <summary>The modifier keys held when the event occurred.</summary>
     public KeyModifiers Modifiers { get; } = modifiers;
 
-    /// <summary>True when this event comes from the key being held down (auto-repeat).</summary>
+    /// <summary>True when this event comes from the key being held down (auto-repeat). Always false for a key-up.</summary>
     public bool IsRepeat { get; } = isRepeat;
 }
 

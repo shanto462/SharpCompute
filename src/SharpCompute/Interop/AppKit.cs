@@ -15,7 +15,7 @@ internal static unsafe partial class ObjC
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial double SendDouble(nint receiver, nint selector);
 
-    // BOOL f(id, SEL) — isVisible, isMiniaturized, isARepeat. BOOL is a one-byte bool on arm64.
+    // BOOL f(id, SEL) — isVisible, isMiniaturized, isKeyWindow, isActive, isARepeat. BOOL is a one-byte bool on arm64.
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial byte SendByte(nint receiver, nint selector);
 
@@ -187,6 +187,7 @@ internal static partial class AppKit
     internal const nuint EventRightMouseDragged = 7;
     internal const nuint EventKeyDown = 10;
     internal const nuint EventKeyUp = 11;
+    internal const nuint EventFlagsChanged = 12;
     internal const nuint EventOtherMouseDown = 25;
     internal const nuint EventOtherMouseUp = 26;
     internal const nuint EventOtherMouseDragged = 27;
@@ -209,6 +210,7 @@ internal static class AppKitSelectors
     public static readonly nint NextEventMatchingMask = ObjC.GetSelector("nextEventMatchingMask:untilDate:inMode:dequeue:");
     public static readonly nint SendEvent = ObjC.GetSelector("sendEvent:");
     public static readonly nint UpdateWindows = ObjC.GetSelector("updateWindows");
+    public static readonly nint IsActive = ObjC.GetSelector("isActive");
 
     // NSDate
     public static readonly nint DistantPast = ObjC.GetSelector("distantPast");
@@ -226,6 +228,7 @@ internal static class AppKitSelectors
     public static readonly nint IsVisible = ObjC.GetSelector("isVisible");
     public static readonly nint IsMiniaturized = ObjC.GetSelector("isMiniaturized");
     public static readonly nint IsHidden = ObjC.GetSelector("isHidden");
+    public static readonly nint IsKeyWindow = ObjC.GetSelector("isKeyWindow");
     public static readonly nint OcclusionState = ObjC.GetSelector("occlusionState");
     public static readonly nint Close = ObjC.GetSelector("close");
 
@@ -241,7 +244,7 @@ internal static class AppKitSelectors
     public static readonly nint LocationInWindow = ObjC.GetSelector("locationInWindow");
     public static readonly nint ButtonNumber = ObjC.GetSelector("buttonNumber");
     public static readonly nint KeyCode = ObjC.GetSelector("keyCode");
-    public static readonly nint ModifierFlags = ObjC.GetSelector("modifierFlags");
+    public static readonly nint ModifierFlags = ObjC.GetSelector("modifierFlags"); // also +[NSEvent modifierFlags]
     public static readonly nint IsARepeat = ObjC.GetSelector("isARepeat");
     public static readonly nint CharactersIgnoringModifiers = ObjC.GetSelector("charactersIgnoringModifiers");
 
