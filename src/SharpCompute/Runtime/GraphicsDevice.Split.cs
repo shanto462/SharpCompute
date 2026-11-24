@@ -93,7 +93,8 @@ public sealed unsafe partial class GraphicsDevice
     /// grid size (in powers of two), so dispatches of one shader at very different sizes are balanced
     /// separately. Within one size they assume the cost per thread is similar across the grid and
     /// between dispatches; a shader whose work per thread changes with its constants (an iteration
-    /// count, say) is better served by an explicit <paramref name="cpuFraction"/>.
+    /// count, say) is better served by an explicit <paramref name="cpuFraction"/>. Dispatches with an
+    /// explicit fraction also feed these estimates for their shader type and size.
     /// </para>
     /// <para>
     /// Results match a GPU dispatch up to floating-point rounding, as described for

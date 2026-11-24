@@ -51,7 +51,8 @@ internal sealed unsafe class CommandBatch
     private readonly GraphicsDevice _device;
     private readonly List<ObjCHandle> _leases = [];
     private readonly List<Type> _shaderTypes = [];
-    private readonly List<Command> _commands = [];
+    // A dispatch records 3 to 5 commands; starting at 32 avoids regrowing the list in the common case.
+    private readonly List<Command> _commands = new(32);
     private byte[] _constants = [];
     private int _constantsLength;
     private List<nint>? _temporaries;
