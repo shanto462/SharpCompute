@@ -19,8 +19,8 @@ namespace SharpCompute.Presentation;
 /// </para>
 /// <para>
 /// <b>Loop.</b> <see cref="Run"/> repeats until the window closes: it drains pending AppKit events
-/// without blocking (raising <see cref="KeyDown"/>, the mouse events and <see cref="Resized"/>),
-/// then calls the frame callback. The callback renders into a <see cref="ReadWriteTexture2D{T}"/>
+/// without blocking (raising <see cref="KeyDown"/>, <see cref="KeyUp"/>, the mouse events and
+/// <see cref="Resized"/>), then calls the frame callback. The callback renders into a <see cref="ReadWriteTexture2D{T}"/>
 /// and calls <see cref="Present"/>, which waits for the layer's next drawable, so the loop runs at
 /// the display's refresh rate. A frame that presents nothing waits for events for up to a
 /// sixtieth of a second instead of spinning. While the user drags the window's edge, AppKit runs
@@ -35,7 +35,15 @@ namespace SharpCompute.Presentation;
 /// </para>
 /// <para>
 /// <b>Keys.</b> Command-Q and Command-W close the window. Other keys are raised through
-/// <see cref="KeyDown"/> and never reach AppKit (so unhandled keys don't beep).
+/// <see cref="KeyDown"/> (with auto-repeat) and <see cref="KeyUp"/>, and never reach AppKit (so
+/// unhandled keys don't beep). For movement-style input, poll <see cref="IsKeyDown"/> and
+/// <see cref="HeldModifiers"/> from the frame callback instead: they report what is held right
+/// now, independent of the key-repeat rate. Held keys are tracked by physical key, so a key-up
+/// always releases the <see cref="Key"/> its key-down reported even if the layout's character
+/// changed in between. Key-ups go to whichever app has focus, so when the window stops being the
+/// key window of the active application (another window or app is focused, the app is hidden),
+/// the next loop iteration raises <see cref="KeyUp"/> for every held key and clears the state;
+/// otherwise a key released elsewhere would stay held forever.
 /// </para>
 /// <para>
 /// A window that is not disposed is not released: AppKit objects may only be released on the main
@@ -59,6 +67,8 @@ public sealed class MetalWindow : IDisposable
     private double _viewWidth;
     private double _viewHeight;
     private int _buttonsDown;
+    private readonly KeyState _keys = new();
+    private bool _focused;
     private bool _closed;
     private bool _disposed;
     private bool _running;
@@ -214,8 +224,36 @@ public sealed class MetalWindow : IDisposable
         }
     }
 
-    /// <summary>A key was pressed (repeats while held; see <see cref="KeyEventArgs.IsRepeat"/>).</summary>
+    /// <summary>
+    /// A key was pressed (repeats while held; see <see cref="KeyEventArgs.IsRepeat"/>). Repeats report
+    /// the same <see cref="Key"/> as the first key-down.
+    /// </summary>
     public event EventHandler<KeyEventArgs>? KeyDown;
+
+    /// <summary>
+    /// A key whose <see cref="KeyDown"/> was raised was released, or the window lost focus while it was
+    /// held (see the class remarks). The arguments carry the <see cref="Key"/> and character recorded at
+    /// key-down, the modifiers held at release (none after a focus loss) and
+    /// <see cref="KeyEventArgs.IsRepeat"/> false. When a handler runs, <see cref="IsKeyDown"/> already
+    /// reports the release.
+    /// </summary>
+    public event EventHandler<KeyEventArgs>? KeyUp;
+
+    /// <summary>
+    /// The modifier keys held right now, updated from modifier-key changes and from every key event, so
+    /// a modifier can serve as a button (Shift to run). <see cref="KeyModifiers.None"/> while the window
+    /// doesn't have keyboard focus.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Not on the main thread.</exception>
+    /// <exception cref="ObjectDisposedException">The window has been disposed.</exception>
+    public KeyModifiers HeldModifiers
+    {
+        get
+        {
+            ThrowIfUnusable();
+            return _keys.Modifiers;
+        }
+    }
 
     /// <summary>A mouse button was pressed inside the content area.</summary>
     public event EventHandler<MouseEventArgs>? MouseDown;
@@ -366,6 +404,21 @@ public sealed class MetalWindow : IDisposable
     }
 
     /// <summary>
+    /// True while <paramref name="key"/> is physically held down in this window: from its first
+    /// <see cref="KeyDown"/> until its <see cref="KeyUp"/>. Auto-repeat doesn't change it. Reflects the
+    /// events processed so far, i.e. the input as of the start of the current frame. Always false for
+    /// <see cref="Key.Unknown"/>, after the window lost focus, and once it is closed. Modifier keys are
+    /// not <see cref="Key"/>s; see <see cref="HeldModifiers"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Not on the main thread.</exception>
+    /// <exception cref="ObjectDisposedException">The window has been disposed.</exception>
+    public bool IsKeyDown(Key key)
+    {
+        ThrowIfUnusable();
+        return _keys.IsDown(key);
+    }
+
+    /// <summary>
     /// Converts a point in drawable pixels (as reported by the mouse events) into the pixel space of a
     /// <paramref name="frameWidth"/> × <paramref name="frameHeight"/> frame presented with the current
     /// <see cref="Scaling"/>. Returns false when the point is outside the frame (in a letterbox bar or
@@ -388,6 +441,7 @@ public sealed class MetalWindow : IDisposable
         ThrowIfNotMainThread();
 
         _closed = true;
+        _keys.ReleaseAll();
         ObjC.SendVoid(_window, AppKitSelectors.Close);
     }
 
@@ -526,6 +580,57 @@ public sealed class MetalWindow : IDisposable
             ObjC.SendByte(s_application, AppKitSelectors.IsHidden) == 0)
         {
             _closed = true;
+            _keys.ReleaseAll();
+        }
+
+        if (!_closed)
+        {
+            UpdateFocus();
+        }
+    }
+
+    /// <summary>
+    /// Polls keyboard focus. Losing it releases every held key: their key-ups will be delivered to
+    /// whichever app or window has focus now, never to us. A hidden or deactivated app is not active,
+    /// so that covers Command-Tab, Hide and clicking another app as well as another window of this app
+    /// becoming key.
+    /// </summary>
+    private void UpdateFocus()
+    {
+        bool focused =
+            ObjC.SendByte(_window, AppKitSelectors.IsKeyWindow) != 0 &&
+            ObjC.SendByte(s_application, AppKitSelectors.IsActive) != 0;
+
+        if (focused)
+        {
+            if (!_focused)
+            {
+                // Modifiers already held when focus arrives produce no event until they change; read
+                // their current state so Shift held through a Command-Tab back still counts.
+                _keys.Modifiers = ToModifiers(ObjC.SendNUInt(ObjC.GetClass("NSEvent"), AppKitSelectors.ModifierFlags));
+            }
+
+            _focused = true;
+            return;
+        }
+
+        _focused = false;
+
+        // Checked every iteration rather than only on the transition: a key event can be handled
+        // between two polls while the window is (or is about to be) unfocused.
+        if (_keys.Count == 0 && _keys.Modifiers == KeyModifiers.None)
+        {
+            return;
+        }
+
+        foreach (HeldKey held in _keys.ReleaseAll())
+        {
+            KeyUp?.Invoke(this, new KeyEventArgs(held.Key, held.Character, KeyModifiers.None, isRepeat: false));
+
+            if (_closed)
+            {
+                break;
+            }
         }
     }
 
@@ -545,7 +650,20 @@ public sealed class MetalWindow : IDisposable
                 return false;
 
             case AppKit.EventKeyUp:
+                if (ObjC.SendIntPtr(e, AppKitSelectors.Window) == _window)
+                {
+                    HandleKeyUp(e);
+                }
+
                 return false;
+
+            case AppKit.EventFlagsChanged:
+                if (ObjC.SendIntPtr(e, AppKitSelectors.Window) == _window)
+                {
+                    _keys.Modifiers = ToModifiers(ObjC.SendNUInt(e, AppKitSelectors.ModifierFlags));
+                }
+
+                return true;
 
             case AppKit.EventLeftMouseDown or AppKit.EventRightMouseDown or AppKit.EventOtherMouseDown:
                 HandleMouse(e, MouseEventKind.Down);
@@ -572,6 +690,8 @@ public sealed class MetalWindow : IDisposable
         char character = KeyMap.ToCharacter(NSString.ToManaged(ObjC.SendIntPtr(e, AppKitSelectors.CharactersIgnoringModifiers)));
         Key key = KeyMap.Resolve(keyCode, character);
 
+        _keys.Modifiers = modifiers;
+
         // There is no menu bar, so provide the two standard shortcuts that would live in it.
         if ((modifiers & KeyModifiers.Command) != 0 && key is Key.Q or Key.W)
         {
@@ -579,7 +699,33 @@ public sealed class MetalWindow : IDisposable
             return;
         }
 
+        key = _keys.Press(keyCode, key, character, isRepeat, out HeldKey? replaced);
+
+        if (replaced is { } lost)
+        {
+            KeyUp?.Invoke(this, new KeyEventArgs(lost.Key, lost.Character, modifiers, isRepeat: false));
+
+            if (_closed)
+            {
+                return;
+            }
+        }
+
         KeyDown?.Invoke(this, new KeyEventArgs(key, character, modifiers, isRepeat));
+    }
+
+    private void HandleKeyUp(nint e)
+    {
+        ushort keyCode = ObjC.SendUInt16(e, AppKitSelectors.KeyCode);
+        KeyModifiers modifiers = ToModifiers(ObjC.SendNUInt(e, AppKitSelectors.ModifierFlags));
+
+        _keys.Modifiers = modifiers;
+
+        // Look the key up by code: this event's characters may differ from the key-down's.
+        if (_keys.Release(keyCode, out HeldKey released))
+        {
+            KeyUp?.Invoke(this, new KeyEventArgs(released.Key, released.Character, modifiers, isRepeat: false));
+        }
     }
 
     private void HandleMouse(nint e, MouseEventKind kind)

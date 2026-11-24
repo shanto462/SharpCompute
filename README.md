@@ -60,7 +60,8 @@ float[] result = buffer.ToArray(); // [2, 4, 6, 8]
   implementations of `Gpu.*` were measured against Apple GPU results: bit-for-bit for arithmetic,
   rounding functions, `sqrt` and `fmod`, and within a few ULP for transcendentals.
 - **Live presentation.** `MetalWindow` shows GPU output in a native macOS window at display refresh
-  rate, with keyboard and mouse input.
+  rate, with keyboard and mouse input: `KeyDown`/`KeyUp` events, plus `IsKeyDown(key)` and
+  `HeldModifiers` to poll what is held each frame (released automatically when the window loses focus).
 - **No dependencies, AOT-friendly.** The runtime talks to Metal through hand-written
   `LibraryImport` interop.
 

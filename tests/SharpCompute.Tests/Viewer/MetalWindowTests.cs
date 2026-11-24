@@ -114,7 +114,41 @@ public class MetalWindowTests(ITestOutputHelper output)
         }
     }
 
-    private static (int ExitCode, string Stdout, string Stderr) RunViewer(string shader, string png, int frames)
+    /// <summary>
+    /// Held-key state through a real window: this assembly is launched as a program (see
+    /// <see cref="TestProgram"/>) that posts synthetic key and modifier events to a MetalWindow on its
+    /// main thread, checks KeyDown/KeyUp/IsKeyDown/HeldModifiers after each, and hides the app with a
+    /// key held to check that it is released.
+    /// </summary>
+    [WindowFact]
+    public void KeyState_TracksHeldKeysAndReleasesThemWhenHidden()
+    {
+        (int exitCode, string stdout, string stderr) = RunProcess(typeof(TestProgram).Assembly.Location, ["key-state"], [], "key-state");
+
+        output.WriteLine(stdout.Trim());
+
+        // Like the viewer's 3: the app was not allowed to take focus (another app is frontmost), so
+        // no key event could be delivered. Not a failure of the code under test.
+        Assert.True(exitCode is 0 or TestProgram.NoFocus, $"exit code {exitCode}\n{stdout}\n{stderr}");
+
+        if (exitCode == TestProgram.NoFocus)
+        {
+            output.WriteLine("The window never received keyboard focus, so nothing was checked.");
+        }
+    }
+
+    private static (int ExitCode, string Stdout, string Stderr) RunViewer(string shader, string png, int frames) =>
+        RunProcess(
+            ViewerAssembly.Path!,
+            ["--shader", shader],
+            [
+                ("SHARPCOMPUTE_VIEWER_SCREENSHOT", png),
+                ("SHARPCOMPUTE_VIEWER_FRAMES", frames.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ],
+            shader);
+
+    private static (int ExitCode, string Stdout, string Stderr) RunProcess(
+        string assembly, string[] arguments, (string Name, string Value)[] environment, string label)
     {
         ProcessStartInfo start = new(DotnetHost())
         {
@@ -123,11 +157,17 @@ public class MetalWindowTests(ITestOutputHelper output)
             UseShellExecute = false,
         };
 
-        start.ArgumentList.Add(ViewerAssembly.Path!);
-        start.ArgumentList.Add("--shader");
-        start.ArgumentList.Add(shader);
-        start.Environment["SHARPCOMPUTE_VIEWER_SCREENSHOT"] = png;
-        start.Environment["SHARPCOMPUTE_VIEWER_FRAMES"] = frames.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        start.ArgumentList.Add(assembly);
+
+        foreach (string argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        foreach ((string name, string value) in environment)
+        {
+            start.Environment[name] = value;
+        }
 
         using Process process = Process.Start(start)!;
         System.Threading.Tasks.Task<string> stdout = process.StandardOutput.ReadToEndAsync();
@@ -136,7 +176,7 @@ public class MetalWindowTests(ITestOutputHelper output)
         if (!process.WaitForExit(TimeSpan.FromSeconds(60)))
         {
             process.Kill(entireProcessTree: true);
-            Assert.Fail($"{shader}: the viewer did not exit within 60 s.");
+            Assert.Fail($"{label}: the process did not exit within 60 s.");
         }
 
         return (process.ExitCode, stdout.Result, stderr.Result);
