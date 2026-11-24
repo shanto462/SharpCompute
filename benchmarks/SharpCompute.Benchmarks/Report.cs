@@ -322,8 +322,8 @@ public static class Report
         // The parameterless batching benchmarks sort after the K sweep, blur before overlap.
         return benchmark.Descriptor.Type.Name switch
         {
-            nameof(BatchedBlurBenchmarks) => 1_000,
-            nameof(FrameOverlapBenchmarks) => 1_001,
+            nameof(BatchingBlurBenchmarks) => 1_000,
+            nameof(BatchingOverlapBenchmarks) => 1_001,
             _ => 0,
         };
     }
@@ -343,9 +343,9 @@ public static class Report
             "File to GPU" => Invariant($"{Sizes.FileFloats * 4L / (1 << 20)} MB"),
             "Batching and async" => benchmark.Descriptor.Type.Name switch
             {
-                nameof(SmallDispatchBenchmarks) => Invariant($"K = {Convert.ToInt32(benchmark.Parameters["K"], CultureInfo.InvariantCulture)} SAXPY dispatches of 4,096 floats"),
-                nameof(BatchedBlurBenchmarks) => Invariant($"blur {Sizes.BlurWidth}×{Sizes.BlurHeight}, r = {Sizes.BlurRadius} (2 passes)"),
-                nameof(FrameOverlapBenchmarks) => Invariant($"{FrameOverlap.Frames} frames {FrameOverlap.Width}×{FrameOverlap.Height}, GPU render + CPU analysis"),
+                nameof(BatchingSmallDispatchBenchmarks) => Invariant($"K = {Convert.ToInt32(benchmark.Parameters["K"], CultureInfo.InvariantCulture)} SAXPY dispatches of 4,096 floats"),
+                nameof(BatchingBlurBenchmarks) => Invariant($"blur {Sizes.BlurWidth}×{Sizes.BlurHeight}, r = {Sizes.BlurRadius} (2 passes)"),
+                nameof(BatchingOverlapBenchmarks) => Invariant($"{FrameOverlap.Frames} frames {FrameOverlap.Width}×{FrameOverlap.Height}, GPU render + CPU analysis"),
                 _ => benchmark.Parameters.DisplayInfo,
             },
             _ => benchmark.Parameters.DisplayInfo,

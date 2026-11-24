@@ -9,7 +9,7 @@ namespace SharpCompute.Benchmarks;
 
 /// <summary>Per-dispatch overhead: K dependent tiny dispatches, synchronous vs batched vs async.</summary>
 [BenchmarkCategory("Batching and async")]
-public class SmallDispatchBenchmarks
+public class BatchingSmallDispatchBenchmarks
 {
     private SmallDispatches _work = null!;
 
@@ -40,7 +40,7 @@ public class SmallDispatchBenchmarks
 
 /// <summary>The two-pass 3840×2160 blur as two synchronous dispatches vs one context.</summary>
 [BenchmarkCategory("Batching and async")]
-public class BatchedBlurBenchmarks
+public class BatchingBlurBenchmarks
 {
     private GaussianBlur _blur = null!;
 
@@ -64,7 +64,7 @@ public class BatchedBlurBenchmarks
 
 /// <summary>8 frames of GPU render + CPU analysis: taking turns vs double-buffered with ForAsync.</summary>
 [BenchmarkCategory("Batching and async")]
-public class FrameOverlapBenchmarks
+public class BatchingOverlapBenchmarks
 {
     private FrameOverlap _work = null!;
 
