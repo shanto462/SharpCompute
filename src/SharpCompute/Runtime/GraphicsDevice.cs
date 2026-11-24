@@ -16,7 +16,7 @@ namespace SharpCompute;
 /// All members are thread-safe. Every dispatch uses its own command buffer and encoder, and the
 /// device, queue and pipeline states they share are safe to use concurrently.
 /// </remarks>
-public sealed unsafe class GraphicsDevice : IDisposable
+public sealed unsafe partial class GraphicsDevice : IDisposable
 {
     private static readonly Lazy<GraphicsDevice?> s_default =
         new(static () => TryCreateSystemDefault(isDefault: true), LazyThreadSafetyMode.ExecutionAndPublication);
@@ -111,8 +111,10 @@ public sealed unsafe class GraphicsDevice : IDisposable
 
     /// <summary>
     /// The VM page size (16 KB on Apple Silicon). <see cref="WrapReadWriteBuffer{T}"/> and
-    /// <see cref="WrapReadOnlyBuffer{T}"/> need memory that starts on a page boundary, e.g. from
-    /// <c>NativeMemory.AlignedAlloc(size, (nuint)GraphicsDevice.PageSize)</c>.
+    /// <see cref="WrapReadOnlyBuffer{T}"/> need memory that starts on a page boundary and lies in one
+    /// virtual-memory region. Allocate whole pages, rounding the byte size up to a multiple of this,
+    /// e.g. <c>NativeMemory.AlignedAlloc((byteCount + PageSize - 1) / PageSize * PageSize, (nuint)PageSize)</c>;
+    /// Metal accepts other lengths in practice, but Apple documents the region as page-aligned.
     /// </summary>
     public static int PageSize => Environment.SystemPageSize;
 
@@ -124,9 +126,11 @@ public sealed unsafe class GraphicsDevice : IDisposable
     /// <param name="pointer">Start of the memory; must be a multiple of <see cref="PageSize"/>.</param>
     /// <param name="length">Number of elements; must be positive.</param>
     /// <param name="release">
-    /// Called once when the buffer is released (disposed, or finalized: then on the finalizer
-    /// thread), after any dispatch that was using it has finished, to free the memory. It must not
-    /// throw. If this method throws, it is not called and the caller still owns the memory.
+    /// Called once when the buffer is released, after any dispatch that was using it has finished,
+    /// to free the memory. It runs on the thread that drops the last reference: the one calling
+    /// Dispose, the finalizer thread, or a Metal completion thread when an asynchronous or batched
+    /// dispatch finishes after the buffer was disposed. It must not throw. If this method throws, it
+    /// is not called and the caller still owns the memory.
     /// </param>
     /// <remarks>
     /// The memory must stay valid and must not be freed until <paramref name="release"/> runs (or,
@@ -540,10 +544,35 @@ public sealed unsafe class GraphicsDevice : IDisposable
         }
         finally
         {
-            foreach (ObjCHandle handle in leased)
+            ReleaseLeases(leased);
+        }
+    }
+
+    /// <summary>
+    /// Releases every lease even if one of them throws (the last release of a wrapped buffer runs the
+    /// caller's release callback), then reports the failures.
+    /// </summary>
+    internal static void ReleaseLeases(List<ObjCHandle> leased)
+    {
+        List<Exception>? failures = null;
+
+        foreach (ObjCHandle handle in leased)
+        {
+            try
             {
                 handle.DangerousRelease();
             }
+            catch (Exception e)
+            {
+                (failures ??= []).Add(e);
+            }
+        }
+
+        leased.Clear();
+
+        if (failures is not null)
+        {
+            throw new AggregateException("A release callback threw while a dispatch's resources were released.", failures);
         }
     }
 

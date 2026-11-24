@@ -16,6 +16,11 @@ public unsafe ref struct ShaderArgumentWriter
 
     private readonly GraphicsDevice? _device;
 
+    // Set when encoding into a ComputeContext or a ForAsync dispatch: the command buffer is committed
+    // after this call returns (or much later), so bound handles are leased for the batch's lifetime
+    // instead of for the duration of the call.
+    private readonly CommandBatch? _batch;
+
     // Buffers bound so far, each with a lease the dispatcher releases once the GPU has finished.
     private readonly List<ObjCHandle>? _leased;
 
@@ -26,6 +31,13 @@ public unsafe ref struct ShaderArgumentWriter
         Encoder = encoder;
         _device = device;
         _leased = leased;
+    }
+
+    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, CommandBatch batch)
+    {
+        Encoder = encoder;
+        _device = device;
+        _batch = batch;
     }
 
     /// <summary><c>setBuffer:offset:0 atIndex:index</c>.</summary>
@@ -47,15 +59,23 @@ public unsafe ref struct ShaderArgumentWriter
                 nameof(buffer));
         }
 
+        if (_batch is not null)
+        {
+            // Recorded, not encoded: the batch encodes when it is committed. The lease is released when
+            // the batch completes, so a Dispose before then cannot free the memory.
+            _batch.RecordBuffer(_batch.Lease(buffer.Handle, buffer), index);
+            return;
+        }
+
         if (_leased is not null)
         {
             // Held until the dispatch completes. The command buffer's own retain keeps the MTLBuffer
             // object alive, but not memory the buffer merely wraps (WrapReadWriteBuffer,
             // MapReadOnlyBuffer): that is freed when the handle is released, so the handle must not be
             // released, by Dispose or by the finalizer, while the GPU may still touch it.
-            buffer.Handle.AddRef(buffer);
+            nint pointer = buffer.Handle.AddLease(buffer);
             _leased.Add(buffer.Handle);
-            ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, buffer.Handle.DangerousGetHandle(), (nuint)0, (nuint)index);
+            ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, pointer, (nuint)0, (nuint)index);
             return;
         }
 
@@ -75,6 +95,13 @@ public unsafe ref struct ShaderArgumentWriter
 
         fixed (T* bytes = &value)
         {
+            if (_batch is not null && sizeof(T) <= Metal.MaxSetBytesLength)
+            {
+                // Copied now, so a dispatch sees the constants as they were when it was recorded.
+                _batch.RecordBytes(bytes, sizeof(T), index);
+                return;
+            }
+
             if (sizeof(T) <= Metal.MaxSetBytesLength)
             {
                 // Metal copies the bytes into the command buffer before this call returns.
@@ -86,6 +113,15 @@ public unsafe ref struct ShaderArgumentWriter
             // command buffer retains it at bind time and lets go when it completes, so dropping our
             // reference right away gives the buffer exactly the lifetime of the dispatch.
             nint temporary = device.NewSharedBufferWithBytes(bytes, (nuint)sizeof(T));
+
+            if (_batch is not null)
+            {
+                // A batch may stay uncommitted for a long time; it keeps its own reference until it
+                // completes instead of relying on the command buffer's retain from bind time alone.
+                _batch.Own(temporary);
+                _batch.RecordBuffer(temporary, index);
+                return;
+            }
 
             try
             {
@@ -100,7 +136,7 @@ public unsafe ref struct ShaderArgumentWriter
 
     private readonly GraphicsDevice Validate(int index)
     {
-        if (Encoder == 0 || _device is null)
+        if ((Encoder == 0 && _batch is null) || _device is null)
         {
             throw new InvalidOperationException(
                 $"A {nameof(ShaderArgumentWriter)} is only valid inside {nameof(IComputeShaderDescriptor<>)}.SetArguments during a dispatch.");

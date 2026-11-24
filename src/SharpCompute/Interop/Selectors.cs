@@ -58,6 +58,7 @@ internal static class Selectors
     public static readonly nint WaitUntilCompleted = ObjC.GetSelector("waitUntilCompleted");
     public static readonly nint Status = ObjC.GetSelector("status");
     public static readonly nint Error = ObjC.GetSelector("error");
+    public static readonly nint AddCompletedHandler = ObjC.GetSelector("addCompletedHandler:");
 
     // MTLComputeCommandEncoder
     public static readonly nint SetComputePipelineState = ObjC.GetSelector("setComputePipelineState:");

@@ -56,25 +56,16 @@ internal sealed class ObjCHandle : SafeHandle
     /// </summary>
     internal Lease Acquire(object owner)
     {
-        bool acquired = false;
-
-        try
-        {
-            DangerousAddRef(ref acquired);
-        }
-        catch (ObjectDisposedException)
-        {
-            throw new ObjectDisposedException(owner.GetType().FullName);
-        }
-
+        AddLease(owner);
         return new Lease(this);
     }
 
     /// <summary>
-    /// Like <see cref="Acquire"/>, but for a lease that outlives the current scope: the caller must
-    /// call <see cref="SafeHandle.DangerousRelease"/> exactly once when it is done.
+    /// <see cref="Acquire"/> for a lease that outlives the calling frame: a batched or asynchronous
+    /// dispatch keeps every object it bound pinned until the GPU has finished with it. Returns the
+    /// raw <c>id</c>; every successful call must be paired with exactly one <see cref="SafeHandle.DangerousRelease"/>.
     /// </summary>
-    internal void AddRef(object owner)
+    internal nint AddLease(object owner)
     {
         bool acquired = false;
 
@@ -86,6 +77,8 @@ internal sealed class ObjCHandle : SafeHandle
         {
             throw new ObjectDisposedException(owner.GetType().FullName);
         }
+
+        return handle;
     }
 
     internal readonly ref struct Lease

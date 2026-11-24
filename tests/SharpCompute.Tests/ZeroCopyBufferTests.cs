@@ -153,16 +153,43 @@ public sealed unsafe class ZeroCopyBufferTests
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         const int length = 1 << 20;
+
+        // Compile the pipeline first, so the timed For binds within microseconds of starting.
+        using (ReadWriteBuffer<float> warmUp = device.AllocateReadWriteBuffer<float>(1))
+        {
+            device.For(1, new SpinOnBuffer(warmUp, 1));
+        }
+
+        // A descheduled thread can still lose the race and dispose before the bind; then For throws
+        // ObjectDisposedException, which is correct but proves nothing here, so try again.
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            if (TryDisposeDuringDispatch(device, length, out long disposedAt, out long finished, out long releasedAt))
+            {
+                // The dispose must happen while the dispatch is still running for the test to mean anything.
+                Assert.True(disposedAt < finished, "The dispatch finished before the buffer was disposed.");
+                Assert.NotEqual(0, releasedAt);
+                Assert.True(releasedAt >= finished - (Stopwatch.Frequency / 1000), "The memory was released while the GPU was still using it.");
+                return;
+            }
+        }
+
+        Assert.Fail("The buffer was disposed before the dispatch bound it in every attempt.");
+    }
+
+    private static bool TryDisposeDuringDispatch(GraphicsDevice device, int length, out long disposedAt, out long finished, out long releasedAt)
+    {
         void* memory = NativeMemory.AlignedAlloc((nuint)(length * sizeof(float)), (nuint)GraphicsDevice.PageSize);
-        long releasedAt = 0;
+        long released = 0;
 
         ReadWriteBuffer<float> buffer = device.WrapReadWriteBuffer<float>((nint)memory, length, () =>
         {
-            Volatile.Write(ref releasedAt, Stopwatch.GetTimestamp());
+            Volatile.Write(ref released, Stopwatch.GetTimestamp());
             NativeMemory.AlignedFree(memory);
         });
 
         long started = 0;
+        long disposed = 0;
         Thread disposer = new(() =>
         {
             // Dispose while the kernel below is running, as another thread might.
@@ -171,20 +198,29 @@ public sealed unsafe class ZeroCopyBufferTests
                 Thread.Yield();
             }
 
-            Thread.Sleep(20);
+            Thread.Sleep(10);
             buffer.Dispose();
+            Volatile.Write(ref disposed, Stopwatch.GetTimestamp());
         });
 
         disposer.Start();
-        Volatile.Write(ref started, Stopwatch.GetTimestamp());
-        device.For(length, new SpinOnBuffer(buffer, 20_000));
-        long finished = Stopwatch.GetTimestamp();
-        disposer.Join();
+        bool bound = true;
 
-        // The dispatch must outlast the dispose for the test to mean anything.
-        Assert.True(Stopwatch.GetElapsedTime(started, finished).TotalMilliseconds > 40, "The dispatch finished before the buffer was disposed.");
-        Assert.NotEqual(0, Volatile.Read(ref releasedAt));
-        Assert.True(Volatile.Read(ref releasedAt) >= finished - Stopwatch.Frequency / 1000, "The memory was released while the GPU was still using it.");
+        try
+        {
+            Volatile.Write(ref started, Stopwatch.GetTimestamp());
+            device.For(length, new SpinOnBuffer(buffer, 200_000));
+        }
+        catch (ObjectDisposedException)
+        {
+            bound = false;
+        }
+
+        finished = Stopwatch.GetTimestamp();
+        disposer.Join();
+        disposedAt = Volatile.Read(ref disposed);
+        releasedAt = Volatile.Read(ref released);
+        return bound;
     }
 
     [MetalFact]

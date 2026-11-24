@@ -6,6 +6,8 @@ Re-run on 2026-11-24 20:01 +06:00 (Default job, 7 min): **Mandelbrot**. Those ro
 
 Re-run on 2026-11-24 22:19 +06:00 (Default job, 3 min): **File to GPU, Image pipeline**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run.
 
+Re-run on 2026-11-24 22:36 +06:00 (Default job, 5 min): **Batching and async**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run.
+
 ## Machine
 
 | | |
@@ -28,6 +30,8 @@ This machine was shared (other builds and test runs may have been active), and t
 - **Re-run end** (20:09): `20:09  up 12 days, 12:06, 1 user, load averages: 8.71 11.42 9.24`
 - **Re-run start (File to GPU, Image pipeline)** (22:19): `22:19  up 12 days, 14:16, 1 user, load averages: 4.54 4.27 4.21`
 - **Re-run end** (22:22): `22:22  up 12 days, 14:19, 1 user, load averages: 5.76 5.93 4.96`
+- **Re-run start (Batching and async)** (22:36): `22:36  up 12 days, 14:33, 1 user, load averages: 18.33 18.41 11.98`
+- **Re-run end** (22:41): `22:41  up 12 days, 14:38, 1 user, load averages: 2.60 8.43 9.24`
 
 ## Headline: GPU speedup over the best CPU variant
 
@@ -53,6 +57,7 @@ This machine was shared (other builds and test runs may have been active), and t
 - SAXPY: the CPU wins at every measured size (4,096 floats, 65,536 floats, 1,048,576 floats, 16,777,216 floats).
 - Mandelbrot: GPU wins from **256×256** on (measured: 256×256, 1024×1024, 1920×1080).
 - N-body: GPU wins from **4,096 bodies** on (measured: 4,096 bodies, 16,384 bodies).
+- Batching and async: the CPU wins at every measured size (K = 1 SAXPY dispatches of 4,096 floats, K = 10 SAXPY dispatches of 4,096 floats, K = 100 SAXPY dispatches of 4,096 floats, blur 3840×2160, r = 8 (2 passes), 8 frames 1920×1080, GPU render + CPU analysis).
 
 ### Generated shader vs hand-written MSL (SAXPY)
 
@@ -70,7 +75,7 @@ Same kernel, same threadgroup size (256), same binding. The generated descriptor
 - **What a GPU number includes:** one `device.For(...)` call: encoding the dispatch into a new command buffer, `commit`, and `waitUntilCompleted`, plus reading one element of the result back through the shared buffer (to keep the result observable). It is the real synchronous cost of a dispatch as SharpCompute v1 exposes it. The blur is two `For` calls, so it pays that twice.
 - **What it excludes:** buffer allocation, uploading inputs and reading back the full result. All buffers are allocated and filled once in `[GlobalSetup]`, and the pipeline is compiled there too, by a warm-up dispatch. The one-off compile cost is measured separately under [First dispatch](#first-dispatch-pipeline-compile).
 - **Unified memory, zero copy:** SharpCompute buffers are `MTLStorageModeShared`. CPU and GPU see the same physical memory, so there is no PCIe-style upload or download to amortize. A discrete GPU would add a copy each way; here, "reading the result" is a pointer dereference. That is why moving data is not in the GPU time. It's also why bandwidth-bound kernels (SAXPY) can't beat a multi-threaded CPU by much: both read the same LPDDR5X through the same memory controller.
-- **Small workloads:** every dispatch has a fixed floor of roughly 0.1–0.2 ms (command buffer creation, commit, GPU wake-up, completion wait) (measured here: the 65,536 floats SAXPY dispatch, which does almost no work, takes 98.20 µs). A workload the CPU finishes faster than that can't win on the GPU, which is where the crossover above comes from. Zero copy lowers the crossover compared to a discrete GPU (no transfer to amortize), but doesn't remove the floor. Batching several dispatches into one command buffer (not in v1) would amortize it.
+- **Small workloads:** every dispatch has a fixed floor of roughly 0.1–0.2 ms (command buffer creation, commit, GPU wake-up, completion wait) (measured here: the 65,536 floats SAXPY dispatch, which does almost no work, takes 98.20 µs). A workload the CPU finishes faster than that can't win on the GPU, which is where the crossover above comes from. Zero copy lowers the crossover compared to a discrete GPU (no transfer to amortize), but doesn't remove the floor. Batching several dispatches into one command buffer with a `ComputeContext` amortizes it; see [Batching and async](#batching-and-async).
 - **Caches:** at 1M floats SAXPY touches 8 MB, which largely stays in the CPU's on-chip caches between iterations, so the multi-threaded CPU can exceed DRAM bandwidth there. At 16M floats (192 MB of traffic per call) both sides are DRAM-bound.
 - **CPU variants** run on managed arrays. *scalar (1 thread)* is a plain loop; *SIMD* uses `TensorPrimitives`, `Vector<T>` or `Vector128<T>` (128-bit NEON, 4 floats); *Parallel.For* spreads rows, chunks or bodies across all cores. The CPU matmul gets Bᵀ (transposed once in setup, not timed); the N-body SIMD variant gets a structure-of-arrays copy (also built once in setup).
 - **FP contraction:** Metal fuses `a*b + c` into fma by default, so GPU results match the CPU to rounding, not bit for bit. That's what `--verify` checks.
@@ -160,6 +165,42 @@ One O(n²) step with softening (ε² = 0.01), positions `Float4` (xyz + mass) an
 | 16,384 bodies | CPU Parallel.For + SIMD (bodies, Vector<float> SoA) | 13.81 ms | 232.67 µs | 285.74 µs | 0.301 |
 | 16,384 bodies | GPU generated shader | 3.95 ms | 13.75 µs | 12.19 µs | 0.086 |
 
+### Batching and async
+
+GPU submission paths compared with each other, not with the CPU. K = 1/10/100: K dependent SAXPY dispatches of 4,096 floats (in place on one buffer) as K `device.For` calls, one `ComputeContext` (one command buffer, one wait) or K `ForAsync` calls awaited together. Blur: the two passes as two `For` calls or one context. Overlap: 8 frames of a 1920×1080 Mandelbrot render plus a single-threaded CPU histogram of each frame, sync (render, wait, analyze) vs double-buffered `ForAsync`. Baseline: the synchronous v1 path.
+
+| Size | Variant | Mean | Error | StdDev | Ratio |
+|---|---|---:|---:|---:|---:|
+| K = 1 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 94.79 µs | 696.9 ns | 651.8 ns | 1.000 |
+| K = 1 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 95.28 µs | 1.57 µs | 1.47 µs | 1.005 |
+| K = 1 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 98.08 µs | 601.6 ns | 562.7 ns | 1.035 |
+| K = 10 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 961.63 µs | 3.69 µs | 3.27 µs | 1.000 |
+| K = 10 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 113.37 µs | 2.21 µs | 2.17 µs | 0.118 |
+| K = 10 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 173.58 µs | 1.51 µs | 1.41 µs | 0.181 |
+| K = 100 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 9.92 ms | 79.19 µs | 74.07 µs | 1.000 |
+| K = 100 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 283.73 µs | 2.74 µs | 2.56 µs | 0.029 |
+| K = 100 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 987.06 µs | 11.64 µs | 10.89 µs | 0.100 |
+| blur 3840×2160, r = 8 (2 passes) | GPU blur, 2× device.For (before) † | 1.66 ms | 32.79 µs | 43.77 µs | 1.000 |
+| blur 3840×2160, r = 8 (2 passes) | GPU blur, one ComputeContext (after) | 1.47 ms | 19.93 µs | 18.64 µs | 0.886 |
+| 8 frames 1920×1080, GPU render + CPU analysis | GPU+CPU sync: For, then analyze (before) † | 39.08 ms | 199.29 µs | 176.67 µs | 1.000 |
+| 8 frames 1920×1080, GPU render + CPU analysis | GPU+CPU async: ForAsync N+1 while analyzing N (after) | 28.37 ms | 192.73 µs | 180.28 µs | 0.726 |
+| 8 frames 1920×1080, GPU render + CPU analysis | GPU render only (8× For) | 8.37 ms | 61.75 µs | 57.76 µs | 0.214 |
+| 8 frames 1920×1080, GPU render + CPU analysis | CPU analysis only (8 frames, 1 thread) | 26.52 ms | 131.24 µs | 122.76 µs | 0.679 |
+
+Per dispatch (each row above divided by K):
+
+| K | `device.For` | `ComputeContext` | `ForAsync` |
+|---:|---:|---:|---:|
+| 1 | 94.79 µs | 95.28 µs | 98.08 µs |
+| 10 | 96.16 µs | 11.34 µs | 17.36 µs |
+| 100 | 99.17 µs | 2.84 µs | 9.87 µs |
+
+- Each extra dispatch (from K = 1 to K = 100) costs about **99.21 µs** as another `device.For` (a whole submit-and-wait), **1.90 µs** inside one `ComputeContext` and **8.98 µs** as another back-to-back `ForAsync` (still its own command buffer and completion handler). Use a context for many small dispatches; `ForAsync` is for overlapping CPU work with the GPU.
+- A device's queue has 64 command buffers. Back-to-back `ForAsync` beyond 64 in flight blocks in `commandBuffer` until one completes, which is part of the larger-K `ForAsync` rows. A pending `ComputeContext` holds none: it encodes when it is executed.
+- The two-pass blur saves one submission: 1.66 ms → 1.47 ms (−11 %). The kernels dominate at 4K, so batching two passes is a small win there.
+- Overlap: GPU render alone 8.37 ms, CPU analysis alone 26.52 ms (of the same 8 frames). Perfect overlap cannot beat max(GPU, CPU) = 26.52 ms; sync takes 39.08 ms (GPU + CPU = 34.89 ms, plus a submission and wake-up per frame) and double-buffered `ForAsync` 28.37 ms: **1.38×**, 7.0 % above the ideal.
+- `--verify` checks that every batched and async variant produces results bit-identical to its synchronous twin.
+
 ### File to GPU
 
 Zero-copy data paths. Sum 256 MB of floats from a file on the GPU, starting from the path: get the data into a buffer, one reduction dispatch, add 65,536 partial sums on the CPU. The file is in the page cache (read every iteration), so this measures copies and page mapping, not the disk; every variant creates and disposes its buffer per call. *No copy* is `MapReadOnlyBuffer` (`newBufferWithBytesNoCopy` over a read-only `mmap`). There is no CPU variant: the point is the cost of getting data to the GPU.
@@ -187,11 +228,11 @@ A plain `Stopwatch`, not BenchmarkDotNet. Each sample is a fresh process (`--fir
 
 | Sample | Device creation | First dispatch (compile + run) | Second dispatch | Steady (mean of 20) | Compile ≈ |
 |---|---:|---:|---:|---:|---:|
-| 1 | 32.8 ms | 8.2 ms | 2.00 ms | 1.02 ms | 7.1 ms |
-| 2 | 32.3 ms | 5.9 ms | 0.54 ms | 0.64 ms | 5.3 ms |
-| 3 | 33.5 ms | 5.9 ms | 1.11 ms | 0.74 ms | 5.2 ms |
-| 4 | 32.7 ms | 5.9 ms | 1.00 ms | 0.79 ms | 5.1 ms |
-| 5 | 32.2 ms | 6.1 ms | 1.06 ms | 0.84 ms | 5.3 ms |
+| 1 | 35.6 ms | 8.9 ms | 2.00 ms | 0.81 ms | 8.1 ms |
+| 2 | 38.0 ms | 6.4 ms | 1.18 ms | 0.86 ms | 5.5 ms |
+| 3 | 41.3 ms | 6.6 ms | 1.30 ms | 0.90 ms | 5.7 ms |
+| 4 | 41.1 ms | 6.6 ms | 1.09 ms | 0.88 ms | 5.7 ms |
+| 5 | 41.9 ms | 17.2 ms | 1.32 ms | 1.02 ms | 16.2 ms |
 
 ## Verification (`--verify`)
 
@@ -247,3 +288,8 @@ Run before benchmarking; the script stops if any check fails. Bit-exactness is o
 | File to GPU | 256 MB | GPU, two copies | exact sum | rel error | 4.76E-10 | 1E-05 | exact sum 16779736.3; variants identical: True | pass |
 | File to GPU | 256 MB | GPU, one copy | two copies | \|Δ\| | 0 | 0 |  | pass |
 | File to GPU | 256 MB | GPU, no copy | two copies | \|Δ\| | 0 | 0 |  | pass |
+| Batching | 10 × SAXPY 4,096 | GPU one ComputeContext | GPU 10× device.For | elements not bit-identical | 0 | 0 | 0 of 4096 differ (same kernels, same order: exact match required) | pass |
+| Batching | 10 × SAXPY 4,096 | GPU 10× ForAsync | GPU 10× device.For | elements not bit-identical | 0 | 0 | 0 of 4096 differ (same kernels, same order: exact match required) | pass |
+| Batching | 3840x2160 | GPU blur, one ComputeContext | GPU blur, 2× device.For | elements not bit-identical | 0 | 0 | 0 of 8294400 differ (same kernels, same order: exact match required) | pass |
+| Batching | 8 frames | GPU+CPU async (double-buffered) | GPU+CPU sync | checksum differs | 0 | 0 | frame checksums 9ACD2614BF10459E vs 9ACD2614BF10459E | pass |
+| Batching | 8 frames | CPU analysis only (pre-rendered) | GPU+CPU sync | checksum differs | 0 | 0 | the CPU-only row analyzes the same 8 frames | pass |

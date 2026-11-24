@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
+using SharpCompute.Benchmarks.Workloads;
 using Row = SharpCompute.Benchmarks.BenchmarkRow;
 
 namespace SharpCompute.Benchmarks;
@@ -12,7 +13,7 @@ namespace SharpCompute.Benchmarks;
 /// <summary>Renders benchmarks/RESULTS.md from BenchmarkDotNet summaries plus the verify and first-dispatch results.</summary>
 public static class Report
 {
-    private static readonly string[] WorkloadOrder = ["SAXPY", "Mandelbrot", "Gaussian blur", "Matrix multiply", "N-body"];
+    private static readonly string[] WorkloadOrder = ["SAXPY", "Mandelbrot", "Gaussian blur", "Matrix multiply", "N-body", "Batching and async"];
 
     /// <summary>
     /// Turns BenchmarkDotNet's reports into rows, ordered by workload (as declared in Benchmarks.cs)
@@ -144,6 +145,11 @@ public static class Report
             }
 
             md.AppendLine();
+
+            if (workload.Key == "Batching and async")
+            {
+                AppendBatchingDetails(md, [.. workload.SelectMany(g => g)]);
+            }
         }
 
         AppendFirstDispatch(md, firstDispatches);
@@ -172,7 +178,8 @@ public static class Report
         md.AppendLine("**Crossover** (smallest measured size where the GPU beats the best CPU variant):");
         md.AppendLine();
 
-        foreach (var workload in groups.GroupBy(g => g.Workload).Where(w => w.Count() > 1))
+        // Only GPU-vs-CPU workloads have a crossover (the batching rows compare GPU submission paths).
+        foreach (var workload in groups.GroupBy(g => g.Workload).Where(w => w.Count() > 1 && w.Any(g => g.Rows.Any(r => !r.IsGpu))))
         {
             var first = workload.FirstOrDefault(g =>
                 g.Rows.FirstOrDefault(r => r.IsGeneratedGpu) is { } gpu && g.Rows.Where(r => !r.IsGpu).All(r => r.Mean > gpu.Mean));
@@ -234,7 +241,7 @@ public static class Report
         md.AppendLine("- **Small workloads:** every dispatch has a fixed floor of roughly 0.1–0.2 ms (command buffer creation, commit, GPU wake-up, "
             + $"completion wait){floor}. A workload the CPU finishes faster than that can't win on the GPU, which is where the crossover above "
             + "comes from. Zero copy lowers the crossover compared to a discrete GPU (no transfer to amortize), but doesn't remove the floor. "
-            + "Batching several dispatches into one command buffer (not in v1) would amortize it.");
+            + "Batching several dispatches into one command buffer with a `ComputeContext` amortizes it; see [Batching and async](#batching-and-async).");
         md.AppendLine("- **Caches:** at 1M floats SAXPY touches 8 MB, which largely stays in the CPU's on-chip caches between iterations, so the "
             + "multi-threaded CPU can exceed DRAM bandwidth there. At 16M floats (192 MB of traffic per call) both sides are DRAM-bound.");
         md.AppendLine("- **CPU variants** run on managed arrays. *scalar (1 thread)* is a plain loop; *SIMD* uses `TensorPrimitives`, "
@@ -270,6 +277,69 @@ public static class Report
         md.AppendLine();
     }
 
+    /// <summary>The per-dispatch costs and overlap bound derived from the "Batching and async" rows.</summary>
+    private static void AppendBatchingDetails(StringBuilder md, List<Row> rows)
+    {
+        Row? Find(string sizePrefix, string variantPrefix) =>
+            rows.FirstOrDefault(r => r.Size.StartsWith(sizePrefix, StringComparison.Ordinal) && r.Variant.StartsWith(variantPrefix, StringComparison.Ordinal));
+
+        int[] ks = [.. rows.Select(r => r.Size).Where(s => s.StartsWith("K = ", StringComparison.Ordinal))
+            .Select(s => int.Parse(s[4..s.IndexOf(' ', 4)], CultureInfo.InvariantCulture)).Distinct().Order()];
+
+        if (ks.Length > 0)
+        {
+            md.AppendLine("Per dispatch (each row above divided by K):");
+            md.AppendLine();
+            md.AppendLine("| K | `device.For` | `ComputeContext` | `ForAsync` |");
+            md.AppendLine("|---:|---:|---:|---:|");
+
+            foreach (int k in ks)
+            {
+                string size = Invariant($"K = {k} ");
+                md.AppendLine(Invariant($"| {k} | {Time((Find(size, "GPU K× device.For")?.Mean ?? double.NaN) / k)} | {Time((Find(size, "GPU one ComputeContext")?.Mean ?? double.NaN) / k)} | {Time((Find(size, "GPU K× ForAsync")?.Mean ?? double.NaN) / k)} |"));
+            }
+
+            md.AppendLine();
+
+            int lo = ks[0], hi = ks[^1];
+            Row? contextLo = Find(Invariant($"K = {lo} "), "GPU one ComputeContext"), contextHi = Find(Invariant($"K = {hi} "), "GPU one ComputeContext");
+            Row? asyncLo = Find(Invariant($"K = {lo} "), "GPU K× ForAsync"), asyncHi = Find(Invariant($"K = {hi} "), "GPU K× ForAsync");
+            Row? forLo = Find(Invariant($"K = {lo} "), "GPU K× device.For"), forHi = Find(Invariant($"K = {hi} "), "GPU K× device.For");
+
+            if (hi > lo && contextLo is not null && contextHi is not null && asyncLo is not null && asyncHi is not null && forLo is not null && forHi is not null)
+            {
+                md.AppendLine(Invariant($"- Each extra dispatch (from K = {lo} to K = {hi}) costs about **{Time((forHi.Mean - forLo.Mean) / (hi - lo))}** as another `device.For` ")
+                + Invariant($"(a whole submit-and-wait), **{Time((contextHi.Mean - contextLo.Mean) / (hi - lo))}** inside one `ComputeContext` and ")
+                + Invariant($"**{Time((asyncHi.Mean - asyncLo.Mean) / (hi - lo))}** as another back-to-back `ForAsync` (still its own command buffer and completion handler). ")
+                + "Use a context for many small dispatches; `ForAsync` is for overlapping CPU work with the GPU.");
+                md.AppendLine("- A device's queue has 64 command buffers. Back-to-back `ForAsync` beyond 64 in flight blocks in `commandBuffer` until one completes, "
+                    + "which is part of the larger-K `ForAsync` rows. A pending `ComputeContext` holds none: it encodes when it is executed.");
+            }
+        }
+
+        Row? blurFor = Find("blur", "GPU blur, 2× device.For"), blurContext = Find("blur", "GPU blur, one ComputeContext");
+
+        if (blurFor is not null && blurContext is not null)
+        {
+            md.AppendLine(Invariant($"- The two-pass blur saves one submission: {Time(blurFor.Mean)} → {Time(blurContext.Mean)} ({(blurContext.Mean / blurFor.Mean - 1) * 100:+0;−0} %). ")
+                + "The kernels dominate at 4K, so batching two passes is a small win there.");
+        }
+
+        Row? sync = Find(Invariant($"{8} frames"), "GPU+CPU sync"), overlapped = Find(Invariant($"{8} frames"), "GPU+CPU async");
+        Row? gpu = Find(Invariant($"{8} frames"), "GPU render only"), cpu = Find(Invariant($"{8} frames"), "CPU analysis only");
+
+        if (sync is not null && overlapped is not null && gpu is not null && cpu is not null)
+        {
+            double ideal = Math.Max(gpu.Mean, cpu.Mean);
+            md.AppendLine(Invariant($"- Overlap: GPU render alone {Time(gpu.Mean)}, CPU analysis alone {Time(cpu.Mean)} (of the same 8 frames). Perfect overlap cannot beat ")
+                + Invariant($"max(GPU, CPU) = {Time(ideal)}; sync takes {Time(sync.Mean)} (GPU + CPU = {Time(gpu.Mean + cpu.Mean)}, plus a submission and wake-up per frame) ")
+                + Invariant($"and double-buffered `ForAsync` {Time(overlapped.Mean)}: **{sync.Mean / overlapped.Mean:F2}×**, {(overlapped.Mean / ideal - 1) * 100:F1} % above the ideal."));
+        }
+
+        md.AppendLine("- `--verify` checks that every batched and async variant produces results bit-identical to its synchronous twin.");
+        md.AppendLine();
+    }
+
     private static string WorkloadNote(string workload) => workload switch
     {
         "SAXPY" => "`y = a·x + y` in place on float arrays (4 sizes, to show the crossover). Memory-bound: 12 bytes moved per 2 flops. "
@@ -293,12 +363,17 @@ public static class Report
             + "reduction dispatch, add 65,536 partial sums on the CPU. The file is in the page cache (read every iteration), so this measures "
             + "copies and page mapping, not the disk; every variant creates and disposes its buffer per call. *No copy* is `MapReadOnlyBuffer` "
             + "(`newBufferWithBytesNoCopy` over a read-only `mmap`). There is no CPU variant: the point is the cost of getting data to the GPU.",
+        "Batching and async" => "GPU submission paths compared with each other, not with the CPU. K = 1/10/100: K dependent SAXPY dispatches of "
+            + "4,096 floats (in place on one buffer) as K `device.For` calls, one `ComputeContext` (one command buffer, one wait) or K `ForAsync` "
+            + "calls awaited together. Blur: the two passes as two `For` calls or one context. Overlap: 8 frames of a 1920×1080 Mandelbrot "
+            + "render plus a single-threaded CPU histogram of each frame, sync (render, wait, analyze) vs double-buffered `ForAsync`. "
+            + "Baseline: the synchronous v1 path.",
         _ => "",
     };
 
     private static long SizeKey(BenchmarkCase benchmark)
     {
-        foreach (string name in (string[])["N", "Bodies"])
+        foreach (string name in (string[])["N", "Bodies", "K"])
         {
             if (benchmark.Parameters.Items.Any(p => p.Name == name))
             {
@@ -312,7 +387,13 @@ public static class Report
             return (long)width * height;
         }
 
-        return 0;
+        // The parameterless batching benchmarks sort after the K sweep, blur before overlap.
+        return benchmark.Descriptor.Type.Name switch
+        {
+            nameof(BatchingBlurBenchmarks) => 1_000,
+            nameof(BatchingOverlapBenchmarks) => 1_001,
+            _ => 0,
+        };
     }
 
     private static string SizeLabel(BenchmarkCase benchmark)
@@ -328,6 +409,13 @@ public static class Report
             "Matrix multiply" => Invariant($"{Sizes.MatMul}×{Sizes.MatMul}"),
             "Image pipeline" => Invariant($"{Sizes.BlurWidth}×{Sizes.BlurHeight} RGBA8, r = {Sizes.BlurRadius}"),
             "File to GPU" => Invariant($"{Sizes.FileFloats * 4L / (1 << 20)} MB"),
+            "Batching and async" => benchmark.Descriptor.Type.Name switch
+            {
+                nameof(BatchingSmallDispatchBenchmarks) => Invariant($"K = {Convert.ToInt32(benchmark.Parameters["K"], CultureInfo.InvariantCulture)} SAXPY dispatches of 4,096 floats"),
+                nameof(BatchingBlurBenchmarks) => Invariant($"blur {Sizes.BlurWidth}×{Sizes.BlurHeight}, r = {Sizes.BlurRadius} (2 passes)"),
+                nameof(BatchingOverlapBenchmarks) => Invariant($"{FrameOverlap.Frames} frames {FrameOverlap.Width}×{FrameOverlap.Height}, GPU render + CPU analysis"),
+                _ => benchmark.Parameters.DisplayInfo,
+            },
             _ => benchmark.Parameters.DisplayInfo,
         };
     }
