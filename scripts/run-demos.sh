@@ -80,6 +80,9 @@ step "Pipeline: GPU renders frame N+1 (ForAsync) while the CPU post-processes fr
 mkdir -p "$OUT/pipeline"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Pipeline -- --out "$OUT/pipeline" | tee "$OUT/pipeline/pipeline.txt"
 
+step "Audio: GPU-synthesized sound effects and a chiptune loop, as WAV files"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Audio.Demo -- --wav "$OUT/audio"
+
 step "Paint: scripted replay (headless)"
 SHARPCOMPUTE_PAINT_SCRIPT=samples/SharpCompute.Samples.Paint/demo-script.json SHARPCOMPUTE_PAINT_OUTPUT="$OUT/paint.png" \
   dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Paint -- --headless
