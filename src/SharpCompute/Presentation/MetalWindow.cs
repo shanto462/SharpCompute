@@ -235,7 +235,7 @@ public sealed class MetalWindow : IDisposable
     /// held (see the class remarks). The arguments carry the <see cref="Key"/> and character recorded at
     /// key-down, the modifiers held at release (none after a focus loss) and
     /// <see cref="KeyEventArgs.IsRepeat"/> false. When a handler runs, <see cref="IsKeyDown"/> already
-    /// reports the release.
+    /// reports the release. Not raised when the window closes: closing just clears the held state.
     /// </summary>
     public event EventHandler<KeyEventArgs>? KeyUp;
 
@@ -593,7 +593,9 @@ public sealed class MetalWindow : IDisposable
     /// Polls keyboard focus. Losing it releases every held key: their key-ups will be delivered to
     /// whichever app or window has focus now, never to us. A hidden or deactivated app is not active,
     /// so that covers Command-Tab, Hide and clicking another app as well as another window of this app
-    /// becoming key.
+    /// becoming key. Focus is polled once per loop iteration: if it is lost and regained between two
+    /// polls (for example while the frame callback blocks), a key released meanwhile stays held until
+    /// it is pressed again.
     /// </summary>
     private void UpdateFocus()
     {

@@ -124,8 +124,17 @@ public static class Program
             target = device.AllocateReadWriteTexture2D<Rgba32>(window.Width, window.Height);
         };
 
+        // A jump tapped and released between two polls (a short tap, or any tap during a hitch) would
+        // never be seen by IsKeyDown; latch the press until the next simulation step consumes it.
+        bool jumpLatched = false;
+
         window.KeyDown += (_, e) =>
         {
+            if (!e.IsRepeat && IsJumpKey(e.Key))
+            {
+                jumpLatched = true;
+            }
+
             if (e.Key == Key.Escape)
             {
                 window.Close();
@@ -152,7 +161,9 @@ public static class Program
 
                 while (accumulator >= Tuning.StepSeconds && steps < 12)
                 {
-                    session.Step(demo ? pilot.Next(session.World) : ReadInput(window));
+                    InputState input = demo ? pilot.Next(session.World) : ReadInput(window);
+                    session.Step(input with { Jump = input.Jump || jumpLatched });
+                    jumpLatched = false;
                     accumulator -= Tuning.StepSeconds;
                     steps++;
                 }
@@ -175,6 +186,8 @@ public static class Program
 
         return 0;
     }
+
+    private static bool IsJumpKey(Key key) => key is Key.Z or Key.Space or Key.Up or Key.W;
 
     private static InputState ReadInput(MetalWindow window) => new(
         Left: window.IsKeyDown(Key.Left) || window.IsKeyDown(Key.A),
