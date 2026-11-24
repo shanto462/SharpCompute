@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 
 namespace SharpCompute.Tests.Imaging;
 
@@ -172,6 +173,141 @@ public sealed class ImageProcessingTests : IDisposable
         Assert.Equal(1, RunCli(input, output, "melt"));
         Assert.Equal(1, RunCli("--make-test-image", input, "0x5"));
         Assert.Equal(0, RunCli("--list"));
+    }
+
+    [SampleGpuFact(Sample)]
+    public void Rgba8_UnpackThenPackOnTheGpu_RoundTripsPremultipliedPixelsExactly()
+    {
+        Random random = new(7);
+        uint[] input = new uint[10_000];
+
+        for (int i = 0; i < input.Length; i++)
+        {
+            // Valid premultiplied pixels: no color channel exceeds alpha.
+            int a = random.Next(256);
+            input[i] = (uint)random.Next(a + 1) | ((uint)random.Next(a + 1) << 8) | ((uint)random.Next(a + 1) << 16) | ((uint)a << 24);
+        }
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<uint> packed = device.AllocateReadWriteBuffer<uint>(input);
+        using ReadWriteBuffer<Float4> pixels = device.AllocateReadWriteBuffer<Float4>(input.Length);
+        using ReadWriteBuffer<uint> repacked = device.AllocateReadWriteBuffer<uint>(input.Length);
+
+        Dispatch(device, "UnpackRgba8", input.Length, packed, pixels);
+        Dispatch(device, "PackRgba8", input.Length, pixels, repacked, 0);
+
+        Assert.Equal(input, repacked.ToArray());
+
+        // Same floats as the CPU conversion.
+        byte[] bytes = new byte[input.Length * 4];
+        Buffer.BlockCopy(input, 0, bytes, 0, bytes.Length);
+        Float4[] cpu = SampleAssembly.Type(Sample, "SharpCompute.Samples.Imaging.PixelConversion")
+            .GetMethod("FromPremultipliedRgba8", [typeof(ReadOnlySpan<byte>)])!
+            .CreateDelegate<Func<ReadOnlySpan<byte>, Float4[]>>()(bytes);
+        Assert.True(MaxDifference(pixels.ToArray(), cpu) <= 1e-7f);
+    }
+
+    [SampleGpuFact(Sample)]
+    public void PackRgba8_OnTheGpu_MatchesTheCpuConversions()
+    {
+        Random random = new(11);
+        Float4[] pixels = new Float4[20_000];
+
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = new Float4(Value(), Value(), Value(), Value());
+        }
+
+        pixels[0] = new Float4(float.NaN, 0.5f, 0.25f, 0.5f);
+        pixels[1] = new Float4(0.5f, 0.5f, 0.5f, 0f);
+        pixels[2] = new Float4(0.3f, 0.2f, 0.1f, float.NaN);
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<Float4> source = device.AllocateReadWriteBuffer<Float4>(pixels);
+        using ReadWriteBuffer<uint> premultiplied = device.AllocateReadWriteBuffer<uint>(pixels.Length);
+        using ReadWriteBuffer<uint> straight = device.AllocateReadWriteBuffer<uint>(pixels.Length);
+
+        Dispatch(device, "PackRgba8", pixels.Length, source, premultiplied, 0);
+        Dispatch(device, "PackRgba8", pixels.Length, source, straight, 1);
+
+        byte[] cpuPremultiplied = (byte[])SampleAssembly.Call(Sample, "SharpCompute.Samples.Imaging.PixelConversion", "ToPremultipliedRgba8", [pixels])!;
+        Rgba32[] cpuStraight = (Rgba32[])SampleAssembly.Call(Sample, "SharpCompute.Samples.Imaging.PixelConversion", "ToStraightRgba32", [pixels])!;
+        byte[] gpuPremultiplied = new byte[pixels.Length * 4];
+        byte[] gpuStraight = new byte[pixels.Length * 4];
+        Buffer.BlockCopy(premultiplied.ToArray(), 0, gpuPremultiplied, 0, gpuPremultiplied.Length);
+        Buffer.BlockCopy(straight.ToArray(), 0, gpuStraight, 0, gpuStraight.Length);
+
+        // Rounding x * 255 + 0.5 may be fused on the GPU, and the straight-alpha division is not
+        // correctly rounded there, so a value right at a rounding boundary can land one step away.
+        for (int i = 0; i < gpuPremultiplied.Length; i++)
+        {
+            Assert.InRange(gpuPremultiplied[i] - cpuPremultiplied[i], -1, 1);
+        }
+
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            Rgba32 c = cpuStraight[i];
+            Assert.InRange(gpuStraight[i * 4] - c.R, -1, 1);
+            Assert.InRange(gpuStraight[(i * 4) + 1] - c.G, -1, 1);
+            Assert.InRange(gpuStraight[(i * 4) + 2] - c.B, -1, 1);
+            Assert.InRange(gpuStraight[(i * 4) + 3] - c.A, -1, 1);
+        }
+
+        // NaN color channels and NaN or zero alpha are exact, not off by one.
+        Assert.Equal(cpuPremultiplied.AsSpan(0, 12).ToArray(), gpuPremultiplied.AsSpan(0, 12).ToArray());
+        Assert.Equal(0u, straight[1]);
+        Assert.Equal(0u, straight[2]);
+
+        float Value() => (float)((random.NextDouble() * 1.4) - 0.2);
+    }
+
+    [SampleGpuFact(Sample)]
+    public void LoadRgba8_AndSaveRgba8_MatchTheArrayPaths()
+    {
+        Float4[] pixels = TestImage(Width, Height);
+        string png = Path.Combine(_directory, "zero-copy-input.png");
+        string copy = Path.Combine(_directory, "zero-copy-output.png");
+        Save(png, pixels);
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        object?[] args = [png, device, 0, 0];
+        using ReadWriteBuffer<uint> loaded = (ReadWriteBuffer<uint>)SampleAssembly.Call(Sample, "ImageFile", "LoadRgba8", args)!;
+
+        Assert.Equal((Width, Height), ((int)args[2]!, (int)args[3]!));
+
+        using ReadWriteBuffer<Float4> unpacked = device.AllocateReadWriteBuffer<Float4>(loaded.Length);
+        Dispatch(device, "UnpackRgba8", loaded.Length, loaded, unpacked);
+        Assert.True(MaxDifference(unpacked.ToArray(), Load(png).Pixels) <= 1e-7f);
+
+        // The test image is opaque, so its premultiplied and straight-alpha bytes are the same.
+        Assert.True((bool)SampleAssembly.Call(Sample, "ImageFile", "UsesStraightAlpha", copy)!);
+        Assert.False((bool)SampleAssembly.Call(Sample, "ImageFile", "UsesStraightAlpha", "x.JPG")!);
+        SaveRgba8(copy, loaded.ToArray(), Width, Height);
+        Assert.Equal(Load(png).Pixels, Load(copy).Pixels);
+
+        string jpeg = Path.Combine(_directory, "zero-copy-output.jpg");
+        SaveRgba8(jpeg, loaded.ToArray(), Width, Height);
+        Assert.Equal((Width, Height), (Load(jpeg).Width, Load(jpeg).Height));
+    }
+
+    private static void SaveRgba8(string path, uint[] pixels, int width, int height)
+    {
+        MethodInfo method = SampleAssembly.Type(Sample, "ImageFile").GetMethod("SaveRgba8")!;
+        SaveRgba8Delegate save = method.CreateDelegate<SaveRgba8Delegate>();
+        save(path, pixels, width, height);
+    }
+
+    private delegate void SaveRgba8Delegate(string path, ReadOnlySpan<uint> pixels, int width, int height);
+
+    /// <summary>Runs a sample shader through <c>GraphicsDevice.For(int, in T)</c>, which tests can't name directly.</summary>
+    private static void Dispatch(GraphicsDevice device, string shader, int count, params object[] args)
+    {
+        Type type = SampleAssembly.Type(Sample, $"SharpCompute.Samples.Imaging.{shader}");
+        MethodInfo method = typeof(GraphicsDevice).GetMethods()
+            .Single(static m => m.Name == "For" && m.GetParameters().Length == 2)
+            .MakeGenericMethod(type);
+
+        method.Invoke(device, [count, Activator.CreateInstance(type, args)]);
     }
 
     private static int RunCli(params string[] args) => (int)SampleAssembly.Call(Sample, "Program", "Main", [args])!;

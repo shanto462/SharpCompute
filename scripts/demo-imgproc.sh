@@ -4,7 +4,8 @@
 #   scripts/demo-imgproc.sh                               # 4K test image: blur 8, bokeh 12, sharpen, edges, grade
 #   scripts/demo-imgproc.sh ~/Pictures/photo.heic         # same filters on your photo
 #   scripts/demo-imgproc.sh ~/Pictures/photo.jpg bokeh 20 # one filter with arguments
-# Outputs go to demo-output/imgproc/; each run prints GPU kernel, copies, CPU and both speedups.
+# Outputs go to demo-output/imgproc/; each run prints the filter on GPU and CPU, and the whole
+# pipeline (decoded RGBA8 → filter → RGBA8) zero copy on the GPU, with copies, and on the CPU.
 source "$(dirname "$0")/_common.sh"
 build samples/SharpCompute.Samples.ImageProcessing
 OUT=demo-output/imgproc; mkdir -p "$OUT"

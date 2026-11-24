@@ -55,7 +55,7 @@ public static class Runner
         Console.WriteLine($"== BenchmarkDotNet ({(quick ? "ShortRun" : "Default")} job)");
         Stopwatch stopwatch = Stopwatch.StartNew();
         Summary[] summaries = BenchmarkSwitcher.FromAssembly(typeof(Runner).Assembly)
-            .Run(["--filter", filter], CreateConfig(quick))
+            .Run(["--filter", .. filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)], CreateConfig(quick))
             .ToArray();
         stopwatch.Stop();
 

@@ -3,7 +3,8 @@
 #
 #   scripts/run-benchmarks.sh            BenchmarkDotNet default job (accurate, slow: ~30-60 min)
 #   scripts/run-benchmarks.sh --quick    BenchmarkDotNet ShortRun job (a few minutes)
-#   scripts/run-benchmarks.sh --filter '*Saxpy*'   only some benchmarks (the report covers what ran)
+#   scripts/run-benchmarks.sh --filter '*Saxpy*'   only some benchmarks (the report covers what ran);
+#                                         several globs separated by commas: '*Saxpy*,*NBody*'
 #   scripts/run-benchmarks.sh --filter '*Mandelbrot*' --merge <run-data.json>
 #                                         re-run some workloads and merge them into an earlier full run
 #
@@ -22,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --quick) run_args+=(--quick); shift ;;
     --filter) run_args+=(--filter "$2"); shift 2 ;;
     --merge) run_args+=(--merge "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"); shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done

@@ -4,14 +4,16 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using SharpCompute.Samples.Imaging;
 using static System.FormattableString;
 
 namespace SharpCompute.Samples.ImageProcessing;
 
 /// <summary>
-/// <c>imgproc</c>: loads a JPEG/PNG/HEIC through macOS ImageIO, runs a GPU filter and saves the
-/// result; with <c>--compare</c> it also runs the same filter on the CPU and reports the speedup.
+/// <c>imgproc</c>: decodes a JPEG/PNG/HEIC through macOS ImageIO straight into a GPU buffer, runs a
+/// GPU filter and encodes the result from GPU memory, with no copies in between; with
+/// <c>--compare</c> it also runs the same filter on the CPU and reports the speedups.
 /// </summary>
 public static class Program
 {
@@ -21,7 +23,7 @@ public static class Program
     /// <summary>The largest per-channel GPU/CPU difference <c>--compare</c> accepts: one 8-bit step.</summary>
     public const float ParityLimit = 1f / 255f;
 
-    private const int TimedRuns = 3;
+    private const int TimedRuns = 5;
 
     private const string Usage = """
         SharpCompute image processing (imgproc): GPU filters on photos, timed against the CPU.
@@ -32,8 +34,9 @@ public static class Program
 
         <input>   any image macOS ImageIO reads (JPEG, PNG, HEIC, TIFF, ...)
         <output>  .png, .jpg/.jpeg or .heic
-        --compare also run the filter on the CPU (Parallel.For, same math), print both timings and
-                  the speedup, and check that no channel differs by more than 1/255
+        --compare also run the filter on the CPU (Parallel.For, same math), time the whole pipeline
+                  (decoded RGBA8 → filter → RGBA8) zero copy, with copies and on the CPU, and check
+                  that no channel differs by more than 1/255
 
         Run it with: dotnet run -c Release --project samples/SharpCompute.Samples.ImageProcessing -- <args>
         """;
@@ -129,80 +132,145 @@ public static class Program
             return 1;
         }
 
-        long start = Stopwatch.GetTimestamp();
-        ImageData input = ImageFile.Load(inputPath);
-        double loadMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-        int width = input.Width;
-        int height = input.Height;
-
-        Console.WriteLine(Invariant($"Input:   {Path.GetFileName(inputPath)} {width}×{height} ({width * (double)height / 1e6:F1} MP), loaded in {loadMs:F0} ms"));
-
         GraphicsDevice device = GraphicsDevice.GetDefault();
+        bool straightAlpha = ImageFile.UsesStraightAlpha(outputPath);
+
+        // Zero copy end to end: ImageIO decodes into the GPU buffer's shared memory, the GPU converts
+        // to floats, filters and converts back, and the encoder reads the GPU's output in place.
+        long start = Stopwatch.GetTimestamp();
+        using ReadWriteBuffer<uint> packedInput = ImageFile.LoadRgba8(inputPath, device, out int width, out int height);
+        double loadMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        int pixelCount = width * height;
+
+        Console.WriteLine(Invariant($"Input:   {Path.GetFileName(inputPath)} {width}×{height} ({pixelCount / 1e6:F1} MP), decoded into a GPU buffer in {loadMs:F0} ms"));
         Console.WriteLine($"Filter:  {filter} on {device.Name}");
 
-        // Upload = allocating the shared buffers and copying the pixels in (unified memory, but still a copy).
-        long uploadStart = Stopwatch.GetTimestamp();
-        using ReadWriteBuffer<Float4> source = device.AllocateReadWriteBuffer<Float4>(input.Pixels);
-        using ReadWriteBuffer<Float4> destination = device.AllocateReadWriteBuffer<Float4>(input.Pixels.Length);
-        double uploadMs = Stopwatch.GetElapsedTime(uploadStart).TotalMilliseconds;
+        using ReadWriteBuffer<Float4> source = device.AllocateReadWriteBuffer<Float4>(pixelCount);
+        using ReadWriteBuffer<Float4> destination = device.AllocateReadWriteBuffer<Float4>(pixelCount);
+        using ReadWriteBuffer<uint> packedOutput = device.AllocateReadWriteBuffer<uint>(pixelCount);
         using GpuFilters gpu = new(device, width, height);
 
-        double firstMs = Time(() => gpu.Apply(filter, source, destination));
-        double gpuMs = firstMs;
+        void ZeroCopyPipeline()
+        {
+            device.For(pixelCount, new UnpackRgba8(packedInput, source));
+            gpu.Apply(filter, source, destination);
+            device.For(pixelCount, new PackRgba8(destination, packedOutput, straightAlpha ? 1 : 0));
+        }
+
+        double firstMs = Time(ZeroCopyPipeline);
+        int exitCode = 0;
 
         if (!compare)
         {
-            Console.WriteLine(Invariant($"GPU:     {firstMs:F1} ms (first run, includes compiling the shaders)"));
+            Console.WriteLine(Invariant($"GPU:     {firstMs:F1} ms (decode buffer → floats → filter → RGBA8, first run, includes compiling the shaders)"));
         }
         else
         {
-            gpuMs = Enumerable.Range(0, TimedRuns).Select(_ => Time(() => gpu.Apply(filter, source, destination))).Min();
-            Console.WriteLine(Invariant($"GPU:     {gpuMs:F2} ms (best of {TimedRuns}; the first run took {firstMs:F1} ms including shader compilation)"));
-        }
-
-        long readBackStart = Stopwatch.GetTimestamp();
-        ImageData output = new(width, height, destination.ToArray());
-        double readBackMs = Stopwatch.GetElapsedTime(readBackStart).TotalMilliseconds;
-        int exitCode = 0;
-
-        if (compare)
-        {
-            // Like-for-like with the GPU: one warm-up run, then best of TimedRuns.
-            Float4[] cpuResult = new Float4[input.Pixels.Length];
-            CpuFilters.Apply(filter, input.Pixels, cpuResult, width, height);
-            double cpuMs = Enumerable.Range(0, TimedRuns).Select(_ => Time(() => CpuFilters.Apply(filter, input.Pixels, cpuResult, width, height))).Min();
-            double endToEndMs = uploadMs + gpuMs + readBackMs;
-
-            Console.WriteLine(Invariant($"Copies:  upload {uploadMs:F1} ms, read-back {readBackMs:F1} ms (not in the GPU time above; a GPU pipeline can avoid read-back with AsSpan)"));
-            Console.WriteLine(Invariant($"CPU:     {cpuMs:F1} ms (best of {TimedRuns} after a warm-up; Parallel.For over rows, {Environment.ProcessorCount} threads, same plain Float4 math, not SIMD-tuned)"));
-            Console.WriteLine(Invariant($"Speedup: {cpuMs / gpuMs:F1}× kernel only, {cpuMs / endToEndMs:F1}× end to end (upload + kernel + read-back)"));
-
-            float difference = MaxDifference(output.Pixels, cpuResult);
-
-            if (difference <= ParityLimit)
-            {
-                Console.WriteLine(Invariant($"Parity:  max |GPU − CPU| = {difference:G3} per channel (limit 1/255 = {ParityLimit:G3}) ✓"));
-            }
-            else
-            {
-                int over = 0;
-
-                for (int i = 0; i < cpuResult.Length; i++)
-                {
-                    over += MaxDifference([output.Pixels[i]], [cpuResult[i]]) > ParityLimit ? 1 : 0;
-                }
-
-                Console.WriteLine(Invariant(
-                    $"Parity:  FAILED: max |GPU − CPU| = {difference:G3} per channel exceeds 1/255; {over} of {cpuResult.Length} pixels differ by more"));
-                exitCode = ParityFailure;
-            }
+            exitCode = Compare(filter, device, gpu, packedInput, source, destination, packedOutput, straightAlpha, width, height, ZeroCopyPipeline, firstMs);
         }
 
         start = Stopwatch.GetTimestamp();
-        ImageFile.Save(outputPath, output);
-        Console.WriteLine(Invariant($"Saved:   {Path.GetFullPath(outputPath)} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms"));
+        ImageFile.SaveRgba8(outputPath, packedOutput.AsReadOnlySpan(), width, height);
+        Console.WriteLine(Invariant($"Saved:   {Path.GetFullPath(outputPath)} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms (encoded from the GPU buffer in place)"));
         return exitCode;
     }
+
+    /// <summary>
+    /// Times three ways to get from decoded RGBA8 pixels to filtered RGBA8 pixels, all warm and best
+    /// of <see cref="TimedRuns"/>: the zero-copy GPU pipeline, the same GPU filter fed through
+    /// managed arrays (CPU conversions plus copies in and out of the buffers, the only option before
+    /// zero-copy decoding), and the CPU. Then checks GPU/CPU parity on the filter output.
+    /// </summary>
+    private static int Compare(
+        FilterSpec filter, GraphicsDevice device, GpuFilters gpu, ReadWriteBuffer<uint> packedInput, ReadWriteBuffer<Float4> source,
+        ReadWriteBuffer<Float4> destination, ReadWriteBuffer<uint> packedOutput, bool straightAlpha, int width, int height,
+        Action zeroCopyPipeline, double firstMs)
+    {
+        byte[] decoded = MemoryMarshal.AsBytes(packedInput.AsReadOnlySpan()).ToArray();
+
+        double zeroCopyMs = Best(zeroCopyPipeline);
+        double kernelMs = Best(() => gpu.Apply(filter, source, destination));
+
+        // Every array is allocated once up front, so the timings measure conversions and copies,
+        // not the allocator or the GC (a 4K image is a 133 MB Float4 array).
+        Float4[] cpuInput = new Float4[source.Length];
+        Float4[] staged = new Float4[source.Length];
+        Float4[] cpuResult = new Float4[source.Length];
+        byte[] encodedPremultiplied = new byte[decoded.Length];
+        Rgba32[] encodedStraight = new Rgba32[source.Length];
+
+        void Encode(Float4[] pixels)
+        {
+            if (straightAlpha)
+            {
+                PixelConversion.ToStraightRgba32(pixels, encodedStraight);
+            }
+            else
+            {
+                PixelConversion.ToPremultipliedRgba8(pixels, encodedPremultiplied);
+            }
+        }
+
+        void CopyPathPipeline()
+        {
+            PixelConversion.FromPremultipliedRgba8(decoded, staged);
+            source.CopyFrom(staged);
+            gpu.Apply(filter, source, destination);
+            destination.CopyTo(staged);
+            Encode(staged);
+        }
+
+        void CpuPipeline()
+        {
+            PixelConversion.FromPremultipliedRgba8(decoded, cpuInput);
+            CpuFilters.Apply(filter, cpuInput, cpuResult, width, height);
+            Encode(cpuResult);
+        }
+
+        CopyPathPipeline();
+        double copyPathMs = Best(CopyPathPipeline);
+
+        PixelConversion.FromPremultipliedRgba8(decoded, cpuInput);
+        CpuFilters.Apply(filter, cpuInput, cpuResult, width, height);
+        double cpuKernelMs = Best(() => CpuFilters.Apply(filter, cpuInput, cpuResult, width, height));
+        CpuPipeline();
+        double cpuMs = Best(CpuPipeline);
+
+        // The timed runs above overwrote the outputs; refresh them from the zero-copy pipeline last,
+        // so what is saved and checked is the GPU's.
+        zeroCopyPipeline();
+        CpuFilters.Apply(filter, cpuInput, cpuResult, width, height);
+
+        Console.WriteLine(Invariant($"GPU:     filter {kernelMs:F2} ms (best of {TimedRuns}; the first full run took {firstMs:F1} ms including shader compilation)"));
+        Console.WriteLine(Invariant($"CPU:     filter {cpuKernelMs:F1} ms (best of {TimedRuns} after a warm-up; Parallel.For over rows, {Environment.ProcessorCount} threads, same plain Float4 math, not SIMD-tuned)"));
+        Console.WriteLine("Pipeline: decoded RGBA8 → floats → filter → RGBA8 ready to encode (best of 5, warm):");
+        Console.WriteLine(Invariant($"  GPU, zero copy    {zeroCopyMs,8:F2} ms  conversions on the GPU, in the decoder's buffer"));
+        Console.WriteLine(Invariant($"  GPU, with copies  {copyPathMs,8:F2} ms  CPU conversions + copies into and out of the GPU buffers"));
+        Console.WriteLine(Invariant($"  CPU               {cpuMs,8:F2} ms  CPU conversions + CPU filter"));
+        Console.WriteLine(Invariant($"Speedup: {cpuKernelMs / kernelMs:F1}× filter only; pipeline {cpuMs / zeroCopyMs:F1}× zero copy, {cpuMs / copyPathMs:F1}× with copies"));
+
+        float difference = MaxDifference(destination.AsReadOnlySpan(), cpuResult);
+
+        if (difference <= ParityLimit)
+        {
+            Console.WriteLine(Invariant($"Parity:  max |GPU − CPU| = {difference:G3} per channel (limit 1/255 = {ParityLimit:G3}) ✓"));
+            return 0;
+        }
+
+        ReadOnlySpan<Float4> gpuResult = destination.AsReadOnlySpan();
+        int over = 0;
+
+        for (int i = 0; i < cpuResult.Length; i++)
+        {
+            over += MaxDifference(gpuResult.Slice(i, 1), cpuResult.AsSpan(i, 1)) > ParityLimit ? 1 : 0;
+        }
+
+        Console.WriteLine(Invariant(
+            $"Parity:  FAILED: max |GPU − CPU| = {difference:G3} per channel exceeds 1/255; {over} of {cpuResult.Length} pixels differ by more"));
+        return ParityFailure;
+    }
+
+    private static double Best(Action action) => Enumerable.Range(0, TimedRuns).Select(_ => Time(action)).Min();
 
     private static double Time(Action action)
     {

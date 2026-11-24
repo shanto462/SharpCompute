@@ -44,6 +44,9 @@ if (args.Contains("--msl"))
     Console.WriteLine(ShaderInfo.MslSource<BlurVertical>());
     Console.WriteLine(ShaderInfo.MslSource<MatMulNaive>());
     Console.WriteLine(ShaderInfo.MslSource<NBodyStep>());
+    Console.WriteLine(ShaderInfo.MslSource<BlurRgba8Horizontal>());
+    Console.WriteLine(ShaderInfo.MslSource<BlurRgba8Vertical>());
+    Console.WriteLine(ShaderInfo.MslSource<StridedPartialSums>());
     return 0;
 }
 

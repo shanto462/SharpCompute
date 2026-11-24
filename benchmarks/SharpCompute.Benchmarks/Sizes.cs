@@ -15,6 +15,9 @@ public static class Sizes
 
     public static readonly int[] NBody = [4096, 16384];
 
+    /// <summary>Floats in the file the file-to-GPU workload sums: 64M floats = 256 MB.</summary>
+    public const int FileFloats = 1 << 26;
+
     public static (int Width, int Height) Parse(string size)
     {
         string[] parts = size.Split('x');

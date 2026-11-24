@@ -48,7 +48,9 @@ float[] result = buffer.ToArray(); // [2, 4, 6, 8]
   works too). Static and instance helper methods, local functions, `ref`/`out` parameters, all loops
   and branches, and compile-time-folded `static readonly` constants.
 - **Zero-copy buffers.** Buffers live in unified memory, so `AsSpan()` and indexers read GPU
-  results directly.
+  results directly, and data can be produced straight into GPU memory (an image decoder can write
+  into `AsSpan()`). `MapReadOnlyBuffer` puts a file on the GPU without reading it into memory first,
+  and `WrapReadWriteBuffer` makes a buffer over page-aligned memory you already own.
 - **Correct by default.** Shaders compile with IEEE-safe math and precise functions, and every
   shader that passes structs or constants carries `static_assert` layout guards. The CPU
   implementations of `Gpu.*` were measured against Apple GPU results: bit-for-bit for arithmetic,
@@ -92,10 +94,18 @@ report, including how each number was measured and the machine load, is in
 | SAXPY `y = a·x + y` | 16M floats | 0.85 ms | 1.01 ms | 0.84× (CPU wins) |
 
 How to read this: GPU times are one synchronous dispatch and exclude uploading inputs and reading
-results back (the image-processing demo reports both, and its end-to-end speedups are much lower for
-light filters). Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silicon's CPU and GPU
+results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silicon's CPU and GPU
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01).
+
+Moving and converting data can cost more than the kernel, and unified memory means it can be
+skipped: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
+
+| Data path | Size | Before | Zero copy | Speedup |
+|---|---|---:|---:|---:|
+| RGBA8 image → blur → RGBA8, CPU conversions + Float4 copies (fastest CPU: 21.8 ms) | 3840×2160 | 12.2 ms | 3.10 ms | **3.9×** (7.0× vs CPU) |
+| Same kernels, only the copies of the bytes in and out removed | 3840×2160 | 4.28 ms | 3.10 ms | 1.4× |
+| File of floats → GPU sum (`MapReadOnlyBuffer`) | 256 MB | 42.0 ms (`ReadAllBytes` + upload) | 4.06 ms | **10.3×** |
 
 ## Using it in your project
 
@@ -128,6 +138,21 @@ public readonly partial struct Gradient(float time) : IComputeShader<Float4>
 using ReadWriteTexture2D<Rgba32> texture = device.AllocateReadWriteTexture2D<Rgba32>(1280, 720);
 device.ForEach(texture, new Gradient(time: 1.5f));
 Rgba32[] pixels = texture.ToArray();
+```
+
+Zero-copy data paths (the CPU and the GPU share the same memory, so skip the copies):
+
+```csharp
+// Write input straight into GPU memory, e.g. decode or read a file into it.
+using ReadWriteBuffer<uint> pixels = device.AllocateReadWriteBuffer<uint>(width * height);
+DecodeInto(MemoryMarshal.AsBytes(pixels.AsSpan()));
+
+// A file of raw floats, read by the GPU from the page cache: no ReadAllBytes, no upload.
+using ReadOnlyBuffer<float> samples = device.MapReadOnlyBuffer<float>("samples.f32");
+
+// Memory you already own, if it starts on a page boundary (GraphicsDevice.PageSize).
+void* memory = NativeMemory.AlignedAlloc(byteCount, (nuint)GraphicsDevice.PageSize);
+using ReadWriteBuffer<float> wrapped = device.WrapReadWriteBuffer<float>((nint)memory, count, () => NativeMemory.AlignedFree(memory));
 ```
 
 ## Building and testing

@@ -242,6 +242,10 @@ public static class Report
             + "once in setup, not timed); the N-body SIMD variant gets a structure-of-arrays copy (also built once in setup).");
         md.AppendLine("- **FP contraction:** Metal fuses `a*b + c` into fma by default, so GPU results match the CPU to rounding, "
             + "not bit for bit. That's what `--verify` checks.");
+        md.AppendLine("- **GPU-private storage:** `MTLStorageModePrivate` buffers were measured against shared ones on this machine with a "
+            + "4K `float4` blur-style kernel, in every combination of private and shared input and output: all took 1.91 ms (within 0.2 %). "
+            + "On Apple silicon, private storage pays off for textures (lossless compression), not for buffers, so SharpCompute keeps "
+            + "every buffer shared and CPU-visible.");
         md.AppendLine();
     }
 
@@ -278,6 +282,17 @@ public static class Report
             + "Baseline: CPU Parallel.For (a scalar single thread is about 1 s per run and adds nothing).",
         "N-body" => "One O(n²) step with softening (ε² = 0.01), positions `Float4` (xyz + mass) and velocities `Float4`; reads the current "
             + "state and writes the next into separate buffers. Baseline: CPU Parallel.For (scalar single thread is too slow at 16K bodies).",
+        "Image pipeline" => "Zero-copy data paths. A decoded 3840×2160 RGBA8 image (one `uint` per pixel) blurred (radius 8, separable, clamped) into "
+            + "RGBA8 ready to encode; decoding and encoding are identical for every variant and not timed. *Zero copy* has the decoder write "
+            + "into the buffer's shared memory (`AsSpan`); two kernels read the bytes, blur and write bytes, and the encoder reads the output in "
+            + "place. *Copies in and out* runs the same two kernels on bytes kept in managed arrays, so the difference is the cost of the two "
+            + "33 MB copies alone. *CPU conversions + copies* is a pipeline on `Float4` arrays: the CPU converts bytes to floats, 133 MB is "
+            + "copied in, Float4 kernels blur, 133 MB is copied out and the CPU converts back. Baseline: the CPU pipeline, Parallel.For over rows "
+            + "with one `Vector4` (one NEON register) per pixel.",
+        "File to GPU" => "Zero-copy data paths. Sum 256 MB of floats from a file on the GPU, starting from the path: get the data into a buffer, one "
+            + "reduction dispatch, add 65,536 partial sums on the CPU. The file is in the page cache (read every iteration), so this measures "
+            + "copies and page mapping, not the disk; every variant creates and disposes its buffer per call. *No copy* is `MapReadOnlyBuffer` "
+            + "(`newBufferWithBytesNoCopy` over a read-only `mmap`). There is no CPU variant: the point is the cost of getting data to the GPU.",
         _ => "",
     };
 
@@ -311,6 +326,8 @@ public static class Report
             "N-body" => Invariant($"{Convert.ToInt32(benchmark.Parameters["Bodies"], CultureInfo.InvariantCulture):N0} bodies"),
             "Gaussian blur" => Invariant($"{Sizes.BlurWidth}×{Sizes.BlurHeight}, r = {Sizes.BlurRadius}"),
             "Matrix multiply" => Invariant($"{Sizes.MatMul}×{Sizes.MatMul}"),
+            "Image pipeline" => Invariant($"{Sizes.BlurWidth}×{Sizes.BlurHeight} RGBA8, r = {Sizes.BlurRadius}"),
+            "File to GPU" => Invariant($"{Sizes.FileFloats * 4L / (1 << 20)} MB"),
             _ => benchmark.Parameters.DisplayInfo,
         };
     }
