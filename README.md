@@ -43,6 +43,14 @@ are synthesized on the GPU.
 
 ![Glowfall: a lantern spirit relights a dark cavern](docs/glowfall.gif)
 
+**Pulsewake** (`scripts/demo-pulsewake.sh`): an original neon twin-stick arena shooter. GPU
+particles, glowing vector shapes, two-level bloom and shockwave distortion all run as SharpCompute
+shaders in one submission per frame. It's the same genre as
+[MonoGame's NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter),
+here as an original game built on SharpCompute.
+
+![Pulsewake: a prism ship fighting a wave in a drifting nebula](docs/pulsewake.gif)
+
 ## Features
 
 - **Shaders are plain C#.** `Execute()` is translated to Metal Shading Language at build time, with

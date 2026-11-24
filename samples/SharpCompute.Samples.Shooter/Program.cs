@@ -23,7 +23,7 @@ public static class Program
         Pulsewake: a SharpCompute arena shooter
 
           SharpCompute.Samples.Shooter [--demo] [--mute] [--seed <n>]
-          SharpCompute.Samples.Shooter --headless [--frames <dir>] [--seconds <s>] [--seed <n>] [--stress]
+          SharpCompute.Samples.Shooter --headless [--frames <dir>] [--seconds <s>] [--fps <n>] [--seed <n>] [--stress]
 
         Keys: WASD move · arrows fire in eight directions (or hold the left mouse button to fire at
               the pointer) · Space bomb · P pause · M mute · R restart · Esc quit
@@ -39,6 +39,7 @@ public static class Program
         bool demo = false, headless = false, mute = false, stress = false;
         string? frames = null;
         double seconds = 12;
+        int fps = 2;
         uint seed = 1;
 
         for (int i = 0; i < args.Length; i++)
@@ -56,6 +57,10 @@ public static class Program
                     break;
                 case "--stress":
                     stress = true;
+                    break;
+                case "--fps" when i + 1 < args.Length && int.TryParse(args[i + 1], CultureInfo.InvariantCulture, out int f) && f is >= 1 and <= 60:
+                    fps = f;
+                    i++;
                     break;
                 case "--frames" when i + 1 < args.Length:
                     frames = args[++i];
@@ -86,7 +91,7 @@ public static class Program
 
         if (headless)
         {
-            return RunHeadless(seed, frames, seconds, stress);
+            return RunHeadless(seed, frames, seconds, stress, fps);
         }
 
         if (!MetalWindow.IsSupported)
@@ -205,7 +210,7 @@ public static class Program
     }
 
     /// <summary>No window: the autopilot plays for <paramref name="seconds"/> at 60 frames per second of game time.</summary>
-    private static int RunHeadless(uint seed, string? frames, double seconds, bool stress)
+    private static int RunHeadless(uint seed, string? frames, double seconds, bool stress, int fps)
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using Renderer renderer = new(device);
@@ -265,9 +270,10 @@ public static class Program
                 timed++;
             }
 
-            if (frames is not null && frame % 30 == 0)
+            // 60 rendered frames per second of game time; write every (60 / fps)th as a PNG.
+            if (frames is not null && frame % Math.Max(1, 60 / fps) == 0)
             {
-                PngEncoder.Write(Path.Combine(frames, Invariant($"pulsewake-{pngIndex++:D3}.png")), renderer.FramePixels, Renderer.Width, Renderer.Height);
+                PngEncoder.Write(Path.Combine(frames, Invariant($"pulsewake-{pngIndex++:D4}.png")), renderer.FramePixels, Renderer.Width, Renderer.Height);
             }
         }
 
