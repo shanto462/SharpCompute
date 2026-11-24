@@ -57,6 +57,11 @@ public static class Verify
 
         VerifyImagePipeline(device, Add);
         VerifyFileToGpu(device, Add);
+        foreach (Check check in BatchingVerify.Run(device))
+        {
+            Add(check);
+        }
+
         return checks;
     }
 

@@ -76,6 +76,10 @@ step "ImageProcessing: GPU vs CPU (Parallel.For) on a generated 3840×2160 image
 "${IMGPROC[@]}" "$OUT/imgproc/test-3840x2160.png" "$OUT/imgproc/blur-8.png" blur 8 --compare | tee "$OUT/imgproc/compare.txt"
 "${IMGPROC[@]}" "$OUT/imgproc/test-3840x2160.png" "$OUT/imgproc/bokeh-12.png" bokeh 12 --compare | tee -a "$OUT/imgproc/compare.txt"
 
+step "Pipeline: GPU renders frame N+1 (ForAsync) while the CPU post-processes frame N"
+mkdir -p "$OUT/pipeline"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Pipeline -- --out "$OUT/pipeline" | tee "$OUT/pipeline/pipeline.txt"
+
 step "Paint: scripted replay (headless)"
 SHARPCOMPUTE_PAINT_SCRIPT=samples/SharpCompute.Samples.Paint/demo-script.json SHARPCOMPUTE_PAINT_OUTPUT="$OUT/paint.png" \
   dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Paint -- --headless
