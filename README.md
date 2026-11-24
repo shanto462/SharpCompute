@@ -98,13 +98,14 @@ results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silic
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01).
 
-Moving data costs more than the kernel for light work, and unified memory means it can be skipped
-entirely: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
+Moving and converting data can cost more than the kernel, and unified memory means it can be
+skipped: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
 
 | Data path | Size | Before | Zero copy | Speedup |
 |---|---|---:|---:|---:|
-| RGBA8 image → blur → RGBA8 (vs fastest CPU: 21.6 ms) | 3840×2160 | 13.1 ms (copies in and out) | 3.14 ms | **4.2×** (6.9× vs CPU) |
-| File of floats → GPU sum (`MapReadOnlyBuffer`) | 256 MB | 42.4 ms (`ReadAllBytes` + upload) | 3.94 ms | **10.8×** |
+| RGBA8 image → blur → RGBA8, CPU conversions + Float4 copies (fastest CPU: 21.8 ms) | 3840×2160 | 12.2 ms | 3.10 ms | **3.9×** (7.0× vs CPU) |
+| Same kernels, only the copies of the bytes in and out removed | 3840×2160 | 4.28 ms | 3.10 ms | 1.4× |
+| File of floats → GPU sum (`MapReadOnlyBuffer`) | 256 MB | 42.0 ms (`ReadAllBytes` + upload) | 4.06 ms | **10.3×** |
 
 ## Using it in your project
 

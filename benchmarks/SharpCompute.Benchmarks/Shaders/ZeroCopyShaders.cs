@@ -106,21 +106,3 @@ public readonly partial struct StridedPartialSums(ReadOnlyBuffer<float> data, Re
         partials[ThreadIds.X] = sum;
     }
 }
-
-/// <summary><see cref="StridedPartialSums"/> over a read/write buffer (the one-copy variant reads into one).</summary>
-[GeneratedComputeShaderDescriptor]
-public readonly partial struct StridedPartialSumsReadWrite(ReadWriteBuffer<float> data, ReadWriteBuffer<float> partials, int count) : IComputeShader
-{
-    public void Execute()
-    {
-        int threads = DispatchSize.X;
-        float sum = 0f;
-
-        for (int j = 0; j < count; j++)
-        {
-            sum += data[ThreadIds.X + (j * threads)];
-        }
-
-        partials[ThreadIds.X] = sum;
-    }
-}

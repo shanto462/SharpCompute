@@ -12,10 +12,11 @@ namespace SharpCompute.Benchmarks.Workloads;
 /// <list type="bullet">
 /// <item><b>Two copies</b>: <c>File.ReadAllBytes</c> (page cache → managed array) then
 /// <c>AllocateReadOnlyBuffer(data)</c> (array → shared buffer).</item>
-/// <item><b>One copy</b>: allocate the buffer and <c>RandomAccess.Read</c> straight into its <c>AsSpan()</c>.</item>
+/// <item><b>One copy</b>: allocate a read-only buffer and <c>RandomAccess.Read</c> straight into its <c>AsSpan()</c>.</item>
 /// <item><b>No copy</b>: <c>MapReadOnlyBuffer</c>: the GPU reads the page-cache pages themselves.</item>
 /// </list>
-/// Every variant creates and disposes its buffer per call, as loading a file once would.
+/// Every variant creates and disposes its buffer per call, as loading a file once would, and runs
+/// the same kernel on a read-only buffer.
 /// </summary>
 public sealed class FileToGpu : IDisposable
 {
@@ -74,7 +75,7 @@ public sealed class FileToGpu : IDisposable
 
     public double OneCopy()
     {
-        using ReadWriteBuffer<float> data = Device.AllocateReadWriteBuffer<float>(Length);
+        using ReadOnlyBuffer<float> data = Device.AllocateReadOnlyBuffer<float>(Length);
         using (Microsoft.Win32.SafeHandles.SafeFileHandle file = File.OpenHandle(Path))
         {
             Span<byte> destination = MemoryMarshal.AsBytes(data.AsSpan());
@@ -111,12 +112,6 @@ public sealed class FileToGpu : IDisposable
     private double Sum(ReadOnlyBuffer<float> data)
     {
         Device.For(Threads, new StridedPartialSums(data, Partials, Length / Threads));
-        return AddPartials();
-    }
-
-    private double Sum(ReadWriteBuffer<float> data)
-    {
-        Device.For(Threads, new StridedPartialSumsReadWrite(data, Partials, Length / Threads));
         return AddPartials();
     }
 

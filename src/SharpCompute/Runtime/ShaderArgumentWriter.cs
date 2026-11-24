@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using SharpCompute.Interop;
 
@@ -15,10 +16,16 @@ public unsafe ref struct ShaderArgumentWriter
 
     private readonly GraphicsDevice? _device;
 
-    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device)
+    // Buffers bound so far, each with a lease the dispatcher releases once the GPU has finished.
+    private readonly List<ObjCHandle>? _leased;
+
+    // leased receives a lease on every bound buffer; the caller releases them (DangerousRelease)
+    // after the command buffer completes. Without it, a buffer is leased only for the bind call.
+    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, List<ObjCHandle>? leased = null)
     {
         Encoder = encoder;
         _device = device;
+        _leased = leased;
     }
 
     /// <summary><c>setBuffer:offset:0 atIndex:index</c>.</summary>
@@ -38,6 +45,18 @@ public unsafe ref struct ShaderArgumentWriter
             throw new ArgumentException(
                 $"The buffer bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
                 nameof(buffer));
+        }
+
+        if (_leased is not null)
+        {
+            // Held until the dispatch completes. The command buffer's own retain keeps the MTLBuffer
+            // object alive, but not memory the buffer merely wraps (WrapReadWriteBuffer,
+            // MapReadOnlyBuffer): that is freed when the handle is released, so the handle must not be
+            // released, by Dispose or by the finalizer, while the GPU may still touch it.
+            buffer.Handle.AddRef(buffer);
+            _leased.Add(buffer.Handle);
+            ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, buffer.Handle.DangerousGetHandle(), (nuint)0, (nuint)index);
+            return;
         }
 
         // The lease closes the window where another thread disposes the buffer mid-call. Once bound,

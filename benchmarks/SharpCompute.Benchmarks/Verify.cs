@@ -208,9 +208,11 @@ public static class Verify
 
         pipeline.Cpu();
         pipeline.GpuWithCopies();
+        pipeline.GpuWithConversions();
         pipeline.GpuZeroCopy();
 
-        add(CompareBytes(size, "GPU with copies", pipeline.CopyPathOutput, pipeline.Output));
+        add(CompareBytes(size, "GPU, copies in and out", pipeline.CopyPathOutput, pipeline.Output));
+        add(CompareBytes(size, "GPU, CPU conversions", pipeline.ConversionPathOutput, pipeline.Output));
         add(CompareBytes(size, "GPU generated, zero copy", pipeline.GpuPackedOutput.AsReadOnlySpan(), pipeline.Output));
     }
 

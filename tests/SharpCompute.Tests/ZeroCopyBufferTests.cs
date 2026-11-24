@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Threading;
 using SharpCompute.Tests.Shaders;
 
@@ -77,11 +78,31 @@ public sealed unsafe class ZeroCopyBufferTests
 
             Assert.Equal(Enumerable.Range(-2000, length).Select(static v => v * v), destination.ToArray());
             Assert.True(source.IsCpuWritable);
+
+            using ReadOnlyBuffer<int> readOnlyMemory = device.WrapReadOnlyBuffer<int>((nint)memory, length, isCpuWritable: false);
+            Assert.False(readOnlyMemory.IsCpuWritable);
+            Assert.Throws<NotSupportedException>(() => readOnlyMemory.AsSpan());
+            Assert.Equal(-2000, readOnlyMemory.AsReadOnlySpan()[0]);
         }
         finally
         {
             NativeMemory.AlignedFree(memory);
         }
+    }
+
+    [MetalFact]
+    public void AllocateReadOnlyBufferWithLength_IsZeroFilledAndFilledFromTheCpu()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<int> source = device.AllocateReadOnlyBuffer<int>(300);
+        using ReadWriteBuffer<int> destination = device.AllocateReadWriteBuffer<int>(300);
+
+        Assert.All(source.ToArray(), static v => Assert.Equal(0, v));
+        Enumerable.Range(0, 300).ToArray().CopyTo(source.AsSpan());
+        device.For(300, new Square(source, destination));
+
+        Assert.Equal(Enumerable.Range(0, 300).Select(static v => v * v), destination.ToArray());
+        Assert.Throws<ArgumentOutOfRangeException>(() => device.AllocateReadOnlyBuffer<int>(-1));
     }
 
     [MetalFact]
@@ -126,6 +147,93 @@ public sealed unsafe class ZeroCopyBufferTests
         Assert.Equal(1, Volatile.Read(ref released));
         Assert.Throws<ObjectDisposedException>(() => buffer.AsSpan());
     }
+
+    [MetalFact]
+    public void Wrap_DisposeDuringADispatch_ReleasesOnlyAfterTheGpuIsDone()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        const int length = 1 << 20;
+        void* memory = NativeMemory.AlignedAlloc((nuint)(length * sizeof(float)), (nuint)GraphicsDevice.PageSize);
+        long releasedAt = 0;
+
+        ReadWriteBuffer<float> buffer = device.WrapReadWriteBuffer<float>((nint)memory, length, () =>
+        {
+            Volatile.Write(ref releasedAt, Stopwatch.GetTimestamp());
+            NativeMemory.AlignedFree(memory);
+        });
+
+        long started = 0;
+        Thread disposer = new(() =>
+        {
+            // Dispose while the kernel below is running, as another thread might.
+            while (Volatile.Read(ref started) == 0)
+            {
+                Thread.Yield();
+            }
+
+            Thread.Sleep(20);
+            buffer.Dispose();
+        });
+
+        disposer.Start();
+        Volatile.Write(ref started, Stopwatch.GetTimestamp());
+        device.For(length, new SpinOnBuffer(buffer, 20_000));
+        long finished = Stopwatch.GetTimestamp();
+        disposer.Join();
+
+        // The dispatch must outlast the dispose for the test to mean anything.
+        Assert.True(Stopwatch.GetElapsedTime(started, finished).TotalMilliseconds > 40, "The dispatch finished before the buffer was disposed.");
+        Assert.NotEqual(0, Volatile.Read(ref releasedAt));
+        Assert.True(Volatile.Read(ref releasedAt) >= finished - Stopwatch.Frequency / 1000, "The memory was released while the GPU was still using it.");
+    }
+
+    [MetalFact]
+    public void Wrap_UnreachableDuringADispatch_IsNotFinalizedUnderTheGpu()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        const int length = 1 << 20;
+        void* memory = NativeMemory.AlignedAlloc((nuint)(length * sizeof(float)), (nuint)GraphicsDevice.PageSize);
+        int released = 0;
+        using CancellationTokenSource stop = new();
+
+        Thread collector = new(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+        }) { IsBackground = true };
+
+        collector.Start();
+
+        try
+        {
+            // Nothing but the dispatch references the buffer.
+            DispatchOverUnreferencedBuffer(device, (nint)memory, length, () => Interlocked.Exchange(ref released, 1));
+            Assert.Equal(0, Volatile.Read(ref released));
+        }
+        finally
+        {
+            stop.Cancel();
+            collector.Join();
+        }
+
+        // Once the dispatch is over the buffer may be finalized and the memory released.
+        for (int i = 0; i < 50 && Volatile.Read(ref released) == 0; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        Assert.Equal(1, Volatile.Read(ref released));
+        NativeMemory.AlignedFree(memory);
+    }
+
+    // Not inlined, so the buffer is unreachable once this returns, even in a Debug build.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void DispatchOverUnreferencedBuffer(GraphicsDevice device, nint memory, int length, Action release) =>
+        device.For(length, new SpinOnBuffer(device.WrapReadWriteBuffer<float>(memory, length, release), 5_000));
 
     [MetalFact]
     public void MapReadOnlyBuffer_ReadsTheFileOnTheGpuWithoutCopying()

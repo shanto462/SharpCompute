@@ -175,6 +175,7 @@ public class ImagePipelineBenchmarks
     {
         _pipeline = new ImagePipeline(Sizes.BlurWidth, Sizes.BlurHeight, Sizes.BlurRadius, GraphicsDevice.GetDefault());
         _pipeline.GpuWithCopies();
+        _pipeline.GpuWithConversions();
         _pipeline.GpuZeroCopy();
     }
 
@@ -184,8 +185,11 @@ public class ImagePipelineBenchmarks
     [Benchmark(Baseline = true, Description = "CPU Parallel.For + SIMD (rows, one Vector4 per pixel)")]
     public uint Cpu() => _pipeline.Cpu();
 
-    [Benchmark(Description = "GPU with copies (CPU converts, copies in and out; 2 dispatches)")]
+    [Benchmark(Description = "GPU, copies in and out (same 2 RGBA8 dispatches as zero copy)")]
     public uint GpuWithCopies() => _pipeline.GpuWithCopies();
+
+    [Benchmark(Description = "GPU, CPU conversions + copies (2 Float4 dispatches)")]
+    public uint GpuWithConversions() => _pipeline.GpuWithConversions();
 
     [Benchmark(Description = "GPU generated shader, zero copy (2 dispatches)")]
     public uint GpuZeroCopy() => _pipeline.GpuZeroCopy();

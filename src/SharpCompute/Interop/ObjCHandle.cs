@@ -70,6 +70,24 @@ internal sealed class ObjCHandle : SafeHandle
         return new Lease(this);
     }
 
+    /// <summary>
+    /// Like <see cref="Acquire"/>, but for a lease that outlives the current scope: the caller must
+    /// call <see cref="SafeHandle.DangerousRelease"/> exactly once when it is done.
+    /// </summary>
+    internal void AddRef(object owner)
+    {
+        bool acquired = false;
+
+        try
+        {
+            DangerousAddRef(ref acquired);
+        }
+        catch (ObjectDisposedException)
+        {
+            throw new ObjectDisposedException(owner.GetType().FullName);
+        }
+    }
+
     internal readonly ref struct Lease
     {
         private readonly ObjCHandle _handle;

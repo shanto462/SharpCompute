@@ -283,10 +283,12 @@ public static class Report
         "N-body" => "One O(n²) step with softening (ε² = 0.01), positions `Float4` (xyz + mass) and velocities `Float4`; reads the current "
             + "state and writes the next into separate buffers. Baseline: CPU Parallel.For (scalar single thread is too slow at 16K bodies).",
         "Image pipeline" => "Zero-copy data paths. A decoded 3840×2160 RGBA8 image (one `uint` per pixel) blurred (radius 8, separable, clamped) into "
-            + "RGBA8 ready to encode; decoding and encoding are identical for every variant and not timed. *GPU with copies* is what a pipeline on "
-            + "managed arrays must do: CPU byte→float conversion, copy into the buffer, 2 dispatches, copy out, CPU float→byte. *Zero copy* has "
-            + "the decoder write into the buffer's shared memory (`AsSpan`), reads and writes bytes on the GPU, and lets the encoder read the "
-            + "output in place. Baseline: the CPU pipeline, Parallel.For over rows with one `Vector4` (one NEON register) per pixel.",
+            + "RGBA8 ready to encode; decoding and encoding are identical for every variant and not timed. *Zero copy* has the decoder write "
+            + "into the buffer's shared memory (`AsSpan`); two kernels read the bytes, blur and write bytes, and the encoder reads the output in "
+            + "place. *Copies in and out* runs the same two kernels on bytes kept in managed arrays, so the difference is the cost of the two "
+            + "33 MB copies alone. *CPU conversions + copies* is a pipeline on `Float4` arrays: the CPU converts bytes to floats, 133 MB is "
+            + "copied in, Float4 kernels blur, 133 MB is copied out and the CPU converts back. Baseline: the CPU pipeline, Parallel.For over rows "
+            + "with one `Vector4` (one NEON register) per pixel.",
         "File to GPU" => "Zero-copy data paths. Sum 256 MB of floats from a file on the GPU, starting from the path: get the data into a buffer, one "
             + "reduction dispatch, add 65,536 partial sums on the CPU. The file is in the page cache (read every iteration), so this measures "
             + "copies and page mapping, not the disk; every variant creates and disposes its buffer per call. *No copy* is `MapReadOnlyBuffer` "

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
@@ -92,6 +93,14 @@ public sealed unsafe class GraphicsDevice : IDisposable
         return buffer;
     }
 
+    /// <summary>
+    /// Allocates a zero-filled read-only buffer (<c>const device T*</c> in shaders) of
+    /// <paramref name="length"/> elements, to be filled from the CPU through
+    /// <see cref="Buffer{T}.AsSpan"/>, e.g. by reading a file straight into it.
+    /// </summary>
+    public ReadOnlyBuffer<T> AllocateReadOnlyBuffer<T>(int length)
+        where T : unmanaged => new(this, length);
+
     public ReadOnlyBuffer<T> AllocateReadOnlyBuffer<T>(ReadOnlySpan<T> data)
         where T : unmanaged
     {
@@ -134,15 +143,22 @@ public sealed unsafe class GraphicsDevice : IDisposable
 
     /// <summary>
     /// Like <see cref="WrapReadWriteBuffer{T}"/>, but the buffer binds as read-only
-    /// (<c>const device T*</c>) in shaders. The memory itself must be writable for
-    /// <see cref="Buffer{T}.AsSpan"/> and <see cref="Buffer{T}.CopyFrom"/> to work.
+    /// (<c>const device T*</c>) in shaders.
     /// </summary>
-    /// <inheritdoc cref="WrapReadWriteBuffer{T}"/>
-    public ReadOnlyBuffer<T> WrapReadOnlyBuffer<T>(nint pointer, int length, Action? release = null)
+    /// <param name="pointer">Start of the memory; must be a multiple of <see cref="PageSize"/>.</param>
+    /// <param name="length">Number of elements; must be positive.</param>
+    /// <param name="release">As for <see cref="WrapReadWriteBuffer{T}"/>.</param>
+    /// <param name="isCpuWritable">
+    /// False when the memory is read-only for this process (e.g. a <c>PROT_READ</c> mapping): then
+    /// <see cref="Buffer{T}.AsSpan"/> and <see cref="Buffer{T}.CopyFrom"/> throw instead of faulting.
+    /// </param>
+    /// <exception cref="ArgumentException"><paramref name="pointer"/> is null or not page-aligned.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="length"/> is not positive or exceeds the device's maximum buffer size.</exception>
+    public ReadOnlyBuffer<T> WrapReadOnlyBuffer<T>(nint pointer, int length, Action? release = null, bool isCpuWritable = true)
         where T : unmanaged
     {
         ObjCHandle handle = NewSharedBufferNoCopy<T>(pointer, length, release);
-        return new ReadOnlyBuffer<T>(this, handle, (T*)pointer, length, isCpuWritable: true);
+        return new ReadOnlyBuffer<T>(this, handle, (T*)pointer, length, isCpuWritable);
     }
 
     /// <summary>
@@ -319,7 +335,8 @@ public sealed unsafe class GraphicsDevice : IDisposable
     /// <summary>
     /// <c>newBufferWithBytesNoCopy:length:options:deallocator:nil</c> over <paramref name="length"/>
     /// elements at <paramref name="pointer"/>. <paramref name="release"/> runs after the handle releases
-    /// the buffer; ObjCHandle's leases guarantee no dispatch using it is still in flight by then.
+    /// the buffer. Dispatches lease every bound buffer until the GPU has finished with it
+    /// (ShaderArgumentWriter.SetBuffer), so by then no dispatch that used it is still in flight.
     /// </summary>
     private ObjCHandle NewSharedBufferNoCopy<T>(nint pointer, int length, Action? release)
         where T : unmanaged
@@ -514,7 +531,27 @@ public sealed unsafe class GraphicsDevice : IDisposable
         using ObjCHandle.Lease outputTexture = output is null ? default : output.Handle.Acquire(output);
         using ObjCHandle.Lease outputStorage = output is null ? default : output.BufferHandle.Acquire(output);
 
-        nint commandBuffer = ObjC.SendIntPtr(queue.Pointer, Selectors.CommandBuffer);
+        // Every bound buffer stays leased until the GPU is done with it (see ShaderArgumentWriter.SetBuffer).
+        List<ObjCHandle> leased = [];
+
+        try
+        {
+            Encode(grid, threadsPerThreadgroup, queue.Pointer, state.Pointer, output is null ? 0 : outputTexture.Pointer, leased, in shader);
+        }
+        finally
+        {
+            foreach (ObjCHandle handle in leased)
+            {
+                handle.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>Encodes one dispatch into a new command buffer, commits it and waits for it.</summary>
+    private void Encode<T>(MTLSize grid, MTLSize threadsPerThreadgroup, nint queue, nint state, nint outputTexture, List<ObjCHandle> leased, in T shader)
+        where T : struct, IComputeShaderDescriptor<T>
+    {
+        nint commandBuffer = ObjC.SendIntPtr(queue, Selectors.CommandBuffer);
 
         if (commandBuffer == 0)
         {
@@ -530,14 +567,14 @@ public sealed unsafe class GraphicsDevice : IDisposable
 
         try
         {
-            ObjC.SendVoid(encoder, Selectors.SetComputePipelineState, state.Pointer);
+            ObjC.SendVoid(encoder, Selectors.SetComputePipelineState, state);
 
-            if (output is not null)
+            if (outputTexture != 0)
             {
-                ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, outputTexture.Pointer, (nuint)0);
+                ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, outputTexture, (nuint)0);
             }
 
-            ShaderArgumentWriter writer = new(encoder, this);
+            ShaderArgumentWriter writer = new(encoder, this, leased);
             T.SetArguments(in shader, ref writer);
 
             ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, grid, threadsPerThreadgroup);

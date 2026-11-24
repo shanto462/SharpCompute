@@ -12,9 +12,12 @@ namespace SharpCompute.Benchmarks.Workloads;
 /// encoding are the same for every variant and not timed; this measures what sits between them.
 /// <list type="bullet">
 /// <item><b>CPU</b>: Parallel.For over rows, one <see cref="Vector4"/> (one NEON register) per pixel.</item>
-/// <item><b>GPU with copies</b>: what a pipeline built on managed arrays has to do: the CPU converts
-/// the bytes to floats, copies them into a GPU buffer, the GPU blurs, the result is copied out and the
-/// CPU converts it back to bytes.</item>
+/// <item><b>GPU, copies in and out</b>: the same two kernels as zero copy, but the decoded bytes live in
+/// a managed array: they are copied into a GPU buffer, and the result is copied back out. This
+/// isolates the cost of the copies.</item>
+/// <item><b>GPU, CPU conversions + copies</b>: the way a filter pipeline on <see cref="Float4"/> arrays
+/// works (and imgproc did before it decoded into GPU memory): the CPU converts bytes to floats, they
+/// are copied in, Float4 kernels blur, the result is copied out and the CPU converts it back.</item>
 /// <item><b>GPU zero copy</b>: the decoder writes into a GPU buffer's shared memory
 /// (<c>AsSpan</c>), the GPU reads the bytes and writes bytes, and the encoder reads them in place.</item>
 /// </list>
@@ -45,6 +48,7 @@ public sealed class ImagePipeline : IDisposable
         Staged = new Float4[width * height];
         Output = new uint[width * height];
         CopyPathOutput = new uint[width * height];
+        ConversionPathOutput = new uint[width * height];
 
         Device = device;
         GpuWeights = device.AllocateReadOnlyBuffer<float>(Weights);
@@ -56,6 +60,8 @@ public sealed class ImagePipeline : IDisposable
         GpuFloats = device.AllocateReadWriteBuffer<Float4>(width * height);
         GpuTemp = device.AllocateReadWriteBuffer<Float4>(width * height);
         GpuPackedOutput = device.AllocateReadWriteBuffer<uint>(width * height);
+        GpuCopyInput = device.AllocateReadOnlyBuffer<uint>(width * height);
+        GpuCopyOutput = device.AllocateReadWriteBuffer<uint>(width * height);
     }
 
     public int Width { get; }
@@ -73,6 +79,8 @@ public sealed class ImagePipeline : IDisposable
     public uint[] Output { get; }
 
     public uint[] CopyPathOutput { get; }
+
+    public uint[] ConversionPathOutput { get; }
 
     public GraphicsDevice Device { get; }
 
@@ -92,6 +100,10 @@ public sealed class ImagePipeline : IDisposable
 
     private ReadWriteBuffer<Float4> GpuTemp { get; }
 
+    private ReadOnlyBuffer<uint> GpuCopyInput { get; }
+
+    private ReadWriteBuffer<uint> GpuCopyOutput { get; }
+
     /// <summary>Parallel.For per row for each pass; each pixel is one <see cref="Vector4"/>.</summary>
     public uint Cpu()
     {
@@ -100,15 +112,28 @@ public sealed class ImagePipeline : IDisposable
         return Output[Output.Length / 2];
     }
 
-    /// <summary>CPU unpack + copy in, two dispatches, copy out + CPU pack.</summary>
+    /// <summary>Copy the bytes in, the same two dispatches as <see cref="GpuZeroCopy"/>, copy the bytes out.</summary>
     public uint GpuWithCopies()
     {
+        GpuCopyInput.CopyFrom(Source);
+        Device.For(Width, Height, new BlurRgba8Horizontal(GpuCopyInput, GpuTemp, GpuScaledWeights, Width, Radius));
+        Device.For(Width, Height, new BlurRgba8Vertical(GpuTemp, GpuCopyOutput, GpuWeights, Width, Height, Radius));
+        GpuCopyOutput.CopyTo(CopyPathOutput);
+        return CopyPathOutput[CopyPathOutput.Length / 2];
+    }
+
+    /// <summary>CPU unpack + copy in, two Float4 dispatches, copy out + CPU pack.</summary>
+    public uint GpuWithConversions()
+    {
+        Vector4 scale = new(1f / 255f);
+
         Parallel.For(0, Height, y =>
         {
             for (int i = y * Width, end = i + Width; i < end; i++)
             {
                 uint p = Source[i];
-                Staged[i] = new Float4((p & 0xFF) / 255f, ((p >> 8) & 0xFF) / 255f, ((p >> 16) & 0xFF) / 255f, (p >> 24) / 255f);
+                Vector4 v = new Vector4(p & 0xFF, (p >> 8) & 0xFF, (p >> 16) & 0xFF, p >> 24) * scale;
+                Staged[i] = new Float4(v.X, v.Y, v.Z, v.W);
             }
         });
 
@@ -122,11 +147,11 @@ public sealed class ImagePipeline : IDisposable
             for (int i = y * Width, end = i + Width; i < end; i++)
             {
                 Float4 f = Staged[i];
-                CopyPathOutput[i] = Pack(new Vector4(f.X, f.Y, f.Z, f.W));
+                ConversionPathOutput[i] = Pack(new Vector4(f.X, f.Y, f.Z, f.W));
             }
         });
 
-        return CopyPathOutput[CopyPathOutput.Length / 2];
+        return ConversionPathOutput[ConversionPathOutput.Length / 2];
     }
 
     /// <summary>Two dispatches that read and write packed bytes in shared memory; nothing is copied.</summary>
@@ -145,6 +170,8 @@ public sealed class ImagePipeline : IDisposable
         GpuFloats.Dispose();
         GpuTemp.Dispose();
         GpuPackedOutput.Dispose();
+        GpuCopyInput.Dispose();
+        GpuCopyOutput.Dispose();
     }
 
     /// <summary>Rounds to nearest after clamping to 0..1, as <see cref="BlurRgba8Vertical"/> does.</summary>
