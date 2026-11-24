@@ -20,7 +20,7 @@ public sealed record Check(string Workload, string Size, string Variant, string 
 /// iteration counts (±1 allowed) against a CPU reference that fuses the same multiply-adds Metal's
 /// default FP contraction does.
 /// </summary>
-public static class Verify
+public static partial class Verify
 {
     public const double RelativeTolerance = 1e-5;
 
@@ -61,6 +61,8 @@ public static class Verify
         {
             Add(check);
         }
+
+        VerifyCpuAndSplit(device, Add);
 
         return checks;
     }

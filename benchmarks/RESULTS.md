@@ -222,6 +222,45 @@ Zero-copy data paths. A decoded 3840×2160 RGBA8 image (one `uint` per pixel) bl
 | 3840×2160 RGBA8, r = 8 | GPU, CPU conversions + copies (2 Float4 dispatches) | 12.22 ms | 54.27 µs | 48.10 µs | 0.560 |
 | 3840×2160 RGBA8, r = 8 | GPU generated shader, zero copy (2 dispatches) | 3.10 ms | 9.74 µs | 9.11 µs | 0.142 |
 
+## CPU execution and CPU+GPU split
+
+The same generated shader run by `For` (GPU), `ForCpu` (its C# on all CPU cores) and `ForSplit` (leading rows on the CPU, the rest on the GPU, concurrently, on the same shared buffers). Speedup = GPU mean / variant mean; below 1× the GPU alone is faster. The hand-written CPU rows are the main benchmarks' CPU twins, for context: *scalar* does the shader's arithmetic in a hand-written `Parallel.For` (what `ForCpu`'s overhead is measured against), *SIMD* is the fastest CPU variant.
+
+Measured separately from the tables above, with `SharpCompute.Benchmarks --filter '*Split*'` (BenchmarkDotNet Default job) on 2026-11-24 22:57–23:05 +06:00, same machine, all rows in the same session. Load: start `22:57 load averages: 2.90 6.29 7.86`, end `23:05 load averages: 13.32 9.97 8.92` (other work was running on the machine; treat the numbers as pessimistic).
+
+What each timing includes: **GPU** = encode + commit + wait, as above. **ForCpu** = argument validation and buffer leases, then `Execute` for every thread through `Parallel.For` (bounds-checked buffer access, per-thread built-ins). **ForSplit** = validation and leases, choosing the share, encode + commit of the GPU part, the CPU part on the calling thread and the pool while the GPU runs, wait, and updating the per-shader estimate. *adaptive* = no `cpuFraction` (the device's estimate, settled during warmup); *0.05* = an explicit share. Blur is two dispatches (horizontal, vertical) in every variant.
+
+| Workload | Variant | Mean | Error | Speedup vs GPU |
+|---|---|---:|---:|---:|
+| Mandelbrot 1920×1080 | GPU generated shader (For) † | 552.8 µs | 3.59 µs | 1.00× |
+| Mandelbrot 1920×1080 | CPU generated shader (ForCpu) | 54.43 ms | 972.3 µs | 0.01× (GPU alone 98.46× faster) |
+| Mandelbrot 1920×1080 | Split CPU+GPU (ForSplit, adaptive) | 564.0 µs | 6.40 µs | 0.98× (GPU alone 1.02× faster) |
+| Mandelbrot 1920×1080 | Split CPU+GPU (ForSplit, cpuFraction 0.05) | 551.2 µs | 5.81 µs | 1.00× |
+| Mandelbrot 1920×1080 | Hand-written CPU (Parallel.For, scalar) | 26.73 ms | 302.2 µs | 0.021× (GPU alone 48.35× faster) |
+| Mandelbrot 1920×1080 | Best hand-written CPU (Parallel.For + SIMD) | 9.23 ms | 77.3 µs | 0.06× (GPU alone 16.7× faster) |
+| Gaussian blur 3840×2160, r = 8 | GPU generated shader (For, 2 dispatches) † | 1.68 ms | 11.5 µs | 1.00× |
+| Gaussian blur 3840×2160, r = 8 | CPU generated shader (ForCpu, 2 dispatches) | 30.10 ms | 592.4 µs | 0.056× (GPU alone 17.96× faster) |
+| Gaussian blur 3840×2160, r = 8 | Split CPU+GPU (ForSplit, adaptive, 2 dispatches) | 1.60 ms | 31.8 µs | 1.04× |
+| Gaussian blur 3840×2160, r = 8 | Split CPU+GPU (ForSplit, cpuFraction 0.05, 2 dispatches) | 1.91 ms | 18.1 µs | 0.88× (GPU alone 1.14× faster) |
+| Gaussian blur 3840×2160, r = 8 | Hand-written CPU (Parallel.For, scalar) | 19.44 ms | 140.7 µs | 0.086× (GPU alone 11.6× faster) |
+| Gaussian blur 3840×2160, r = 8 | Best hand-written CPU (Parallel.For + SIMD) | 2.42 ms | 17.7 µs | 0.691× (GPU alone 1.45× faster) |
+| N-body 16,384 bodies | GPU generated shader (For) † | 4.01 ms | 13.0 µs | 1.00× |
+| N-body 16,384 bodies | CPU generated shader (ForCpu) | 62.75 ms | 1.25 ms | 0.064× (GPU alone 15.66× faster) |
+| N-body 16,384 bodies | Split CPU+GPU (ForSplit, adaptive) | 4.05 ms | 64.3 µs | 0.989× (GPU alone 1.01× faster) |
+| N-body 16,384 bodies | Split CPU+GPU (ForSplit, cpuFraction 0.05) | 4.00 ms | 18.2 µs | 1.00× |
+| N-body 16,384 bodies | Hand-written CPU (Parallel.For, scalar) | 47.17 ms | 939.7 µs | 0.085× (GPU alone 11.78× faster) |
+| N-body 16,384 bodies | Best hand-written CPU (Parallel.For + SIMD) | 13.49 ms | 54.5 µs | 0.297× (GPU alone 3.37× faster) |
+
+**What this shows.**
+
+- **The split does not pay off on these workloads.** The adaptive split lands within ±4 % of GPU-only on all three: blur 4 % faster, Mandelbrot 2 % and N-body 1 % slower. A second run on the branch before rebasing gave blur 2 % faster and the same for the other two. The earlier estimates (blur ≈ 1.7×, N-body ≈ 1.3×) assumed the CPU part runs at the speed of the hand-tuned SIMD variants (2.4 ms and 13.5 ms here). The CPU part of a split runs the shader's scalar C# instead (`ForCpu`: 30.1 ms and 62.7 ms, 12× and 4.7× slower), so its ideal share is about 5–6 % of the grid (GPU time / (GPU + CPU time)), and the most it could save is about that much.
+- **Running both at once slows the GPU down.** In traces of individual dispatches, the GPU part of a Mandelbrot split with 6–7 % of the rows on the CPU took about 0.70 ms from commit to completion, more than the whole grid takes alone (0.54 ms). Submission, completion and the GPU's memory traffic compete with a CPU that has every core busy. So a split that is perfectly balanced (both parts finishing together) can still be slower than GPU-only.
+- **Hence the adaptive mode's guard.** A first version balanced only the finishing times. In a run earlier the same evening it was 11 % faster than GPU-only on blur (1.525 vs 1.688 ms), but **2.2× slower on Mandelbrot** (1.168 ms vs 0.537 ms) and 3 % slower on N-body. The shipped version also measures the wall time of split and GPU-only dispatches per shader, uses whichever is faster, and re-measures the other now and then. The table above is that version: it no longer loses more than a couple of percent, and it gains about as little.
+- **Fixed shares are fragile.** `cpuFraction 0.05` is 14 % slower than GPU-only for blur, and neutral for the other two.
+- **`ForCpu` costs 1.3–2.0× a hand-written scalar `Parallel.For` of the same arithmetic** (N-body 1.33×, blur 1.55×, Mandelbrot 2.04×), from bounds-checked buffer access, per-thread built-ins through a thread-static, and per-thread `Execute` calls. It is a correct fallback and a debugging aid, not a fast CPU path.
+
+`--verify` gained checks for these three workloads (all passing; not in the verification table below, which is from the earlier full run). `ForCpu`'s pixels are identical to the CPU scalar loop for Mandelbrot. Its blur output is 100 % bit-exact with it, and its N-body output is within 9.1e-8. With `cpuFraction 0.5` (so both parts always run), the split's CPU rows match the CPU scalar loop and its GPU rows match the GPU-only dispatch exactly for Mandelbrot. Blur and N-body agree to 3.7e-7 and 9.9e-8 relative.
+
 ## First dispatch (pipeline compile)
 
 A plain `Stopwatch`, not BenchmarkDotNet. Each sample is a fresh process (`--first-dispatch`) that creates the default device and then dispatches the 1920×1080, 512-iteration Mandelbrot. The first dispatch compiles the generated MSL into a pipeline (`newLibraryWithSource` + `newComputePipelineState`) and then runs it. Compile ≈ first − steady. macOS keeps a system-wide Metal shader cache, so these are typically warm-cache compiles; a never-seen shader on a clean cache takes longer.

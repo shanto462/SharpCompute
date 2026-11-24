@@ -37,7 +37,10 @@ public static class Report
     {
         (Machine machine, Machine.Snapshot before, Machine.Snapshot after, IReadOnlyList<Check> checks, IReadOnlyList<FirstDispatch> firstDispatches, IReadOnlyList<BenchmarkRow> allRows, bool quick, double elapsedMinutes, IReadOnlyList<Rerun>? reruns) = data;
         reruns ??= [];
+        // The CPU+GPU split benchmarks compare dispatch paths, not GPU against CPU; they get their own section.
+        List<Row> splitRows = allRows.Where(static r => r.Workload.StartsWith(SplitCategory.Prefix, StringComparison.Ordinal)).ToList();
         List<Row> rows = allRows
+            .Except(splitRows)
             .OrderBy(r => Array.IndexOf(WorkloadOrder, r.Workload) is int i && i >= 0 ? i : int.MaxValue)
             .ThenBy(r => r.SizeKey)
             .ToList();
@@ -152,6 +155,7 @@ public static class Report
             }
         }
 
+        AppendSplit(md, splitRows);
         AppendFirstDispatch(md, firstDispatches);
 
         md.AppendLine("## Verification (`--verify`)");
@@ -417,6 +421,41 @@ public static class Report
             },
             _ => benchmark.Parameters.DisplayInfo,
         };
+    }
+
+    /// <summary>The ForCpu / ForSplit benchmarks: each variant against the GPU-only dispatch of the same shader.</summary>
+    private static void AppendSplit(StringBuilder md, List<Row> rows)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        md.AppendLine("## CPU execution and CPU+GPU split");
+        md.AppendLine();
+        md.AppendLine("The same generated shader run by `For` (GPU), `ForCpu` (its C# on all CPU cores) and `ForSplit` (leading rows on the CPU, "
+            + "the rest on the GPU, concurrently, on the same shared buffers). Speedup = GPU mean / variant mean; below 1× the GPU alone is faster. "
+            + "The hand-written CPU row is the best CPU variant of the main benchmarks, for context.");
+        md.AppendLine();
+        md.AppendLine("| Workload | Variant | Mean | Error | Speedup vs GPU |");
+        md.AppendLine("|---|---|---:|---:|---:|");
+
+        foreach (var workload in rows.GroupBy(static r => r.Workload))
+        {
+            Row? gpu = workload.FirstOrDefault(static r => r.Baseline);
+
+            foreach (Row row in workload)
+            {
+                string speedup = gpu is null ? "?" : VersusGpu(gpu.Mean / row.Mean);
+                md.AppendLine($"| {workload.Key[SplitCategory.Prefix.Length..]} | {row.Variant} | {Time(row.Mean)} | {Time(row.Error)} | {speedup} |");
+            }
+        }
+
+        md.AppendLine();
+
+        static string VersusGpu(double factor) => factor >= 0.995
+            ? Invariant($"{factor:F2}×")
+            : Invariant($"{factor:0.###}× (GPU alone {1 / factor:0.##}× faster)");
     }
 
     private static string Time(double ns) => ns switch

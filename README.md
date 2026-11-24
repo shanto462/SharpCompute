@@ -53,6 +53,8 @@ float[] result = buffer.ToArray(); // [2, 4, 6, 8]
   and `WrapReadWriteBuffer` makes a buffer over page-aligned memory you already own.
 - **Batched and asynchronous dispatch.** A `ComputeContext` runs many dispatches with one commit and
   one wait; `ForAsync`/`ForEachAsync` return a `Task` so the CPU keeps working while the GPU runs.
+- **CPU execution and CPU+GPU split.** The same shader also runs as C# on all CPU cores
+  (`device.ForCpu`), or split between the CPU and the GPU in one dispatch (`device.ForSplit`).
 - **Correct by default.** Shaders compile with IEEE-safe math and precise functions, and every
   shader that passes structs or constants carries `static_assert` layout guards. The CPU
   implementations of `Gpu.*` were measured against Apple GPU results: bit-for-bit for arithmetic,
@@ -215,6 +217,28 @@ for (int k = 0; k < frameCount; k++)
 Work on one device runs in submission order, so dependent `ForAsync` calls can also be issued back
 to back and awaited once. Measurements are in the "Batching and async" section of
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
+
+### On the CPU, or on both
+
+The C# of a shader is real code: `ForCpu` runs it on all CPU cores, with `ThreadIds`,
+`DispatchSize` and friends returning per-thread values, and buffers read and written in place.
+`ForSplit` runs the leading rows of the grid on the CPU while the GPU runs the rest, on the same
+shared buffers, and returns when both are done:
+
+```csharp
+device.ForCpu(width, height, new Blur(source, destination));       // CPU only
+device.ForSplit(width, height, new Blur(source, destination));     // adaptive CPU share
+device.ForSplit(width, height, new Blur(source, destination), 0.25); // a quarter of the rows on the CPU
+device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shaders too
+```
+
+Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
+the GPU up to floating-point rounding. Only split shaders whose threads write their own elements.
+Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
+every CPU core is busy. The adaptive mode therefore only splits while that measures faster than the
+GPU alone, and on the benchmarked workloads it lands within ±4 % of GPU-only
+([`benchmarks/RESULTS.md`](benchmarks/RESULTS.md#cpu-execution-and-cpugpu-split)). `ForCpu` is a
+correct fallback and a debugging aid rather than a fast CPU path.
 
 ## Building and testing
 
