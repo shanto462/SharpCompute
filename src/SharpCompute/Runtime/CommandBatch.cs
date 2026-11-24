@@ -9,8 +9,9 @@ using SharpCompute.Interop;
 namespace SharpCompute;
 
 /// <summary>
-/// One <c>id&lt;MTLCommandBuffer&gt;</c> with one open compute encoder, the dispatches recorded into it
-/// and everything they need kept alive until the GPU has finished. Shared by
+/// A list of recorded dispatches that is encoded into one <c>id&lt;MTLCommandBuffer&gt;</c> with one
+/// compute encoder when it is committed, plus everything the dispatches need kept alive until the GPU
+/// has finished. Shared by
 /// <see cref="ComputeContext"/> (many dispatches, one commit) and the <c>ForAsync</c> methods
 /// (one dispatch, completion reported through a <see cref="Task"/>).
 /// </summary>
@@ -20,6 +21,14 @@ namespace SharpCompute;
 /// <c>MTLDispatchTypeSerial</c>: each dispatch finishes, and its writes are visible, before the next
 /// one starts. Every SharpCompute resource is shared storage with the default (tracked) hazard mode,
 /// so command buffers committed to the same queue are ordered the same way.
+/// </para>
+/// <para>
+/// <b>Deferred encoding.</b> Recording validates every dispatch, leases what it binds and copies its
+/// constants right away, but the command buffer and encoder are only created when the batch is
+/// committed. A queue has a fixed number of command buffers (64 by default) and creating one more
+/// blocks until one completes, so a pending batch that held a command buffer would hold a slot of
+/// that device-wide pool: 64 pending (or leaked) contexts would block every later dispatch on the
+/// device forever. Recorded work holds no Metal command buffer at all.
 /// </para>
 /// <para>
 /// <b>Lifetime.</b> Unlike the synchronous <c>For</c>, encoding and completion happen in different
@@ -42,8 +51,12 @@ internal sealed unsafe class CommandBatch
     private readonly GraphicsDevice _device;
     private readonly List<ObjCHandle> _leases = [];
     private readonly List<Type> _shaderTypes = [];
+    private readonly List<Command> _commands = [];
+    private byte[] _constants = [];
+    private int _constantsLength;
     private List<nint>? _temporaries;
     private TaskCompletionSource? _completion;
+    private nint _queue;
     private nint _commandBuffer;
     private nint _encoder;
     private nint _currentPipeline;
@@ -51,48 +64,32 @@ internal sealed unsafe class CommandBatch
     private int _released;
     private string? _simulatedError;
 
-    /// <summary>Creates the command buffer and its compute encoder on <paramref name="device"/>'s queue.</summary>
+    /// <summary>Starts an empty batch on <paramref name="device"/>'s queue. No Metal object is created until it is committed.</summary>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     internal CommandBatch(GraphicsDevice device)
     {
         _device = device;
 
-        using AutoreleasePool pool = AutoreleasePool.Push();
-
-        try
-        {
-            // Held until completion: a device disposed while the batch is pending keeps its queue.
-            nint queue = Lease(device.QueueHandle, device);
-            nint commandBuffer = ObjC.SendIntPtr(queue, Selectors.CommandBuffer);
-
-            if (commandBuffer == 0)
-            {
-                throw new InvalidOperationException("Metal failed to create a command buffer.");
-            }
-
-            nint encoder = ObjC.SendIntPtr(commandBuffer, Selectors.ComputeCommandEncoder);
-
-            if (encoder == 0)
-            {
-                throw new InvalidOperationException("Metal failed to create a compute command encoder.");
-            }
-
-            // Both are autoreleased; the pool above would drain them when this constructor returns.
-            _commandBuffer = ObjC.Retain(commandBuffer);
-            _encoder = ObjC.Retain(encoder);
-        }
-        catch
-        {
-            ReleaseResources();
-            throw;
-        }
+        // Held until completion: a device disposed while the batch is pending keeps its queue.
+        _queue = Lease(device.QueueHandle, device);
     }
 
     // Reached only for a batch that was never committed and was dropped without Abandon (a leaked
-    // ComputeContext). Metal aborts the process when an encoder is deallocated without endEncoding,
-    // so this ends it before letting go. A committed batch is rooted by the wait or by the GCHandle
-    // its completion handler owns, and suppresses finalization once it completes.
-    ~CommandBatch() => Abandon();
+    // ComputeContext): it owns no command buffer or encoder, only leases and temporaries, which this
+    // releases. A committed batch is rooted by the wait or by the GCHandle its completion handler
+    // owns, and suppresses finalization once it completes.
+    ~CommandBatch()
+    {
+        try
+        {
+            Abandon();
+        }
+        catch (AggregateException)
+        {
+            // Only a release callback that broke its must-not-throw contract gets here, and there is
+            // nobody to report it to on the finalizer thread; the leases were all released regardless.
+        }
+    }
 
     /// <summary>Number of dispatches recorded so far.</summary>
     internal int DispatchCount => _dispatchCount;
@@ -105,39 +102,54 @@ internal sealed unsafe class CommandBatch
     internal void SimulateGpuError(string description) => _simulatedError = description;
 
     /// <summary>
-    /// Encodes one dispatch. <paramref name="output"/>, when non-null, is bound at texture index 0
-    /// before the shader's own arguments (the <c>ForEach</c> contract). If this throws, nothing of the
-    /// failed dispatch runs; dispatches recorded earlier are unaffected.
+    /// Records one dispatch. <paramref name="output"/>, when non-null, is bound at texture index 0
+    /// before the shader's own arguments (the <c>ForEach</c> contract). Everything is validated and
+    /// leased, and the constants are copied, now; if this throws, nothing of the failed dispatch is
+    /// recorded and dispatches recorded earlier are unaffected.
     /// </summary>
     internal void Encode<T>(ComputePipeline pipeline, MTLSize grid, MTLSize threadsPerThreadgroup, ReadWriteTexture2D<Rgba32>? output, in T shader)
         where T : struct, IComputeShaderDescriptor<T>
     {
-        Debug.Assert(_encoder != 0, "The batch is no longer recording.");
+        Debug.Assert(_commandBuffer == 0 && Volatile.Read(ref _released) == 0, "The batch is no longer recording.");
 
-        using AutoreleasePool pool = AutoreleasePool.Push();
+        int commandCount = _commands.Count;
+        int constantsLength = _constantsLength;
+        nint currentPipeline = _currentPipeline;
 
-        // Bindings persist across dispatches in one encoder, so the pipeline is only switched when it
-        // changes (and leased the first time it becomes current; one lease is enough for the batch).
-        nint state = pipeline.State.DangerousGetHandle();
-
-        if (state != _currentPipeline)
+        try
         {
-            state = Lease(pipeline.State, _device);
-            ObjC.SendVoid(_encoder, Selectors.SetComputePipelineState, state);
-            _currentPipeline = state;
-        }
+            // Bindings persist across dispatches in one encoder, so the pipeline is only switched when it
+            // changes (and leased the first time it becomes current; one lease is enough for the batch).
+            nint state = pipeline.State.DangerousGetHandle();
 
-        if (output is not null)
+            if (state != _currentPipeline)
+            {
+                state = Lease(pipeline.State, _device);
+                _commands.Add(new Command(CommandKind.Pipeline, state, 0));
+                _currentPipeline = state;
+            }
+
+            if (output is not null)
+            {
+                nint texture = Lease(output.Handle, output);
+                Lease(output.BufferHandle, output);
+                _commands.Add(new Command(CommandKind.Texture, texture, 0));
+            }
+
+            ShaderArgumentWriter writer = new(0, _device, this);
+            T.SetArguments(in shader, ref writer);
+
+            _commands.Add(new Command(CommandKind.Dispatch, 0, 0) { Grid = grid, ThreadsPerThreadgroup = threadsPerThreadgroup });
+        }
+        catch
         {
-            nint texture = Lease(output.Handle, output);
-            Lease(output.BufferHandle, output);
-            ObjC.SendVoid(_encoder, Selectors.SetTextureAtIndex, texture, (nuint)0);
+            // Drop the partial dispatch's commands. Its leases stay recorded and are released with the
+            // batch, which is harmless: they only delay a release until the batch is done.
+            _commands.RemoveRange(commandCount, _commands.Count - commandCount);
+            _constantsLength = constantsLength;
+            _currentPipeline = currentPipeline;
+            throw;
         }
-
-        ShaderArgumentWriter writer = new(_encoder, _device, this);
-        T.SetArguments(in shader, ref writer);
-
-        ObjC.SendVoid(_encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, grid, threadsPerThreadgroup);
 
         _dispatchCount++;
 
@@ -145,6 +157,22 @@ internal sealed unsafe class CommandBatch
         {
             _shaderTypes.Add(typeof(T));
         }
+    }
+
+    /// <summary>Records <c>setBuffer:offset:0 atIndex:</c> for an already leased buffer.</summary>
+    internal void RecordBuffer(nint buffer, int index) => _commands.Add(new Command(CommandKind.Buffer, buffer, index));
+
+    /// <summary>Records <c>setBytes:length:atIndex:</c> with a copy of the bytes, taken now.</summary>
+    internal void RecordBytes(void* bytes, int length, int index)
+    {
+        if (_constantsLength + length > _constants.Length)
+        {
+            Array.Resize(ref _constants, Math.Max(_constantsLength + length, Math.Max(256, _constants.Length * 2)));
+        }
+
+        new ReadOnlySpan<byte>(bytes, length).CopyTo(_constants.AsSpan(_constantsLength));
+        _commands.Add(new Command(CommandKind.Bytes, _constantsLength, index) { Length = length });
+        _constantsLength += length;
     }
 
     /// <summary>
@@ -163,7 +191,10 @@ internal sealed unsafe class CommandBatch
     /// <summary>Takes ownership of a +1 reference (a large-constants buffer) and releases it when the batch completes.</summary>
     internal void Own(nint temporary)
     {
-        (_temporaries ??= []).Add(temporary);
+        // Reserve the slot first so that recording it cannot fail after we own the reference.
+        List<nint> temporaries = _temporaries ??= [];
+        temporaries.EnsureCapacity(temporaries.Count + 1);
+        temporaries.Add(temporary);
     }
 
     /// <summary>Ends encoding, commits and blocks until the GPU has finished.</summary>
@@ -176,7 +207,7 @@ internal sealed unsafe class CommandBatch
         {
             using AutoreleasePool pool = AutoreleasePool.Push();
 
-            EndEncoding();
+            EncodeRecorded();
             ObjC.SendVoid(_commandBuffer, Selectors.Commit);
             ObjC.SendVoid(_commandBuffer, Selectors.WaitUntilCompleted);
             error = GetError();
@@ -200,23 +231,38 @@ internal sealed unsafe class CommandBatch
     {
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _completion = completion;
+        GCHandle self = default;
 
-        // The handle roots this batch, and through it every leased resource, until the handler runs.
-        GCHandle self = GCHandle.Alloc(this);
-
-        using (AutoreleasePool pool = AutoreleasePool.Push())
+        try
         {
-            EndEncoding();
+            using AutoreleasePool pool = AutoreleasePool.Push();
 
-            // Neither call can fail once the encoder has ended, so the handle is always freed by the handler.
+            EncodeRecorded();
+
+            // The handle roots this batch, and through it every leased resource, until the handler
+            // runs; from Attach on, the handler owns it and frees it.
+            self = GCHandle.Alloc(this);
             CompletionBlock.Attach(_commandBuffer, self);
+            self = default;
             ObjC.SendVoid(_commandBuffer, Selectors.Commit);
+        }
+        catch
+        {
+            // Nothing was committed: free what Attach did not take over and drop the batch, so a
+            // failure here cannot leak the leases or root the batch forever.
+            if (self.IsAllocated)
+            {
+                self.Free();
+            }
+
+            ReleaseResources();
+            throw;
         }
 
         return completion.Task;
     }
 
-    /// <summary>Drops an uncommitted batch: ends encoding and releases everything without running it.</summary>
+    /// <summary>Drops an uncommitted batch: releases everything without running it.</summary>
     internal void Abandon() => ReleaseResources();
 
     /// <summary>The completed handler; runs on a Metal completion thread and must not throw.</summary>
@@ -253,6 +299,64 @@ internal sealed unsafe class CommandBatch
         else
         {
             completion?.TrySetException(error);
+        }
+    }
+
+    /// <summary>
+    /// Creates the command buffer and compute encoder, replays the recorded commands into it and ends
+    /// encoding. On failure the encoder is still ended (Metal aborts if it is deallocated otherwise);
+    /// the caller releases the batch.
+    /// </summary>
+    private void EncodeRecorded()
+    {
+        nint commandBuffer = ObjC.SendIntPtr(_queue, Selectors.CommandBuffer);
+
+        if (commandBuffer == 0)
+        {
+            throw new InvalidOperationException("Metal failed to create a command buffer.");
+        }
+
+        // Autoreleased; retained so they outlive the caller's pool until the batch is released.
+        _commandBuffer = ObjC.Retain(commandBuffer);
+        nint encoder = ObjC.SendIntPtr(commandBuffer, Selectors.ComputeCommandEncoder);
+
+        if (encoder == 0)
+        {
+            throw new InvalidOperationException("Metal failed to create a compute command encoder.");
+        }
+
+        _encoder = ObjC.Retain(encoder);
+
+        try
+        {
+            fixed (byte* constants = _constants)
+            {
+                foreach (Command command in _commands)
+                {
+                    switch (command.Kind)
+                    {
+                        case CommandKind.Pipeline:
+                            ObjC.SendVoid(encoder, Selectors.SetComputePipelineState, command.Pointer);
+                            break;
+                        case CommandKind.Texture:
+                            ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, command.Pointer, (nuint)0);
+                            break;
+                        case CommandKind.Buffer:
+                            ObjC.SendVoid(encoder, Selectors.SetBufferOffsetAtIndex, command.Pointer, (nuint)0, (nuint)command.Index);
+                            break;
+                        case CommandKind.Bytes:
+                            ObjC.SendVoid(encoder, Selectors.SetBytesLengthAtIndex, constants + command.Pointer, (nuint)command.Length, (nuint)command.Index);
+                            break;
+                        case CommandKind.Dispatch:
+                            ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, command.Grid, command.ThreadsPerThreadgroup);
+                            break;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            EndEncoding();
         }
     }
 
@@ -316,6 +420,7 @@ internal sealed unsafe class CommandBatch
         EndEncoding();
         ObjC.Release(_commandBuffer);
         _commandBuffer = 0;
+        _commands.Clear();
 
         if (_temporaries is not null)
         {
@@ -325,11 +430,36 @@ internal sealed unsafe class CommandBatch
             }
         }
 
-        foreach (ObjCHandle handle in _leases)
-        {
-            handle.DangerousRelease();
-        }
+        // The last release of a wrapped buffer runs the caller's release callback, possibly on Metal's
+        // completion thread; one that throws must not stop the other leases from being released.
+        GraphicsDevice.ReleaseLeases(_leases);
+    }
 
-        _leases.Clear();
+    private enum CommandKind : byte
+    {
+        Pipeline,
+        Texture,
+        Buffer,
+        Bytes,
+        Dispatch,
+    }
+
+    /// <summary>
+    /// One recorded encoder call. <see cref="Pointer"/> is an <c>id</c> (pipeline, texture, buffer)
+    /// or, for <see cref="CommandKind.Bytes"/>, the offset of the copied constants.
+    /// </summary>
+    private readonly struct Command(CommandKind kind, nint pointer, int index)
+    {
+        public CommandKind Kind { get; } = kind;
+
+        public nint Pointer { get; } = pointer;
+
+        public int Index { get; } = index;
+
+        public int Length { get; init; }
+
+        public MTLSize Grid { get; init; }
+
+        public MTLSize ThreadsPerThreadgroup { get; init; }
     }
 }

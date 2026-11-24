@@ -74,6 +74,7 @@ public class BatchingOverlapBenchmarks
         _work = new FrameOverlap(GraphicsDevice.GetDefault());
         _work.Sync();
         _work.Async();
+        _work.CpuOnly(); // renders the 8 frames it analyzes, once, outside the measurement
     }
 
     [GlobalCleanup]

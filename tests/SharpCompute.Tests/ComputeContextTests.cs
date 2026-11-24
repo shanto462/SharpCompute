@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpCompute.Interop;
@@ -497,8 +498,7 @@ public class ComputeContextTests
                 RecordAndAbandon(device, buffer);
             }
 
-            // The finalizer ends each open encoder (Metal aborts on a dealloc without endEncoding),
-            // drops the uncommitted command buffer and returns the leases.
+            // Recorded work owns no command buffer or encoder; the finalizer just returns the leases.
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
@@ -511,6 +511,89 @@ public class ComputeContextTests
         finally
         {
             ObjC.Release(mtlBuffer);
+        }
+    }
+
+    [MetalFact]
+    public void ManyPendingContexts_DoNotExhaustTheQueue()
+    {
+        // A queue has 64 command buffers; pending contexts must not hold any, or the dispatch below
+        // would block forever. Run it with a deadline so a regression fails instead of hanging.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        ComputeContext[] contexts = new ComputeContext[100];
+
+        for (int i = 0; i < contexts.Length; i++)
+        {
+            contexts[i] = device.CreateComputeContext();
+            contexts[i].For(Length, new IncrementAll(buffer));
+        }
+
+        try
+        {
+            Task dispatch = Task.Run(() => device.For(Length, new IncrementAll(buffer)));
+            Assert.True(dispatch.Wait(TimeSpan.FromSeconds(20)), "A dispatch blocked while 100 contexts were pending.");
+            Assert.Equal(1, buffer[0]);
+        }
+        finally
+        {
+            foreach (ComputeContext context in contexts)
+            {
+                context.Dispose();
+            }
+        }
+
+        Assert.All(buffer.ToArray(), value => Assert.Equal(101, value));
+    }
+
+    [MetalFact]
+    public void ManyLeakedContexts_DoNotBlockLaterDispatches()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+
+        for (int i = 0; i < 100; i++)
+        {
+            RecordAndAbandon(device, buffer);
+        }
+
+        // No GC has run, so none of the leaked contexts has been finalized.
+        Task dispatch = Task.Run(() => device.For(Length, new IncrementAll(buffer)));
+        Assert.True(dispatch.Wait(TimeSpan.FromSeconds(20)), "A dispatch blocked behind leaked contexts.");
+        Assert.Equal(1, buffer[0]);
+    }
+
+    [MetalFact]
+    public unsafe void ThrowingReleaseCallback_StillReleasesEveryOtherLease()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        void* memory = NativeMemory.AlignedAlloc((nuint)(Length * sizeof(int)), (nuint)GraphicsDevice.PageSize);
+        using ReadWriteBuffer<int> other = device.AllocateReadWriteBuffer<int>(Length);
+        nint otherBuffer = ObjC.Retain(other.Handle.DangerousGetHandle());
+
+        try
+        {
+            ReadWriteBuffer<int> wrapped = device.WrapReadWriteBuffer<int>((nint)memory, Length, static () => throw new InvalidOperationException("release failed"));
+
+            ComputeContext context = device.CreateComputeContext();
+            context.For(Length, new IncrementAll(wrapped));
+            context.For(Length, new IncrementAll(other));
+
+            // Disposed while pending: the batch's lease is the last one, so the callback runs (and
+            // throws) when the batch releases its resources.
+            wrapped.Dispose();
+
+            AggregateException error = Assert.Throws<AggregateException>(context.Dispose);
+            Assert.Contains(error.InnerExceptions, static e => e.Message == "release failed");
+
+            // The lease on the other buffer was still returned: disposing it frees it.
+            other.Dispose();
+            WaitForRetainCount(otherBuffer, 1);
+        }
+        finally
+        {
+            ObjC.Release(otherBuffer);
+            NativeMemory.AlignedFree(memory);
         }
     }
 

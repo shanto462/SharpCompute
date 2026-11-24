@@ -61,8 +61,9 @@ public unsafe ref struct ShaderArgumentWriter
 
         if (_batch is not null)
         {
-            // Released when the batch completes, so a Dispose before then cannot free the memory.
-            ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, _batch.Lease(buffer.Handle, buffer), (nuint)0, (nuint)index);
+            // Recorded, not encoded: the batch encodes when it is committed. The lease is released when
+            // the batch completes, so a Dispose before then cannot free the memory.
+            _batch.RecordBuffer(_batch.Lease(buffer.Handle, buffer), index);
             return;
         }
 
@@ -94,6 +95,13 @@ public unsafe ref struct ShaderArgumentWriter
 
         fixed (T* bytes = &value)
         {
+            if (_batch is not null && sizeof(T) <= Metal.MaxSetBytesLength)
+            {
+                // Copied now, so a dispatch sees the constants as they were when it was recorded.
+                _batch.RecordBytes(bytes, sizeof(T), index);
+                return;
+            }
+
             if (sizeof(T) <= Metal.MaxSetBytesLength)
             {
                 // Metal copies the bytes into the command buffer before this call returns.
@@ -111,7 +119,7 @@ public unsafe ref struct ShaderArgumentWriter
                 // A batch may stay uncommitted for a long time; it keeps its own reference until it
                 // completes instead of relying on the command buffer's retain from bind time alone.
                 _batch.Own(temporary);
-                ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, temporary, (nuint)0, (nuint)index);
+                _batch.RecordBuffer(temporary, index);
                 return;
             }
 
@@ -128,7 +136,7 @@ public unsafe ref struct ShaderArgumentWriter
 
     private readonly GraphicsDevice Validate(int index)
     {
-        if (Encoder == 0 || _device is null)
+        if ((Encoder == 0 && _batch is null) || _device is null)
         {
             throw new InvalidOperationException(
                 $"A {nameof(ShaderArgumentWriter)} is only valid inside {nameof(IComputeShaderDescriptor<>)}.SetArguments during a dispatch.");

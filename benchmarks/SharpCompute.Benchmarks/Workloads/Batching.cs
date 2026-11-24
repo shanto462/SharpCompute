@@ -113,6 +113,7 @@ public sealed class FrameOverlap : IDisposable
 
     private readonly ReadWriteBuffer<uint>[] _frames;
     private readonly int[] _histogram = new int[Bins];
+    private ReadWriteBuffer<uint>[]? _rendered;
 
     public FrameOverlap(GraphicsDevice device)
     {
@@ -133,17 +134,35 @@ public sealed class FrameOverlap : IDisposable
         return _frames[0][0];
     }
 
-    /// <summary>CPU only: the analysis of one already-rendered frame, <see cref="Frames"/> times.</summary>
+    /// <summary>
+    /// CPU only: the analysis of frames 0 … <see cref="Frames"/> − 1, rendered once beforehand, so it
+    /// is exactly the CPU work of <see cref="Sync"/> and <see cref="Async"/> (the histogram's cost
+    /// depends on the data).
+    /// </summary>
     public long CpuOnly()
     {
+        ReadWriteBuffer<uint>[] rendered = _rendered ??= RenderAll();
         long checksum = 0;
 
         for (int k = 0; k < Frames; k++)
         {
-            checksum += Analyze(_frames[0]);
+            checksum = Mix(checksum, Analyze(rendered[k]));
         }
 
         return checksum;
+    }
+
+    private ReadWriteBuffer<uint>[] RenderAll()
+    {
+        ReadWriteBuffer<uint>[] frames = new ReadWriteBuffer<uint>[Frames];
+
+        for (int k = 0; k < Frames; k++)
+        {
+            frames[k] = Device.AllocateReadWriteBuffer<uint>(Width * Height);
+            Device.For(Width, Height, Shader(frames[k], k));
+        }
+
+        return frames;
     }
 
     /// <summary>Before: render frame k (<c>For</c>, waits), then analyze it. The CPU and GPU take turns.</summary>
@@ -185,6 +204,11 @@ public sealed class FrameOverlap : IDisposable
     {
         _frames[0].Dispose();
         _frames[1].Dispose();
+
+        foreach (ReadWriteBuffer<uint> frame in _rendered ?? [])
+        {
+            frame.Dispose();
+        }
     }
 
     /// <summary>Frame k: the full set, zooming in by 10 % per frame so each frame is different work.</summary>
@@ -252,8 +276,11 @@ public static class BatchingVerify
         {
             long sync = overlap.Sync();
             long async = overlap.Async();
+            long cpuOnly = overlap.CpuOnly();
             yield return new Check(Workload, $"{FrameOverlap.Frames} frames", "GPU+CPU async (double-buffered)", "GPU+CPU sync", "checksum differs",
                 sync == async ? 0 : 1, 0, string.Create(CultureInfo.InvariantCulture, $"frame checksums {sync:X16} vs {async:X16}"));
+            yield return new Check(Workload, $"{FrameOverlap.Frames} frames", "CPU analysis only (pre-rendered)", "GPU+CPU sync", "checksum differs",
+                sync == cpuOnly ? 0 : 1, 0, "the CPU-only row analyzes the same 8 frames");
         }
     }
 

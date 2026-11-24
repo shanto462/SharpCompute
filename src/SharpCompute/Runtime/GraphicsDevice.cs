@@ -124,9 +124,11 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// <param name="pointer">Start of the memory; must be a multiple of <see cref="PageSize"/>.</param>
     /// <param name="length">Number of elements; must be positive.</param>
     /// <param name="release">
-    /// Called once when the buffer is released (disposed, or finalized: then on the finalizer
-    /// thread), after any dispatch that was using it has finished, to free the memory. It must not
-    /// throw. If this method throws, it is not called and the caller still owns the memory.
+    /// Called once when the buffer is released, after any dispatch that was using it has finished,
+    /// to free the memory. It runs on the thread that drops the last reference: the one calling
+    /// Dispose, the finalizer thread, or a Metal completion thread when an asynchronous or batched
+    /// dispatch finishes after the buffer was disposed. It must not throw. If this method throws, it
+    /// is not called and the caller still owns the memory.
     /// </param>
     /// <remarks>
     /// The memory must stay valid and must not be freed until <paramref name="release"/> runs (or,
@@ -540,10 +542,35 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
         finally
         {
-            foreach (ObjCHandle handle in leased)
+            ReleaseLeases(leased);
+        }
+    }
+
+    /// <summary>
+    /// Releases every lease even if one of them throws (the last release of a wrapped buffer runs the
+    /// caller's release callback), then reports the failures.
+    /// </summary>
+    internal static void ReleaseLeases(List<ObjCHandle> leased)
+    {
+        List<Exception>? failures = null;
+
+        foreach (ObjCHandle handle in leased)
+        {
+            try
             {
                 handle.DangerousRelease();
             }
+            catch (Exception e)
+            {
+                (failures ??= []).Add(e);
+            }
+        }
+
+        leased.Clear();
+
+        if (failures is not null)
+        {
+            throw new AggregateException("A release callback threw while a dispatch's resources were released.", failures);
         }
     }
 

@@ -145,6 +145,11 @@ public static class Report
             }
 
             md.AppendLine();
+
+            if (workload.Key == "Batching and async")
+            {
+                AppendBatchingDetails(md, [.. workload.SelectMany(g => g)]);
+            }
         }
 
         AppendFirstDispatch(md, firstDispatches);
@@ -269,6 +274,69 @@ public static class Report
             md.AppendLine(Invariant($"| {i + 1} | {s.DeviceMs:F1} ms | {s.FirstMs:F1} ms | {s.SecondMs:F2} ms | {s.SteadyMs:F2} ms | {s.FirstMs - s.SteadyMs:F1} ms |"));
         }
 
+        md.AppendLine();
+    }
+
+    /// <summary>The per-dispatch costs and overlap bound derived from the "Batching and async" rows.</summary>
+    private static void AppendBatchingDetails(StringBuilder md, List<Row> rows)
+    {
+        Row? Find(string sizePrefix, string variantPrefix) =>
+            rows.FirstOrDefault(r => r.Size.StartsWith(sizePrefix, StringComparison.Ordinal) && r.Variant.StartsWith(variantPrefix, StringComparison.Ordinal));
+
+        int[] ks = [.. rows.Select(r => r.Size).Where(s => s.StartsWith("K = ", StringComparison.Ordinal))
+            .Select(s => int.Parse(s[4..s.IndexOf(' ', 4)], CultureInfo.InvariantCulture)).Distinct().Order()];
+
+        if (ks.Length > 0)
+        {
+            md.AppendLine("Per dispatch (each row above divided by K):");
+            md.AppendLine();
+            md.AppendLine("| K | `device.For` | `ComputeContext` | `ForAsync` |");
+            md.AppendLine("|---:|---:|---:|---:|");
+
+            foreach (int k in ks)
+            {
+                string size = Invariant($"K = {k} ");
+                md.AppendLine(Invariant($"| {k} | {Time((Find(size, "GPU K× device.For")?.Mean ?? double.NaN) / k)} | {Time((Find(size, "GPU one ComputeContext")?.Mean ?? double.NaN) / k)} | {Time((Find(size, "GPU K× ForAsync")?.Mean ?? double.NaN) / k)} |"));
+            }
+
+            md.AppendLine();
+
+            int lo = ks[0], hi = ks[^1];
+            Row? contextLo = Find(Invariant($"K = {lo} "), "GPU one ComputeContext"), contextHi = Find(Invariant($"K = {hi} "), "GPU one ComputeContext");
+            Row? asyncLo = Find(Invariant($"K = {lo} "), "GPU K× ForAsync"), asyncHi = Find(Invariant($"K = {hi} "), "GPU K× ForAsync");
+            Row? forLo = Find(Invariant($"K = {lo} "), "GPU K× device.For"), forHi = Find(Invariant($"K = {hi} "), "GPU K× device.For");
+
+            if (hi > lo && contextLo is not null && contextHi is not null && asyncLo is not null && asyncHi is not null && forLo is not null && forHi is not null)
+            {
+                md.AppendLine(Invariant($"- Each extra dispatch (from K = {lo} to K = {hi}) costs about **{Time((forHi.Mean - forLo.Mean) / (hi - lo))}** as another `device.For` ")
+                + Invariant($"(a whole submit-and-wait), **{Time((contextHi.Mean - contextLo.Mean) / (hi - lo))}** inside one `ComputeContext` and ")
+                + Invariant($"**{Time((asyncHi.Mean - asyncLo.Mean) / (hi - lo))}** as another back-to-back `ForAsync` (still its own command buffer and completion handler). ")
+                + "Use a context for many small dispatches; `ForAsync` is for overlapping CPU work with the GPU.");
+                md.AppendLine("- A device's queue has 64 command buffers. Back-to-back `ForAsync` beyond 64 in flight blocks in `commandBuffer` until one completes, "
+                    + "which is part of the larger-K `ForAsync` rows. A pending `ComputeContext` holds none: it encodes when it is executed.");
+            }
+        }
+
+        Row? blurFor = Find("blur", "GPU blur, 2× device.For"), blurContext = Find("blur", "GPU blur, one ComputeContext");
+
+        if (blurFor is not null && blurContext is not null)
+        {
+            md.AppendLine(Invariant($"- The two-pass blur saves one submission: {Time(blurFor.Mean)} → {Time(blurContext.Mean)} ({(blurContext.Mean / blurFor.Mean - 1) * 100:+0;−0} %). ")
+                + "The kernels dominate at 4K, so batching two passes is a small win there.");
+        }
+
+        Row? sync = Find(Invariant($"{8} frames"), "GPU+CPU sync"), overlapped = Find(Invariant($"{8} frames"), "GPU+CPU async");
+        Row? gpu = Find(Invariant($"{8} frames"), "GPU render only"), cpu = Find(Invariant($"{8} frames"), "CPU analysis only");
+
+        if (sync is not null && overlapped is not null && gpu is not null && cpu is not null)
+        {
+            double ideal = Math.Max(gpu.Mean, cpu.Mean);
+            md.AppendLine(Invariant($"- Overlap: GPU render alone {Time(gpu.Mean)}, CPU analysis alone {Time(cpu.Mean)} (of the same 8 frames). Perfect overlap cannot beat ")
+                + Invariant($"max(GPU, CPU) = {Time(ideal)}; sync takes {Time(sync.Mean)} (GPU + CPU = {Time(gpu.Mean + cpu.Mean)}, plus a submission and wake-up per frame) ")
+                + Invariant($"and double-buffered `ForAsync` {Time(overlapped.Mean)}: **{sync.Mean / overlapped.Mean:F2}×**, {(overlapped.Mean / ideal - 1) * 100:F1} % above the ideal."));
+        }
+
+        md.AppendLine("- `--verify` checks that every batched and async variant produces results bit-identical to its synchronous twin.");
         md.AppendLine();
     }
 

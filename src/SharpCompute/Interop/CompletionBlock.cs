@@ -56,11 +56,19 @@ internal static unsafe class CompletionBlock
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void Invoke(BlockLiteral* block, nint commandBuffer)
     {
-        GCHandle handle = GCHandle.FromIntPtr(block->Target);
-        CommandBatch? batch = handle.Target as CommandBatch;
-        handle.Free();
+        try
+        {
+            GCHandle handle = GCHandle.FromIntPtr(block->Target);
+            CommandBatch? batch = handle.Target as CommandBatch;
+            handle.Free();
 
-        batch?.OnCompleted();
+            batch?.OnCompleted();
+        }
+        catch
+        {
+            // OnCompleted reports its own failures through the task; anything that still gets here
+            // (it should not) must not take the process down on Metal's thread.
+        }
     }
 
     private static nint LoadStackBlockClass()
@@ -83,16 +91,22 @@ internal static unsafe class CompletionBlock
         descriptor->Reserved = 0;
         descriptor->Size = (nuint)sizeof(BlockLiteral);
         descriptor->Signature = signatureCopy;
+        descriptor->Layout = null;
         return descriptor;
     }
 
-    /// <summary><c>struct Block_descriptor_1</c> followed by the signature field (no copy/dispose helpers).</summary>
+    /// <summary>
+    /// <c>struct Block_descriptor_1</c> followed by <c>Block_descriptor_3</c> (signature and layout;
+    /// there are no copy/dispose helpers). With <c>BLOCK_HAS_SIGNATURE</c> set, libclosure reads both
+    /// fields of the latter, so the layout is present (null: no extended layout) as clang emits it.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct BlockDescriptor
     {
         public nuint Reserved;
         public nuint Size;
         public byte* Signature;
+        public byte* Layout;
     }
 
     /// <summary><c>struct Block_layout</c> plus one captured variable: the <see cref="GCHandle"/> of the batch.</summary>
