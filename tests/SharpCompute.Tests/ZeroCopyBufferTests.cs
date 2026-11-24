@@ -164,12 +164,15 @@ public sealed unsafe class ZeroCopyBufferTests
         // ObjectDisposedException, which is correct but proves nothing here, so try again.
         for (int attempt = 0; attempt < 5; attempt++)
         {
-            if (TryDisposeDuringDispatch(device, length, out long disposedAt, out long finished, out long releasedAt))
+            if (TryDisposeDuringDispatch(device, length, out long disposedAt, out long finished, out bool? completeAtRelease))
             {
                 // The dispose must happen while the dispatch is still running for the test to mean anything.
                 Assert.True(disposedAt < finished, "The dispatch finished before the buffer was disposed.");
-                Assert.NotEqual(0, releasedAt);
-                Assert.True(releasedAt >= finished - (Stopwatch.Frequency / 1000), "The memory was released while the GPU was still using it.");
+                Assert.NotNull(completeAtRelease);
+
+                // No timing window: when the memory is released, every thread must already have written
+                // its final value. A release during the dispatch would still see zeros.
+                Assert.True(completeAtRelease.Value, "The memory was released while the GPU was still writing it.");
                 return;
             }
         }
@@ -177,14 +180,23 @@ public sealed unsafe class ZeroCopyBufferTests
         Assert.Fail("The buffer was disposed before the dispatch bound it in every attempt.");
     }
 
-    private static bool TryDisposeDuringDispatch(GraphicsDevice device, int length, out long disposedAt, out long finished, out long releasedAt)
+    private static bool TryDisposeDuringDispatch(GraphicsDevice device, int length, out long disposedAt, out long finished, out bool? completeAtRelease)
     {
-        void* memory = NativeMemory.AlignedAlloc((nuint)(length * sizeof(float)), (nuint)GraphicsDevice.PageSize);
-        long released = 0;
+        float* memory = (float*)NativeMemory.AlignedAlloc((nuint)(length * sizeof(float)), (nuint)GraphicsDevice.PageSize);
+        NativeMemory.Clear(memory, (nuint)(length * sizeof(float)));
+        int complete = -1;
 
         ReadWriteBuffer<float> buffer = device.WrapReadWriteBuffer<float>((nint)memory, length, () =>
         {
-            Volatile.Write(ref released, Stopwatch.GetTimestamp());
+            // Every element starts at 0 and the kernel writes the same nonzero value to all of them.
+            bool done = memory[0] != 0f;
+
+            for (int i = 1; i < length && done; i++)
+            {
+                done = memory[i] == memory[0];
+            }
+
+            Volatile.Write(ref complete, done ? 1 : 0);
             NativeMemory.AlignedFree(memory);
         });
 
@@ -219,7 +231,8 @@ public sealed unsafe class ZeroCopyBufferTests
         finished = Stopwatch.GetTimestamp();
         disposer.Join();
         disposedAt = Volatile.Read(ref disposed);
-        releasedAt = Volatile.Read(ref released);
+        int state = Volatile.Read(ref complete);
+        completeAtRelease = state < 0 ? null : state == 1;
         return bound;
     }
 
