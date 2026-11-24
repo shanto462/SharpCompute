@@ -40,15 +40,16 @@ namespace SharpCompute;
 /// </para>
 /// <para>
 /// <b>Reuse.</b> A context can execute any number of times: each execution submits what was recorded
-/// since the previous one, and the next <c>For</c> starts a new command buffer. Disposing executes
+/// since the previous one, and the next <c>For</c> starts recording a new batch. Disposing executes
 /// what is still pending (and rethrows a GPU error); a context that is never disposed and never
 /// executed drops its recorded work without running it.
 /// </para>
 /// <para>
 /// <b>Threading.</b> A context is not thread-safe: use it from one thread at a time (concurrent calls
 /// are detected and throw <see cref="InvalidOperationException"/>). Any number of contexts can be used
-/// on different threads at once. Each context with pending work holds one of the queue's 64 command
-/// buffers until it executes, so a thread should not keep dozens of contexts pending at once.
+/// on different threads at once. Recorded work holds no Metal command buffer: one is created, encoded
+/// and committed only when the context executes, so any number of contexts can be pending (or leaked)
+/// without blocking other dispatches on the device.
 /// </para>
 /// </remarks>
 public sealed class ComputeContext : IDisposable, IAsyncDisposable
@@ -225,8 +226,8 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         return batch;
     }
 
-    // When the first dispatch of a batch fails to encode, give the command buffer back to the queue
-    // instead of holding one of its 64 slots for a batch with nothing in it.
+    // When the first dispatch of a batch fails to record, drop the empty batch right away, returning
+    // the leases it took (the device's queue) instead of keeping them until the next execution.
     private void DropEmptyBatch()
     {
         if (_batch is { DispatchCount: 0 } empty)

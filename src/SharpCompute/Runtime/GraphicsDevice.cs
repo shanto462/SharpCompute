@@ -111,8 +111,10 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
     /// <summary>
     /// The VM page size (16 KB on Apple Silicon). <see cref="WrapReadWriteBuffer{T}"/> and
-    /// <see cref="WrapReadOnlyBuffer{T}"/> need memory that starts on a page boundary, e.g. from
-    /// <c>NativeMemory.AlignedAlloc(size, (nuint)GraphicsDevice.PageSize)</c>.
+    /// <see cref="WrapReadOnlyBuffer{T}"/> need memory that starts on a page boundary and lies in one
+    /// virtual-memory region. Allocate whole pages, rounding the byte size up to a multiple of this,
+    /// e.g. <c>NativeMemory.AlignedAlloc((byteCount + PageSize - 1) / PageSize * PageSize, (nuint)PageSize)</c>;
+    /// Metal accepts other lengths in practice, but Apple documents the region as page-aligned.
     /// </summary>
     public static int PageSize => Environment.SystemPageSize;
 

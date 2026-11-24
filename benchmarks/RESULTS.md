@@ -6,7 +6,7 @@ Re-run on 2026-11-24 20:01 +06:00 (Default job, 7 min): **Mandelbrot**. Those ro
 
 Re-run on 2026-11-24 22:19 +06:00 (Default job, 3 min): **File to GPU, Image pipeline**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run.
 
-Re-run on 2026-11-24 22:10 +06:00 (Default job, 6 min): **Batching and async**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run.
+Re-run on 2026-11-24 22:36 +06:00 (Default job, 5 min): **Batching and async**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run.
 
 ## Machine
 
@@ -30,8 +30,8 @@ This machine was shared (other builds and test runs may have been active), and t
 - **Re-run end** (20:09): `20:09  up 12 days, 12:06, 1 user, load averages: 8.71 11.42 9.24`
 - **Re-run start (File to GPU, Image pipeline)** (22:19): `22:19  up 12 days, 14:16, 1 user, load averages: 4.54 4.27 4.21`
 - **Re-run end** (22:22): `22:22  up 12 days, 14:19, 1 user, load averages: 5.76 5.93 4.96`
-- **Re-run start (Batching and async)** (22:10): `22:10  up 12 days, 14:07, 1 user, load averages: 5.07 5.66 4.40`
-- **Re-run end** (22:16): `22:16  up 12 days, 14:13, 1 user, load averages: 3.37 4.44 4.26`
+- **Re-run start (Batching and async)** (22:36): `22:36  up 12 days, 14:33, 1 user, load averages: 18.33 18.41 11.98`
+- **Re-run end** (22:41): `22:41  up 12 days, 14:38, 1 user, load averages: 2.60 8.43 9.24`
 
 ## Headline: GPU speedup over the best CPU variant
 
@@ -171,21 +171,35 @@ GPU submission paths compared with each other, not with the CPU. K = 1/10/100: K
 
 | Size | Variant | Mean | Error | StdDev | Ratio |
 |---|---|---:|---:|---:|---:|
-| K = 1 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 96.71 µs | 1.91 µs | 2.05 µs | 1.000 |
-| K = 1 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 94.39 µs | 1.32 µs | 1.23 µs | 0.976 |
-| K = 1 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 99.22 µs | 1.90 µs | 1.78 µs | 1.026 |
-| K = 10 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 987.67 µs | 19.52 µs | 29.22 µs | 1.000 |
-| K = 10 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 109.25 µs | 1.02 µs | 908.5 ns | 0.111 |
-| K = 10 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 172.79 µs | 1.09 µs | 1.02 µs | 0.175 |
-| K = 100 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 9.56 ms | 45.51 µs | 42.57 µs | 1.000 |
-| K = 100 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 262.86 µs | 1.96 µs | 1.73 µs | 0.028 |
-| K = 100 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 1.01 ms | 14.13 µs | 13.22 µs | 0.105 |
-| blur 3840×2160, r = 8 (2 passes) | GPU blur, 2× device.For (before) † | 1.67 ms | 14.28 µs | 13.35 µs | 1.000 |
-| blur 3840×2160, r = 8 (2 passes) | GPU blur, one ComputeContext (after) | 1.50 ms | 8.89 µs | 8.32 µs | 0.897 |
-| 8 frames 1920×1080, GPU render + CPU analysis | GPU+CPU sync: For, then analyze (before) † | 38.63 ms | 722.19 µs | 1.66 ms | 1.000 |
-| 8 frames 1920×1080, GPU render + CPU analysis | GPU+CPU async: ForAsync N+1 while analyzing N (after) | 28.04 ms | 286.65 µs | 223.80 µs | 0.726 |
-| 8 frames 1920×1080, GPU render + CPU analysis | GPU render only (8× For) | 8.17 ms | 48.51 µs | 45.38 µs | 0.212 |
-| 8 frames 1920×1080, GPU render + CPU analysis | CPU analysis only (8 frames, 1 thread) | 25.93 ms | 273.73 µs | 242.65 µs | 0.671 |
+| K = 1 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 94.79 µs | 696.9 ns | 651.8 ns | 1.000 |
+| K = 1 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 95.28 µs | 1.57 µs | 1.47 µs | 1.005 |
+| K = 1 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 98.08 µs | 601.6 ns | 562.7 ns | 1.035 |
+| K = 10 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 961.63 µs | 3.69 µs | 3.27 µs | 1.000 |
+| K = 10 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 113.37 µs | 2.21 µs | 2.17 µs | 0.118 |
+| K = 10 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 173.58 µs | 1.51 µs | 1.41 µs | 0.181 |
+| K = 100 SAXPY dispatches of 4,096 floats | GPU K× device.For (before) † | 9.92 ms | 79.19 µs | 74.07 µs | 1.000 |
+| K = 100 SAXPY dispatches of 4,096 floats | GPU one ComputeContext, K dispatches (after) | 283.73 µs | 2.74 µs | 2.56 µs | 0.029 |
+| K = 100 SAXPY dispatches of 4,096 floats | GPU K× ForAsync, one Task.WaitAll (after) | 987.06 µs | 11.64 µs | 10.89 µs | 0.100 |
+| blur 3840×2160, r = 8 (2 passes) | GPU blur, 2× device.For (before) † | 1.66 ms | 32.79 µs | 43.77 µs | 1.000 |
+| blur 3840×2160, r = 8 (2 passes) | GPU blur, one ComputeContext (after) | 1.47 ms | 19.93 µs | 18.64 µs | 0.886 |
+| 8 frames 1920×1080, GPU render + CPU analysis | GPU+CPU sync: For, then analyze (before) † | 39.08 ms | 199.29 µs | 176.67 µs | 1.000 |
+| 8 frames 1920×1080, GPU render + CPU analysis | GPU+CPU async: ForAsync N+1 while analyzing N (after) | 28.37 ms | 192.73 µs | 180.28 µs | 0.726 |
+| 8 frames 1920×1080, GPU render + CPU analysis | GPU render only (8× For) | 8.37 ms | 61.75 µs | 57.76 µs | 0.214 |
+| 8 frames 1920×1080, GPU render + CPU analysis | CPU analysis only (8 frames, 1 thread) | 26.52 ms | 131.24 µs | 122.76 µs | 0.679 |
+
+Per dispatch (each row above divided by K):
+
+| K | `device.For` | `ComputeContext` | `ForAsync` |
+|---:|---:|---:|---:|
+| 1 | 94.79 µs | 95.28 µs | 98.08 µs |
+| 10 | 96.16 µs | 11.34 µs | 17.36 µs |
+| 100 | 99.17 µs | 2.84 µs | 9.87 µs |
+
+- Each extra dispatch (from K = 1 to K = 100) costs about **99.21 µs** as another `device.For` (a whole submit-and-wait), **1.90 µs** inside one `ComputeContext` and **8.98 µs** as another back-to-back `ForAsync` (still its own command buffer and completion handler). Use a context for many small dispatches; `ForAsync` is for overlapping CPU work with the GPU.
+- A device's queue has 64 command buffers. Back-to-back `ForAsync` beyond 64 in flight blocks in `commandBuffer` until one completes, which is part of the larger-K `ForAsync` rows. A pending `ComputeContext` holds none: it encodes when it is executed.
+- The two-pass blur saves one submission: 1.66 ms → 1.47 ms (−11 %). The kernels dominate at 4K, so batching two passes is a small win there.
+- Overlap: GPU render alone 8.37 ms, CPU analysis alone 26.52 ms (of the same 8 frames). Perfect overlap cannot beat max(GPU, CPU) = 26.52 ms; sync takes 39.08 ms (GPU + CPU = 34.89 ms, plus a submission and wake-up per frame) and double-buffered `ForAsync` 28.37 ms: **1.38×**, 7.0 % above the ideal.
+- `--verify` checks that every batched and async variant produces results bit-identical to its synchronous twin.
 
 ### File to GPU
 
@@ -214,11 +228,11 @@ A plain `Stopwatch`, not BenchmarkDotNet. Each sample is a fresh process (`--fir
 
 | Sample | Device creation | First dispatch (compile + run) | Second dispatch | Steady (mean of 20) | Compile ≈ |
 |---|---:|---:|---:|---:|---:|
-| 1 | 32.8 ms | 8.2 ms | 2.00 ms | 1.02 ms | 7.1 ms |
-| 2 | 32.3 ms | 5.9 ms | 0.54 ms | 0.64 ms | 5.3 ms |
-| 3 | 33.5 ms | 5.9 ms | 1.11 ms | 0.74 ms | 5.2 ms |
-| 4 | 32.7 ms | 5.9 ms | 1.00 ms | 0.79 ms | 5.1 ms |
-| 5 | 32.2 ms | 6.1 ms | 1.06 ms | 0.84 ms | 5.3 ms |
+| 1 | 35.6 ms | 8.9 ms | 2.00 ms | 0.81 ms | 8.1 ms |
+| 2 | 38.0 ms | 6.4 ms | 1.18 ms | 0.86 ms | 5.5 ms |
+| 3 | 41.3 ms | 6.6 ms | 1.30 ms | 0.90 ms | 5.7 ms |
+| 4 | 41.1 ms | 6.6 ms | 1.09 ms | 0.88 ms | 5.7 ms |
+| 5 | 41.9 ms | 17.2 ms | 1.32 ms | 1.02 ms | 16.2 ms |
 
 ## Verification (`--verify`)
 
@@ -278,3 +292,4 @@ Run before benchmarking; the script stops if any check fails. Bit-exactness is o
 | Batching | 10 × SAXPY 4,096 | GPU 10× ForAsync | GPU 10× device.For | elements not bit-identical | 0 | 0 | 0 of 4096 differ (same kernels, same order: exact match required) | pass |
 | Batching | 3840x2160 | GPU blur, one ComputeContext | GPU blur, 2× device.For | elements not bit-identical | 0 | 0 | 0 of 8294400 differ (same kernels, same order: exact match required) | pass |
 | Batching | 8 frames | GPU+CPU async (double-buffered) | GPU+CPU sync | checksum differs | 0 | 0 | frame checksums 9ACD2614BF10459E vs 9ACD2614BF10459E | pass |
+| Batching | 8 frames | CPU analysis only (pre-rendered) | GPU+CPU sync | checksum differs | 0 | 0 | the CPU-only row analyzes the same 8 frames | pass |
