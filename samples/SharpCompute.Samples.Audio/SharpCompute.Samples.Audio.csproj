@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    audio: a chiptune synthesizer that renders sounds and songs on the GPU (one compute thread per
+    output sample, straight into unified memory), and a small AudioQueue player that mixes clips
+    on the audio thread without locks or allocations. Original SharpCompute sample (MIT).
+    A class library: scripts/demo-audio.sh runs it through SharpCompute.Samples.Audio.Demo.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <RootNamespace>SharpCompute.Samples.Audio</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.Audio</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpCompute.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

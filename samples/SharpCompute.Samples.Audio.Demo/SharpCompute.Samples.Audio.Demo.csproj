@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    audio demo: renders a few sound effects and a short chiptune loop with the Audio sample's GPU
+    synthesizer and plays them (about 10 s, at half volume), or writes them as WAV files.
+    Original SharpCompute sample (MIT). Usage: run the project with no arguments, or see Program.cs.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpCompute.Samples.Audio.Demo</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.Audio.Demo</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <ProjectReference Include="..\SharpCompute.Samples.Audio\SharpCompute.Samples.Audio.csproj" />
+  </ItemGroup>
+</Project>
