@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using System.Threading;
 using SharpCompute.Interop;
@@ -99,6 +101,137 @@ public sealed unsafe class GraphicsDevice : IDisposable
     }
 
     /// <summary>
+    /// The VM page size (16 KB on Apple Silicon). <see cref="WrapReadWriteBuffer{T}"/> and
+    /// <see cref="WrapReadOnlyBuffer{T}"/> need memory that starts on a page boundary, e.g. from
+    /// <c>NativeMemory.AlignedAlloc(size, (nuint)GraphicsDevice.PageSize)</c>.
+    /// </summary>
+    public static int PageSize => Environment.SystemPageSize;
+
+    /// <summary>
+    /// Makes a buffer over <paramref name="length"/> elements of existing memory at
+    /// <paramref name="pointer"/>, without copying it (<c>newBufferWithBytesNoCopy</c>): the CPU and
+    /// the GPU both use that memory directly.
+    /// </summary>
+    /// <param name="pointer">Start of the memory; must be a multiple of <see cref="PageSize"/>.</param>
+    /// <param name="length">Number of elements; must be positive.</param>
+    /// <param name="release">
+    /// Called once when the buffer is released (disposed, or finalized: then on the finalizer
+    /// thread), after any dispatch that was using it has finished, to free the memory. It must not
+    /// throw. If this method throws, it is not called and the caller still owns the memory.
+    /// </param>
+    /// <remarks>
+    /// The memory must stay valid and must not be freed until <paramref name="release"/> runs (or,
+    /// without a callback, until the buffer is disposed and no dispatch is using it).
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="pointer"/> is null or not page-aligned.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="length"/> is not positive or exceeds the device's maximum buffer size.</exception>
+    public ReadWriteBuffer<T> WrapReadWriteBuffer<T>(nint pointer, int length, Action? release = null)
+        where T : unmanaged
+    {
+        ObjCHandle handle = NewSharedBufferNoCopy<T>(pointer, length, release);
+        return new ReadWriteBuffer<T>(this, handle, (T*)pointer, length);
+    }
+
+    /// <summary>
+    /// Like <see cref="WrapReadWriteBuffer{T}"/>, but the buffer binds as read-only
+    /// (<c>const device T*</c>) in shaders. The memory itself must be writable for
+    /// <see cref="Buffer{T}.AsSpan"/> and <see cref="Buffer{T}.CopyFrom"/> to work.
+    /// </summary>
+    /// <inheritdoc cref="WrapReadWriteBuffer{T}"/>
+    public ReadOnlyBuffer<T> WrapReadOnlyBuffer<T>(nint pointer, int length, Action? release = null)
+        where T : unmanaged
+    {
+        ObjCHandle handle = NewSharedBufferNoCopy<T>(pointer, length, release);
+        return new ReadOnlyBuffer<T>(this, handle, (T*)pointer, length, isCpuWritable: true);
+    }
+
+    /// <summary>
+    /// Memory-maps the file at <paramref name="path"/> read-only and makes a buffer over it without
+    /// copying: the GPU reads the file's pages straight from the OS page cache, so a large file is
+    /// not first read into managed memory and then copied again into a buffer.
+    /// </summary>
+    /// <remarks>
+    /// The file is read as raw <typeparamref name="T"/> elements in this machine's byte order; its
+    /// size must be a multiple of <c>sizeof(T)</c>. The mapping is released with the buffer. The
+    /// memory is read-only on the CPU too: <see cref="Buffer{T}.IsCpuWritable"/> is false, so read it with
+    /// <see cref="Buffer{T}.AsReadOnlySpan"/> or the indexer. Changes other processes make to the file
+    /// while it is mapped may be visible through the buffer, and truncating the file while it is
+    /// mapped makes reads past the new end fault, as with any memory-mapped file.
+    /// </remarks>
+    /// <exception cref="FileNotFoundException">The file doesn't exist.</exception>
+    /// <exception cref="ArgumentException">The file size is not a multiple of <c>sizeof(T)</c>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The file holds more than <see cref="int.MaxValue"/> elements or exceeds the device's maximum buffer size.</exception>
+    public ReadOnlyBuffer<T> MapReadOnlyBuffer<T>(string path)
+        where T : unmanaged
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+        long byteLength = new FileInfo(path) is { Exists: true } file
+            ? file.Length
+            : throw new FileNotFoundException($"No such file: {Path.GetFullPath(path)}", path);
+
+        if (byteLength % sizeof(T) != 0)
+        {
+            throw new ArgumentException($"'{path}' is {byteLength} bytes, which is not a whole number of {sizeof(T)}-byte '{typeof(T)}' elements.", nameof(path));
+        }
+
+        if (byteLength / sizeof(T) > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(path), byteLength, $"'{path}' holds more than int.MaxValue '{typeof(T)}' elements.");
+        }
+
+        int length = (int)(byteLength / sizeof(T));
+
+        // An empty file can't be mapped, and Metal rejects zero-length buffers anyway.
+        if (length == 0)
+        {
+            return new ReadOnlyBuffer<T>(this, 0);
+        }
+
+        MemoryMappedFile? map = null;
+        MemoryMappedViewAccessor? view = null;
+        byte* pointer = null;
+
+        try
+        {
+            map = MemoryMappedFile.CreateFromFile(path, FileMode.Open, mapName: null, capacity: 0, MemoryMappedFileAccess.Read);
+            view = map.CreateViewAccessor(0, byteLength, MemoryMappedFileAccess.Read);
+            view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
+
+            // A view at offset 0 starts at the mapping's base, which mmap page-aligns.
+            nint start = (nint)(pointer + view.PointerOffset);
+            MemoryMappedFile ownedMap = map;
+            MemoryMappedViewAccessor ownedView = view;
+
+            ObjCHandle handle = NewSharedBufferNoCopy<T>(start, length, () =>
+            {
+                ownedView.SafeMemoryMappedViewHandle.ReleasePointer();
+                ownedView.Dispose();
+                ownedMap.Dispose();
+            });
+
+            map = null;
+            view = null;
+            return new ReadOnlyBuffer<T>(this, handle, (T*)start, length, isCpuWritable: false);
+        }
+        finally
+        {
+            if (view is not null)
+            {
+                if (pointer != null)
+                {
+                    view.SafeMemoryMappedViewHandle.ReleasePointer();
+                }
+
+                view.Dispose();
+            }
+
+            map?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Allocates a zero-filled <paramref name="width"/> × <paramref name="height"/> GPU-writable texture.
     /// v1: <c>T</c> = <see cref="Rgba32"/>.
     /// </summary>
@@ -181,6 +314,45 @@ public sealed unsafe class GraphicsDevice : IDisposable
         }
 
         return new ObjCHandle(buffer, memoryPressure: checked((long)byteLength));
+    }
+
+    /// <summary>
+    /// <c>newBufferWithBytesNoCopy:length:options:deallocator:nil</c> over <paramref name="length"/>
+    /// elements at <paramref name="pointer"/>. <paramref name="release"/> runs after the handle releases
+    /// the buffer; ObjCHandle's leases guarantee no dispatch using it is still in flight by then.
+    /// </summary>
+    private ObjCHandle NewSharedBufferNoCopy<T>(nint pointer, int length, Action? release)
+        where T : unmanaged
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+
+        if (pointer == 0 || pointer % PageSize != 0)
+        {
+            throw new ArgumentException($"The memory must start on a page boundary (a multiple of GraphicsDevice.PageSize = {PageSize}).", nameof(pointer));
+        }
+
+        ulong byteLength = (ulong)length * (ulong)sizeof(T);
+
+        if (byteLength > MaxBufferLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(length), length, $"{length} '{typeof(T)}' elements are {byteLength} bytes, but '{Name}' supports at most {MaxBufferLength} bytes per buffer.");
+        }
+
+        using AutoreleasePool pool = AutoreleasePool.Push();
+        using ObjCHandle.Lease device = _device.Acquire(this);
+
+        nint buffer = ObjC.SendIntPtr(
+            device.Pointer, Selectors.NewBufferWithBytesNoCopyLengthOptionsDeallocator, (void*)pointer, (nuint)byteLength, Metal.ResourceStorageModeShared, 0);
+
+        if (buffer == 0)
+        {
+            throw new InvalidOperationException($"Metal could not wrap {byteLength} bytes at 0x{pointer:x} as a buffer on '{Name}'.");
+        }
+
+        // No memory pressure: the memory is not allocated by this buffer.
+        return new ObjCHandle(buffer, afterRelease: release);
     }
 
     /// <summary><c>minimumLinearTextureAlignmentForPixelFormat:</c>: the required alignment of a linear texture's offset and <c>bytesPerRow</c>.</summary>

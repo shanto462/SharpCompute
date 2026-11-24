@@ -55,6 +55,8 @@ public static class Verify
             VerifyNBody(device, n, Add);
         }
 
+        VerifyImagePipeline(device, Add);
+        VerifyFileToGpu(device, Add);
         return checks;
     }
 
@@ -196,6 +198,56 @@ public static class Verify
 
         blur.Gpu();
         add(Compare("Blur", size, "GPU generated", "CPU scalar", blur.GpuOutput.AsSpan(), reference));
+    }
+
+    /// <summary>Packed RGBA8 outputs: every channel within one 8-bit step of the CPU's (rounding at a .5 boundary may differ).</summary>
+    private static void VerifyImagePipeline(GraphicsDevice device, Action<Check> add)
+    {
+        using ImagePipeline pipeline = new(Sizes.BlurWidth, Sizes.BlurHeight, Sizes.BlurRadius, device);
+        string size = $"{Sizes.BlurWidth}x{Sizes.BlurHeight}";
+
+        pipeline.Cpu();
+        pipeline.GpuWithCopies();
+        pipeline.GpuZeroCopy();
+
+        add(CompareBytes(size, "GPU with copies", pipeline.CopyPathOutput, pipeline.Output));
+        add(CompareBytes(size, "GPU generated, zero copy", pipeline.GpuPackedOutput.AsReadOnlySpan(), pipeline.Output));
+    }
+
+    private static Check CompareBytes(string size, string variant, ReadOnlySpan<uint> actual, ReadOnlySpan<uint> expected)
+    {
+        int maxStep = 0;
+        long exact = 0;
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            uint a = actual[i], e = expected[i];
+            exact += a == e ? 1 : 0;
+
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                maxStep = Math.Max(maxStep, Math.Abs((int)((a >> shift) & 0xFF) - (int)((e >> shift) & 0xFF)));
+            }
+        }
+
+        string detail = string.Create(CultureInfo.InvariantCulture, $"{expected.Length - exact:N0} of {expected.Length:N0} pixels differ");
+        return new Check("Image pipeline", size, variant, "CPU Parallel.For + SIMD", "max |Δ| (8-bit steps)", maxStep, 1, detail);
+    }
+
+    /// <summary>The three ways of getting the file to the GPU must give the same sum; compared with the exact (double) sum of the data.</summary>
+    private static void VerifyFileToGpu(GraphicsDevice device, Action<Check> add)
+    {
+        using FileToGpu file = new(Sizes.FileFloats, device);
+        string size = $"{Sizes.FileFloats * 4L / (1 << 20)} MB";
+        double two = file.TwoCopies(), one = file.OneCopy(), none = file.NoCopy();
+
+        // Each GPU thread adds 1024 floats in single precision, so the sum is not exact; the variants
+        // run the same kernel on the same bytes and must agree bit for bit.
+        double scale = Math.Max(Math.Abs(file.ExactSum), 1);
+        string detail = string.Create(CultureInfo.InvariantCulture, $"exact sum {file.ExactSum:G9}; variants identical: {two == one && one == none}");
+        add(new Check("File to GPU", size, "GPU, two copies", "exact sum", "rel error", Math.Abs(two - file.ExactSum) / scale, RelativeTolerance, detail));
+        add(new Check("File to GPU", size, "GPU, one copy", "two copies", "|Δ|", Math.Abs(one - two), 0, ""));
+        add(new Check("File to GPU", size, "GPU, no copy", "two copies", "|Δ|", Math.Abs(none - two), 0, ""));
     }
 
     private static void VerifyMatMul(GraphicsDevice device, Action<Check> add)

@@ -1,6 +1,7 @@
 // Original SharpCompute sample (MIT).
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using SharpCompute.Samples.ImageProcessing.Interop;
 using SharpCompute.Samples.Imaging;
 using SharpCompute.Samples.Shaders;
@@ -51,6 +52,119 @@ public static unsafe class ImageFile
     /// <exception cref="InvalidDataException">ImageIO can't decode it.</exception>
     public static ImageData Load(string path)
     {
+        nint image = Decode(path);
+
+        try
+        {
+            int width = checked((int)Native.CGImageGetWidth(image));
+            int height = checked((int)Native.CGImageGetHeight(image));
+            byte[] bytes = new byte[checked(width * height * 4)];
+
+            fixed (byte* data = bytes)
+            {
+                Rasterize(image, data, width, height);
+            }
+
+            Float4[] pixels = new Float4[width * height];
+            PixelConversion.FromPremultipliedRgba8(bytes, pixels);
+            return new ImageData(width, height, pixels);
+        }
+        finally
+        {
+            Native.CGImageRelease(image);
+        }
+    }
+
+    /// <summary>
+    /// Like <see cref="Load"/>, but decodes straight into a new GPU buffer of premultiplied RGBA8
+    /// pixels (one <c>uint</c> per pixel, bytes R, G, B, A): CoreGraphics draws into the buffer's
+    /// shared memory, so there is no intermediate array and no upload copy. Convert it to floats on
+    /// the GPU with <see cref="UnpackRgba8"/>.
+    /// </summary>
+    /// <inheritdoc cref="Load" path="/exception"/>
+    public static ReadWriteBuffer<uint> LoadRgba8(string path, GraphicsDevice device, out int width, out int height)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        nint image = Decode(path);
+
+        try
+        {
+            width = checked((int)Native.CGImageGetWidth(image));
+            height = checked((int)Native.CGImageGetHeight(image));
+            ReadWriteBuffer<uint> pixels = device.AllocateReadWriteBuffer<uint>(checked(width * height));
+
+            try
+            {
+                fixed (uint* data = pixels.AsSpan())
+                {
+                    Rasterize(image, data, width, height);
+                }
+
+                return pixels;
+            }
+            catch
+            {
+                pixels.Dispose();
+                throw;
+            }
+        }
+        finally
+        {
+            Native.CGImageRelease(image);
+        }
+    }
+
+    /// <summary>
+    /// True when <see cref="SaveRgba8"/> expects straight-alpha pixels for <paramref name="path"/>
+    /// (PNG); false when it expects premultiplied ones (JPEG, HEIC).
+    /// </summary>
+    public static bool UsesStraightAlpha(string path) => Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Like <see cref="Save"/>, but encodes 8-bit RGBA pixels in place (for example a GPU buffer's
+    /// <see cref="Buffer{T}.AsReadOnlySpan"/>), without converting or copying them first. They must be
+    /// straight alpha when <see cref="UsesStraightAlpha"/> is true and premultiplied otherwise;
+    /// <see cref="PackRgba8"/> produces either on the GPU.
+    /// </summary>
+    public static void SaveRgba8(string path, ReadOnlySpan<uint> pixels, int width, int height)
+    {
+        if (pixels.Length != (long)width * height)
+        {
+            throw new ArgumentException($"Expected {width}×{height} = {(long)width * height} pixels, got {pixels.Length}.", nameof(pixels));
+        }
+
+        string fullPath = PrepareOutput(path);
+
+        switch (Path.GetExtension(fullPath).ToLowerInvariant())
+        {
+            case ".png":
+                PngEncoder.Write(fullPath, MemoryMarshal.Cast<uint, Rgba32>(pixels), width, height);
+                break;
+
+            case ".jpg" or ".jpeg":
+                fixed (uint* data = pixels)
+                {
+                    WithImageIO(fullPath, "public.jpeg", data, width, height);
+                }
+
+                break;
+
+            case ".heic":
+                fixed (uint* data = pixels)
+                {
+                    WithImageIO(fullPath, "public.heic", data, width, height);
+                }
+
+                break;
+
+            default:
+                throw new NotSupportedException($"Can't write '{Path.GetExtension(fullPath)}' files; use .png, .jpg or .heic.");
+        }
+    }
+
+    /// <summary>A +1 <c>CGImageRef</c> for the first image in <paramref name="path"/>, with its EXIF orientation applied.</summary>
+    private static nint Decode(string path)
+    {
         string fullPath = Path.GetFullPath(path);
 
         if (!File.Exists(fullPath))
@@ -89,7 +203,9 @@ public static unsafe class ImageFile
                 }
             }
 
-            return Rasterize(image);
+            nint result = image;
+            image = 0;
+            return result;
         }
         finally
         {
@@ -108,13 +224,7 @@ public static unsafe class ImageFile
     public static void Save(string path, ImageData image)
     {
         ArgumentNullException.ThrowIfNull(image);
-        string fullPath = Path.GetFullPath(path);
-        string? directory = Path.GetDirectoryName(fullPath);
-
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        string fullPath = PrepareOutput(path);
 
         switch (Path.GetExtension(fullPath).ToLowerInvariant())
         {
@@ -133,6 +243,19 @@ public static unsafe class ImageFile
             default:
                 throw new NotSupportedException($"Can't write '{Path.GetExtension(fullPath)}' files; use .png, .jpg or .heic.");
         }
+    }
+
+    private static string PrepareOutput(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        string? directory = Path.GetDirectoryName(fullPath);
+
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        return fullPath;
     }
 
     private static int Orientation(nint source)
@@ -189,47 +312,49 @@ public static unsafe class ImageFile
         }
     }
 
-    private static ImageData Rasterize(nint image)
+    /// <summary>Draws <paramref name="image"/> into <paramref name="width"/> × <paramref name="height"/> premultiplied sRGB RGBA8 pixels at <paramref name="data"/>.</summary>
+    private static void Rasterize(nint image, void* data, int width, int height)
     {
-        int width = checked((int)Native.CGImageGetWidth(image));
-        int height = checked((int)Native.CGImageGetHeight(image));
-        byte[] bytes = new byte[checked(width * height * 4)];
-
         nint space = Native.CGColorSpaceCreateWithName(Native.Constant(Native.CoreGraphics, "kCGColorSpaceSRGB"));
 
         try
         {
-            fixed (byte* data = bytes)
+            nint context = Native.CGBitmapContextCreate(data, (nuint)width, (nuint)height, 8, (nuint)(width * 4), space, Native.BitmapInfoPremultipliedRgba);
+
+            if (context == 0)
             {
-                nint context = Native.CGBitmapContextCreate(data, (nuint)width, (nuint)height, 8, (nuint)(width * 4), space, Native.BitmapInfoPremultipliedRgba);
+                throw new InvalidDataException($"CoreGraphics could not create a {width}×{height} RGBA8 bitmap context.");
+            }
 
-                if (context == 0)
-                {
-                    throw new InvalidDataException($"CoreGraphics could not create a {width}×{height} RGBA8 bitmap context.");
-                }
-
-                try
-                {
-                    // Row 0 of a bitmap context's memory is the top of the drawn image.
-                    Native.CGContextDrawImage(context, new CGRect(0, 0, width, height), image);
-                }
-                finally
-                {
-                    Native.CGContextRelease(context);
-                }
+            try
+            {
+                // Row 0 of a bitmap context's memory is the top of the drawn image.
+                Native.CGContextDrawImage(context, new CGRect(0, 0, width, height), image);
+            }
+            finally
+            {
+                Native.CGContextRelease(context);
             }
         }
         finally
         {
             Native.CGColorSpaceRelease(space);
         }
-
-        return new ImageData(width, height, PixelConversion.FromPremultipliedRgba8(bytes));
     }
 
     private static void WithImageIO(string path, string typeIdentifier, ImageData image)
     {
         byte[] bytes = PixelConversion.ToPremultipliedRgba8(image.Pixels);
+
+        fixed (byte* data = bytes)
+        {
+            WithImageIO(path, typeIdentifier, data, image.Width, image.Height);
+        }
+    }
+
+    /// <summary>Encodes premultiplied RGBA8 pixels at <paramref name="data"/> with ImageIO.</summary>
+    private static void WithImageIO(string path, string typeIdentifier, void* data, int width, int height)
+    {
         nint space = Native.CGColorSpaceCreateWithName(Native.Constant(Native.CoreGraphics, "kCGColorSpaceSRGB"));
         nint cgImage = 0;
         nint url = 0;
@@ -240,19 +365,17 @@ public static unsafe class ImageFile
 
         try
         {
-            fixed (byte* data = bytes)
+            nint context = Native.CGBitmapContextCreate(data, (nuint)width, (nuint)height, 8, (nuint)(width * 4), space, Native.BitmapInfoPremultipliedRgba);
+
+            if (context == 0)
             {
-                nint context = Native.CGBitmapContextCreate(data, (nuint)image.Width, (nuint)image.Height, 8, (nuint)(image.Width * 4), space, Native.BitmapInfoPremultipliedRgba);
-
-                if (context == 0)
-                {
-                    throw new InvalidOperationException("CoreGraphics could not create a bitmap context for saving.");
-                }
-
-                // CreateImage copies the pixels, so the context (and the pinned array) can go right after.
-                cgImage = Native.CGBitmapContextCreateImage(context);
-                Native.CGContextRelease(context);
+                throw new InvalidOperationException("CoreGraphics could not create a bitmap context for saving.");
             }
+
+            // CreateImage copies the pixels or shares them copy-on-write, so the context can go right
+            // after; either way the caller keeps the memory alive until the encode below has finished.
+            cgImage = Native.CGBitmapContextCreateImage(context);
+            Native.CGContextRelease(context);
 
             url = Native.CreateUrl(path);
             type = Native.CreateString(typeIdentifier);

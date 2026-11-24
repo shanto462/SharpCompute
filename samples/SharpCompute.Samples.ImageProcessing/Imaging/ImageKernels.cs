@@ -223,3 +223,62 @@ public readonly partial struct PointFilter(ReadWriteBuffer<Float4> source, ReadW
         return new Float4(luma, luma, luma, color.W);
     }
 }
+
+/// <summary>
+/// Converts premultiplied RGBA8 pixels (bytes R, G, B, A in memory, as CoreGraphics' premultiplied-last
+/// bitmap contexts write them; one little-endian <c>uint</c> per pixel) to premultiplied floats, on
+/// the GPU, so a decoded image goes from the decoder's memory to the filters without a CPU pass.
+/// Same math as <see cref="PixelConversion.FromPremultipliedRgba8"/>. 1D dispatch over the pixel count.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct UnpackRgba8(ReadWriteBuffer<uint> packed, ReadWriteBuffer<Float4> pixels) : IComputeShader
+{
+    public void Execute()
+    {
+        uint p = packed[ThreadIds.X];
+        pixels[ThreadIds.X] = new Float4(
+            (p & 0xFFu) / 255f, ((p >> 8) & 0xFFu) / 255f, ((p >> 16) & 0xFFu) / 255f, (p >> 24) / 255f);
+    }
+}
+
+/// <summary>
+/// Converts premultiplied floats back to 8-bit RGBA on the GPU, rounding to nearest, either
+/// premultiplied (for CoreGraphics/ImageIO; same math as <see cref="PixelConversion.ToPremultipliedRgba8"/>)
+/// or straight alpha (for PNG; same math as <see cref="PixelConversion.ToStraight"/>). 1D dispatch over the pixel count.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct PackRgba8(ReadWriteBuffer<Float4> pixels, ReadWriteBuffer<uint> packed, int straightAlpha) : IComputeShader
+{
+    public void Execute()
+    {
+        Float4 p = pixels[ThreadIds.X];
+        float a = Gpu.Saturate(p.W);
+        uint alpha = Quantize(a);
+        uint r, g, b;
+
+        if (straightAlpha != 0)
+        {
+            if (alpha == 0u)
+            {
+                packed[ThreadIds.X] = 0u;
+                return;
+            }
+
+            r = Quantize(p.X / a);
+            g = Quantize(p.Y / a);
+            b = Quantize(p.Z / a);
+        }
+        else
+        {
+            // A NaN channel stays 0 rather than becoming min(NaN, a) = a, matching Math.Min on the CPU.
+            r = float.IsNaN(p.X) ? 0u : Quantize(Gpu.Min(p.X, a));
+            g = float.IsNaN(p.Y) ? 0u : Quantize(Gpu.Min(p.Y, a));
+            b = float.IsNaN(p.Z) ? 0u : Quantize(Gpu.Min(p.Z, a));
+        }
+
+        packed[ThreadIds.X] = r | (g << 8) | (b << 16) | (alpha << 24);
+    }
+
+    /// <summary>Same as <see cref="PixelConversion.Quantize"/>: clamp to 0..1, scale to 0..255, round to nearest; NaN → 0.</summary>
+    private static uint Quantize(float value) => float.IsNaN(value) ? 0u : (uint)((Gpu.Saturate(value) * 255f) + 0.5f);
+}

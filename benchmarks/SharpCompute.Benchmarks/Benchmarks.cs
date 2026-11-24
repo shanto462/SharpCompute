@@ -164,3 +164,56 @@ public class NBodyBenchmarks
     [Benchmark(Description = "GPU generated shader")]
     public float Gpu() => _nbody.Gpu();
 }
+
+[BenchmarkCategory("Image pipeline")]
+public class ImagePipelineBenchmarks
+{
+    private ImagePipeline _pipeline = null!;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _pipeline = new ImagePipeline(Sizes.BlurWidth, Sizes.BlurHeight, Sizes.BlurRadius, GraphicsDevice.GetDefault());
+        _pipeline.GpuWithCopies();
+        _pipeline.GpuZeroCopy();
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => _pipeline.Dispose();
+
+    [Benchmark(Baseline = true, Description = "CPU Parallel.For + SIMD (rows, one Vector4 per pixel)")]
+    public uint Cpu() => _pipeline.Cpu();
+
+    [Benchmark(Description = "GPU with copies (CPU converts, copies in and out; 2 dispatches)")]
+    public uint GpuWithCopies() => _pipeline.GpuWithCopies();
+
+    [Benchmark(Description = "GPU generated shader, zero copy (2 dispatches)")]
+    public uint GpuZeroCopy() => _pipeline.GpuZeroCopy();
+}
+
+[BenchmarkCategory("File to GPU")]
+public class FileToGpuBenchmarks
+{
+    private FileToGpu _file = null!;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _file = new FileToGpu(Sizes.FileFloats, GraphicsDevice.GetDefault());
+        _file.TwoCopies();
+        _file.OneCopy();
+        _file.NoCopy();
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => _file.Dispose();
+
+    [Benchmark(Baseline = true, Description = "GPU, two copies (File.ReadAllBytes + AllocateReadOnlyBuffer(data))")]
+    public double TwoCopies() => _file.TwoCopies();
+
+    [Benchmark(Description = "GPU, one copy (RandomAccess.Read into AsSpan())")]
+    public double OneCopy() => _file.OneCopy();
+
+    [Benchmark(Description = "GPU, no copy (MapReadOnlyBuffer)")]
+    public double NoCopy() => _file.NoCopy();
+}

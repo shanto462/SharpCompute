@@ -23,6 +23,7 @@ internal static class Selectors
     public static readonly nint NewCommandQueue = ObjC.GetSelector("newCommandQueue");
     public static readonly nint NewBufferWithLengthOptions = ObjC.GetSelector("newBufferWithLength:options:");
     public static readonly nint NewBufferWithBytesLengthOptions = ObjC.GetSelector("newBufferWithBytes:length:options:");
+    public static readonly nint NewBufferWithBytesNoCopyLengthOptionsDeallocator = ObjC.GetSelector("newBufferWithBytesNoCopy:length:options:deallocator:");
     public static readonly nint NewLibraryWithSourceOptionsError = ObjC.GetSelector("newLibraryWithSource:options:error:");
     public static readonly nint NewComputePipelineStateWithFunctionError = ObjC.GetSelector("newComputePipelineStateWithFunction:error:");
     public static readonly nint MinimumLinearTextureAlignmentForPixelFormat = ObjC.GetSelector("minimumLinearTextureAlignmentForPixelFormat:");

@@ -24,12 +24,27 @@ public static class PixelConversion
 
         for (int i = 0; i < pixels.Length; i++)
         {
-            int b = i * 4;
-            pixels[i] = new Float4(bytes[b] / 255f, bytes[b + 1] / 255f, bytes[b + 2] / 255f, bytes[b + 3] / 255f);
+            pixels[i] = Unpack(bytes.Slice(i * 4, 4));
         }
 
         return pixels;
     }
+
+    /// <summary>Like <see cref="FromPremultipliedRgba8(ReadOnlySpan{byte})"/>, in parallel, into an existing array of <c>bytes.Length / 4</c> pixels.</summary>
+    public static void FromPremultipliedRgba8(byte[] bytes, Float4[] pixels)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        ArgumentNullException.ThrowIfNull(pixels);
+
+        if (bytes.Length != pixels.Length * 4)
+        {
+            throw new ArgumentException($"Expected {pixels.Length * 4} bytes for {pixels.Length} pixels, got {bytes.Length}.", nameof(bytes));
+        }
+
+        For(pixels.Length, i => pixels[i] = Unpack(bytes.AsSpan(i * 4, 4)));
+    }
+
+    private static Float4 Unpack(ReadOnlySpan<byte> p) => new(p[0] / 255f, p[1] / 255f, p[2] / 255f, p[3] / 255f);
 
     /// <summary>Straight-alpha RGBA8 (PNG's encoding) to premultiplied floats.</summary>
     public static Float4[] FromStraightRgba32(ReadOnlySpan<Rgba32> source)
@@ -51,6 +66,20 @@ public static class PixelConversion
     {
         ArgumentNullException.ThrowIfNull(pixels);
         byte[] bytes = new byte[pixels.Length * 4];
+        ToPremultipliedRgba8(pixels, bytes);
+        return bytes;
+    }
+
+    /// <summary>Like <see cref="ToPremultipliedRgba8(Float4[])"/>, into an existing array of <c>4 * pixels.Length</c> bytes.</summary>
+    public static void ToPremultipliedRgba8(Float4[] pixels, byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(pixels);
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        if (bytes.Length != pixels.Length * 4)
+        {
+            throw new ArgumentException($"Expected {pixels.Length * 4} bytes for {pixels.Length} pixels, got {bytes.Length}.", nameof(bytes));
+        }
 
         For(pixels.Length, i =>
         {
@@ -62,8 +91,6 @@ public static class PixelConversion
             bytes[b + 2] = Quantize(Math.Min(p.Z, a));
             bytes[b + 3] = Quantize(a);
         });
-
-        return bytes;
     }
 
     /// <summary>Premultiplied floats to straight-alpha <see cref="Rgba32"/> (what PNG stores), rounding to nearest.</summary>
@@ -71,9 +98,22 @@ public static class PixelConversion
     {
         ArgumentNullException.ThrowIfNull(pixels);
         Rgba32[] result = new Rgba32[pixels.Length];
+        ToStraightRgba32(pixels, result);
+        return result;
+    }
+
+    /// <summary>Like <see cref="ToStraightRgba32(Float4[])"/>, into an existing array of the same length.</summary>
+    public static void ToStraightRgba32(Float4[] pixels, Rgba32[] result)
+    {
+        ArgumentNullException.ThrowIfNull(pixels);
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (result.Length != pixels.Length)
+        {
+            throw new ArgumentException($"Expected {pixels.Length} pixels, got {result.Length}.", nameof(result));
+        }
 
         For(pixels.Length, i => result[i] = ToStraight(pixels[i]));
-        return result;
     }
 
     public static Rgba32 ToStraight(Float4 p)

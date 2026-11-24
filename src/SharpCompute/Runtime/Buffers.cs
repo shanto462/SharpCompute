@@ -14,6 +14,11 @@ namespace SharpCompute;
 /// buffer alive either: keep the <see cref="Buffer{T}"/> referenced (e.g. with <c>using</c>) for as
 /// long as a span or reference obtained from it is in use. A buffer that is never disposed is
 /// released when its handle is finalized.
+/// <para>
+/// Most buffers own their memory. <see cref="GraphicsDevice.WrapReadWriteBuffer{T}"/> and
+/// <see cref="GraphicsDevice.MapReadOnlyBuffer{T}"/> make buffers over existing memory (caller-owned
+/// pages or a memory-mapped file) without copying it.
+/// </para>
 /// </remarks>
 public abstract unsafe class Buffer<T> : IDisposable
     where T : unmanaged
@@ -21,6 +26,7 @@ public abstract unsafe class Buffer<T> : IDisposable
     private readonly ObjCHandle _handle;
     private readonly T* _contents;
     private readonly int _length;
+    private readonly bool _isCpuWritable;
 
     // Equal to _length while the buffer is alive and 0 once disposed, so the indexers need a single
     // comparison to reject both an out-of-range index and a disposed buffer.
@@ -56,6 +62,22 @@ public abstract unsafe class Buffer<T> : IDisposable
         Device = device;
         _length = length;
         _accessibleLength = length;
+        _isCpuWritable = true;
+    }
+
+    /// <summary>
+    /// Wraps an existing <c>MTLBuffer</c> whose CPU address is <paramref name="contents"/> and takes
+    /// ownership of <paramref name="handle"/>. <paramref name="isCpuWritable"/> is false when the
+    /// memory is mapped read-only, so <see cref="AsSpan"/> must not hand out a writable view.
+    /// </summary>
+    private protected Buffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length, bool isCpuWritable)
+    {
+        Device = device;
+        _handle = handle;
+        _contents = contents;
+        _length = length;
+        _accessibleLength = length;
+        _isCpuWritable = isCpuWritable;
     }
 
     /// <summary>The device this buffer was allocated from. It can only be bound to shaders dispatched on that device.</summary>
@@ -69,18 +91,40 @@ public abstract unsafe class Buffer<T> : IDisposable
 
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
+    /// <summary>
+    /// False for a buffer over read-only memory (<see cref="GraphicsDevice.MapReadOnlyBuffer{T}"/>):
+    /// its contents can be read with <see cref="AsReadOnlySpan"/>, the indexer and the copy methods,
+    /// but <see cref="AsSpan"/> and <see cref="CopyFrom"/> throw, since writing would fault.
+    /// </summary>
+    public bool IsCpuWritable => _isCpuWritable;
+
     /// <summary>Direct view of the shared memory. Do not use while a dispatch that writes it is in flight.</summary>
     /// <exception cref="ObjectDisposedException">The buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException">The buffer maps read-only memory (<see cref="IsCpuWritable"/> is false); use <see cref="AsReadOnlySpan"/>.</exception>
     public Span<T> AsSpan()
     {
         ThrowIfDisposed();
+
+        if (!_isCpuWritable)
+        {
+            throw new NotSupportedException("This buffer maps read-only memory (a memory-mapped file); use AsReadOnlySpan() to read it.");
+        }
+
         return new Span<T>(_contents, _length);
+    }
+
+    /// <summary>Direct read-only view of the shared memory. Do not use while a dispatch that writes it is in flight.</summary>
+    /// <exception cref="ObjectDisposedException">The buffer has been disposed.</exception>
+    public ReadOnlySpan<T> AsReadOnlySpan()
+    {
+        ThrowIfDisposed();
+        return new ReadOnlySpan<T>(_contents, _length);
     }
 
     /// <summary>Copies the whole buffer into <paramref name="destination"/>, which must be at least <see cref="Length"/> long.</summary>
     public void CopyTo(Span<T> destination)
     {
-        Span<T> source = AsSpan();
+        ReadOnlySpan<T> source = AsReadOnlySpan();
 
         if (destination.Length < source.Length)
         {
@@ -113,7 +157,7 @@ public abstract unsafe class Buffer<T> : IDisposable
     /// <summary>Copies the buffer into a new array.</summary>
     public T[] ToArray()
     {
-        T[] result = AsSpan().ToArray();
+        T[] result = AsReadOnlySpan().ToArray();
         GC.KeepAlive(this);
         return result;
     }
@@ -161,6 +205,11 @@ public sealed class ReadWriteBuffer<T> : Buffer<T>
     {
     }
 
+    internal unsafe ReadWriteBuffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length)
+        : base(device, handle, contents, length, isCpuWritable: true)
+    {
+    }
+
     /// <summary>A reference to the element in shared memory. On the CPU it is bounds-checked; in a shader it is not.</summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is outside the buffer.</exception>
     /// <exception cref="ObjectDisposedException">The buffer has been disposed.</exception>
@@ -173,6 +222,11 @@ public sealed class ReadOnlyBuffer<T> : Buffer<T>
 {
     internal ReadOnlyBuffer(GraphicsDevice device, int length)
         : base(device, length)
+    {
+    }
+
+    internal unsafe ReadOnlyBuffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length, bool isCpuWritable)
+        : base(device, handle, contents, length, isCpuWritable)
     {
     }
 

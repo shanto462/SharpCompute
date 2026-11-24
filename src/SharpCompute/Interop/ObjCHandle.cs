@@ -12,13 +12,19 @@ namespace SharpCompute.Interop;
 internal sealed class ObjCHandle : SafeHandle
 {
     private readonly long _memoryPressure;
+    private readonly Action? _afterRelease;
 
     /// <param name="owned">A non-nil +1 reference; ownership transfers to the handle.</param>
     /// <param name="memoryPressure">Native bytes kept alive by the object, reported to the GC.</param>
-    internal ObjCHandle(nint owned, long memoryPressure = 0)
+    /// <param name="afterRelease">
+    /// Runs once, right after the object is released: by then every <see cref="Lease"/> has ended,
+    /// so no native call that was using the object is still in flight. May run on the finalizer thread.
+    /// </param>
+    internal ObjCHandle(nint owned, long memoryPressure = 0, Action? afterRelease = null)
         : base(invalidHandleValue: 0, ownsHandle: true)
     {
         SetHandle(owned);
+        _afterRelease = afterRelease;
 
         if (memoryPressure > 0)
         {
@@ -40,6 +46,7 @@ internal sealed class ObjCHandle : SafeHandle
             GC.RemoveMemoryPressure(_memoryPressure);
         }
 
+        _afterRelease?.Invoke();
         return true;
     }
 

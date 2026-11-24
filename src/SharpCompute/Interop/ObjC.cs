@@ -79,6 +79,10 @@ internal static unsafe partial class ObjC
     internal static partial nint SendIntPtr(nint receiver, nint selector, void* arg0, nuint arg1, nuint arg2);
 
     // NSUInteger f(id, SEL) — length, status, maxTotalThreadsPerThreadgroup, maxBufferLength.
+    /// <summary><c>newBufferWithBytesNoCopy:length:options:deallocator:</c> shape: pointer, length, options, block.</summary>
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial nint SendIntPtr(nint receiver, nint selector, void* arg0, nuint arg1, nuint arg2, nint arg3);
+
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial nuint SendNUInt(nint receiver, nint selector);
 
