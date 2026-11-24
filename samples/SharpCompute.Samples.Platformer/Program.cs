@@ -22,13 +22,14 @@ public static class Program
         Glowfall: a SharpCompute platformer
 
           SharpCompute.Samples.Platformer [--level <1-3>] [--demo] [--mute]
-          SharpCompute.Samples.Platformer --headless --frames <dir> [--seconds <s>] [--level <1-3>]
+          SharpCompute.Samples.Platformer --headless --frames <dir> [--seconds <s>] [--fps <n>] [--level <1-3>]
           SharpCompute.Samples.Platformer --check-levels [--map]
 
         Keys: arrows or A/D move · Z, Space, Up or W jump (hold for higher) · Down or S drops
               through ledges · R restarts the level · M mutes · Esc quits
         --demo      a simple pilot plays (attract mode)
-        --headless  no window: the pilot plays and every half second a PNG frame is written to <dir>
+        --headless  no window: the pilot plays and PNG frames are written to <dir>, two per second
+                    (or <n> per second with --fps, e.g. 30 to make a clip)
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
@@ -38,6 +39,7 @@ public static class Program
         bool demo = false, headless = false, map = false, check = false, mute = false;
         string? frames = null;
         double seconds = 8;
+        int fps = 2;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -61,6 +63,10 @@ public static class Program
                     break;
                 case "--seconds" when i + 1 < args.Length && double.TryParse(args[i + 1], CultureInfo.InvariantCulture, out double s) && s > 0:
                     seconds = s;
+                    i++;
+                    break;
+                case "--fps" when i + 1 < args.Length && int.TryParse(args[i + 1], CultureInfo.InvariantCulture, out int f) && f is >= 1 and <= 60:
+                    fps = f;
                     i++;
                     break;
                 case "--check-levels":
@@ -92,7 +98,7 @@ public static class Program
 
         if (headless)
         {
-            return RunHeadless(level, frames, seconds);
+            return RunHeadless(level, frames, seconds, fps);
         }
 
         if (!MetalWindow.IsSupported)
@@ -196,7 +202,7 @@ public static class Program
         Down: window.IsKeyDown(Key.Down) || window.IsKeyDown(Key.S));
 
     /// <summary>No window: the pilot plays for <paramref name="seconds"/>, and a PNG is written every half second.</summary>
-    private static int RunHeadless(int level, string? frames, double seconds)
+    private static int RunHeadless(int level, string? frames, double seconds, int fps)
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using Renderer renderer = new(device);
@@ -210,6 +216,7 @@ public static class Program
 
         int totalSteps = (int)(seconds / Tuning.StepSeconds);
         const int stepsPerFrame = 2;
+        int stepsPerImage = Math.Max(stepsPerFrame, (int)Math.Round(1.0 / (fps * Tuning.StepSeconds) / stepsPerFrame) * stepsPerFrame);
         int frameIndex = 0;
         double renderMs = 0;
         int rendered = 0;
@@ -227,9 +234,9 @@ public static class Program
             rendered++;
             session.TakeBursts();
 
-            if (frames is not null && step % 60 == 0)
+            if (frames is not null && step % stepsPerImage == 0)
             {
-                string path = Path.Combine(frames, Invariant($"glowfall-{frameIndex++:D3}.png"));
+                string path = Path.Combine(frames, Invariant($"glowfall-{frameIndex++:D4}.png"));
                 PngEncoder.Write(path, renderer.FramePixels, Renderer.Width, Renderer.Height);
             }
         }

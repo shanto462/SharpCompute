@@ -35,6 +35,14 @@ float[] result = buffer.ToArray(); // [2, 4, 6, 8]
 > **Status: early development.** APIs may change, and there is no NuGet package yet; reference the
 > projects directly (see [Using it in your project](#using-it-in-your-project)).
 
+## Games built with it
+
+**Glowfall** (`scripts/demo-glowfall.sh`): an original 2D platformer. Every pixel, per-pixel light
+with tile shadows and particle is computed by SharpCompute shaders, and its music and sound effects
+are synthesized on the GPU.
+
+![Glowfall: a lantern spirit relights a dark cavern](docs/glowfall.gif)
+
 ## Features
 
 - **Shaders are plain C#.** `Execute()` is translated to Metal Shading Language at build time, with

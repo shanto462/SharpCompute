@@ -273,12 +273,14 @@ public readonly partial struct RenderScene(
         color = Spires(color, x + (cameraX * 3 / 10), y + (cameraY * 3 / 10), 20, 150, new Float3(0.075f, 0.055f, 0.15f), 3u);
         color = Spires(color, x + (cameraX * 6 / 10), y + (cameraY * 6 / 10), 28, 190, new Float3(0.12f, 0.08f, 0.21f), 11u);
 
-        // Sparse far-off glimmers, twinkling slowly.
-        int gx = (x + (cameraX / 5)) / 6;
-        int gy = (y + (cameraY / 5)) / 6;
+        // Sparse far-off glimmers, twinkling slowly: one pixel in the middle of a rare 6 × 6 cell.
+        int fx = x + (cameraX / 5);
+        int fy = y + (cameraY / 5);
+        int gx = fx / 6;
+        int gy = fy / 6;
         float h = Hash(gx, gy, 29u);
 
-        if (h > 0.996f)
+        if (h > 0.996f && fx - (gx * 6) == 3 && fy - (gy * 6) == 3)
         {
             float twinkle = 0.5f + (0.5f * Gpu.Sin((time * 1.7f) + (h * 300f)));
             color += new Float3(0.25f, 0.3f, 0.5f) * twinkle;
