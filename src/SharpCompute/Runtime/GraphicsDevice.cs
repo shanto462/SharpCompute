@@ -16,7 +16,7 @@ namespace SharpCompute;
 /// All members are thread-safe. Every dispatch uses its own command buffer and encoder, and the
 /// device, queue and pipeline states they share are safe to use concurrently.
 /// </remarks>
-public sealed unsafe class GraphicsDevice : IDisposable
+public sealed unsafe partial class GraphicsDevice : IDisposable
 {
     private static readonly Lazy<GraphicsDevice?> s_default =
         new(static () => TryCreateSystemDefault(isDefault: true), LazyThreadSafetyMode.ExecutionAndPublication);
