@@ -31,6 +31,7 @@ public static class TestProgram
             return args[0] switch
             {
                 "key-state" => WindowScenarios.KeyState(),
+                "mouse-moved" => WindowScenarios.MouseMoved(),
                 _ => Unknown(args[0]),
             };
         }
@@ -186,6 +187,92 @@ internal static partial class WindowScenarios
         return 0;
     }
 
+    /// <summary>
+    /// Posts synthetic mouse-moved events to a real window: one over the content area must raise
+    /// <see cref="MetalWindow.MouseMoved"/> (no button, inside the drawable), one outside it must not.
+    /// </summary>
+    internal static int MouseMoved()
+    {
+        using MetalWindow window = new(GraphicsDevice.GetDefault(), "SharpCompute mouse-moved test", 320, 200);
+
+        List<MouseEventArgs> moves = [];
+        window.MouseMoved += (_, e) => moves.Add(e);
+
+        nint app = ObjC.SendIntPtr(ObjC.GetClass("NSApplication"), Sel("sharedApplication"));
+        int step = 0;
+        bool focused = false;
+
+        window.Run(frame =>
+        {
+            switch (step)
+            {
+                case 0:
+                    if (ObjC.SendIntPtr(app, Sel("keyWindow")) != 0 && SendBool(app, Sel("isActive")))
+                    {
+                        focused = true;
+                        step++;
+                    }
+                    else if (frame.Time > FocusTimeoutSeconds)
+                    {
+                        window.Close();
+                    }
+
+                    return;
+
+                case 1:
+                    // Window coordinates have a bottom-left origin; (100, 50) is inside the 320 × 200 content.
+                    PostMouse(app, window, 100, 50);
+                    step++;
+                    return;
+
+                case 2:
+                    Check(moves.Count == 1, $"Expected one MouseMoved, got {moves.Count}.");
+                    MouseEventArgs m = moves[0];
+                    Check(m.Button == MouseButton.None, $"Expected no button, got {m.Button}.");
+                    Check(m.X >= 0 && m.X < window.Width && m.Y >= 0 && m.Y < window.Height, $"({m.X}, {m.Y}) should be inside the drawable.");
+
+                    // The point is 50 points above the bottom of the content: Y counts from the top.
+                    double expectedY = (200 - 50) * window.ScaleFactor;
+                    Check(Math.Abs(m.Y - expectedY) <= window.ScaleFactor, $"Expected Y ≈ {expectedY}, got {m.Y}.");
+
+                    // Outside the content area: nothing is raised.
+                    PostMouse(app, window, -40, -40);
+                    step++;
+                    return;
+
+                case 3:
+                    Check(moves.Count == 1, $"A move outside the content area must not raise MouseMoved (got {moves.Count}).");
+                    step++;
+                    window.Close();
+                    return;
+            }
+        });
+
+        if (!focused)
+        {
+            Console.WriteLine("The window never became key; nothing was checked.");
+            return TestProgram.NoFocus;
+        }
+
+        Check(step == 4, $"The scenario stopped at step {step}.");
+        Console.WriteLine("Mouse-moved scenario passed.");
+        return 0;
+    }
+
+    private static void PostMouse(nint app, MetalWindow window, double x, double y)
+    {
+        nint key = ObjC.SendIntPtr(app, Sel("keyWindow"));
+        Check(key != 0, $"The window lost focus before the scenario finished (window '{window.Title}').");
+        nint windowNumber = ObjC.SendIntPtr(key, Sel("windowNumber"));
+        nint e = MouseEvent(
+            ObjC.GetClass("NSEvent"),
+            Sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+            5, x, y, 0, 0, windowNumber, 0, 0, 0, 0f);
+
+        Check(e != 0, "NSEvent refused to create the mouse event.");
+        PostEvent(app, Sel("postEvent:atStart:"), e, 0);
+    }
+
     private static void Post(nint app, MetalWindow window, nuint type, nuint flags, string characters, bool isRepeat, ushort keyCode)
     {
         nint key = ObjC.SendIntPtr(app, Sel("keyWindow"));
@@ -245,6 +332,12 @@ internal static partial class WindowScenarios
     private static partial nint KeyEvent(
         nint receiver, nint selector, nuint type, double locationX, double locationY, nuint flags, double timestamp,
         nint windowNumber, nint context, nint characters, nint charactersIgnoringModifiers, byte isARepeat, ushort keyCode);
+
+    // +[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]
+    [LibraryImport(LibObjC, EntryPoint = "objc_msgSend")]
+    private static partial nint MouseEvent(
+        nint receiver, nint selector, nuint type, double locationX, double locationY, nuint flags, double timestamp,
+        nint windowNumber, nint context, nint eventNumber, nint clickCount, float pressure);
 
     // -[NSApplication postEvent:atStart:]
     [LibraryImport(LibObjC, EntryPoint = "objc_msgSend")]

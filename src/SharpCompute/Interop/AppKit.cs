@@ -183,6 +183,7 @@ internal static partial class AppKit
     internal const nuint EventLeftMouseUp = 2;
     internal const nuint EventRightMouseDown = 3;
     internal const nuint EventRightMouseUp = 4;
+    internal const nuint EventMouseMoved = 5;
     internal const nuint EventLeftMouseDragged = 6;
     internal const nuint EventRightMouseDragged = 7;
     internal const nuint EventKeyDown = 10;
@@ -220,6 +221,7 @@ internal static class AppKitSelectors
     public static readonly nint InitWithContentRect = ObjC.GetSelector("initWithContentRect:styleMask:backing:defer:");
     public static readonly nint SetTitle = ObjC.GetSelector("setTitle:");
     public static readonly nint SetReleasedWhenClosed = ObjC.GetSelector("setReleasedWhenClosed:");
+    public static readonly nint SetAcceptsMouseMovedEvents = ObjC.GetSelector("setAcceptsMouseMovedEvents:");
     public static readonly nint SetContentMinSize = ObjC.GetSelector("setContentMinSize:");
     public static readonly nint Center = ObjC.GetSelector("center");
     public static readonly nint MakeKeyAndOrderFront = ObjC.GetSelector("makeKeyAndOrderFront:");

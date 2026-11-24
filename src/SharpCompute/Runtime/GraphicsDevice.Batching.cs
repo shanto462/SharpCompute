@@ -70,7 +70,7 @@ public sealed partial class GraphicsDevice
     {
         ValidateOutputTexture(texture);
 
-        CommandBatch batch = new(this);
+        CommandBatch batch = new(this, commandCapacity: 8);
 
         try
         {
@@ -130,7 +130,7 @@ public sealed partial class GraphicsDevice
             return Task.CompletedTask;
         }
 
-        CommandBatch batch = new(this);
+        CommandBatch batch = new(this, commandCapacity: 8);
 
         try
         {

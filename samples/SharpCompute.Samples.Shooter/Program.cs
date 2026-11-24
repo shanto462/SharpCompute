@@ -25,8 +25,8 @@ public static class Program
           SharpCompute.Samples.Shooter [--demo] [--mute] [--seed <n>]
           SharpCompute.Samples.Shooter --headless [--frames <dir>] [--seconds <s>] [--fps <n>] [--seed <n>] [--stress]
 
-        Keys: WASD move · arrows fire in eight directions (or hold the left mouse button to fire at
-              the pointer) · Space bomb · P pause · M mute · R restart · Esc quit
+        Keys: WASD move · mouse aims, hold the left button to fire · or arrows aim and fire in eight
+              directions · Space bomb · P pause · M mute · R restart · Esc quit
         --demo      an autopilot plays (attract mode)
         --headless  no window: the autopilot plays, frame times are printed, and with --frames a PNG
                     is written every half second
@@ -116,6 +116,7 @@ public static class Program
         double accumulator = 0;
         bool paused = false;
         bool mouseFiring = false;
+        bool mouseAiming = false;
         Vector2 mouse = Vector2.Zero;
 
         // The window texture is only reallocated on resize, never per frame.
@@ -150,16 +151,24 @@ public static class Program
             }
         };
 
-        // Mouse aim: while the left button is held, fire toward the pointer.
+        // Mouse aim: moving the pointer aims the ship at it (until an arrow key takes over); holding
+        // the left button fires. MouseMoved reports movement with no button held, MouseDragged with one.
+        void Point(MouseEventArgs e)
+        {
+            mouse = Renderer.WindowToArena(e.X, e.Y, window.Width, window.Height);
+            mouseAiming = true;
+        }
+
+        window.MouseMoved += (_, e) => Point(e);
+        window.MouseDragged += (_, e) => Point(e);
         window.MouseDown += (_, e) =>
         {
             if (e.Button == MouseButton.Left)
             {
                 mouseFiring = true;
-                mouse = Renderer.WindowToArena(e.X, e.Y, window.Width, window.Height);
+                Point(e);
             }
         };
-        window.MouseDragged += (_, e) => mouse = Renderer.WindowToArena(e.X, e.Y, window.Width, window.Height);
         window.MouseUp += (_, e) => mouseFiring &= e.Button != MouseButton.Left;
 
         Console.WriteLine(Usage);
@@ -174,7 +183,11 @@ public static class Program
 
                 while (accumulator >= Tuning.StepSeconds && steps < 12)
                 {
-                    arena.Step(demo ? pilot.Next(arena) : ReadInput(window, arena, mouseFiring, mouse));
+                    InputState input = demo ? pilot.Next(arena) : ReadInput(window, arena, mouseAiming, mouseFiring, mouse);
+
+                    // An arrow key takes aiming back from the mouse until the pointer moves again.
+                    mouseAiming &= !(input.Fire && !mouseFiring);
+                    arena.Step(input);
                     accumulator -= Tuning.StepSeconds;
                     steps++;
                 }
@@ -193,17 +206,20 @@ public static class Program
         return 0;
     }
 
-    /// <summary>WASD moves; arrows aim and fire in eight directions; otherwise a held left button fires at the pointer.</summary>
-    internal static InputState ReadInput(MetalWindow window, Arena arena, bool mouseFiring, Vector2 mouse)
+    /// <summary>
+    /// WASD moves. Arrow keys aim and fire in eight directions; otherwise the pointer aims (once it
+    /// has moved) and a held left button fires at it.
+    /// </summary>
+    internal static InputState ReadInput(MetalWindow window, Arena arena, bool mouseAiming, bool mouseFiring, Vector2 mouse)
     {
         Vector2 move = InputState.Direction(window.IsKeyDown(Key.A), window.IsKeyDown(Key.D), window.IsKeyDown(Key.W), window.IsKeyDown(Key.S));
         Vector2 aim = InputState.Direction(window.IsKeyDown(Key.Left), window.IsKeyDown(Key.Right), window.IsKeyDown(Key.Up), window.IsKeyDown(Key.Down));
         bool fire = aim != Vector2.Zero;
 
-        if (!fire && mouseFiring)
+        if (!fire && (mouseAiming || mouseFiring))
         {
             aim = mouse - arena.Player.Position;
-            fire = true;
+            fire = mouseFiring;
         }
 
         return new InputState(move, aim, fire, window.IsKeyDown(Key.Space));

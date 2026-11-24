@@ -168,7 +168,8 @@ public static class Program
                 while (accumulator >= Tuning.StepSeconds && steps < 12)
                 {
                     InputState input = demo ? pilot.Next(session.World) : ReadInput(window);
-                    session.Step(input with { Jump = input.Jump || jumpLatched });
+                    // The latch is for the player's keys; the demo pilot plays on its own.
+                    session.Step(input with { Jump = input.Jump || (jumpLatched && !demo) });
                     jumpLatched = false;
                     accumulator -= Tuning.StepSeconds;
                     steps++;

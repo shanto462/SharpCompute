@@ -121,6 +121,15 @@ public class MetalWindowTests(ITestOutputHelper output)
     /// key held to check that it is released.
     /// </summary>
     [WindowFact]
+    public void MouseMoved_IsRaisedOverTheContentArea_WithNoButton()
+    {
+        (int exitCode, string stdout, string stderr) = RunProcess(typeof(TestProgram).Assembly.Location, ["mouse-moved"], [], "mouse-moved");
+
+        output.WriteLine(stdout.Trim());
+        Assert.True(exitCode is 0 or TestProgram.NoFocus, $"exit code {exitCode}\n{stdout}\n{stderr}");
+    }
+
+    [WindowFact]
     public void KeyState_TracksHeldKeysAndReleasesThemWhenHidden()
     {
         (int exitCode, string stdout, string stderr) = RunProcess(typeof(TestProgram).Assembly.Location, ["key-state"], [], "key-state");
