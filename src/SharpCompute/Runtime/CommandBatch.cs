@@ -51,8 +51,9 @@ internal sealed unsafe class CommandBatch
     private readonly GraphicsDevice _device;
     private readonly List<ObjCHandle> _leases = [];
     private readonly List<Type> _shaderTypes = [];
-    // A dispatch records 3 to 5 commands; starting at 32 avoids regrowing the list in the common case.
-    private readonly List<Command> _commands = new(32);
+    // A dispatch records 3 to 5 commands. A context batch starts at 32 so a few dispatches never
+    // regrow the list; a single async dispatch needs only a handful.
+    private readonly List<Command> _commands;
     private byte[] _constants = [];
     private int _constantsLength;
     private List<nint>? _temporaries;
@@ -67,9 +68,12 @@ internal sealed unsafe class CommandBatch
 
     /// <summary>Starts an empty batch on <paramref name="device"/>'s queue. No Metal object is created until it is committed.</summary>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
-    internal CommandBatch(GraphicsDevice device)
+    /// <param name="device">The device whose queue runs the batch.</param>
+    /// <param name="commandCapacity">Initial room for recorded commands (3 to 5 per dispatch).</param>
+    internal CommandBatch(GraphicsDevice device, int commandCapacity = 32)
     {
         _device = device;
+        _commands = new List<Command>(commandCapacity);
 
         // Held until completion: a device disposed while the batch is pending keeps its queue.
         _queue = Lease(device.QueueHandle, device);

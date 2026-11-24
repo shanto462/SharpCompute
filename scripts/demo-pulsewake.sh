@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Pulsewake: a neon twin-stick arena shooter drawn by SharpCompute compute shaders (vector glow,
 # GPU particles, bloom, shockwave distortion) with GPU-synthesized chiptune audio.
-#   WASD move · arrows fire in eight directions (or hold the left mouse button to fire at the
-#   pointer) · Space bomb · P pause · M mute · R restart · Esc quit
+#   WASD move · mouse aims, hold the left button to fire · or arrows aim and fire in eight
+#   directions · Space bomb · P pause · M mute · R restart · Esc quit
 #
 #   scripts/demo-pulsewake.sh                     # play
 #   scripts/demo-pulsewake.sh --demo              # watch the autopilot play

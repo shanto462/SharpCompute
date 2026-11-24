@@ -131,6 +131,9 @@ public sealed class MetalWindow : IDisposable
 
             // The window outlives -close so Run can observe that it closed; Dispose releases it.
             ObjC.SendVoid(_window, AppKitSelectors.SetReleasedWhenClosed, (byte)0);
+
+            // Off by default in AppKit; MouseMoved needs it.
+            ObjC.SendVoid(_window, AppKitSelectors.SetAcceptsMouseMovedEvents, (byte)1);
             ObjC.SendVoid(_window, AppKitSelectors.SetContentMinSize, new CGSize(64, 64));
             SetNativeTitle(title);
 
@@ -260,6 +263,13 @@ public sealed class MetalWindow : IDisposable
 
     /// <summary>The mouse moved while a button pressed inside the content area is held.</summary>
     public event EventHandler<MouseEventArgs>? MouseDragged;
+
+    /// <summary>
+    /// The pointer moved over the content area with no button held (<see cref="MouseEventArgs.Button"/>
+    /// is <see cref="MouseButton.None"/>). With a button held, movement is reported by
+    /// <see cref="MouseDragged"/> instead, so a game that aims with the pointer listens to both.
+    /// </summary>
+    public event EventHandler<MouseEventArgs>? MouseMoved;
 
     /// <summary>A button whose <see cref="MouseDown"/> was raised was released (possibly outside the window).</summary>
     public event EventHandler<MouseEventArgs>? MouseUp;
@@ -675,6 +685,10 @@ public sealed class MetalWindow : IDisposable
                 HandleMouse(e, MouseEventKind.Dragged);
                 return true;
 
+            case AppKit.EventMouseMoved:
+                HandleMouse(e, MouseEventKind.Moved);
+                return true;
+
             case AppKit.EventLeftMouseUp or AppKit.EventRightMouseUp or AppKit.EventOtherMouseUp:
                 HandleMouse(e, MouseEventKind.Up);
                 return true;
@@ -744,9 +758,10 @@ public sealed class MetalWindow : IDisposable
         {
             AppKit.EventLeftMouseDown or AppKit.EventLeftMouseUp or AppKit.EventLeftMouseDragged => MouseButton.Left,
             AppKit.EventRightMouseDown or AppKit.EventRightMouseUp or AppKit.EventRightMouseDragged => MouseButton.Right,
+            AppKit.EventMouseMoved => MouseButton.None,
             _ => (nint)ObjC.SendNUInt(e, AppKitSelectors.ButtonNumber) == 2 ? MouseButton.Middle : MouseButton.Other,
         };
-        int bit = 1 << (int)button;
+        int bit = button == MouseButton.None ? 0 : 1 << (int)button;
 
         CGPoint inWindow = ObjC.SendCGPoint(e, AppKitSelectors.LocationInWindow);
         CGPoint inView = ObjC.SendCGPoint(_view, AppKitSelectors.ConvertPointFromView, inWindow, 0);
@@ -769,6 +784,10 @@ public sealed class MetalWindow : IDisposable
             case MouseEventKind.Up when (_buttonsDown & bit) != 0:
                 _buttonsDown &= ~bit;
                 MouseUp?.Invoke(this, args);
+                break;
+
+            case MouseEventKind.Moved when x >= 0 && x < Width && y >= 0 && y < Height:
+                MouseMoved?.Invoke(this, args);
                 break;
         }
     }
@@ -842,5 +861,6 @@ public sealed class MetalWindow : IDisposable
         Down,
         Dragged,
         Up,
+        Moved,
     }
 }

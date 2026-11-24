@@ -38,6 +38,9 @@ public enum MouseButton
 
     /// <summary>Any button beyond the third.</summary>
     Other,
+
+    /// <summary>No button: the pointer moved with no button held (<see cref="MetalWindow.MouseMoved"/>).</summary>
+    None = -1,
 }
 
 /// <summary>Data for <see cref="MetalWindow.KeyDown"/> and <see cref="MetalWindow.KeyUp"/>.</summary>
