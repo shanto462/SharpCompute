@@ -83,6 +83,11 @@ dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Pipeline
 step "Audio: GPU-synthesized sound effects and a chiptune loop, as WAV files"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Audio.Demo -- --wav "$OUT/audio"
 
+step "Glowfall: the platformer plays itself headless, frames as PNG"
+mkdir -p "$OUT/glowfall"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Platformer -- --check-levels | tee "$OUT/glowfall/levels.txt"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Platformer -- --headless --frames "$OUT/glowfall" --seconds 8 | tee -a "$OUT/glowfall/levels.txt"
+
 step "Paint: scripted replay (headless)"
 SHARPCOMPUTE_PAINT_SCRIPT=samples/SharpCompute.Samples.Paint/demo-script.json SHARPCOMPUTE_PAINT_OUTPUT="$OUT/paint.png" \
   dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Paint -- --headless

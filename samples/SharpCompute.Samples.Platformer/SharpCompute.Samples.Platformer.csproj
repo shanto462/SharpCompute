@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Glowfall: a small 2D platformer rendered by SharpCompute pixel shaders, with GPU per-pixel 2D
+    lighting and shadows, GPU particles and generated chiptune audio. Original SharpCompute sample (MIT).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpCompute.Samples.Platformer</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.Platformer</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <ProjectReference Include="..\SharpCompute.Samples.Audio\SharpCompute.Samples.Audio.csproj" />
+    <!-- For PngEncoder only; the game code itself is MIT. -->
+    <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

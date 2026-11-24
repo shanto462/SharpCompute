@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
     <!-- A class library, so a plain reference (the Exe samples are loaded from their build output instead). -->
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Audio\SharpCompute.Samples.Audio.csproj" />
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.Platformer\SharpCompute.Samples.Platformer.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
