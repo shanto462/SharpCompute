@@ -1,0 +1,34 @@
+; Unshipped analyzer release
+; https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.Analyzers/ReleaseTrackingAnalyzers.Help.md
+
+### New Rules
+
+Rule ID | Category | Severity | Notes
+--------|----------|----------|-------
+SCG0001 | SharpCompute | Error | Shader struct must be partial
+SCG0002 | SharpCompute | Error | Type containing a shader struct must be partial
+SCG0003 | SharpCompute | Error | Shader struct must implement IComputeShader or IComputeShader<TPixel>
+SCG0004 | SharpCompute | Warning | Shader struct should be readonly
+SCG0005 | SharpCompute | Error | Unsupported shader struct declaration
+SCG0006 | SharpCompute | Error | Unsupported captured field or parameter type
+SCG0007 | SharpCompute | Error | Unsupported type in shader code
+SCG0008 | SharpCompute | Error | Primary constructor parameter is also stored in a field
+SCG0009 | SharpCompute | Error | Struct cannot be used in a shader
+SCG0010 | SharpCompute | Error | Buffer nested inside a struct
+SCG0011 | SharpCompute | Error | Too many bound arguments
+SCG0012 | SharpCompute | Error | Unsupported construct in shader code
+SCG0013 | SharpCompute | Error | Instance method called on another instance
+SCG0014 | SharpCompute | Error | Recursive helper method
+SCG0015 | SharpCompute | Error | Invalid thread group size
+SCG0016 | SharpCompute | Error | Method cannot be called from a shader
+SCG0017 | SharpCompute | Error | Member cannot be used in a shader
+SCG0018 | SharpCompute | Error | Captured shader state is read-only
+SCG0019 | SharpCompute | Error | Buffer length is unavailable
+SCG0020 | SharpCompute | Error | Execute method is missing
+SCG0021 | SharpCompute | Error | Expression depends on C# evaluation order
+SCG0022 | SharpCompute | Error | Shader implements both shader interfaces
+SCG0023 | SharpCompute | Error | Unsupported pixel type
+SCG0024 | SharpCompute | Error | Static field cannot be lowered to an MSL constant
+SCG0025 | SharpCompute | Error | Local function captures a local or parameter
+SCG0026 | SharpCompute | Error | Static field is assigned in a static constructor
+SCG9999 | SharpCompute | Error | Internal generator error

@@ -1,0 +1,2 @@
+# BenchmarkDotNet builds a project per run here (BenchmarkDotNet.Artifacts/ is ignored at the root).
+.bdn/

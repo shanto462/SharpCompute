@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SharpCompute/SharpCompute.csproj" />
+    <Project Path="src/SharpCompute.SourceGenerators/SharpCompute.SourceGenerators.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SharpCompute.Tests/SharpCompute.Tests.csproj" />
+    <Project Path="tests/SharpCompute.SourceGenerators.Tests/SharpCompute.SourceGenerators.Tests.csproj" />
+    <Project Path="tests/SharpCompute.Vectors.Tests/SharpCompute.Vectors.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/SharpCompute.Samples.HelloWorld/SharpCompute.Samples.HelloWorld.csproj" />
+    <Project Path="samples/SharpCompute.Samples.Gallery/SharpCompute.Samples.Gallery.csproj" />
+    <Project Path="samples/SharpCompute.Samples.Shaders/SharpCompute.Samples.Shaders.csproj" />
+    <Project Path="samples/SharpCompute.Samples.Viewer/SharpCompute.Samples.Viewer.csproj" />
+    <Project Path="samples/SharpCompute.Samples.ImageProcessing/SharpCompute.Samples.ImageProcessing.csproj" />
+    <Project Path="samples/SharpCompute.Samples.Paint/SharpCompute.Samples.Paint.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/SharpCompute.Benchmarks/SharpCompute.Benchmarks.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    imgproc: GPU image filters on photos loaded through macOS ImageIO, timed against the same math on
+    the CPU. Original SharpCompute sample (MIT). The Imaging/ folder is shared with the Paint sample.
+    Usage: run the project with no arguments.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>SharpCompute.Samples.ImageProcessing</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.ImageProcessing</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- For PngEncoder only; the ImageProcessing code itself is MIT. -->
+    <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

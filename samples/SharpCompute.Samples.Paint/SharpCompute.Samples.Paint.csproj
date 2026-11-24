@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    A GPU paint app on a buffer canvas, in a MetalWindow. Original SharpCompute sample (MIT).
+    The image filters come from the ImageProcessing sample's Imaging/ folder, compiled in here too.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpCompute.Samples.Paint</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.Paint</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\SharpCompute.Samples.ImageProcessing\Imaging\*.cs" LinkBase="Imaging" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="demo-script.json" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- For PngEncoder only; the Paint code itself is MIT. -->
+    <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
