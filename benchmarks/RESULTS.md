@@ -79,6 +79,7 @@ Same kernel, same threadgroup size (256), same binding. The generated descriptor
 - **Caches:** at 1M floats SAXPY touches 8 MB, which largely stays in the CPU's on-chip caches between iterations, so the multi-threaded CPU can exceed DRAM bandwidth there. At 16M floats (192 MB of traffic per call) both sides are DRAM-bound.
 - **CPU variants** run on managed arrays. *scalar (1 thread)* is a plain loop; *SIMD* uses `TensorPrimitives`, `Vector<T>` or `Vector128<T>` (128-bit NEON, 4 floats); *Parallel.For* spreads rows, chunks or bodies across all cores. The CPU matmul gets Bᵀ (transposed once in setup, not timed); the N-body SIMD variant gets a structure-of-arrays copy (also built once in setup).
 - **FP contraction:** Metal fuses `a*b + c` into fma by default, so GPU results match the CPU to rounding, not bit for bit. That's what `--verify` checks.
+- **When unified memory helps and when it doesn't:** the zero-copy, batching and async sections below measure it; [`docs/unified-memory.md`](../docs/unified-memory.md) explains which API to use when.
 - **GPU-private storage:** `MTLStorageModePrivate` buffers were measured against shared ones on this machine with a 4K `float4` blur-style kernel, in every combination of private and shared input and output: all took 1.91 ms (within 0.2 %). On Apple silicon, private storage pays off for textures (lossless compression), not for buffers, so SharpCompute keeps every buffer shared and CPU-visible.
 
 ## Results per workload

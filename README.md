@@ -110,6 +110,22 @@ skipped: decode into the GPU buffer, convert and filter on the GPU, encode from 
 | Same kernels, only the copies of the bytes in and out removed | 3840×2160 | 4.28 ms | 3.10 ms | 1.4× |
 | File of floats → GPU sum (`MapReadOnlyBuffer`) | 256 MB | 42.0 ms (`ReadAllBytes` + upload) | 4.06 ms | **10.3×** |
 
+### Unified memory: when it helps and when it doesn't
+
+On Apple silicon the CPU and the GPU share the same memory, so there is no upload or download over a
+bus. The gains come from not copying at all and from overlapping work. They don't come from extra
+bandwidth: both sides use the same memory controller.
+
+| Helps | Measured | Doesn't help | Why |
+|---|---|---|---|
+| Decode or read straight into GPU memory, convert on the GPU | 4K image pipeline 12.2 → 3.10 ms | Memory-bound kernels (SAXPY) | Same bandwidth; the CPU ties or wins |
+| `MapReadOnlyBuffer` instead of reading a file | 256 MB: 42.0 → 4.06 ms | Tiny one-off dispatches | ~0.1 ms floor per dispatch; the CPU finishes first |
+| Many small dispatches in one `ComputeContext` | ~99 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
+| `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (7 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
+
+The full guide, with how to choose an API and the lifetime rules that come with zero copy, is
+[`docs/unified-memory.md`](docs/unified-memory.md).
+
 ## Using it in your project
 
 Requirements: macOS 15 or later on Apple Silicon, and the .NET 11 SDK.
