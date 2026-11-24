@@ -294,6 +294,10 @@ public sealed class ChipSynthTests
         Assert.Throws<ArgumentOutOfRangeException>(() => synth.Render(new ToneSpec((Waveform)42, 440f, 440f, 1f, ok)));
         Assert.Throws<ArgumentOutOfRangeException>(() => synth.Render(new ToneSpec(Waveform.Sine, 440f, 440f, 1000f, ok)));
 
+        // One voice is capped at MaxVoiceSeconds (precision falls with frequency × length).
+        Assert.Throws<ArgumentOutOfRangeException>(() => synth.Render(new ToneSpec(Waveform.Sine, 440f, 440f, ChipSynth.MaxVoiceSeconds + 1f, ok)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => synth.Render(new Song(60f, 64f, [new SongChannel(Waveform.Sine, ok, 0.5f, [new Note(60, 0f, 31f)])])));
+
         SongChannel channel = new(Waveform.Sine, ok, 0.5f, [new Note(60, 0f, 1f)]);
         Assert.Throws<ArgumentOutOfRangeException>(() => synth.Render(new Song(0f, 4f, [channel])));
         Assert.Throws<ArgumentOutOfRangeException>(() => synth.Render(new Song(120f, 0f, [channel])));

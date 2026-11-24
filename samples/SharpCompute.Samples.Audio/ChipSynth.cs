@@ -16,9 +16,11 @@ namespace SharpCompute.Samples.Audio;
 /// player's audio thread reads what the GPU wrote, with no copy or upload in between.
 /// </para>
 /// <para>
-/// Rendering is deterministic: the same <see cref="ToneSpec"/> or <see cref="Song"/> at the same
-/// sample rate gives bit-identical samples on every run (noise is a hash of the cycle index, and each
-/// sample sums its voices in a fixed order).
+/// Rendering is deterministic on the same machine and OS version: the same <see cref="ToneSpec"/> or
+/// <see cref="Song"/> at the same sample rate gives bit-identical samples on every run (noise is a hash
+/// of the cycle index, and each sample sums its voices in a fixed order). Across GPU families or OS
+/// releases the last bits may differ, since the kernel uses <c>exp</c>, <c>log</c>, <c>sin</c> and
+/// <c>cos</c>, whose last-bit results Metal does not guarantee.
 /// </para>
 /// <para>
 /// <b>Thread safety.</b> <see cref="Render(ToneSpec)"/> and <see cref="Render(Song)"/> may be called
@@ -29,6 +31,13 @@ public sealed class ChipSynth : IDisposable
 {
     /// <summary>The longest clip a render may produce, in seconds (a guard against a mistyped duration allocating gigabytes).</summary>
     public const double MaxClipSeconds = 600;
+
+    /// <summary>
+    /// The longest a single voice (a <see cref="ToneSpec"/>'s duration, or one note of a song) may
+    /// last, in seconds. A voice's phase is a single-precision count of cycles, so its precision falls
+    /// with frequency × length; see <see cref="ToneSpec.Duration"/>.
+    /// </summary>
+    public const float MaxVoiceSeconds = 30f;
 
     private int _disposed;
 
@@ -110,6 +119,11 @@ public sealed class ChipSynth : IDisposable
                     !float.IsFinite(note.Start + note.Length + note.Velocity))
                 {
                     throw new ArgumentOutOfRangeException(nameof(song), note, $"Channel {c} has an invalid note (pitch 0..127, start ≥ 0, length > 0, velocity ≥ 0).");
+                }
+
+                if (note.Length * 60f / song.BeatsPerMinute > MaxVoiceSeconds)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(song), note, $"Channel {c} has a note longer than {MaxVoiceSeconds} s; split it into shorter notes.");
                 }
 
                 if (note.Start >= song.LengthInBeats)

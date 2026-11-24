@@ -294,7 +294,9 @@ internal sealed unsafe class VoiceMixer
 
         for (int i = 0; i < frames * 2; i++)
         {
-            output[i] = Math.Clamp(output[i] * master, -1f, 1f);
+            // Math.Clamp passes NaN through; a bad sample from a CPU-made clip must not reach the device.
+            float v = output[i] * master;
+            output[i] = v >= -1f ? (v <= 1f ? v : 1f) : (v < -1f ? -1f : 0f);
         }
 
         Volatile.Write(ref _mixedFrames, _mixedFrames + frames);

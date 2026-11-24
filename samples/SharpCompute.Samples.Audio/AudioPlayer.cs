@@ -32,6 +32,11 @@ namespace SharpCompute.Samples.Audio;
 /// <b>Thread safety.</b> All members may be called from any thread. Dispose the player to stop the
 /// queue; an undisposed player keeps playing until the process exits.
 /// </para>
+/// <para>
+/// <b>Latency and the GC.</b> The audio callback takes no lock and allocates nothing, but it is
+/// managed code: a garbage-collection pause longer than the queued audio (three 512-frame buffers,
+/// about 32 ms at 48 kHz) is audible as a dropout.
+/// </para>
 /// </remarks>
 public sealed unsafe class AudioPlayer : IDisposable
 {
@@ -128,7 +133,11 @@ public sealed unsafe class AudioPlayer : IDisposable
         }
     }
 
-    /// <summary>Plays <paramref name="music"/> on repeat from its start, replacing the current loop. The wrap is seamless (sample-exact).</summary>
+    /// <summary>
+    /// Plays <paramref name="music"/> on repeat from its start, replacing the current loop. The wrap is
+    /// seamless (sample-exact). The mix is clamped to −1..1, so leave music some headroom (a volume
+    /// of about 0.4–0.5) if sound effects play on top of it.
+    /// </summary>
     /// <exception cref="ObjectDisposedException"><paramref name="music"/> has been disposed.</exception>
     public void PlayLoop(AudioClip music, float volume = 1f)
     {

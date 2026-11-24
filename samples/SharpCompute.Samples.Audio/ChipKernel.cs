@@ -46,8 +46,8 @@ internal struct VoiceEvent
 /// <see cref="BlockSize"/> samples in <c>blockStarts</c>, sums every voice listed for that block in
 /// <c>blockEvents</c> and clamps the sum to −1..1. Nothing carries state from one sample to the
 /// next: phase, envelope and noise are closed-form functions of the sample index, which is what
-/// lets every sample render in parallel and what makes a render bit-identical every time (each
-/// thread adds its voices in the same order on every run).
+/// lets every sample render in parallel and what makes a render bit-identical every time on the
+/// same machine and OS version (each thread adds its voices in the same order on every run).
 /// </summary>
 /// <remarks>
 /// The CPU builds the block lists (ChipSynth), so a thread only visits the voices that

@@ -30,6 +30,21 @@ public sealed unsafe class AudioPlayerTests
     private static float[] Right(float[] stereo) => [.. Enumerable.Range(0, stereo.Length / 2).Select(i => stereo[(2 * i) + 1])];
 
     [MetalFact]
+    public void Mixer_NeverOutputsNaN_OrValuesBeyondFullScale()
+    {
+        using AudioClip clip = Clip(float.NaN, float.PositiveInfinity, float.NegativeInfinity, 3f, -3f, 0.25f);
+        VoiceMixer mixer = new(48000, 4);
+        mixer.Play(clip, 1f, 0f);
+
+        float[] output = Left(Mix(mixer, 6));
+
+        Assert.All(output, static v => Assert.True(float.IsFinite(v) && v is >= -1f and <= 1f, $"{v}"));
+        Assert.Equal(0f, output[0]);
+        Assert.Equal(1f, output[3]);
+        Assert.Equal(-1f, output[4]);
+    }
+
+    [MetalFact]
     public void Mixer_PlaysAVoiceOnceWithVolume()
     {
         using AudioClip clip = Clip(0.1f, 0.2f, 0.3f);
@@ -236,7 +251,7 @@ public sealed unsafe class AudioPlayerTests
         Assert.Equal(supported, AudioPlayer.IsSupported);
     }
 
-    [Fact]
+    [AudioFact]
     public void RealPlayer_OpensAndClosesSilently()
     {
         // Nothing is played: the queue runs the mixer, which outputs silence, and is torn down.
@@ -260,5 +275,23 @@ public sealed unsafe class AudioPlayerTests
         player.StopLoop();
         player.Dispose();
         Assert.False(player.IsActive);
+    }
+}
+
+/// <summary>
+/// A test that starts a real audio output queue. Opt-in, so a default <c>dotnet test</c> never
+/// wakes or switches the machine's audio output: runs only with <c>SHARPCOMPUTE_AUDIO_TESTS=1</c>
+/// and never in CI.
+/// </summary>
+public sealed class AudioFactAttribute : FactAttribute
+{
+    public AudioFactAttribute()
+    {
+        if (Environment.GetEnvironmentVariable("SHARPCOMPUTE_AUDIO_TESTS") != "1" ||
+            Environment.GetEnvironmentVariable("CI") is { Length: > 0 } ||
+            Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is { Length: > 0 })
+        {
+            Skip = "Audio device tests are opt-in: set SHARPCOMPUTE_AUDIO_TESTS=1 (never run in CI).";
+        }
     }
 }

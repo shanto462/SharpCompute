@@ -84,7 +84,13 @@ public readonly record struct Envelope(float Attack, float Decay, float Sustain,
 /// <param name="Wave">The oscillator.</param>
 /// <param name="StartHz">The frequency at the start. For <see cref="Waveform.Noise"/>, the rate at which the noise changes value.</param>
 /// <param name="EndHz">The frequency reached at <paramref name="Duration"/> (and held during the release). The slide is exponential, so it moves by equal musical intervals per second.</param>
-/// <param name="Duration">How long the tone is held, in seconds; the clip is <c>Duration + Envelope.Release</c> long.</param>
+/// <param name="Duration">
+/// How long the tone is held, in seconds, at most <see cref="ChipSynth.MaxVoiceSeconds"/>; the clip is
+/// <c>Duration + Envelope.Release</c> long. The phase is a single-precision count of cycles, so the
+/// signal-to-noise ratio falls as frequency × length grows (measured on an M4 Pro: about 88 dB for
+/// 880 Hz over 0.25 s, 70 dB over 2 s and 52 dB over 10 s). Short game sounds are far inside the
+/// good range; for long drones, use a song of repeated notes.
+/// </param>
 /// <param name="Envelope">The volume envelope.</param>
 /// <param name="Volume">Peak amplitude, 0..1.</param>
 /// <param name="VibratoHz">Vibrato rate in Hz; 0 for none.</param>
@@ -106,9 +112,9 @@ public sealed record ToneSpec(
             throw new ArgumentOutOfRangeException(nameof(StartHz), $"Frequencies must be finite and positive (got {StartHz} → {EndHz} Hz).");
         }
 
-        if (!(Duration > 0f) || !float.IsFinite(Duration))
+        if (!(Duration > 0f) || !float.IsFinite(Duration) || Duration > ChipSynth.MaxVoiceSeconds)
         {
-            throw new ArgumentOutOfRangeException(nameof(Duration), Duration, "Duration must be finite and positive.");
+            throw new ArgumentOutOfRangeException(nameof(Duration), Duration, $"Duration must be positive and at most {ChipSynth.MaxVoiceSeconds} s (one voice loses precision beyond that).");
         }
 
         if (!(Volume >= 0f) || !float.IsFinite(Volume))
