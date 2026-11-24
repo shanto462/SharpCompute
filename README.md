@@ -124,6 +124,7 @@ bandwidth: both sides use the same memory controller.
 | `MapReadOnlyBuffer` instead of reading a file | 256 MB: 42.0 → 4.06 ms | Tiny one-off dispatches | ~0.1 ms floor per dispatch; the CPU finishes first |
 | Many small dispatches in one `ComputeContext` | ~99 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
 | `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (7 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
+| | | Splitting one grid between CPU and GPU (`ForSplit`) | 0.97–1.09× of GPU-only: scalar C# on the CPU, and the GPU slows while the CPU is busy |
 
 The full guide, with how to choose an API and the lifetime rules that come with zero copy, is
 [`docs/unified-memory.md`](docs/unified-memory.md).
@@ -236,7 +237,7 @@ Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalize
 the GPU up to floating-point rounding. Only split shaders whose threads write their own elements.
 Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
 every CPU core is busy. The adaptive mode therefore only splits while that measures faster than the
-GPU alone, and on the benchmarked workloads it lands within ±4 % of GPU-only
+GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % faster than GPU-only
 ([`benchmarks/RESULTS.md`](benchmarks/RESULTS.md#cpu-execution-and-cpugpu-split)). `ForCpu` is a
 correct fallback and a debugging aid rather than a fast CPU path.
 

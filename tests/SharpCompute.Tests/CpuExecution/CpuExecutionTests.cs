@@ -330,6 +330,44 @@ public class CpuExecutionTests
     }
 
     [MetalFact]
+    public void IntegerDivisionByZero_ThrowsOnTheCpu_AndIsUnreportedOnTheGpu()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> data = device.AllocateReadWriteBuffer<int>(1024);
+
+        device.ForCpu(data.Length, new DivideIndex(data, 3));
+        Assert.Equal(Enumerable.Range(0, 1024).Select(static i => i / 3), data.ToArray());
+
+        // C# semantics on the CPU: the division throws, as documented on ForCpu.
+        Assert.Throws<DivideByZeroException>(() => device.ForCpu(data.Length, new DivideIndex(data, 0)));
+
+        // MSL semantics on the GPU: no error is reported (the values are undefined, so not checked).
+        device.For(data.Length, new DivideIndex(data, 0));
+
+        // And split: the CPU part's exception wins, after the GPU part has finished.
+        Assert.Throws<DivideByZeroException>(() => device.ForSplit(data.Length, new DivideIndex(data, 0), 0.5));
+        Assert.Throws<InvalidOperationException>(() => ThreadIds.X);
+    }
+
+    [MetalFact]
+    public void MinValueDividedByMinusOne_OverflowsOnTheCpu_AndWrapsOnTheGpu()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> data = device.AllocateReadWriteBuffer<int>(4);
+
+        Assert.Throws<OverflowException>(() => device.ForCpu(data.Length, new DivideValues(data, int.MinValue, -1)));
+
+        device.For(data.Length, new DivideValues(data, int.MinValue, -1));
+        Assert.All(data.ToArray(), static value => Assert.Equal(int.MinValue, value));
+
+        // Every other quotient agrees.
+        device.ForCpu(data.Length, new DivideValues(data, -7, 2));
+        Assert.All(data.ToArray(), static value => Assert.Equal(-3, value));
+        device.For(data.Length, new DivideValues(data, -7, 2));
+        Assert.All(data.ToArray(), static value => Assert.Equal(-3, value));
+    }
+
+    [MetalFact]
     public void Builtins_AreResetOnTheCallingThread_AfterADispatch()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();

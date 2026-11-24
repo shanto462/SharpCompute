@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using SharpCompute.Interop;
@@ -10,7 +11,10 @@ namespace SharpCompute;
 // CPU+GPU split dispatches: one grid, two disjoint parts, run concurrently on the same shared memory.
 public sealed unsafe partial class GraphicsDevice
 {
-    private readonly ConcurrentDictionary<Type, SplitBalance> _splitBalances = new();
+    // One adaptive balance per shader type and grid-size bucket (log2 of the thread count): the fixed
+    // submission cost makes a small grid look far more expensive per thread than a large one, so
+    // estimates from different sizes must not be mixed.
+    private readonly ConcurrentDictionary<(Type Shader, int SizeBucket), SplitBalance> _splitBalances = new();
 
     /// <summary>Runs <paramref name="x"/> threads of <paramref name="shader"/>, part on the CPU and part on the GPU at the same time.</summary>
     /// <inheritdoc cref="ForSplit{T}(int, int, int, in T, double)" path="/remarks"/>
@@ -85,13 +89,33 @@ public sealed unsafe partial class GraphicsDevice
     /// whole grid on the GPU, which it often is not: the GPU's part slows down while the CPU is busy.
     /// The first two dispatches of a shader type split (10% to the CPU), the next two run GPU-only, and
     /// after that the faster mode is used, with the other one re-measured occasionally (dispatches 4, 8,
-    /// ..., 64 after the winner last changed, then every 64th). The estimate assumes the cost per thread
-    /// is similar across the grid and between dispatches.
+    /// ..., 64 after the winner last changed, then every 64th). Estimates are kept per shader type and
+    /// grid size (in powers of two), so dispatches of one shader at very different sizes are balanced
+    /// separately. Within one size they assume the cost per thread is similar across the grid and
+    /// between dispatches; a shader whose work per thread changes with its constants (an iteration
+    /// count, say) is better served by an explicit <paramref name="cpuFraction"/>.
     /// </para>
     /// <para>
     /// Results match a GPU dispatch up to floating-point rounding, as described for
     /// <see cref="ForCpu{T}(int, int, int, in T)"/>. Shaders with hand-written descriptors, and generated
     /// shaders that use all 31 buffer indices, cannot be split.
+    /// </para>
+    /// <para>
+    /// <paramref name="cpuFraction"/> 0 runs the whole grid on the GPU and 1 the whole grid on the CPU,
+    /// exactly, for any grid size; other values are rounded to a threadgroup boundary.
+    /// </para>
+    /// <para>
+    /// <b>Not bit-reproducible.</b> The CPU and the GPU do not compute floats bit for bit alike (the
+    /// GPU fuses multiply-adds, flushes subnormals and evaluates transcendentals within a few ULP), and
+    /// the adaptive share decides which device computes which elements, so two calls with the same
+    /// input can return different bits in float results. Pass an explicit <paramref name="cpuFraction"/>
+    /// when repeatable output matters: the same fraction on the same grid always cuts at the same
+    /// place. Integer results do not depend on the device.
+    /// </para>
+    /// <para>
+    /// <b>Errors.</b> If the CPU part throws (for example an out-of-range index, which the CPU checks and
+    /// the GPU does not), the GPU part is still waited for and the CPU's exception is rethrown. The
+    /// output is then undefined: the GPU part and part of the CPU part may have been written.
     /// </para>
     /// </remarks>
     /// <returns>How the grid was divided and how long each part took.</returns>
@@ -207,9 +231,15 @@ public sealed unsafe partial class GraphicsDevice
         int extent = Component(grid, axis);
         int align = Component(groupSize, axis);
 
-        SplitBalance balance = _splitBalances.GetOrAdd(typeof(T), static _ => new SplitBalance());
+        long threads = (long)grid.X * grid.Y * grid.Z;
+        SplitBalance balance = _splitBalances.GetOrAdd((typeof(T), BitOperations.Log2((ulong)threads)), static _ => new SplitBalance());
         double fraction = cpuFraction ?? balance.NextCpuFraction();
-        int cpuExtent = (int)Math.Clamp(Math.Round(extent * fraction / align) * align, 0, extent);
+
+        // 0 and 1 are exact (GPU only, CPU only) whatever the grid and threadgroup sizes; anything in
+        // between is rounded to a threadgroup boundary.
+        int cpuExtent = fraction >= 1 ? extent
+            : fraction <= 0 ? 0
+            : (int)Math.Clamp(Math.Round(extent * fraction / align) * align, 0, extent);
 
         // An adaptive split always splits when it decides to: a share that rounds to nothing still gives
         // each side one threadgroup slice, so that the split's wall time (which decides between splitting

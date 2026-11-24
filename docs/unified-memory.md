@@ -129,9 +129,33 @@ async add nothing to that, because there are no copies to remove and only one di
 On a discrete GPU, private buffers live in VRAM, so the GPU doesn't cross the bus to reach them. On
 Apple silicon there is no VRAM. In a one-off measurement on this machine (2026-11-24,
 [`tools/storage_mode_probe.swift`](../tools/storage_mode_probe.swift), outside the benchmark
-suite), `MTLStorageModePrivate` and `MTLStorageModeShared` buffers took the same time (1.91 ms) on
-a 4K `float4` blur-style kernel, in every combination of input and output. Private storage on Apple silicon helps textures (lossless
+suite), `MTLStorageModePrivate` and `MTLStorageModeShared` buffers took the same GPU time (1.91 ms, from the command buffer's
+timestamps) on a 4K `float4` blur-style kernel, in every combination of input and output. Private storage on Apple silicon helps textures (lossless
 compression), not buffers, so SharpCompute keeps every buffer shared and CPU-visible.
+
+### Splitting one dispatch between the CPU and the GPU
+
+Unified memory makes it possible for the CPU to compute some rows of a grid while the GPU computes
+the rest, on the same buffers, with no copies (`ForSplit`). It is correct, but on this machine it
+barely changes the time, from 3 % slower to 9 % faster:
+
+| Workload | GPU alone (`For`) | `ForSplit`, adaptive | `ForCpu` |
+|---|---:|---:|---:|
+| Mandelbrot 1920×1080 | 551.4 µs | 566.5 µs (0.97×) | 53.86 ms |
+| Gaussian blur 4K, r = 8 | 1.70 ms | 1.56 ms (1.09×) | 30.10 ms |
+| N-body 16,384 bodies | 4.02 ms | 4.06 ms (0.99×) | 62.57 ms |
+
+Three things work against the split:
+
+- The CPU part runs the shader's scalar C#, which is 4–12× slower than hand-tuned SIMD code for the
+  same work.
+- The GPU part slows down while every CPU core is busy.
+- Both sides share the same memory bandwidth.
+
+The adaptive mode measures this and falls back to GPU-only when splitting loses, so it costs at most
+a few percent. Use `ForCpu` as a correct fallback and a debugging aid, not as a fast path. Split
+results are not bit-reproducible across calls unless you pass an explicit CPU fraction, because the
+CPU and the GPU round floats differently.
 
 ### Using the same memory at the same time
 
@@ -151,6 +175,8 @@ task to complete. Double-buffering is how you overlap safely.
 | CPU work on each GPU result (frames, batches) | `ForAsync` with two buffers |
 | Element-wise streaming math (SAXPY-like) | The CPU (`TensorPrimitives`) |
 | Less than ~0.1 ms of work, once | The CPU |
+| Running a shader without the GPU, or stepping through it in a debugger | `ForCpu` |
+| Using the CPU's spare cores on the same grid | Usually nothing: `ForSplit` measured 0.97–1.09× of GPU-only |
 
 Lifetime rules that come with zero copy:
 

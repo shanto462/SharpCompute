@@ -42,13 +42,19 @@ public sealed unsafe partial class GraphicsDevice
     /// <para>
     /// Results match a GPU dispatch up to floating-point rounding: the GPU contracts <c>a * b + c</c>
     /// into fused multiply-adds, flushes subnormals to zero and evaluates transcendental functions to
-    /// within a few ULP, so compare float results with a tolerance. Integer results are identical.
+    /// within a few ULP, so compare float results with a tolerance. Integer results are identical
+    /// (conversions from float saturate, shift counts are masked and arithmetic wraps on both), except
+    /// for the two divisions below.
     /// </para>
     /// <para>
     /// Differences from the GPU: buffer accesses are bounds-checked (an out-of-range index throws
     /// <see cref="ArgumentOutOfRangeException"/> instead of being undefined), integer division by zero
-    /// throws <see cref="DivideByZeroException"/>, and an exception in any thread stops the dispatch and
-    /// is rethrown (the first one, if several threads throw). The generator supports no
+    /// throws <see cref="DivideByZeroException"/> and <c>int.MinValue / -1</c> throws
+    /// <see cref="OverflowException"/> (the GPU returns -1 and <c>int.MinValue</c> for those), and an exception in any thread stops the dispatch and
+    /// is rethrown (the first one, if several threads throw). After an exception the output is
+    /// undefined: threads that ran before or alongside the failing one may already have written their
+    /// elements, and the rest have not run. On the GPU the same out-of-range access or division is not
+    /// reported, and its result is undefined. The generator supports no
     /// threadgroup memory, barriers or atomics, so there is nothing a shader can use that the CPU
     /// cannot run.
     /// </para>

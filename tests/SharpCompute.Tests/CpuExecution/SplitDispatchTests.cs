@@ -103,6 +103,51 @@ public class SplitDispatchTests
         Assert.Equal(gpu.ToArray(), split.ToArray());
         Assert.Equal(1, info.Axis);
         Assert.Equal(height, info.CpuExtent + info.GpuExtent);
+
+        // Pixel shaders are rank 2 with 16×16 groups; 50 rows is not a whole number of them.
+        Assert.True(info.CpuExtent % 16 == 0 || info.CpuExtent == height, $"CPU extent {info.CpuExtent}");
+    }
+
+    [MetalTheory]
+    [InlineData(100)]   // smaller than one 256-thread group
+    [InlineData(1100)]  // 4.3 groups: rounding alone would leave 76 threads on the GPU
+    [InlineData(4096)]
+    public void FractionsZeroAndOne_AreExactlyGpuOnlyAndCpuOnly(int x)
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> gpuIds = device.AllocateReadWriteBuffer<int>(x * 4);
+        using ReadWriteBuffer<float> gpuNormalized = device.AllocateReadWriteBuffer<float>(x);
+        using ReadWriteBuffer<int> ids = device.AllocateReadWriteBuffer<int>(x * 4);
+        using ReadWriteBuffer<float> normalized = device.AllocateReadWriteBuffer<float>(x);
+
+        device.For(x, new RecordBuiltins1D(gpuIds, gpuNormalized));
+
+        SplitDispatchInfo cpuOnly = device.ForSplit(x, new RecordBuiltins1D(ids, normalized), 1.0);
+        Assert.Equal((x, 0), (cpuOnly.CpuExtent, cpuOnly.GpuExtent));
+        Assert.Equal(gpuIds.ToArray(), ids.ToArray());
+
+        ids.AsSpan().Clear();
+        SplitDispatchInfo gpuOnly = device.ForSplit(x, new RecordBuiltins1D(ids, normalized), 0.0);
+        Assert.Equal((0, x), (gpuOnly.CpuExtent, gpuOnly.GpuExtent));
+        Assert.Equal(gpuIds.ToArray(), ids.ToArray());
+    }
+
+    [MetalTheory]
+    [MemberData(nameof(Fractions))]
+    public void ExplicitFraction_CutsAtTheSamePlaceEveryTime(double fraction)
+    {
+        const int x = 37, y = 45;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> ids = device.AllocateReadWriteBuffer<int>(x * y * 8);
+        using ReadWriteBuffer<Float2> normalized = device.AllocateReadWriteBuffer<Float2>(x * y);
+
+        SplitDispatchInfo first = device.ForSplit(x, y, new RecordBuiltins2D(ids, normalized), fraction);
+
+        for (int i = 0; i < 5; i++)
+        {
+            SplitDispatchInfo again = device.ForSplit(x, y, new RecordBuiltins2D(ids, normalized), fraction);
+            Assert.Equal((first.Axis, first.CpuExtent, first.GpuExtent), (again.Axis, again.CpuExtent, again.GpuExtent));
+        }
     }
 
     [MetalFact]

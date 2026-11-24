@@ -106,6 +106,20 @@ public readonly partial struct FirstThreadOutOfRange(ReadWriteBuffer<int> data) 
     }
 }
 
+/// <summary>Integer division by a runtime value: <c>data[i] = i / divisor</c>.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct DivideIndex(ReadWriteBuffer<int> data, int divisor) : IComputeShader
+{
+    public void Execute() => data[ThreadIds.X] = ThreadIds.X / divisor;
+}
+
+/// <summary><c>data[i] = numerator / divisor</c>, with both operands only known at run time.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct DivideValues(ReadWriteBuffer<int> data, int numerator, int divisor) : IComputeShader
+{
+    public void Execute() => data[ThreadIds.X] = numerator / divisor;
+}
+
 /// <summary>Burns <c>spins</c> iterations per thread, then writes its index; a slow dispatch to race against.</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct SlowWrite(ReadWriteBuffer<float> data, int spins) : IComputeShader
