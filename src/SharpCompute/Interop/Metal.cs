@@ -38,6 +38,9 @@ internal static partial class Metal
     /// <summary><c>MTLMathFloatingPointFunctionsPrecise</c>: precise sin/exp/pow etc. (default is Fast).</summary>
     internal const nint MathFloatingPointFunctionsPrecise = 1;
 
+    /// <summary><c>MTLDataTypeBool</c>, the type of a bool function constant.</summary>
+    internal const nuint DataTypeBool = 53;
+
     /// <summary><c>MTLCommandBufferStatusError</c>.</summary>
     internal const nuint CommandBufferStatusError = 5;
 

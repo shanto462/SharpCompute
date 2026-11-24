@@ -28,6 +28,15 @@ public interface IComputeShaderDescriptor<TSelf>
     static abstract int ThreadGroupSizeZ { get; }
 
     /// <summary>
+    /// The buffer index at which a CPU+GPU split dispatch (<c>GraphicsDevice.ForSplit</c>) binds the
+    /// hidden grid window: the offset of the GPU's part, the full grid size and the threadgroup offset
+    /// (<c>__GridWindow</c> in the MSL). The kernel's windowed specialization (function constant 0 =
+    /// true) rebases its built-ins with it. -1, the default, means the shader cannot run a partial
+    /// grid: hand-written descriptors, and generated shaders that use all 31 buffer indices.
+    /// </summary>
+    static virtual int GridWindowIndex => -1;
+
+    /// <summary>
     /// Binds the shader's captured state. The binding order is generator-internal; the runtime
     /// assumes nothing beyond the writer calls made here.
     /// </summary>

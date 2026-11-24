@@ -189,8 +189,10 @@ public class DeclarationTests
                 device float* y [[buffer(0)]],
                 const device float* x [[buffer(1)]],
                 constant __Constants& __c [[buffer(2)]],
-                uint3 __tid [[thread_position_in_grid]])
+                constant __GridWindow& __window [[buffer(3), function_constant(__windowed)]],
+                uint3 __tid_in [[thread_position_in_grid]])
             {
+                const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
                 int i = int(__tid.x);
                 if (i < int(__c.__length_x))
                 {

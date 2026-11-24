@@ -16,6 +16,7 @@ internal static partial class MetalCompiler
     private const nint LanguageVersion3_2 = (3 << 16) + 2;
     private const nint MathModeSafe = 0;
     private const nint MathFloatingPointFunctionsPrecise = 1;
+    private const nint DataTypeBool = 53;
 
     private static readonly Lazy<nint> Device = new(CreateDevice);
 
@@ -99,32 +100,59 @@ internal static partial class MetalCompiler
                 return new Result(false, messages, string.Empty);
             }
 
-            // A library can compile and still not contain the kernel we expect.
-            nint function = Send(library, Selector("newFunctionWithName:"), ToNSString(entryPoint));
+            // A library can compile and still not contain the kernel we expect. Like the runtime, build
+            // both specializations of function constant 0: the whole-grid kernel and the windowed one
+            // that split dispatches use (the value is ignored by kernels that do not declare it).
+            try
+            {
+                foreach (bool windowed in (ReadOnlySpan<bool>)[false, true])
+                {
+                    Result? failure = BuildPipeline(device, library, entryPoint, windowed, messages);
 
-            if (function == 0)
+                    if (failure is not null)
+                    {
+                        return failure.Value;
+                    }
+                }
+            }
+            finally
             {
                 Send(library, Selector("release"));
-                return new Result(false, $"The library has no function named '{entryPoint}'. {messages}", string.Empty);
             }
 
-            nint pipeline = Send(device, Selector("newComputePipelineStateWithFunction:error:"), function, out nint pipelineError);
-            string pipelineMessages = Describe(pipelineError);
-
-            if (pipeline != 0)
-            {
-                Send(pipeline, Selector("release"));
-            }
-
-            Send(function, Selector("release"));
-            Send(library, Selector("release"));
-
-            return pipeline == 0 ? new Result(false, pipelineMessages, string.Empty) : new Result(true, messages, string.Empty);
+            return new Result(true, messages, string.Empty);
         }
         finally
         {
             objc_autoreleasePoolPop(pool);
         }
+    }
+
+    private static unsafe Result? BuildPipeline(nint device, nint library, string entryPoint, bool windowed, string messages)
+    {
+        nint constants = Send(Send(objc_getClass("MTLFunctionConstantValues"), Selector("alloc")), Selector("init"));
+        byte value = windowed ? (byte)1 : (byte)0;
+        SendVoid(constants, Selector("setConstantValue:type:atIndex:"), &value, DataTypeBool, 0);
+
+        nint function = Send(library, Selector("newFunctionWithName:constantValues:error:"), ToNSString(entryPoint), constants, out nint functionError);
+        Send(constants, Selector("release"));
+
+        if (function == 0)
+        {
+            return new Result(false, $"The library has no function named '{entryPoint}' (windowed: {windowed}). {Describe(functionError)} {messages}", string.Empty);
+        }
+
+        nint pipeline = Send(device, Selector("newComputePipelineStateWithFunction:error:"), function, out nint pipelineError);
+        string pipelineMessages = Describe(pipelineError);
+        Send(function, Selector("release"));
+
+        if (pipeline == 0)
+        {
+            return new Result(false, $"(windowed: {windowed}) {pipelineMessages}", string.Empty);
+        }
+
+        Send(pipeline, Selector("release"));
+        return null;
     }
 
     private static nint CreateDevice()
@@ -189,6 +217,9 @@ internal static partial class MetalCompiler
 
     [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
     private static partial void SendVoid(nint receiver, nint selector, nint argument);
+
+    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
+    private static unsafe partial void SendVoid(nint receiver, nint selector, void* value, nint type, nint index);
 
     [LibraryImport(ObjC, EntryPoint = "objc_msgSend", StringMarshalling = StringMarshalling.Utf8)]
     private static partial nint SendString(nint receiver, nint selector, string argument);

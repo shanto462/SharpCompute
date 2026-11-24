@@ -39,6 +39,24 @@ internal static class BuiltinInfo
         _ => "__gid",
     };
 
+    /// <summary>
+    /// The built-ins a partial-grid (windowed) dispatch has to rebase: the thread and threadgroup
+    /// positions get the window's offset, and the grid size is the full grid rather than the part.
+    /// The position within a threadgroup needs nothing, because windows are threadgroup aligned.
+    /// </summary>
+    public const Builtins Windowed = Builtins.ThreadPositionInGrid | Builtins.ThreadsPerGrid | Builtins.ThreadgroupPositionInGrid;
+
+    /// <summary>The name of the raw Metal argument of a windowed built-in, which the kernel prologue rebases into <see cref="Name"/>.</summary>
+    public static string RawName(Builtins builtin) => Name(builtin) + "_in";
+
+    /// <summary>The <c>__GridWindow</c> member added to a windowed built-in, or null for the grid size, which is replaced.</summary>
+    public static string? WindowOffset(Builtins builtin) => builtin switch
+    {
+        Builtins.ThreadPositionInGrid => "offset",
+        Builtins.ThreadgroupPositionInGrid => "groupOffset",
+        _ => null,
+    };
+
     public static string Attribute(Builtins builtin) => builtin switch
     {
         Builtins.ThreadPositionInGrid => "thread_position_in_grid",

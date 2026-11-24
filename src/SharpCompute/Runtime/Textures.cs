@@ -102,6 +102,9 @@ public sealed unsafe class ReadWriteTexture2D<T> : IDisposable
     /// <summary>The shared <c>id&lt;MTLBuffer&gt;</c> that stores the texture's pixels.</summary>
     internal ObjCHandle BufferHandle => _buffer;
 
+    /// <summary>The CPU address of pixel (0, 0) in the backing buffer. Valid while <see cref="BufferHandle"/> is leased.</summary>
+    internal byte* Contents => _contents;
+
     /// <summary>Distance in bytes between the starts of consecutive rows in the backing buffer.</summary>
     internal nuint BytesPerRow => _bytesPerRow;
 

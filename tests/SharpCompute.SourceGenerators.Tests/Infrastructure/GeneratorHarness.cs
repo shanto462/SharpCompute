@@ -68,10 +68,19 @@ internal static class GeneratorHarness
 }
 
 /// <summary>The static descriptor members of a generated shader, read from the compiled assembly.</summary>
-internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string MslSource, int ThreadGroupSizeX, int ThreadGroupSizeY, int ThreadGroupSizeZ)
+internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string MslSource, int ThreadGroupSizeX, int ThreadGroupSizeY, int ThreadGroupSizeZ, int GridWindowIndex)
 {
-    /// <summary>The statements between the braces of the kernel function, without their indentation.</summary>
-    public string KernelBody => FunctionBody("kernel void " + EntryPoint);
+    /// <summary>
+    /// The statements between the braces of the kernel function, without their indentation and without
+    /// the grid-window prologue that rebases the built-ins (<see cref="KernelPrologue"/>; covered by GridWindowTests).
+    /// </summary>
+    public string KernelBody => string.Join("\n", FunctionBody("kernel void " + EntryPoint).Split('\n').Where(static line => !IsPrologue(line)));
+
+    /// <summary>The grid-window prologue lines at the top of the kernel body (empty when the kernel reads no grid built-in).</summary>
+    public string KernelPrologue => string.Join("\n", FunctionBody("kernel void " + EntryPoint).Split('\n').Where(IsPrologue));
+
+    private static bool IsPrologue(string line) =>
+        line.StartsWith("const uint3 __", StringComparison.Ordinal) && line.Contains(" = __windowed ? ", StringComparison.Ordinal);
 
     /// <summary>The body of the function whose declaration starts with <paramref name="signaturePrefix"/>.</summary>
     public string FunctionBody(string signaturePrefix)
@@ -259,5 +268,5 @@ internal sealed class GeneratorRun
 
     private static ShaderDescriptor Read<T>()
         where T : struct, IComputeShaderDescriptor<T> =>
-        new(typeof(T), T.EntryPoint, T.MslSource, T.ThreadGroupSizeX, T.ThreadGroupSizeY, T.ThreadGroupSizeZ);
+        new(typeof(T), T.EntryPoint, T.MslSource, T.ThreadGroupSizeX, T.ThreadGroupSizeY, T.ThreadGroupSizeZ, T.GridWindowIndex);
 }

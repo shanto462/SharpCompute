@@ -9,6 +9,11 @@ namespace SharpCompute;
 /// Passed to <see cref="IComputeShaderDescriptor{TSelf}.SetArguments"/>; wraps the active
 /// <c>id&lt;MTLComputeCommandEncoder&gt;</c>. Signatures are part of the generator↔runtime ABI.
 /// </summary>
+/// <remarks>
+/// Before a CPU dispatch the runtime runs <c>SetArguments</c> with a writer that has no encoder: it
+/// performs the same checks (null, disposed and wrong-device buffers fail up front, exactly as on the
+/// GPU) and leases each buffer for the duration of the dispatch instead of binding it.
+/// </remarks>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public unsafe ref struct ShaderArgumentWriter
 {
@@ -24,6 +29,9 @@ public unsafe ref struct ShaderArgumentWriter
     // Buffers bound so far, each with a lease the dispatcher releases once the GPU has finished.
     private readonly List<ObjCHandle>? _leased;
 
+    // Non-null only for a CPU dispatch: the buffer handles leased so far, released by the dispatcher.
+    private readonly List<ObjCHandle>? _cpuLeases;
+
     // leased receives a lease on every bound buffer; the caller releases them (DangerousRelease)
     // after the command buffer completes. Without it, a buffer is leased only for the bind call.
     internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, List<ObjCHandle>? leased = null)
@@ -38,6 +46,13 @@ public unsafe ref struct ShaderArgumentWriter
         Encoder = encoder;
         _device = device;
         _batch = batch;
+    }
+
+    /// <summary>A writer for a CPU dispatch: validates and leases buffers into <paramref name="leases"/>, binds nothing.</summary>
+    internal ShaderArgumentWriter(GraphicsDevice device, List<ObjCHandle> leases)
+    {
+        _device = device;
+        _cpuLeases = leases;
     }
 
     /// <summary><c>setBuffer:offset:0 atIndex:index</c>.</summary>
@@ -57,6 +72,16 @@ public unsafe ref struct ShaderArgumentWriter
             throw new ArgumentException(
                 $"The buffer bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
                 nameof(buffer));
+        }
+
+        if (_cpuLeases is not null)
+        {
+            // The CPU reads the buffer through its indexers for the whole dispatch, so the lease
+            // must last that long: a concurrent Dispose then fails the indexers instead of freeing
+            // memory under them.
+            buffer.Handle.AddLease(buffer);
+            _cpuLeases.Add(buffer.Handle);
+            return;
         }
 
         if (_batch is not null)
@@ -92,6 +117,12 @@ public unsafe ref struct ShaderArgumentWriter
         where T : unmanaged
     {
         GraphicsDevice device = Validate(index);
+
+        if (_cpuLeases is not null)
+        {
+            // On the CPU the shader reads its fields directly; the constants are not needed.
+            return;
+        }
 
         fixed (T* bytes = &value)
         {
@@ -136,7 +167,7 @@ public unsafe ref struct ShaderArgumentWriter
 
     private readonly GraphicsDevice Validate(int index)
     {
-        if ((Encoder == 0 && _batch is null) || _device is null)
+        if (_device is null || (Encoder == 0 && _batch is null && _cpuLeases is null))
         {
             throw new InvalidOperationException(
                 $"A {nameof(ShaderArgumentWriter)} is only valid inside {nameof(IComputeShaderDescriptor<>)}.SetArguments during a dispatch.");
