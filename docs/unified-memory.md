@@ -5,9 +5,10 @@ On Apple silicon the CPU and the GPU share one pool of memory. Every SharpComput
 PCIe bus and no separate VRAM to upload to. That changes which costs exist, and so which
 optimizations pay off.
 
-This page explains what you gain from that, and where it makes no difference. Every number comes
-from [`benchmarks/RESULTS.md`](../benchmarks/RESULTS.md) (Apple M4 Pro, BenchmarkDotNet); that
-report also says exactly what each timing includes.
+This page explains what you gain from that, and where it makes no difference. The numbers come from
+[`benchmarks/RESULTS.md`](../benchmarks/RESULTS.md) (Apple M4 Pro, BenchmarkDotNet), which also
+says exactly what each timing includes. The one exception, private vs shared storage, is marked
+where it appears.
 
 ## What unified memory changes
 
@@ -68,8 +69,8 @@ reads the OS page cache directly.
 | `RandomAccess.Read` into a buffer's `AsSpan()` (one copy) | 30.3 ms |
 | **`MapReadOnlyBuffer`** | **4.06 ms (10.3×)** |
 
-These numbers assume the file is in the page cache. A cold read from disk is limited by the disk
-either way, but it still skips the extra copies.
+These numbers assume the file is in the page cache. A cold read from disk should be limited by the
+disk either way, with mapping still saving the copies (expected, not measured here).
 
 ### 4. Batch small dispatches
 
@@ -95,8 +96,8 @@ N + 1. Use `ForAsync` with two buffers:
 | Synchronous: render, wait, analyze | 39.1 ms |
 | **Double-buffered `ForAsync`** | **28.4 ms (1.38×)**, 7 % above the ideal max(GPU, CPU) |
 
-The `Pipeline` sample (`scripts/demo-pipeline.sh`) runs the same pattern on heavier frames and gets
-1.62×. Overlap can never beat the slower of the two sides, so it only pays when both sides have real
+The `Pipeline` sample (`scripts/demo-pipeline.sh`) runs the same pattern on heavier frames and prints
+its own sync and async throughput. Overlap can never beat the slower of the two sides, so it only pays when both sides have real
 work.
 
 ## Where it doesn't help
@@ -104,9 +105,11 @@ work.
 ### Memory-bound kernels
 
 SAXPY (`y = a·x + y`) moves 12 bytes for every 2 floating-point operations, so it is limited by
-memory bandwidth, not by arithmetic. At 16M floats the multi-threaded CPU runs it in 0.85 ms (about
-226 GB/s) and the GPU in 1.01 ms (about 190 GB/s). Both sides use the same memory controller, so
-moving the work to the GPU adds a dispatch without adding bandwidth. Keep streaming element-wise
+memory bandwidth, not by arithmetic. At 16M floats (192 MB of traffic per call) the multi-threaded
+CPU runs it in 0.85 ms and the GPU in 1.01 ms. Dividing 192 MB by those times gives about 226 GB/s
+and about 190 GB/s; the GPU figure includes its ~0.1 ms dispatch floor. Apple's nominal bandwidth
+for the M4 Pro is 273 GB/s ([Apple Newsroom, 30 October 2024](https://www.apple.com/newsroom/2024/10/apple-introduces-m4-pro-and-m4-max/)). Both sides use the same memory controller, so moving the work to
+the GPU adds a dispatch without adding bandwidth. Keep streaming element-wise
 work on the CPU (`TensorPrimitives`), or fuse it into a kernel that also does real arithmetic.
 
 ### Tiny one-off dispatches
@@ -123,9 +126,11 @@ async add nothing to that, because there are no copies to remove and only one di
 
 ### GPU-private storage for buffers
 
-On discrete GPUs, private memory is faster than shared memory. Here, `MTLStorageModePrivate` and
-`MTLStorageModeShared` buffers took the same time (1.91 ms) on a 4K `float4` blur-style kernel, in
-every combination of input and output. Private storage on Apple silicon helps textures (lossless
+On a discrete GPU, private buffers live in VRAM, so the GPU doesn't cross the bus to reach them. On
+Apple silicon there is no VRAM. In a one-off measurement on this machine (2026-11-24,
+[`tools/storage_mode_probe.swift`](../tools/storage_mode_probe.swift), outside the benchmark
+suite), `MTLStorageModePrivate` and `MTLStorageModeShared` buffers took the same time (1.91 ms) on
+a 4K `float4` blur-style kernel, in every combination of input and output. Private storage on Apple silicon helps textures (lossless
 compression), not buffers, so SharpCompute keeps every buffer shared and CPU-visible.
 
 ### Using the same memory at the same time

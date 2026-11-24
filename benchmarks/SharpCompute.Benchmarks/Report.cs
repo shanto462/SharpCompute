@@ -250,11 +250,8 @@ public static class Report
         md.AppendLine("- **FP contraction:** Metal fuses `a*b + c` into fma by default, so GPU results match the CPU to rounding, "
             + "not bit for bit. That's what `--verify` checks.");
         md.AppendLine("- **When unified memory helps and when it doesn't:** the zero-copy, batching and async sections below measure it; "
-            + "[`docs/unified-memory.md`](../docs/unified-memory.md) explains which API to use when.");
-        md.AppendLine("- **GPU-private storage:** `MTLStorageModePrivate` buffers were measured against shared ones on this machine with a "
-            + "4K `float4` blur-style kernel, in every combination of private and shared input and output: all took 1.91 ms (within 0.2 %). "
-            + "On Apple silicon, private storage pays off for textures (lossless compression), not for buffers, so SharpCompute keeps "
-            + "every buffer shared and CPU-visible.");
+            + "[`docs/unified-memory.md`](../docs/unified-memory.md) explains which API to use when, and covers one-off measurements "
+            + "outside this suite, such as GPU-private vs shared buffers.");
         md.AppendLine();
     }
 
