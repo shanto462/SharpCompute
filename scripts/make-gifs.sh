@@ -25,3 +25,10 @@ if [[ $# -eq 0 || " $* " == *" glowfall "* ]]; then
   run_project samples/SharpCompute.Samples.Platformer --headless --frames "$WORK/glowfall" --seconds 10 --fps "$FPS" --level 1
   encode "$WORK/glowfall/glowfall-%04d.png" docs/glowfall.gif 10
 fi
+
+if [[ $# -eq 0 || " $* " == *" pulsewake "* ]]; then
+  build samples/SharpCompute.Samples.Shooter
+  step "Pulsewake: 10 s of the autopilot fighting the first waves"
+  run_project samples/SharpCompute.Samples.Shooter --headless --frames "$WORK/pulsewake" --seconds 10 --fps "$FPS"
+  encode "$WORK/pulsewake/pulsewake-%04d.png" docs/pulsewake.gif 10
+fi

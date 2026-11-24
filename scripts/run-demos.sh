@@ -92,6 +92,10 @@ step "Paint: scripted replay (headless)"
 SHARPCOMPUTE_PAINT_SCRIPT=samples/SharpCompute.Samples.Paint/demo-script.json SHARPCOMPUTE_PAINT_OUTPUT="$OUT/paint.png" \
   dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Paint -- --headless
 
+step "Pulsewake: the arena shooter plays itself headless, frames as PNG"
+mkdir -p "$OUT/pulsewake"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Shooter -- --headless --frames "$OUT/pulsewake" --seconds 30 | tee "$OUT/pulsewake/pulsewake.txt"
+
 step "Done: $OUT"
 find "$OUT" -maxdepth 2 \( -name '*.png' -o -name '*.mp4' -o -name '*.txt' \) -not -path '*/video/*/*' | sed "s#^$OUT/#  #" | sort
 
