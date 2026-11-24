@@ -236,7 +236,7 @@ public static class Report
         md.AppendLine("- **Small workloads:** every dispatch has a fixed floor of roughly 0.1–0.2 ms (command buffer creation, commit, GPU wake-up, "
             + $"completion wait){floor}. A workload the CPU finishes faster than that can't win on the GPU, which is where the crossover above "
             + "comes from. Zero copy lowers the crossover compared to a discrete GPU (no transfer to amortize), but doesn't remove the floor. "
-            + "Batching several dispatches into one command buffer with a `ComputeContext` amortizes it; see Batching and async.");
+            + "Batching several dispatches into one command buffer with a `ComputeContext` amortizes it; see [Batching and async](#batching-and-async).");
         md.AppendLine("- **Caches:** at 1M floats SAXPY touches 8 MB, which largely stays in the CPU's on-chip caches between iterations, so the "
             + "multi-threaded CPU can exceed DRAM bandwidth there. At 16M floats (192 MB of traffic per call) both sides are DRAM-bound.");
         md.AppendLine("- **CPU variants** run on managed arrays. *scalar (1 thread)* is a plain loop; *SIMD* uses `TensorPrimitives`, "
