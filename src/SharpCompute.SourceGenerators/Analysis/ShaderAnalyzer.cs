@@ -379,7 +379,11 @@ internal sealed class ShaderAnalyzer
         }
 
         int constantsSize = LayOutConstants(constants);
-        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Globals, types.Structs, buffers, constants, constantsSize, translator.Helpers, body, builtins);
+
+        // The grid window takes the first free buffer index. A shader that uses all of them still
+        // works for whole-grid dispatches; it just cannot be split (GraphicsDevice.ForSplit rejects it).
+        int gridWindowIndex = boundArguments < MaxBoundArguments ? boundArguments : -1;
+        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Globals, types.Structs, buffers, constants, constantsSize, translator.Helpers, body, builtins, gridWindowIndex);
         string msl = MslSourceBuilder.Build(program);
         string shaderName = TypeName();
 
@@ -390,7 +394,8 @@ internal sealed class ShaderAnalyzer
             new EquatableArray<BufferArgument>(buffers.Select((b, i) => new BufferArgument(i, Access(b, usesInstanceAccess), shaderName + "." + b.Symbol.Name))),
             new EquatableArray<ConstantArgument>(constants.Select(static c => new ConstantArgument(c.Type.CSharpName, CSharpIdentifier(c.Name), c.Value))),
             constantsIndex: buffers.Count,
-            usesInstanceAccess);
+            usesInstanceAccess,
+            gridWindowIndex);
 
         return translation;
     }
@@ -707,7 +712,8 @@ internal sealed class ShaderAnalyzer
         EquatableArray<BufferArgument> buffers = default,
         EquatableArray<ConstantArgument> constants = default,
         int constantsIndex = 0,
-        bool usesInstanceAccess = false)
+        bool usesInstanceAccess = false,
+        int gridWindowIndex = -1)
     {
         var types = new List<TypeDeclarationInfo>();
 
@@ -741,7 +747,8 @@ internal sealed class ShaderAnalyzer
             Buffers: buffers,
             Constants: constants,
             ConstantsIndex: constantsIndex,
-            UsesInstanceAccess: usesInstanceAccess);
+            UsesInstanceAccess: usesInstanceAccess,
+            GridWindowIndex: gridWindowIndex);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -762,7 +769,8 @@ internal sealed class ShaderAnalyzer
             int constantsSize,
             IReadOnlyList<HelperFunction> helpers,
             string body,
-            Builtins builtins)
+            Builtins builtins,
+            int gridWindowIndex)
         {
             EntryPoint = entryPoint;
             IsPixelShader = isPixelShader;
@@ -775,6 +783,7 @@ internal sealed class ShaderAnalyzer
             Helpers = helpers;
             Body = body;
             Builtins = builtins;
+            GridWindowIndex = gridWindowIndex;
         }
 
         public string EntryPoint { get; }
@@ -799,6 +808,9 @@ internal sealed class ShaderAnalyzer
         public string Body { get; }
 
         public Builtins Builtins { get; }
+
+        /// <summary>The buffer index of the hidden grid window, or -1 when there is no free index.</summary>
+        public int GridWindowIndex { get; }
     }
 
     private static class MslSourceBuilder
@@ -892,6 +904,36 @@ internal sealed class ShaderAnalyzer
                 }
             }
 
+            // Pixel shaders always receive the thread position (the pixel) and the grid (the texture size).
+            Builtins builtins = program.IsPixelShader
+                ? program.Builtins | Builtins.ThreadPositionInGrid | Builtins.ThreadsPerGrid
+                : program.Builtins;
+
+            // A kernel that reads grid positions or the grid size can run on a window of the grid (one
+            // part of a CPU+GPU split): the runtime binds the window and selects the specialization
+            // with function constant 0. Normal dispatches use the other specialization, where the
+            // window argument does not exist and the prologue folds away, so they pay nothing for it.
+            bool windowed = program.GridWindowIndex >= 0 && (builtins & BuiltinInfo.Windowed) != 0;
+
+            if (windowed)
+            {
+                writer.Line();
+                writer.Line("struct " + MslNames.GridWindowStruct);
+                writer.Line("{");
+                writer.Indent++;
+                writer.Line("packed_uint3 offset;");
+                writer.Line("packed_uint3 size;");
+                writer.Line("packed_uint3 groupOffset;");
+                writer.Indent--;
+                writer.Line("};");
+                writer.Line(SizeAssert(MslNames.GridWindowStruct, 36));
+                writer.Line(OffsetAssert(MslNames.GridWindowStruct, "offset", 0));
+                writer.Line(OffsetAssert(MslNames.GridWindowStruct, "size", 12));
+                writer.Line(OffsetAssert(MslNames.GridWindowStruct, "groupOffset", 24));
+                writer.Line();
+                writer.Line($"constant bool {MslNames.Windowed} [[function_constant(0)]];");
+            }
+
             if (program.Helpers.Count > 0)
             {
                 writer.Line();
@@ -927,17 +969,33 @@ internal sealed class ShaderAnalyzer
                 parameters.Add($"constant {MslNames.ConstantsStruct}& {MslNames.Constants} [[buffer({buffers.Count.ToString(CultureInfo.InvariantCulture)})]]");
             }
 
-            // Pixel shaders always receive the thread position (the pixel) and the grid (the texture size).
-            Builtins builtins = program.IsPixelShader
-                ? program.Builtins | Builtins.ThreadPositionInGrid | Builtins.ThreadsPerGrid
-                : program.Builtins;
+            if (windowed)
+            {
+                parameters.Add($"constant {MslNames.GridWindowStruct}& {MslNames.GridWindow} [[buffer({program.GridWindowIndex.ToString(CultureInfo.InvariantCulture)}), function_constant({MslNames.Windowed})]]");
+            }
+
+            var prologue = new List<string>();
 
             foreach (Builtins builtin in BuiltinInfo.All)
             {
-                if ((builtins & builtin) != 0)
+                if ((builtins & builtin) == 0)
+                {
+                    continue;
+                }
+
+                if (!windowed || (builtin & BuiltinInfo.Windowed) == 0)
                 {
                     parameters.Add($"uint3 {BuiltinInfo.Name(builtin)} [[{BuiltinInfo.Attribute(builtin)}]]");
+                    continue;
                 }
+
+                string raw = BuiltinInfo.RawName(builtin);
+                string windowValue = BuiltinInfo.WindowOffset(builtin) is { } offset
+                    ? $"{raw} + uint3({MslNames.GridWindow}.{offset})"
+                    : $"uint3({MslNames.GridWindow}.size)";
+
+                parameters.Add($"uint3 {raw} [[{BuiltinInfo.Attribute(builtin)}]]");
+                prologue.Add($"    const uint3 {BuiltinInfo.Name(builtin)} = {MslNames.Windowed} ? {windowValue} : {raw};");
             }
 
             writer.Line();
@@ -959,7 +1017,7 @@ internal sealed class ShaderAnalyzer
                 writer.Indent--;
             }
 
-            WriteBody(writer, program.Body);
+            WriteBody(writer, prologue.Count == 0 ? program.Body : string.Join("\n", prologue) + "\n" + program.Body);
             return writer.ToString();
         }
 

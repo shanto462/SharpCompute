@@ -24,6 +24,13 @@ internal static class MslNames
     public const string ConstantsStruct = "__Constants";
     public const string Output = "__output";
 
+    /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
+    public const string GridWindowStruct = "__GridWindow";
+    public const string GridWindow = "__window";
+
+    /// <summary>The bool function constant (index 0) that selects the windowed specialization of a kernel.</summary>
+    public const string Windowed = "__windowed";
+
     private static readonly HashSet<string> Reserved = CreateReserved();
 
     /// <summary>Replaces characters that are not valid in an ASCII C identifier.</summary>

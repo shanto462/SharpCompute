@@ -53,6 +53,8 @@ float[] result = buffer.ToArray(); // [2, 4, 6, 8]
   and `WrapReadWriteBuffer` makes a buffer over page-aligned memory you already own.
 - **Batched and asynchronous dispatch.** A `ComputeContext` runs many dispatches with one commit and
   one wait; `ForAsync`/`ForEachAsync` return a `Task` so the CPU keeps working while the GPU runs.
+- **CPU execution and CPU+GPU split.** The same shader also runs as C# on all CPU cores
+  (`device.ForCpu`), or split between the CPU and the GPU in one dispatch (`device.ForSplit`).
 - **Correct by default.** Shaders compile with IEEE-safe math and precise functions, and every
   shader that passes structs or constants carries `static_assert` layout guards. The CPU
   implementations of `Gpu.*` were measured against Apple GPU results: bit-for-bit for arithmetic,
@@ -122,6 +124,7 @@ bandwidth: both sides use the same memory controller.
 | `MapReadOnlyBuffer` instead of reading a file | 256 MB: 42.0 → 4.06 ms | Tiny one-off dispatches | ~0.1 ms floor per dispatch; the CPU finishes first |
 | Many small dispatches in one `ComputeContext` | ~99 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
 | `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (7 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
+| | | Splitting one grid between CPU and GPU (`ForSplit`) | 0.97–1.09× of GPU-only: scalar C# on the CPU, and the GPU slows while the CPU is busy |
 
 The full guide, with how to choose an API and the lifetime rules that come with zero copy, is
 [`docs/unified-memory.md`](docs/unified-memory.md).
@@ -215,6 +218,28 @@ for (int k = 0; k < frameCount; k++)
 Work on one device runs in submission order, so dependent `ForAsync` calls can also be issued back
 to back and awaited once. Measurements are in the "Batching and async" section of
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
+
+### On the CPU, or on both
+
+The C# of a shader is real code: `ForCpu` runs it on all CPU cores, with `ThreadIds`,
+`DispatchSize` and friends returning per-thread values, and buffers read and written in place.
+`ForSplit` runs the leading rows of the grid on the CPU while the GPU runs the rest, on the same
+shared buffers, and returns when both are done:
+
+```csharp
+device.ForCpu(width, height, new Blur(source, destination));       // CPU only
+device.ForSplit(width, height, new Blur(source, destination));     // adaptive CPU share
+device.ForSplit(width, height, new Blur(source, destination), 0.25); // a quarter of the rows on the CPU
+device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shaders too
+```
+
+Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
+the GPU up to floating-point rounding. Only split shaders whose threads write their own elements.
+Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
+every CPU core is busy. The adaptive mode therefore only splits while that measures faster than the
+GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % faster than GPU-only
+([`benchmarks/RESULTS.md`](benchmarks/RESULTS.md#cpu-execution-and-cpugpu-split)). `ForCpu` is a
+correct fallback and a debugging aid rather than a fast CPU path.
 
 ## Building and testing
 

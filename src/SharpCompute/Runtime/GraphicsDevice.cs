@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.MemoryMappedFiles;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using SharpCompute.Interop;
@@ -24,6 +25,9 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     private readonly ObjCHandle _device;
     private readonly ObjCHandle _queue;
     private readonly ConcurrentDictionary<Type, Lazy<ComputePipeline>> _pipelines = new();
+
+    // The windowed specializations (function constant 0 = true) used by the GPU part of ForSplit.
+    private readonly ConcurrentDictionary<Type, Lazy<ComputePipeline>> _windowedPipelines = new();
     private readonly bool _isDefault;
     private int _disposed;
 
@@ -305,7 +309,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
         // A dispatch that is already past its disposed check holds leases on the handles it uses,
         // so these releases are deferred until it finishes.
-        foreach (Lazy<ComputePipeline> pipeline in _pipelines.Values)
+        foreach (Lazy<ComputePipeline> pipeline in _pipelines.Values.Concat(_windowedPipelines.Values))
         {
             if (pipeline.IsValueCreated)
             {
@@ -314,6 +318,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
 
         _pipelines.Clear();
+        _windowedPipelines.Clear();
         _queue.Dispose();
         _device.Dispose();
     }
@@ -514,13 +519,19 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     }
 
     /// <summary>
-    /// The encode/commit/wait path shared by <c>For</c> and <c>ForEach</c>. When <paramref name="output"/>
-    /// is non-null it is bound at texture index 0 before the shader's own arguments.
+    /// The encode/commit/wait path shared by <c>For</c>, <c>ForEach</c> and the GPU part of <c>ForSplit</c>.
+    /// When <paramref name="output"/> is non-null it is bound at texture index 0 before the shader's own
+    /// arguments. When <paramref name="window"/> is set, the windowed specialization runs
+    /// <paramref name="grid"/> threads as one part of a larger grid. <paramref name="whileGpuRuns"/> (the
+    /// CPU part of a split) runs on this thread between commit and wait; the GPU is waited for even when
+    /// it throws, and its exception then wins over a GPU error.
     /// </summary>
-    private void Run<T>(MTLSize grid, int rank, ReadWriteTexture2D<Rgba32>? output, in T shader)
+    /// <returns>The command buffer's <c>GPUStartTime</c>/<c>GPUEndTime</c> when <paramref name="whileGpuRuns"/> is set, otherwise zeros.</returns>
+    private (double GpuStart, double GpuEnd) Run<T>(
+        MTLSize grid, int rank, ReadWriteTexture2D<Rgba32>? output, in T shader, GridWindow? window = null, Action? whileGpuRuns = null)
         where T : struct, IComputeShaderDescriptor<T>
     {
-        ComputePipeline pipeline = GetPipeline<T>();
+        ComputePipeline pipeline = window is null ? GetPipeline<T>() : GetWindowedPipeline<T>();
         MTLSize threadsPerThreadgroup = ResolveThreadGroupSize(
             T.ThreadGroupSizeX, T.ThreadGroupSizeY, T.ThreadGroupSizeZ, rank, pipeline.MaxTotalThreadsPerThreadgroup, typeof(T));
 
@@ -540,7 +551,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
         try
         {
-            Encode(grid, threadsPerThreadgroup, queue.Pointer, state.Pointer, output is null ? 0 : outputTexture.Pointer, leased, in shader);
+            return Encode(grid, threadsPerThreadgroup, queue.Pointer, state.Pointer, output is null ? 0 : outputTexture.Pointer, leased, in shader, window, whileGpuRuns);
         }
         finally
         {
@@ -576,8 +587,12 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
     }
 
-    /// <summary>Encodes one dispatch into a new command buffer, commits it and waits for it.</summary>
-    private void Encode<T>(MTLSize grid, MTLSize threadsPerThreadgroup, nint queue, nint state, nint outputTexture, List<ObjCHandle> leased, in T shader)
+    /// <summary>
+    /// Encodes one dispatch into a new command buffer, commits it and waits for it, running
+    /// <paramref name="whileGpuRuns"/> in between (see <see cref="Run{T}"/>).
+    /// </summary>
+    private (double GpuStart, double GpuEnd) Encode<T>(
+        MTLSize grid, MTLSize threadsPerThreadgroup, nint queue, nint state, nint outputTexture, List<ObjCHandle> leased, in T shader, GridWindow? window, Action? whileGpuRuns)
         where T : struct, IComputeShaderDescriptor<T>
     {
         nint commandBuffer = ObjC.SendIntPtr(queue, Selectors.CommandBuffer);
@@ -606,6 +621,11 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
             ShaderArgumentWriter writer = new(encoder, this, leased);
             T.SetArguments(in shader, ref writer);
 
+            if (window is { } gridWindow)
+            {
+                writer.SetBytes(T.GridWindowIndex, in gridWindow);
+            }
+
             ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, grid, threadsPerThreadgroup);
         }
         finally
@@ -616,7 +636,16 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
 
         ObjC.SendVoid(commandBuffer, Selectors.Commit);
-        ObjC.SendVoid(commandBuffer, Selectors.WaitUntilCompleted);
+
+        try
+        {
+            whileGpuRuns?.Invoke();
+        }
+        finally
+        {
+            // The GPU may still be using memory the caller is about to release or reuse.
+            ObjC.SendVoid(commandBuffer, Selectors.WaitUntilCompleted);
+        }
 
         if (ObjC.SendNUInt(commandBuffer, Selectors.Status) == Metal.CommandBufferStatusError)
         {
@@ -624,20 +653,31 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
             throw new MetalException($"The GPU failed to execute shader '{typeof(T)}': {description}");
         }
+
+        return whileGpuRuns is null
+            ? default
+            : (ObjC.SendDouble(commandBuffer, Selectors.GPUStartTime), ObjC.SendDouble(commandBuffer, Selectors.GPUEndTime));
     }
 
     private ComputePipeline GetPipeline<T>()
+        where T : struct, IComputeShaderDescriptor<T> => GetPipeline<T>(_pipelines, windowed: false);
+
+    /// <summary>The specialization that reads the grid window; compiled on the first split dispatch of <typeparamref name="T"/>.</summary>
+    private ComputePipeline GetWindowedPipeline<T>()
+        where T : struct, IComputeShaderDescriptor<T> => GetPipeline<T>(_windowedPipelines, windowed: true);
+
+    private ComputePipeline GetPipeline<T>(ConcurrentDictionary<Type, Lazy<ComputePipeline>> cache, bool windowed)
         where T : struct, IComputeShaderDescriptor<T>
     {
         // Lazy makes concurrent first dispatches of a shader compile it once. A compile error is
         // cached, which is right because the source is a constant of the type; any other failure
         // (out of memory, a dispose race) evicts the entry so a later dispatch can retry.
-        Lazy<ComputePipeline> lazy = _pipelines.GetOrAdd(
+        Lazy<ComputePipeline> lazy = cache.GetOrAdd(
             typeof(T),
-            static (type, device) => new Lazy<ComputePipeline>(
-                () => device.CompilePipeline(T.MslSource, T.EntryPoint, type),
+            static (type, state) => new Lazy<ComputePipeline>(
+                () => state.Device.CompilePipeline(T.MslSource, T.EntryPoint, type, state.Windowed),
                 LazyThreadSafetyMode.ExecutionAndPublication),
-            this);
+            (Device: this, Windowed: windowed));
 
         try
         {
@@ -645,7 +685,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
         catch (Exception e) when (e is not ShaderCompilationException)
         {
-            _pipelines.TryRemove(new(typeof(T), lazy));
+            cache.TryRemove(new(typeof(T), lazy));
             throw;
         }
     }
@@ -655,12 +695,18 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// <paramref name="entryPoint"/>. Not cached: callers that are not shader descriptors (the
     /// presentation kernel) own the returned pipeline.
     /// </summary>
-    internal ComputePipeline CompilePipeline(string mslSource, string entryPoint, Type shaderType)
+    /// <remarks>
+    /// <paramref name="windowed"/> is the value of bool function constant 0, which generated kernels that
+    /// read grid positions declare to select the partial-grid (windowed) code. Such a kernel cannot be
+    /// built unspecialized, so the function is always specialized; Metal ignores the value for kernels
+    /// that declare no constant.
+    /// </remarks>
+    internal ComputePipeline CompilePipeline(string mslSource, string entryPoint, Type shaderType, bool windowed = false)
     {
         using AutoreleasePool pool = AutoreleasePool.Push();
         using ObjCHandle.Lease device = _device.Acquire(this);
 
-        nint source = 0, options = 0, library = 0, functionName = 0, function = 0;
+        nint source = 0, options = 0, library = 0, functionName = 0, function = 0, constantValues = 0;
 
         try
         {
@@ -683,12 +729,19 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
             }
 
             functionName = NSString.Create(entryPoint);
-            function = ObjC.SendIntPtr(library, Selectors.NewFunctionWithName, functionName);
+            constantValues = ObjC.SendIntPtr(ObjC.SendIntPtr(FunctionConstantValuesClass.Value, Selectors.Alloc), Selectors.Init);
+
+            byte windowedValue = windowed ? (byte)1 : (byte)0;
+            ObjC.SendVoid(constantValues, Selectors.SetConstantValueTypeAtIndex, &windowedValue, Metal.DataTypeBool, (nuint)0);
+
+            error = 0;
+            function = ObjC.SendIntPtr(library, Selectors.NewFunctionWithNameConstantValuesError, functionName, constantValues, &error);
 
             if (function == 0)
             {
+                // A missing entry point also lands here (as an error rather than a nil-without-error).
                 throw new ShaderCompilationException(
-                    $"The MSL for shader '{shaderType}' compiled, but contains no function named '{entryPoint}'.", mslSource);
+                    $"The MSL for shader '{shaderType}' compiled, but no function named '{entryPoint}' could be specialized from it: {NSString.DescribeError(error)}", mslSource);
             }
 
             error = 0;
@@ -705,6 +758,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         finally
         {
             ObjC.Release(function);
+            ObjC.Release(constantValues);
             ObjC.Release(functionName);
             ObjC.Release(library);
             ObjC.Release(options);
@@ -716,5 +770,10 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     {
         // Looked up lazily: the class only exists once Metal.framework is loaded, which creating a device guarantees.
         internal static readonly nint Value = ObjC.GetClass("MTLCompileOptions");
+    }
+
+    private static class FunctionConstantValuesClass
+    {
+        internal static readonly nint Value = ObjC.GetClass("MTLFunctionConstantValues");
     }
 }

@@ -46,11 +46,26 @@ public class ShaderSnapshotTests
             static_assert(sizeof(__Constants) == 4, "SharpCompute: size of '__Constants' does not match its C# layout");
             static_assert(__builtin_offsetof(__Constants, factor) == 0, "SharpCompute: offset of '__Constants.factor' does not match its C# layout");
 
+            struct __GridWindow
+            {
+                packed_uint3 offset;
+                packed_uint3 size;
+                packed_uint3 groupOffset;
+            };
+            static_assert(sizeof(__GridWindow) == 36, "SharpCompute: size of '__GridWindow' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, offset) == 0, "SharpCompute: offset of '__GridWindow.offset' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, size) == 12, "SharpCompute: offset of '__GridWindow.size' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, groupOffset) == 24, "SharpCompute: offset of '__GridWindow.groupOffset' does not match its C# layout");
+
+            constant bool __windowed [[function_constant(0)]];
+
             kernel void MyApp_Shaders_MultiplyByTwo(
                 device float* buffer [[buffer(0)]],
                 constant __Constants& __c [[buffer(1)]],
-                uint3 __tid [[thread_position_in_grid]])
+                constant __GridWindow& __window [[buffer(2), function_constant(__windowed)]],
+                uint3 __tid_in [[thread_position_in_grid]])
             {
+                const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
                 buffer[int(__tid.x)] *= __c.factor;
             }
             """),
@@ -62,6 +77,8 @@ public class ShaderSnapshotTests
 
         string code = source.SourceText.ToString();
         Assert.Contains("partial struct MultiplyByTwo : global::SharpCompute.IComputeShaderDescriptor<global::MyApp.Shaders.MultiplyByTwo>", code);
+        Assert.Contains("static int global::SharpCompute.IComputeShaderDescriptor<global::MyApp.Shaders.MultiplyByTwo>.GridWindowIndex => 2;", code);
+        Assert.Equal(2, descriptor.GridWindowIndex);
         Assert.Contains(
             Normalize("""
                     static void global::SharpCompute.IComputeShaderDescriptor<global::MyApp.Shaders.MultiplyByTwo>.SetArguments(in global::MyApp.Shaders.MultiplyByTwo shader, ref global::SharpCompute.ShaderArgumentWriter writer)
@@ -133,12 +150,27 @@ public class ShaderSnapshotTests
             static_assert(__builtin_offsetof(__Constants, __length_y) == 4, "SharpCompute: offset of '__Constants.__length_y' does not match its C# layout");
             static_assert(__builtin_offsetof(__Constants, __length_x) == 8, "SharpCompute: offset of '__Constants.__length_x' does not match its C# layout");
 
+            struct __GridWindow
+            {
+                packed_uint3 offset;
+                packed_uint3 size;
+                packed_uint3 groupOffset;
+            };
+            static_assert(sizeof(__GridWindow) == 36, "SharpCompute: size of '__GridWindow' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, offset) == 0, "SharpCompute: offset of '__GridWindow.offset' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, size) == 12, "SharpCompute: offset of '__GridWindow.size' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, groupOffset) == 24, "SharpCompute: offset of '__GridWindow.groupOffset' does not match its C# layout");
+
+            constant bool __windowed [[function_constant(0)]];
+
             kernel void MyApp_Saxpy(
                 device float* y [[buffer(0)]],
                 const device float* x [[buffer(1)]],
                 constant __Constants& __c [[buffer(2)]],
-                uint3 __tid [[thread_position_in_grid]])
+                constant __GridWindow& __window [[buffer(3), function_constant(__windowed)]],
+                uint3 __tid_in [[thread_position_in_grid]])
             {
+                const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
                 int i = int(__tid.x);
                 if (i >= int(__c.__length_x) || i >= int(__c.__length_y))
                 {
@@ -234,6 +266,19 @@ public class ShaderSnapshotTests
             static_assert(__builtin_offsetof(__Constants, origin) == 0, "SharpCompute: offset of '__Constants.origin' does not match its C# layout");
             static_assert(__builtin_offsetof(__Constants, scale) == 8, "SharpCompute: offset of '__Constants.scale' does not match its C# layout");
 
+            struct __GridWindow
+            {
+                packed_uint3 offset;
+                packed_uint3 size;
+                packed_uint3 groupOffset;
+            };
+            static_assert(sizeof(__GridWindow) == 36, "SharpCompute: size of '__GridWindow' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, offset) == 0, "SharpCompute: offset of '__GridWindow.offset' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, size) == 12, "SharpCompute: offset of '__GridWindow.size' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, groupOffset) == 24, "SharpCompute: offset of '__GridWindow.groupOffset' does not match its C# layout");
+
+            constant bool __windowed [[function_constant(0)]];
+
             static float LengthSquared(float x, float y);
             static int Iterate(float cx, float cy, int limit);
 
@@ -260,9 +305,12 @@ public class ShaderSnapshotTests
             kernel void Fractals_Mandelbrot(
                 device uint* output [[buffer(0)]],
                 constant __Constants& __c [[buffer(1)]],
-                uint3 __tid [[thread_position_in_grid]],
-                uint3 __grid [[threads_per_grid]])
+                constant __GridWindow& __window [[buffer(2), function_constant(__windowed)]],
+                uint3 __tid_in [[thread_position_in_grid]],
+                uint3 __grid_in [[threads_per_grid]])
             {
+                const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
+                const uint3 __grid = __windowed ? uint3(__window.size) : __grid_in;
                 int2 id = int2(__tid.xy);
                 int width = int(__grid.x);
                 float cx = __c.origin.x + float(id.x) * __c.scale;
@@ -377,12 +425,27 @@ public class ShaderSnapshotTests
             static_assert(__builtin_offsetof(__Constants, damping) == 12, "SharpCompute: offset of '__Constants.damping' does not match its C# layout");
             static_assert(__builtin_offsetof(__Constants, gravity) == 16, "SharpCompute: offset of '__Constants.gravity' does not match its C# layout");
 
+            struct __GridWindow
+            {
+                packed_uint3 offset;
+                packed_uint3 size;
+                packed_uint3 groupOffset;
+            };
+            static_assert(sizeof(__GridWindow) == 36, "SharpCompute: size of '__GridWindow' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, offset) == 0, "SharpCompute: offset of '__GridWindow.offset' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, size) == 12, "SharpCompute: offset of '__GridWindow.size' does not match its C# layout");
+            static_assert(__builtin_offsetof(__GridWindow, groupOffset) == 24, "SharpCompute: offset of '__GridWindow.groupOffset' does not match its C# layout");
+
+            constant bool __windowed [[function_constant(0)]];
+
             kernel void Physics_Integrate(
                 device Particle* particles [[buffer(0)]],
                 const device packed_float3* forces [[buffer(1)]],
                 constant __Constants& __c [[buffer(2)]],
-                uint3 __tid [[thread_position_in_grid]])
+                constant __GridWindow& __window [[buffer(3), function_constant(__windowed)]],
+                uint3 __tid_in [[thread_position_in_grid]])
             {
+                const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
                 int i = int(__tid.x);
                 Particle p = particles[i];
                 float3 acceleration = (forces[i] + __c.gravity) / p.Mass;

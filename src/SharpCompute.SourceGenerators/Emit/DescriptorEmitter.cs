@@ -112,6 +112,14 @@ internal static class DescriptorEmitter
         writer.Line($"static int {contract}.ThreadGroupSizeZ => {model.ThreadGroupSizeZ.ToString(CultureInfo.InvariantCulture)};");
         writer.Line();
 
+        if (model.GridWindowIndex >= 0)
+        {
+            // Without this member the interface's default (-1) applies: the shader cannot be split.
+            writer.Line("/// <summary>The buffer index of the hidden grid window bound by partial-grid (CPU+GPU split) dispatches.</summary>");
+            writer.Line($"static int {contract}.GridWindowIndex => {model.GridWindowIndex.ToString(CultureInfo.InvariantCulture)};");
+            writer.Line();
+        }
+
         writer.Line($"static void {contract}.SetArguments(in {model.FullyQualifiedName} shader, ref {Writer} writer)");
         writer.Line("{");
         writer.Indent++;

@@ -447,18 +447,29 @@ public class TranslationTests
             buffer[a] = float(b.x + c.z + d + e + f);
             """.ReplaceLineEndings("\n"),
             all.KernelBody);
+        // The grid-position built-ins arrive raw and are rebased by the prologue for split dispatches;
+        // the position within the threadgroup is the same in every part, so it is used directly.
         Assert.Contains(
             """
-                uint3 __tid [[thread_position_in_grid]],
-                uint3 __grid [[threads_per_grid]],
+                constant __GridWindow& __window [[buffer(2), function_constant(__windowed)]],
+                uint3 __tid_in [[thread_position_in_grid]],
+                uint3 __grid_in [[threads_per_grid]],
                 uint3 __gtid [[thread_position_in_threadgroup]],
-                uint3 __gid [[threadgroup_position_in_grid]])
+                uint3 __gid_in [[threadgroup_position_in_grid]])
             """.ReplaceLineEndings("\n"),
             all.MslSource);
+        Assert.Equal(
+            """
+            const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
+            const uint3 __grid = __windowed ? uint3(__window.size) : __grid_in;
+            const uint3 __gid = __windowed ? __gid_in + uint3(__window.groupOffset) : __gid_in;
+            """.ReplaceLineEndings("\n").TrimEnd('\n'),
+            all.KernelPrologue);
 
         ShaderDescriptor one = GeneratorHarness.Run(TestSources.Vectors, TestSources.Body("buffer[DispatchSize.X - 1] = factor;")).Verify(Shader);
 
-        Assert.Contains("uint3 __grid [[threads_per_grid]])", one.MslSource);
+        Assert.Contains("uint3 __grid_in [[threads_per_grid]])", one.MslSource);
+        Assert.Equal("const uint3 __grid = __windowed ? uint3(__window.size) : __grid_in;", one.KernelPrologue);
         Assert.DoesNotContain("__tid", one.MslSource);
         Assert.DoesNotContain("__gtid", one.MslSource);
         Assert.DoesNotContain("__gid", one.MslSource);
@@ -466,6 +477,13 @@ public class TranslationTests
         ShaderDescriptor none = GeneratorHarness.Run(TestSources.Vectors, TestSources.Body("buffer[0] = factor;")).Verify(Shader);
 
         Assert.DoesNotContain("uint3", none.MslSource);
+        Assert.DoesNotContain("__window", none.MslSource);
+
+        // Only the position within a threadgroup: nothing to rebase, so no window either.
+        ShaderDescriptor local = GeneratorHarness.Run(TestSources.Vectors, TestSources.Body("buffer[GroupIds.X] = factor;")).Verify(Shader);
+
+        Assert.Contains("uint3 __gtid [[thread_position_in_threadgroup]])", local.MslSource);
+        Assert.DoesNotContain("__window", local.MslSource);
     }
 
     [Fact]

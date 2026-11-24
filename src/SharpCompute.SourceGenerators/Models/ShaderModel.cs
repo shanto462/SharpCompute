@@ -6,6 +6,8 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// <summary>
 /// Everything the emitter needs to write the descriptor partial. Contains only strings and
 /// primitives (no symbols or syntax) so that it is cheap to compare between generator runs.
+/// <see cref="GridWindowIndex"/> is the buffer index of the hidden grid window (the first index after
+/// the buffers and constants), or -1 when every index is taken and the shader cannot run a partial grid.
 /// </summary>
 internal sealed record ShaderModel(
     string HintName,
@@ -21,7 +23,8 @@ internal sealed record ShaderModel(
     EquatableArray<BufferArgument> Buffers,
     EquatableArray<ConstantArgument> Constants,
     int ConstantsIndex,
-    bool UsesInstanceAccess);
+    bool UsesInstanceAccess,
+    int GridWindowIndex);
 
 /// <summary>One level of the type hierarchy to re-open, e.g. <c>partial class Outer</c>.</summary>
 internal sealed record TypeDeclarationInfo(string Keyword, string Name);

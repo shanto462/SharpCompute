@@ -35,6 +35,10 @@ internal static class Selectors
 
     // MTLLibrary
     public static readonly nint NewFunctionWithName = ObjC.GetSelector("newFunctionWithName:");
+    public static readonly nint NewFunctionWithNameConstantValuesError = ObjC.GetSelector("newFunctionWithName:constantValues:error:");
+
+    // MTLFunctionConstantValues
+    public static readonly nint SetConstantValueTypeAtIndex = ObjC.GetSelector("setConstantValue:type:atIndex:");
 
     // MTLComputePipelineState
     public static readonly nint MaxTotalThreadsPerThreadgroup = ObjC.GetSelector("maxTotalThreadsPerThreadgroup");
@@ -59,6 +63,8 @@ internal static class Selectors
     public static readonly nint Status = ObjC.GetSelector("status");
     public static readonly nint Error = ObjC.GetSelector("error");
     public static readonly nint AddCompletedHandler = ObjC.GetSelector("addCompletedHandler:");
+    public static readonly nint GPUStartTime = ObjC.GetSelector("GPUStartTime");
+    public static readonly nint GPUEndTime = ObjC.GetSelector("GPUEndTime");
 
     // MTLComputeCommandEncoder
     public static readonly nint SetComputePipelineState = ObjC.GetSelector("setComputePipelineState:");
