@@ -1,0 +1,91 @@
+name: Bug report
+description: Something compiles, runs or computes wrongly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security problem, use [private vulnerability reporting](https://github.com/shanto462/SharpCompute/security/advisories/new) instead.
+        Please check the README's [Limitations](https://github.com/shanto462/SharpCompute#limitations) first: some differences are documented.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: A short description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: shader
+    attributes:
+      label: Minimal shader and dispatch
+      description: The smallest shader and host code that show the problem. Include any SCG diagnostic or Metal compiler error in full.
+      render: csharp
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: dropdown
+    id: gpu-vs-cpu
+    attributes:
+      label: GPU and ForCpu
+      description: Does the same shader give the expected result when run with `device.ForCpu(...)`?
+      options:
+        - ForCpu is correct; only the GPU is wrong
+        - Both the GPU and ForCpu are wrong
+        - ForCpu is wrong; the GPU is correct
+        - Not applicable (build, generator or API problem)
+        - Not tried
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 15.5"
+    validations:
+      required: true
+  - type: input
+    id: chip
+    attributes:
+      label: Chip
+      placeholder: "e.g. Apple M2 Pro"
+    validations:
+      required: true
+  - type: input
+    id: dotnet
+    attributes:
+      label: .NET SDK version
+      description: The output of `dotnet --version`.
+      placeholder: "e.g. 11.0.100"
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: SharpCompute commit
+      description: The output of `git rev-parse --short HEAD` in your SharpCompute checkout.
+    validations:
+      required: true
+  - type: dropdown
+    id: precompiled
+    attributes:
+      label: Shader compilation
+      options:
+        - Compiled at run time
+        - Precompiled at build time (SharpComputePrecompileShaders)
+        - Don't know
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Logs, the generated MSL, screenshots, or what you have already tried.

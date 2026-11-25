@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: If you use SharpCompute in your work, please cite it as below.
+type: software
+title: SharpCompute
+abstract: Write GPU compute shaders in C# and run them on Metal. A Roslyn source generator translates shader structs to the Metal Shading Language at build time; a small runtime compiles, caches and dispatches them.
+authors:
+  - given-names: Shanto
+    alias: shanto462
+repository-code: https://github.com/shanto462/SharpCompute
+url: https://github.com/shanto462/SharpCompute
+license: MIT
+keywords:
+  - gpu
+  - compute shaders
+  - metal
+  - csharp
+  - source generator
