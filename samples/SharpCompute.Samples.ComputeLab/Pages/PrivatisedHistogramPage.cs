@@ -114,13 +114,11 @@ public sealed class PrivatisedHistogramPage : ILabPage
         _counts.AsSpan().Clear();
         _globalCounts.AsSpan().Clear();
 
-        long start = Stopwatch.GetTimestamp();
         _device.For(Size * Size, new LuminanceHistogram(_image, _globalCounts, Shift));
-        GlobalGpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GlobalGpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
 
-        start = Stopwatch.GetTimestamp();
         _device.For(Size * Size, new PrivatisedLuminanceHistogram(_image, _counts, Shift));
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
 
         _smoothedMs = _smoothedMs == 0 ? GpuMilliseconds : (_smoothedMs * 0.9) + (GpuMilliseconds * 0.1);
         _smoothedGlobalMs = _smoothedGlobalMs == 0 ? GlobalGpuMilliseconds : (_smoothedGlobalMs * 0.9) + (GlobalGpuMilliseconds * 0.1);

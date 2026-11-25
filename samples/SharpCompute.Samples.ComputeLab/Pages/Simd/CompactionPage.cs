@@ -145,8 +145,6 @@ public sealed class CompactionPage : ILabPage
             (int)(Units * (0.5f + (0.27f * MathF.Cos(time * 0.31f)))));
         _radius = (int)(Units * (Variant == 0 ? 0.2f : 0.34f));
 
-        long start = Stopwatch.GetTimestamp();
-
         // Four small passes in one command buffer; each sees what the one before wrote.
         _context.For(Count, new VoteInGroups(_particles, _ballots, _groupCounts, _center.X, _center.Y, _radius * _radius));
         _context.For(Groups, new ScanCounts(_groupCounts, _groupOffsets, _blockTotals));
@@ -154,7 +152,7 @@ public sealed class CompactionPage : ILabPage
         _context.For(Count, new ScatterKept(_particles, _ballots, _groupOffsets, _blockOffsets, _compacted));
         _context.Execute();
 
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _context.LastGpuTime.TotalMilliseconds;
         Kept = _kept[0];
     }
 

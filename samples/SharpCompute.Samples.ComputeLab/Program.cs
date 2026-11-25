@@ -192,7 +192,7 @@ public static class Headless
         bool allPassed = true;
 
         summary.AppendLine(Invariant($"ComputeLab on {device.Name}, {Environment.ProcessorCount} CPU cores"));
-        summary.AppendLine("GPU: the page's dispatches, commit to completion (median of 7). CPU: the same work, on the cores the CPU note says.");
+        summary.AppendLine("GPU: the time the GPU spent on the page's dispatches, from LastGpuTime (median of 7). CPU: the same work, on the cores the CPU note says.");
 
         for (int index = 0; index < pages.Count; index++)
         {

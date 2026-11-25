@@ -67,9 +67,20 @@ public static class Runner
 
         Machine.Snapshot after = Machine.TakeSnapshot();
         List<BenchmarkRow> rows = Report.ToRows(summaries);
+
+        // The native baselines are no BenchmarkDotNet benchmarks, so a filter cannot select them: they
+        // run with every unfiltered run, and a filtered one keeps what the run it is merged into had.
+        NativeBaselineData? native = null;
+
+        if (filter == "*")
+        {
+            Console.WriteLine("== native baselines");
+            native = NativeBaselines.Run(GraphicsDevice.GetDefault(), quick ? 1 : NativeBaselines.DefaultPasses, Console.WriteLine);
+        }
+
         RunData data = Option(args, "--merge") is { } previous
-            ? Merge(RunData.Load(previous), rows, checks, firstDispatches, new Rerun([.. rows.Select(r => r.Workload).Distinct()], before, after, quick, stopwatch.Elapsed.TotalMinutes))
-            : new(machine, before, after, checks, firstDispatches, rows, quick, stopwatch.Elapsed.TotalMinutes);
+            ? Merge(RunData.Load(previous), rows, checks, firstDispatches, new Rerun([.. rows.Select(r => r.Workload).Distinct()], before, after, quick, stopwatch.Elapsed.TotalMinutes), native)
+            : new(machine, before, after, checks, firstDispatches, rows, quick, stopwatch.Elapsed.TotalMinutes, Native: native);
         string dataPath = Path.Combine(Directory.GetCurrentDirectory(), "BenchmarkDotNet.Artifacts", "run-data.json");
         data.Save(dataPath);
         Console.WriteLine($"saved {dataPath} (re-render with --render)");
@@ -82,14 +93,60 @@ public static class Runner
     /// rest are kept. Verify and first-dispatch results are always from this run (they cover every
     /// workload); the earlier run's load snapshots stay, and this run's are added as a re-run.
     /// </summary>
-    private static RunData Merge(RunData previous, List<BenchmarkRow> rows, List<Check> checks, List<FirstDispatch> firstDispatches, Rerun rerun) =>
+    private static RunData Merge(
+        RunData previous, List<BenchmarkRow> rows, List<Check> checks, List<FirstDispatch> firstDispatches, Rerun rerun, NativeBaselineData? native) =>
         previous with
         {
             Rows = [.. previous.Rows.Where(r => !rerun.Workloads.Contains(r.Workload)), .. rows],
             Checks = checks,
             FirstDispatches = firstDispatches,
             Reruns = [.. previous.Reruns ?? [], rerun],
+            Native = native ?? previous.Native,
         };
+
+    /// <summary>
+    /// --native-baselines [--passes N] [--merge &lt;run-data.json&gt; [--out RESULTS.md]]: verify, then
+    /// measure the native baselines alone (well under a minute). With --merge they replace the native
+    /// baselines of an earlier run, whose BenchmarkDotNet rows are kept, and the report is rendered
+    /// again; the verification results are then this run's. Without it the section is printed.
+    /// </summary>
+    public static int RunNative(string[] args)
+    {
+        int passes = Option(args, "--passes") is { } text ? int.Parse(text, System.Globalization.CultureInfo.InvariantCulture) : NativeBaselines.DefaultPasses;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+
+        Console.WriteLine("== verify");
+        List<Check> checks = Verify.Run(device, Console.WriteLine);
+
+        if (checks.Any(c => !c.Passed))
+        {
+            Console.Error.WriteLine("verify failed; not measuring.");
+            return 1;
+        }
+
+        // As before the benchmarks of a full run: let verify's CPU work wind down first.
+        System.Threading.Thread.Sleep(TimeSpan.FromSeconds(5));
+
+        Console.WriteLine("== native baselines");
+        NativeBaselineData native = NativeBaselines.Run(device, passes, Console.WriteLine);
+
+        if (Option(args, "--merge") is not { } previous)
+        {
+            System.Text.StringBuilder section = new();
+            NativeBaselinesReport.Append(section, native);
+            Console.WriteLine();
+            Console.Write(section);
+            return 0;
+        }
+
+        RunData data = RunData.Load(previous) with { Checks = checks, Native = native };
+        string dataPath = Path.Combine(Directory.GetCurrentDirectory(), "BenchmarkDotNet.Artifacts", "run-data.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(dataPath)!);
+        data.Save(dataPath);
+        Console.WriteLine($"saved {dataPath} (re-render with --render)");
+
+        return Render(data, Option(args, "--out") ?? "RESULTS.md");
+    }
 
     /// <summary>--render &lt;run-data.json&gt; [--out RESULTS.md]: rebuild the report from a saved run.</summary>
     public static int Render(string[] args)

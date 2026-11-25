@@ -80,9 +80,8 @@ public sealed class CompactionPage : ILabPage
         _device.For(Size, Size, new GenerateField(_source, Size, frame.Time));
         _counter[0] = 0;
 
-        long start = Stopwatch.GetTimestamp();
         _device.For(Count, new CompactAbove(_source, _output, _counter, Cutoff));
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
 
         Kept = _counter[0];
         _sortedIsCurrent = false;

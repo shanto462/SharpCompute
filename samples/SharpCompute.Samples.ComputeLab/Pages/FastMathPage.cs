@@ -87,8 +87,6 @@ public sealed class FastMathPage : ILabPage
 
         for (int repeat = 0; repeat < Repeats; repeat++)
         {
-            long start = Stopwatch.GetTimestamp();
-
             if (Variant == 0)
             {
                 _device.For(Size, Size, new WaveField(_field, Size, _time));
@@ -98,7 +96,7 @@ public sealed class FastMathPage : ILabPage
                 _device.For(Size, Size, new WaveFieldFast(_field, Size, _time));
             }
 
-            fastest = Math.Min(fastest, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            fastest = Math.Min(fastest, _device.LastGpuTime.TotalMilliseconds);
         }
 
         GpuMilliseconds = fastest;
