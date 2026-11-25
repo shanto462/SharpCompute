@@ -300,7 +300,7 @@ kernel next to it use Metal's matrix units (`simdgroup_matrix`), which a C# shad
 The same section of the report places every kernel under the machine's measured ceilings:
 6.24 TFLOP/s of FP32 arithmetic, of which MPS reaches 85 %, and 250 GB/s of memory bandwidth (243 to
 255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
-101 % of that: it is bound by memory, and no kernel will make it faster.
+the memory-bandwidth ceiling (within 2 %): it is bound by memory, and no kernel will make it faster.
 See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
 
 Moving and converting data can cost more than the kernel, and unified memory means it can be

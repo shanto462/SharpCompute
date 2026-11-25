@@ -142,8 +142,9 @@ public static class NativeBaselinesReport
         List<NativeRow> above = [.. rows.Where(r => !r.IsProbe && r.Bytes > 0 && r.ByteRate > peak.ByteRate)];
         string over = above.Count == 0
             ? string.Empty
-            : " A workload on smaller arrays is not held to memory quite as strictly and can come out slightly above 100 %: in this run "
-                + string.Join(", ", above.Select(r => Invariant($"{r.Workload} {r.Variant} ({r.Kind}) at {r.ByteRate / peak.ByteRate * 100:F0} %"))) + ".";
+            : Invariant($" A row can come out slightly above 100 %: the ceiling is a probe on {peak.Size}, and SAXPY's arrays are {(long)NativeBaselines.SaxpyLength * sizeof(float) >> 20} MB, ")
+                + "which are not held to memory quite as strictly (a little of what a dispatch wrote last can still be in the caches when its time is taken). In this run "
+                + string.Join(", ", above.Select(r => Invariant($"{r.Workload} {r.Variant} ({r.Kind}) is at {r.ByteRate / peak.ByteRate * 100:F0} %"))) + ".";
 
         md.AppendLine(Invariant($"The fastest mix is \"{peak.Variant}\", so that is the ceiling.") + against
             + " It is also SAXPY's own mix: SAXPY's share of the ceiling below says that SAXPY on its much smaller arrays runs as fast as that mix does on the probes' arrays, "
