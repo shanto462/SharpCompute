@@ -1394,7 +1394,7 @@ public class CodeReuseTests
         Assert.Equal([5.25f, 8.25f, 11.25f], cpu[..3]);
     }
 
-    // ---- the README --------------------------------------------------------------------------------
+    // ---- the docs ----------------------------------------------------------------------------------
 
     /// <summary>A read-only buffer of a struct that only exists in the generated assembly.</summary>
     private static ReadOnlyBuffer<T> AllocateReadOnly<T>(GraphicsDevice device, Array data)
@@ -1403,7 +1403,7 @@ public class CodeReuseTests
     [MetalFact]
     public void TheReadmeExample_TranslatesAndMatchesTheCpu()
     {
-        // The code of "Sharing code between shaders" in the README, as it is printed there (plus a
+        // The code of docs/shared-code.md, as it is printed there (plus a
         // shader-shaped output buffer first, which is what GpuDispatch fills in).
         GeneratorRun run = GeneratorHarness.Run("""
             using SharpCompute;
