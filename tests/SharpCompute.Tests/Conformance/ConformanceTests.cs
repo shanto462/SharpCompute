@@ -13,11 +13,6 @@ namespace SharpCompute.Tests.Conformance;
 /// implementations, and for any other backend. Run it alone with
 /// <c>dotnet test --filter Category=Conformance</c>.
 /// </summary>
-/// <remarks>
-/// Integer vector negation is not in the vector families: until the generator works around a Metal
-/// compiler miscompile of <c>-v</c> on integer vectors whose result has an unread lane, such a
-/// shader can lose a lane. The scalar negations are covered.
-/// </remarks>
 [Trait("Category", "Conformance")]
 public class ConformanceTests(ITestOutputHelper output)
 {

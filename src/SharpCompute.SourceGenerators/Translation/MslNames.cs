@@ -76,6 +76,18 @@ internal static class MslNames
     /// <summary><c>MathF.ILogB</c>, which is <c>int.MaxValue</c> for NaN in .NET (<c>metal::ilogb</c> returns <c>int.MinValue</c>).</summary>
     public const string ILogB = "__ms_ilogb";
 
+    /// <summary>
+    /// The prelude's negation of an integer vector, overloaded per type, which stands for <c>-v</c>:
+    /// the Metal compiler miscompiles that operator (see <c>MslTranslator.VectorNegation</c>).
+    /// </summary>
+    public const string Negate = "__ms_neg";
+
+    /// <summary>
+    /// The prelude's lane-by-lane product of two <c>int</c> or <c>uint</c> vectors, which stands for
+    /// <c>a * b</c> where one operand is a constant with a lane of -1 (see <c>MslTranslator.VectorNegation</c>).
+    /// </summary>
+    public const string Multiply = "__ms_mul";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";

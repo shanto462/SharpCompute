@@ -1593,11 +1593,11 @@ public readonly partial struct ConformanceHalf4Operators(ReadOnlyBuffer<Half> a,
     }
 }
 
-/// <summary>The Int2 operators: 50 slots per thread (see <see cref="ConformanceFamilies.Int2Operators"/>).</summary>
+/// <summary>The Int2 operators: 52 slots per thread (see <see cref="ConformanceFamilies.Int2Operators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceInt2Operators(ReadOnlyBuffer<int> a, ReadOnlyBuffer<int> b, ReadOnlyBuffer<int> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 50;
+    public const int Slots = 52;
 
     public void Execute()
     {
@@ -1607,89 +1607,92 @@ public readonly partial struct ConformanceInt2Operators(ReadOnlyBuffer<int> a, R
         Int2 y = new Int2(b[2 * i + 0], b[2 * i + 1]);
         Int2 z = new Int2(c[2 * i + 0], c[2 * i + 1]);
         int n = s[i];
-        var v0 = x + y;
+        var v0 = -x;
         output[o + 0] = (long)(v0.X);
         output[o + 1] = (long)(v0.Y);
-        var v2 = x - y;
+        var v2 = x + y;
         output[o + 2] = (long)(v2.X);
         output[o + 3] = (long)(v2.Y);
-        var v4 = x * y;
+        var v4 = x - y;
         output[o + 4] = (long)(v4.X);
         output[o + 5] = (long)(v4.Y);
-        Int2 d = Gpu.Select(Gpu.Equal(y, 0) | (Gpu.Equal(x, int.MinValue) & Gpu.Equal(y, -1)), new Int2(1), y); var v6 = x / d;
+        var v6 = x * y;
         output[o + 6] = (long)(v6.X);
         output[o + 7] = (long)(v6.Y);
-        var v8 = x % d;
+        Int2 d = Gpu.Select(Gpu.Equal(y, 0) | (Gpu.Equal(x, int.MinValue) & Gpu.Equal(y, -1)), new Int2(1), y); var v8 = x / d;
         output[o + 8] = (long)(v8.X);
         output[o + 9] = (long)(v8.Y);
-        var v10 = x & y;
+        var v10 = x % d;
         output[o + 10] = (long)(v10.X);
         output[o + 11] = (long)(v10.Y);
-        var v12 = x | y;
+        var v12 = x & y;
         output[o + 12] = (long)(v12.X);
         output[o + 13] = (long)(v12.Y);
-        var v14 = x ^ y;
+        var v14 = x | y;
         output[o + 14] = (long)(v14.X);
         output[o + 15] = (long)(v14.Y);
-        var v16 = ~x;
+        var v16 = x ^ y;
         output[o + 16] = (long)(v16.X);
         output[o + 17] = (long)(v16.Y);
-        var v18 = x << y;
+        var v18 = ~x;
         output[o + 18] = (long)(v18.X);
         output[o + 19] = (long)(v18.Y);
-        var v20 = x >> y;
+        var v20 = x << y;
         output[o + 20] = (long)(v20.X);
         output[o + 21] = (long)(v20.Y);
-        var v22 = x << n;
+        var v22 = x >> y;
         output[o + 22] = (long)(v22.X);
         output[o + 23] = (long)(v22.Y);
-        var v24 = x >> n;
+        var v24 = x << n;
         output[o + 24] = (long)(v24.X);
         output[o + 25] = (long)(v24.Y);
-        var v26 = x + y.X;
+        var v26 = x >> n;
         output[o + 26] = (long)(v26.X);
         output[o + 27] = (long)(v26.Y);
-        var v28 = y.X - x;
+        var v28 = x + y.X;
         output[o + 28] = (long)(v28.X);
         output[o + 29] = (long)(v28.Y);
-        var v30 = x * y.X;
+        var v30 = y.X - x;
         output[o + 30] = (long)(v30.X);
         output[o + 31] = (long)(v30.Y);
-        var v32 = x < y;
-        output[o + 32] = (v32.X) ? 1L : 0L;
-        output[o + 33] = (v32.Y) ? 1L : 0L;
-        var v34 = x <= y;
+        var v32 = x * y.X;
+        output[o + 32] = (long)(v32.X);
+        output[o + 33] = (long)(v32.Y);
+        var v34 = x < y;
         output[o + 34] = (v34.X) ? 1L : 0L;
         output[o + 35] = (v34.Y) ? 1L : 0L;
-        var v36 = x > y;
+        var v36 = x <= y;
         output[o + 36] = (v36.X) ? 1L : 0L;
         output[o + 37] = (v36.Y) ? 1L : 0L;
-        var v38 = x >= y;
+        var v38 = x > y;
         output[o + 38] = (v38.X) ? 1L : 0L;
         output[o + 39] = (v38.Y) ? 1L : 0L;
-        var v40 = Gpu.Equal(x, y);
+        var v40 = x >= y;
         output[o + 40] = (v40.X) ? 1L : 0L;
         output[o + 41] = (v40.Y) ? 1L : 0L;
-        var v42 = Gpu.NotEqual(x, y);
+        var v42 = Gpu.Equal(x, y);
         output[o + 42] = (v42.X) ? 1L : 0L;
         output[o + 43] = (v42.Y) ? 1L : 0L;
-        var v44 = Gpu.Select(x < y, x, z);
-        output[o + 44] = (long)(v44.X);
-        output[o + 45] = (long)(v44.Y);
-        Int2 t = x; t += y; var v46 = t;
+        var v44 = Gpu.NotEqual(x, y);
+        output[o + 44] = (v44.X) ? 1L : 0L;
+        output[o + 45] = (v44.Y) ? 1L : 0L;
+        var v46 = Gpu.Select(x < y, x, z);
         output[o + 46] = (long)(v46.X);
         output[o + 47] = (long)(v46.Y);
-        Int2 t2 = x; t2 *= y; var v48 = t2;
+        Int2 t = x; t += y; var v48 = t;
         output[o + 48] = (long)(v48.X);
         output[o + 49] = (long)(v48.Y);
+        Int2 t2 = x; t2 *= y; var v50 = t2;
+        output[o + 50] = (long)(v50.X);
+        output[o + 51] = (long)(v50.Y);
     }
 }
 
-/// <summary>The Int3 operators: 75 slots per thread (see <see cref="ConformanceFamilies.Int3Operators"/>).</summary>
+/// <summary>The Int3 operators: 78 slots per thread (see <see cref="ConformanceFamilies.Int3Operators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceInt3Operators(ReadOnlyBuffer<int> a, ReadOnlyBuffer<int> b, ReadOnlyBuffer<int> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 75;
+    public const int Slots = 78;
 
     public void Execute()
     {
@@ -1699,114 +1702,118 @@ public readonly partial struct ConformanceInt3Operators(ReadOnlyBuffer<int> a, R
         Int3 y = new Int3(b[3 * i + 0], b[3 * i + 1], b[3 * i + 2]);
         Int3 z = new Int3(c[3 * i + 0], c[3 * i + 1], c[3 * i + 2]);
         int n = s[i];
-        var v0 = x + y;
+        var v0 = -x;
         output[o + 0] = (long)(v0.X);
         output[o + 1] = (long)(v0.Y);
         output[o + 2] = (long)(v0.Z);
-        var v3 = x - y;
+        var v3 = x + y;
         output[o + 3] = (long)(v3.X);
         output[o + 4] = (long)(v3.Y);
         output[o + 5] = (long)(v3.Z);
-        var v6 = x * y;
+        var v6 = x - y;
         output[o + 6] = (long)(v6.X);
         output[o + 7] = (long)(v6.Y);
         output[o + 8] = (long)(v6.Z);
-        Int3 d = Gpu.Select(Gpu.Equal(y, 0) | (Gpu.Equal(x, int.MinValue) & Gpu.Equal(y, -1)), new Int3(1), y); var v9 = x / d;
+        var v9 = x * y;
         output[o + 9] = (long)(v9.X);
         output[o + 10] = (long)(v9.Y);
         output[o + 11] = (long)(v9.Z);
-        var v12 = x % d;
+        Int3 d = Gpu.Select(Gpu.Equal(y, 0) | (Gpu.Equal(x, int.MinValue) & Gpu.Equal(y, -1)), new Int3(1), y); var v12 = x / d;
         output[o + 12] = (long)(v12.X);
         output[o + 13] = (long)(v12.Y);
         output[o + 14] = (long)(v12.Z);
-        var v15 = x & y;
+        var v15 = x % d;
         output[o + 15] = (long)(v15.X);
         output[o + 16] = (long)(v15.Y);
         output[o + 17] = (long)(v15.Z);
-        var v18 = x | y;
+        var v18 = x & y;
         output[o + 18] = (long)(v18.X);
         output[o + 19] = (long)(v18.Y);
         output[o + 20] = (long)(v18.Z);
-        var v21 = x ^ y;
+        var v21 = x | y;
         output[o + 21] = (long)(v21.X);
         output[o + 22] = (long)(v21.Y);
         output[o + 23] = (long)(v21.Z);
-        var v24 = ~x;
+        var v24 = x ^ y;
         output[o + 24] = (long)(v24.X);
         output[o + 25] = (long)(v24.Y);
         output[o + 26] = (long)(v24.Z);
-        var v27 = x << y;
+        var v27 = ~x;
         output[o + 27] = (long)(v27.X);
         output[o + 28] = (long)(v27.Y);
         output[o + 29] = (long)(v27.Z);
-        var v30 = x >> y;
+        var v30 = x << y;
         output[o + 30] = (long)(v30.X);
         output[o + 31] = (long)(v30.Y);
         output[o + 32] = (long)(v30.Z);
-        var v33 = x << n;
+        var v33 = x >> y;
         output[o + 33] = (long)(v33.X);
         output[o + 34] = (long)(v33.Y);
         output[o + 35] = (long)(v33.Z);
-        var v36 = x >> n;
+        var v36 = x << n;
         output[o + 36] = (long)(v36.X);
         output[o + 37] = (long)(v36.Y);
         output[o + 38] = (long)(v36.Z);
-        var v39 = x + y.X;
+        var v39 = x >> n;
         output[o + 39] = (long)(v39.X);
         output[o + 40] = (long)(v39.Y);
         output[o + 41] = (long)(v39.Z);
-        var v42 = y.X - x;
+        var v42 = x + y.X;
         output[o + 42] = (long)(v42.X);
         output[o + 43] = (long)(v42.Y);
         output[o + 44] = (long)(v42.Z);
-        var v45 = x * y.X;
+        var v45 = y.X - x;
         output[o + 45] = (long)(v45.X);
         output[o + 46] = (long)(v45.Y);
         output[o + 47] = (long)(v45.Z);
-        var v48 = x < y;
-        output[o + 48] = (v48.X) ? 1L : 0L;
-        output[o + 49] = (v48.Y) ? 1L : 0L;
-        output[o + 50] = (v48.Z) ? 1L : 0L;
-        var v51 = x <= y;
+        var v48 = x * y.X;
+        output[o + 48] = (long)(v48.X);
+        output[o + 49] = (long)(v48.Y);
+        output[o + 50] = (long)(v48.Z);
+        var v51 = x < y;
         output[o + 51] = (v51.X) ? 1L : 0L;
         output[o + 52] = (v51.Y) ? 1L : 0L;
         output[o + 53] = (v51.Z) ? 1L : 0L;
-        var v54 = x > y;
+        var v54 = x <= y;
         output[o + 54] = (v54.X) ? 1L : 0L;
         output[o + 55] = (v54.Y) ? 1L : 0L;
         output[o + 56] = (v54.Z) ? 1L : 0L;
-        var v57 = x >= y;
+        var v57 = x > y;
         output[o + 57] = (v57.X) ? 1L : 0L;
         output[o + 58] = (v57.Y) ? 1L : 0L;
         output[o + 59] = (v57.Z) ? 1L : 0L;
-        var v60 = Gpu.Equal(x, y);
+        var v60 = x >= y;
         output[o + 60] = (v60.X) ? 1L : 0L;
         output[o + 61] = (v60.Y) ? 1L : 0L;
         output[o + 62] = (v60.Z) ? 1L : 0L;
-        var v63 = Gpu.NotEqual(x, y);
+        var v63 = Gpu.Equal(x, y);
         output[o + 63] = (v63.X) ? 1L : 0L;
         output[o + 64] = (v63.Y) ? 1L : 0L;
         output[o + 65] = (v63.Z) ? 1L : 0L;
-        var v66 = Gpu.Select(x < y, x, z);
-        output[o + 66] = (long)(v66.X);
-        output[o + 67] = (long)(v66.Y);
-        output[o + 68] = (long)(v66.Z);
-        Int3 t = x; t += y; var v69 = t;
+        var v66 = Gpu.NotEqual(x, y);
+        output[o + 66] = (v66.X) ? 1L : 0L;
+        output[o + 67] = (v66.Y) ? 1L : 0L;
+        output[o + 68] = (v66.Z) ? 1L : 0L;
+        var v69 = Gpu.Select(x < y, x, z);
         output[o + 69] = (long)(v69.X);
         output[o + 70] = (long)(v69.Y);
         output[o + 71] = (long)(v69.Z);
-        Int3 t2 = x; t2 *= y; var v72 = t2;
+        Int3 t = x; t += y; var v72 = t;
         output[o + 72] = (long)(v72.X);
         output[o + 73] = (long)(v72.Y);
         output[o + 74] = (long)(v72.Z);
+        Int3 t2 = x; t2 *= y; var v75 = t2;
+        output[o + 75] = (long)(v75.X);
+        output[o + 76] = (long)(v75.Y);
+        output[o + 77] = (long)(v75.Z);
     }
 }
 
-/// <summary>The Int4 operators: 100 slots per thread (see <see cref="ConformanceFamilies.Int4Operators"/>).</summary>
+/// <summary>The Int4 operators: 104 slots per thread (see <see cref="ConformanceFamilies.Int4Operators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceInt4Operators(ReadOnlyBuffer<int> a, ReadOnlyBuffer<int> b, ReadOnlyBuffer<int> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 100;
+    public const int Slots = 104;
 
     public void Execute()
     {
@@ -1816,131 +1823,136 @@ public readonly partial struct ConformanceInt4Operators(ReadOnlyBuffer<int> a, R
         Int4 y = new Int4(b[4 * i + 0], b[4 * i + 1], b[4 * i + 2], b[4 * i + 3]);
         Int4 z = new Int4(c[4 * i + 0], c[4 * i + 1], c[4 * i + 2], c[4 * i + 3]);
         int n = s[i];
-        var v0 = x + y;
+        var v0 = -x;
         output[o + 0] = (long)(v0.X);
         output[o + 1] = (long)(v0.Y);
         output[o + 2] = (long)(v0.Z);
         output[o + 3] = (long)(v0.W);
-        var v4 = x - y;
+        var v4 = x + y;
         output[o + 4] = (long)(v4.X);
         output[o + 5] = (long)(v4.Y);
         output[o + 6] = (long)(v4.Z);
         output[o + 7] = (long)(v4.W);
-        var v8 = x * y;
+        var v8 = x - y;
         output[o + 8] = (long)(v8.X);
         output[o + 9] = (long)(v8.Y);
         output[o + 10] = (long)(v8.Z);
         output[o + 11] = (long)(v8.W);
-        Int4 d = Gpu.Select(Gpu.Equal(y, 0) | (Gpu.Equal(x, int.MinValue) & Gpu.Equal(y, -1)), new Int4(1), y); var v12 = x / d;
+        var v12 = x * y;
         output[o + 12] = (long)(v12.X);
         output[o + 13] = (long)(v12.Y);
         output[o + 14] = (long)(v12.Z);
         output[o + 15] = (long)(v12.W);
-        var v16 = x % d;
+        Int4 d = Gpu.Select(Gpu.Equal(y, 0) | (Gpu.Equal(x, int.MinValue) & Gpu.Equal(y, -1)), new Int4(1), y); var v16 = x / d;
         output[o + 16] = (long)(v16.X);
         output[o + 17] = (long)(v16.Y);
         output[o + 18] = (long)(v16.Z);
         output[o + 19] = (long)(v16.W);
-        var v20 = x & y;
+        var v20 = x % d;
         output[o + 20] = (long)(v20.X);
         output[o + 21] = (long)(v20.Y);
         output[o + 22] = (long)(v20.Z);
         output[o + 23] = (long)(v20.W);
-        var v24 = x | y;
+        var v24 = x & y;
         output[o + 24] = (long)(v24.X);
         output[o + 25] = (long)(v24.Y);
         output[o + 26] = (long)(v24.Z);
         output[o + 27] = (long)(v24.W);
-        var v28 = x ^ y;
+        var v28 = x | y;
         output[o + 28] = (long)(v28.X);
         output[o + 29] = (long)(v28.Y);
         output[o + 30] = (long)(v28.Z);
         output[o + 31] = (long)(v28.W);
-        var v32 = ~x;
+        var v32 = x ^ y;
         output[o + 32] = (long)(v32.X);
         output[o + 33] = (long)(v32.Y);
         output[o + 34] = (long)(v32.Z);
         output[o + 35] = (long)(v32.W);
-        var v36 = x << y;
+        var v36 = ~x;
         output[o + 36] = (long)(v36.X);
         output[o + 37] = (long)(v36.Y);
         output[o + 38] = (long)(v36.Z);
         output[o + 39] = (long)(v36.W);
-        var v40 = x >> y;
+        var v40 = x << y;
         output[o + 40] = (long)(v40.X);
         output[o + 41] = (long)(v40.Y);
         output[o + 42] = (long)(v40.Z);
         output[o + 43] = (long)(v40.W);
-        var v44 = x << n;
+        var v44 = x >> y;
         output[o + 44] = (long)(v44.X);
         output[o + 45] = (long)(v44.Y);
         output[o + 46] = (long)(v44.Z);
         output[o + 47] = (long)(v44.W);
-        var v48 = x >> n;
+        var v48 = x << n;
         output[o + 48] = (long)(v48.X);
         output[o + 49] = (long)(v48.Y);
         output[o + 50] = (long)(v48.Z);
         output[o + 51] = (long)(v48.W);
-        var v52 = x + y.X;
+        var v52 = x >> n;
         output[o + 52] = (long)(v52.X);
         output[o + 53] = (long)(v52.Y);
         output[o + 54] = (long)(v52.Z);
         output[o + 55] = (long)(v52.W);
-        var v56 = y.X - x;
+        var v56 = x + y.X;
         output[o + 56] = (long)(v56.X);
         output[o + 57] = (long)(v56.Y);
         output[o + 58] = (long)(v56.Z);
         output[o + 59] = (long)(v56.W);
-        var v60 = x * y.X;
+        var v60 = y.X - x;
         output[o + 60] = (long)(v60.X);
         output[o + 61] = (long)(v60.Y);
         output[o + 62] = (long)(v60.Z);
         output[o + 63] = (long)(v60.W);
-        var v64 = x < y;
-        output[o + 64] = (v64.X) ? 1L : 0L;
-        output[o + 65] = (v64.Y) ? 1L : 0L;
-        output[o + 66] = (v64.Z) ? 1L : 0L;
-        output[o + 67] = (v64.W) ? 1L : 0L;
-        var v68 = x <= y;
+        var v64 = x * y.X;
+        output[o + 64] = (long)(v64.X);
+        output[o + 65] = (long)(v64.Y);
+        output[o + 66] = (long)(v64.Z);
+        output[o + 67] = (long)(v64.W);
+        var v68 = x < y;
         output[o + 68] = (v68.X) ? 1L : 0L;
         output[o + 69] = (v68.Y) ? 1L : 0L;
         output[o + 70] = (v68.Z) ? 1L : 0L;
         output[o + 71] = (v68.W) ? 1L : 0L;
-        var v72 = x > y;
+        var v72 = x <= y;
         output[o + 72] = (v72.X) ? 1L : 0L;
         output[o + 73] = (v72.Y) ? 1L : 0L;
         output[o + 74] = (v72.Z) ? 1L : 0L;
         output[o + 75] = (v72.W) ? 1L : 0L;
-        var v76 = x >= y;
+        var v76 = x > y;
         output[o + 76] = (v76.X) ? 1L : 0L;
         output[o + 77] = (v76.Y) ? 1L : 0L;
         output[o + 78] = (v76.Z) ? 1L : 0L;
         output[o + 79] = (v76.W) ? 1L : 0L;
-        var v80 = Gpu.Equal(x, y);
+        var v80 = x >= y;
         output[o + 80] = (v80.X) ? 1L : 0L;
         output[o + 81] = (v80.Y) ? 1L : 0L;
         output[o + 82] = (v80.Z) ? 1L : 0L;
         output[o + 83] = (v80.W) ? 1L : 0L;
-        var v84 = Gpu.NotEqual(x, y);
+        var v84 = Gpu.Equal(x, y);
         output[o + 84] = (v84.X) ? 1L : 0L;
         output[o + 85] = (v84.Y) ? 1L : 0L;
         output[o + 86] = (v84.Z) ? 1L : 0L;
         output[o + 87] = (v84.W) ? 1L : 0L;
-        var v88 = Gpu.Select(x < y, x, z);
-        output[o + 88] = (long)(v88.X);
-        output[o + 89] = (long)(v88.Y);
-        output[o + 90] = (long)(v88.Z);
-        output[o + 91] = (long)(v88.W);
-        Int4 t = x; t += y; var v92 = t;
+        var v88 = Gpu.NotEqual(x, y);
+        output[o + 88] = (v88.X) ? 1L : 0L;
+        output[o + 89] = (v88.Y) ? 1L : 0L;
+        output[o + 90] = (v88.Z) ? 1L : 0L;
+        output[o + 91] = (v88.W) ? 1L : 0L;
+        var v92 = Gpu.Select(x < y, x, z);
         output[o + 92] = (long)(v92.X);
         output[o + 93] = (long)(v92.Y);
         output[o + 94] = (long)(v92.Z);
         output[o + 95] = (long)(v92.W);
-        Int4 t2 = x; t2 *= y; var v96 = t2;
+        Int4 t = x; t += y; var v96 = t;
         output[o + 96] = (long)(v96.X);
         output[o + 97] = (long)(v96.Y);
         output[o + 98] = (long)(v96.Z);
         output[o + 99] = (long)(v96.W);
+        Int4 t2 = x; t2 *= y; var v100 = t2;
+        output[o + 100] = (long)(v100.X);
+        output[o + 101] = (long)(v100.Y);
+        output[o + 102] = (long)(v100.Z);
+        output[o + 103] = (long)(v100.W);
     }
 }
 
@@ -4788,6 +4800,8 @@ internal static partial class ConformanceFamilies
         "int",
         2,
         [
+            new("-x .X", ResultKind.Integer, Check.Exact),
+            new("-x .Y", ResultKind.Integer, Check.Exact),
             new("x + y .X", ResultKind.Integer, Check.Exact),
             new("x + y .Y", ResultKind.Integer, Check.Exact),
             new("x - y .X", ResultKind.Integer, Check.Exact),
@@ -4846,6 +4860,9 @@ internal static partial class ConformanceFamilies
         "int",
         3,
         [
+            new("-x .X", ResultKind.Integer, Check.Exact),
+            new("-x .Y", ResultKind.Integer, Check.Exact),
+            new("-x .Z", ResultKind.Integer, Check.Exact),
             new("x + y .X", ResultKind.Integer, Check.Exact),
             new("x + y .Y", ResultKind.Integer, Check.Exact),
             new("x + y .Z", ResultKind.Integer, Check.Exact),
@@ -4929,6 +4946,10 @@ internal static partial class ConformanceFamilies
         "int",
         4,
         [
+            new("-x .X", ResultKind.Integer, Check.Exact),
+            new("-x .Y", ResultKind.Integer, Check.Exact),
+            new("-x .Z", ResultKind.Integer, Check.Exact),
+            new("-x .W", ResultKind.Integer, Check.Exact),
             new("x + y .X", ResultKind.Integer, Check.Exact),
             new("x + y .Y", ResultKind.Integer, Check.Exact),
             new("x + y .Z", ResultKind.Integer, Check.Exact),

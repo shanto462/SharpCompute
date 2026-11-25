@@ -102,6 +102,9 @@ here as an original game built on SharpCompute.
   and `WrapReadWriteBuffer` makes a buffer over page-aligned memory you already own.
 - **Batched and asynchronous dispatch.** A `ComputeContext` runs many dispatches with one commit and
   one wait; `ForAsync`/`ForEachAsync` return a `Task` so the CPU keeps working while the GPU runs.
+- **GPU time of a dispatch.** `device.LastGpuTime` and `context.LastGpuTime` report how long the GPU
+  itself spent on the last dispatch or batch, without the submission and the wait a stopwatch would
+  add. See [GPU time of a dispatch](#gpu-time-of-a-dispatch).
 - **Buffer views, GPU copies and indirect dispatch.** `buffer.Slice(start, length)` binds part of a
   buffer as a buffer of its own. `Copy`, `Fill` and `Clear` run on the GPU, in order with the
   dispatches of a context. `ForIndirect` takes its thread count from a buffer an earlier pass wrote,
@@ -278,6 +281,27 @@ How to read this: GPU times are one synchronous dispatch and exclude uploading i
 results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silicon's CPU and GPU
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01).
+
+Against native Metal on the same GPU, by the GPU's own time for one dispatch
+([`LastGpuTime`](#gpu-time-of-a-dispatch); Apple M4 Pro, medians of 5 passes of 25 dispatches):
+
+| Single-precision matrix multiply, 1024×1024 | Written as | GPU time | TFLOP/s |
+|---|---|---:|---:|
+| `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
+| `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.15 |
+| threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
+| naive | generated from C# | 4.12 ms | 0.52 |
+| naive | hand-written MSL | 4.08 ms | 0.53 |
+
+A generated kernel takes the same GPU time as the same kernel written by hand in MSL, to about
+1 %: the ratio is 1.010 to 1.013 for the naive matrix multiply, 1.000 for an N-body step, 1.001 for
+SAXPY and 1.000 for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written
+kernel next to it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet.
+The same section of the report places every kernel under the machine's measured ceilings:
+6.24 TFLOP/s of FP32 arithmetic, of which MPS reaches 85 %, and 250 GB/s of memory bandwidth (243 to
+255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
+the memory-bandwidth ceiling (within 2 %): it is bound by memory, and no kernel will make it faster.
+See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
 
 Moving and converting data can cost more than the kernel, and unified memory means it can be
 skipped: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
@@ -971,6 +995,45 @@ Work on one device runs in submission order, so dependent `ForAsync` calls can a
 to back and awaited once. Measurements are in the "Batching and async" section of
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
 
+### GPU time of a dispatch
+
+A stopwatch around `device.For` times the whole round trip: encoding, the commit, the GPU's work and
+waking the waiting thread. To compare two kernels, or to show what a kernel costs, ask for the GPU's
+own share:
+
+```csharp
+device.For(width, height, new Blur(source, destination, radius));
+TimeSpan kernel = device.LastGpuTime;          // the GPU's time for that dispatch
+
+using ComputeContext context = device.CreateComputeContext();
+context.For(width, height, new BlurHorizontal(source, temp, weights, width, radius));
+context.For(width, height, new BlurVertical(temp, output, weights, width, height, radius));
+context.Execute();
+TimeSpan both = context.LastGpuTime;           // the GPU's time for the batch
+```
+
+Both are the time between Metal's `GPUStartTime` and `GPUEndTime` of the command buffer that ran the
+work, so there is **one time per command buffer**: a synchronous `For`, `ForEach`, `ForIndirect`,
+`Copy`, `Fill` or `Clear` is a command buffer of its own, and a context's batch is one for all its
+dispatches. (Apple GPUs can take a timestamp between encoders but not between the dispatches of
+one, so a batch is not split further; execute a kernel alone to time it alone.)
+
+- `device.LastGpuTime` belongs to the **calling thread**: it is the time of the last synchronous
+  call that thread made on the device, so threads sharing a device never read each other's
+  dispatches. Read it right after the call, on the same thread. `ForAsync` and `ForEachAsync` do not
+  set it; time asynchronous work through a context.
+- `context.LastGpuTime` is set before `Execute()` returns and before the task of `ExecuteAsync()` or
+  `EncodeInto` completes (for `EncodeInto` it is the time of the caller's whole command buffer), and
+  can be read from any thread, also after the context is disposed.
+- Neither allocates, and a call with nothing to do (an empty grid, a context with nothing pending)
+  leaves the previous time in place.
+
+The interval is elapsed time on the GPU, so other GPU work in between (another process, the window
+server) lengthens it, and the first dispatch after an idle spell includes the GPU's ramp-up: take the
+median of a few. ComputeLab's "GPU ms" readouts and the
+[native baselines](benchmarks/RESULTS.md#native-baselines-and-roofline) of the benchmarks are measured
+this way.
+
 ### Buffers and dispatch
 
 **Views.** `Slice` makes a buffer over part of another one. Nothing is copied: it is the same
@@ -1208,8 +1271,9 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
   `float.Lerp(a, b, t)` is `fma(a, 1 - t, b * t)`, `MathF.ILogB(NaN)` is `int.MaxValue`, and the
   `%` of two scalar halves gives a zero remainder the sign of the dividend. These go through small
   prelude helpers. `Gpu.Min`, `Max` and `Clamp` are MSL's `fmin`/`fmax` forms instead (a NaN operand
-  gives the other operand) and `Gpu.Lerp` is `metal::mix`; in a loop of nothing but `Max` and `Min`,
-  `MathF.Max`/`Min` took 2.2 times as long as `Gpu.Max`/`Min` on an Apple M4 Pro.
+  gives the other operand) and `Gpu.Lerp` is `metal::mix`: they are the fast choice with Metal's
+  semantics. In a tight loop of nothing but `Max` and `Min`, `MathF.Max`/`Min` are about 2× slower
+  than `Gpu.Max`/`Min` on an Apple M4 Pro.
 - **Exact up to subnormal flushing**: an Apple GPU flushes float subnormal operands and results to a
   zero of the same sign (a result that rounds up to the smallest normal from below as well), and
   `ForCpu` does not. Float arithmetic, comparisons, conversions from float and the float functions
@@ -1360,6 +1424,18 @@ build error `SCG0052`):
   assignments and `++`/`--`) in the unsigned type of the same width and converts back:
   `a * b + c` on `int`s is `int(uint(a) * uint(b) + uint(c))`. That costs no instructions (signed and
   unsigned arithmetic are the same machine operations), and program-scope constants wrap the same way.
+- **Negating an integer vector** (`-v` on an `IntN`, and the operators that amount to it: `0 - v`,
+  `v * -1`, `v / -1`, `v *= -1`, also on a `UIntN`) is emitted as a prelude helper, `__ms_neg(v)`,
+  which negates each lane on its own. Apple's Metal compiler miscompiles the vector operator: when
+  one lane of the negation is never read and the same vector is subtracted in a chain elsewhere
+  (`t += c; t *= 3; t -= v`), the chain silently loses that lane. A constant that negates only some
+  lanes does the same when the other lanes are the unread ones, so `new Int3(0, 5, 0) - v` is
+  emitted as `C + __ms_neg(v)` and `v * new Int3(1, -1, 1)` as `__ms_mul(v, C)`, a helper that
+  multiplies lane by lane. The compound forms (`v *= -1`, `v /= -1`, `v *= new Int3(1, -1, 1)`)
+  assign the helper's result, which names the target twice: on a target with side effects
+  (`data[Next()] *= -1`) that is an error (`SCG0012`), so put the index in a local first. Vectors
+  of floats and halves, and all scalars, are not affected and keep their operators. See
+  [Limitations](#limitations) for the negations the generator cannot see.
 - **Division by zero** does not trap: where C# throws `DivideByZeroException`, the GPU carries on
   with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit operands).
   `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on either.
@@ -1782,6 +1858,13 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 - `checked` arithmetic (a `checked(...)` expression, a `checked { }` block or a project built with
   `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C# and with
   `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
+- A Metal compiler bug drops a lane of integer vector arithmetic: when an integer vector is negated,
+  a lane of the negation is never read, and the same vector is subtracted in an add/subtract/multiply
+  chain elsewhere, that chain loses the lane on the GPU (not with `ForCpu`). The generator avoids
+  it for every negation it can see (`-v`, `0 - v`, `v * -1`, `v / -1`, and a constant with some
+  lanes of 0 or -1; see [Overflow wraps](#shader-language-reference) and the bullet after it). A
+  negation it cannot see is still exposed until Apple fixes the compiler: `~v + 1`, `v - 2 * v` and
+  other arithmetic that only amounts to a negation. Write those as `-v`.
 - Half precision: the math functions of `Gpu.*` take half *vectors*; for a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the
   bit casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
@@ -1804,6 +1887,13 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   (Windows, Linux; macOS caps OpenGL at 4.1, which has no compute shaders). The shader authoring
   API stays the same; each backend adds its own shading-language emitter and runtime.
 - NuGet packages.
+
+## Contributing and security
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for the build, test and pull
+request workflow, and [SUPPORT.md](SUPPORT.md) for where to ask questions. Everyone taking part
+follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately, as described
+in [SECURITY.md](SECURITY.md), not in public issues.
 
 ## License
 

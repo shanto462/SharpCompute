@@ -67,9 +67,8 @@ public sealed class HistogramPage : ILabPage
         _device.For(Size, Size, new GenerateImage(_image, Size, frame.Time));
         _counts.AsSpan().Clear();
 
-        long start = Stopwatch.GetTimestamp();
         _device.For(Size * Size, new LuminanceHistogram(_image, _counts, Shift));
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
     }
 
     public LabCheck Check()

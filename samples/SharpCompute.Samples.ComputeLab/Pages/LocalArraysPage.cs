@@ -92,9 +92,8 @@ public sealed class LocalArraysPage : ILabPage
         _device.For(Size, Size, new SaltAndPepper(_clean, _noisy, Size, seed, Noise ? NoiseDensity : 0f));
 
         // Both filters run (the page shows both); the active one is timed.
-        long start = Stopwatch.GetTimestamp();
         RunFilter(Variant, _median, _gaussian, onCpu: false);
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
         RunFilter(1 - Variant, _median, _gaussian, onCpu: false);
     }
 

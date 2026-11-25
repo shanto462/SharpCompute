@@ -660,7 +660,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// With <paramref name="indirect"/>, the threadgroup counts come from that buffer when the dispatch
     /// runs and <paramref name="grid"/> is ignored (see <c>ForIndirect</c>).
     /// </remarks>
-    /// <returns>The command buffer's <c>GPUStartTime</c>/<c>GPUEndTime</c> when <paramref name="whileGpuRuns"/> is set, otherwise zeros.</returns>
+    /// <returns>The command buffer's <c>GPUStartTime</c> and <c>GPUEndTime</c>.</returns>
     private (double GpuStart, double GpuEnd) Run<T>(
         MTLSize grid,
         int rank,
@@ -818,6 +818,11 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
             ObjC.SendVoid(commandBuffer, Selectors.WaitUntilCompleted);
         }
 
+        // Read before the status check: LastGpuTime describes a command buffer that failed as well.
+        double gpuStart = ObjC.SendDouble(commandBuffer, Selectors.GPUStartTime);
+        double gpuEnd = ObjC.SendDouble(commandBuffer, Selectors.GPUEndTime);
+        SetLastGpuTime(GpuTimeTicks(gpuStart, gpuEnd));
+
         if (ObjC.SendNUInt(commandBuffer, Selectors.Status) == Metal.CommandBufferStatusError)
         {
             string description = NSString.DescribeError(ObjC.SendIntPtr(commandBuffer, Selectors.Error));
@@ -825,9 +830,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
             throw new MetalException($"The GPU failed to execute shader '{typeof(T)}': {description}");
         }
 
-        return whileGpuRuns is null
-            ? default
-            : (ObjC.SendDouble(commandBuffer, Selectors.GPUStartTime), ObjC.SendDouble(commandBuffer, Selectors.GPUEndTime));
+        return (gpuStart, gpuEnd);
     }
 
     private ComputePipeline GetPipeline<T>()

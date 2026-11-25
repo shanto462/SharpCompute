@@ -164,7 +164,7 @@ public sealed class IndirectPage : ILabPage
         Arguments = _arguments[0];
     }
 
-    /// <summary>Records one of the three ways into the context and returns how long its single execution took.</summary>
+    /// <summary>Records one of the three ways into the context and returns how long the GPU took for its single execution.</summary>
     private double Run(int way)
     {
         ShadeSurvivors shade = new(_survivors, _counter, _source, _shaded);
@@ -196,9 +196,8 @@ public sealed class IndirectPage : ILabPage
             }
         }
 
-        long start = Stopwatch.GetTimestamp();
         _context.Execute();
-        return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        return _context.LastGpuTime.TotalMilliseconds;
     }
 
     public LabCheck Check()

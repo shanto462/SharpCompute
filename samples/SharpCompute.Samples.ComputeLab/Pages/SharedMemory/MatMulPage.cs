@@ -73,6 +73,9 @@ public sealed class MatMulPage : ILabPage, IRatedPage
     /// <summary>The largest difference between the GPU's and the double-precision elements at the last <see cref="Check"/>.</summary>
     public double MaxError { get; private set; }
 
+    /// <summary>How many times the window's frames have multiplied the matrices: once per step of their motion, not once per frame.</summary>
+    public int Products => _products;
+
     /// <summary>GFLOP/s of a product that took <paramref name="milliseconds"/>.</summary>
     public static double GigaFlops(double milliseconds) => milliseconds <= 0 ? 0 : Flops / (milliseconds * 1e6);
 
@@ -102,8 +105,6 @@ public sealed class MatMulPage : ILabPage, IRatedPage
 
     private double Multiply(int variant)
     {
-        long start = Stopwatch.GetTimestamp();
-
         if (variant == 0)
         {
             int size = (N + MatMulTiled.Tile - 1) / MatMulTiled.Tile * MatMulTiled.Tile;
@@ -114,7 +115,7 @@ public sealed class MatMulPage : ILabPage, IRatedPage
             _device.For(N, N, new MatMulNaive(_a, _b, _c, N));
         }
 
-        return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        return _device.LastGpuTime.TotalMilliseconds;
     }
 
     public LabCheck Check()

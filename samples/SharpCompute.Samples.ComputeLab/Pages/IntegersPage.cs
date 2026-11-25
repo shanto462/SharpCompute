@@ -107,12 +107,15 @@ public sealed class IntegersPage : ILabPage
         _counts.AsSpan().Clear();
         _largest.AsSpan().Clear();
 
-        long start = Stopwatch.GetTimestamp();
+        // Four dispatches, four command buffers: the page's GPU time is the sum of theirs.
         _device.For(Size * Size, new ByteHistogram(_image, _counts));
+        double gpuMs = _device.LastGpuTime.TotalMilliseconds;
         _device.For(Levels, new BuildEqualisationLut(_counts, _lut, Size * Size));
+        gpuMs += _device.LastGpuTime.TotalMilliseconds;
         _device.For(Size * Size, new ApplyLut(_image, _lut));
+        gpuMs += _device.LastGpuTime.TotalMilliseconds;
         _device.For(Size, Size, new HashPixels(_hashes, _largest, Size, _seed));
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = gpuMs + _device.LastGpuTime.TotalMilliseconds;
 
         // For the picture only: what the histogram looks like afterwards.
         _countsAfter.AsSpan().Clear();

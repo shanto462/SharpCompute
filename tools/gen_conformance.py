@@ -345,10 +345,8 @@ def vector_operators(v: VectorKind, lanes: int) -> Family:
     vector = f"{v.prefix}{lanes}"
     f = Family(f"{vector}Operators", f"{vector} operators", v.element, lanes, vector_prologue(vector, v.element, lanes))
     arith = "Ftz" if v.kind == "float" else "Exact"
-    if v.kind != "int":
-        # Integer vector negation is left out: see ConformanceTests (a Metal compiler issue with
-        # negated integer vectors is worked around separately).
-        lanes_of(f, "-x", "-x", v.element, lanes)
+    if v.element != "uint":
+        lanes_of(f, "-x", "-x", v.element, lanes)  # UInt vectors have no unary minus in C#
     lanes_of(f, "x + y", "x + y", v.element, lanes, arith)
     lanes_of(f, "x - y", "x - y", v.element, lanes, arith)
     lanes_of(f, "x * y", "x * y", v.element, lanes, arith)
