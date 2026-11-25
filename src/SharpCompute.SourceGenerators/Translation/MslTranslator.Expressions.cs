@@ -26,8 +26,11 @@ internal sealed partial class MslTranslator
 
     private Expr ExpressionCore(IOperation operation)
     {
-        if (operation is IInvalidOperation)
+        if (operation is IInvalidOperation invalid)
         {
+            // The C# compiler reports this code. The one case with something to add is an atomic
+            // operation on an element type that has no atomic in MSL.
+            ExplainUnboundAtomicCall(invalid);
             SawInvalidCode = true;
             return Expr.Error;
         }
@@ -199,6 +202,16 @@ internal sealed partial class MslTranslator
                 return Int32Literal(int32);
             case uint uint32:
                 return new Expr(uint32.ToString(CultureInfo.InvariantCulture) + "u", Expr.Primary);
+            case long int64:
+                return Int64Literal(int64);
+            case ulong uint64:
+                return new Expr(uint64.ToString(CultureInfo.InvariantCulture) + "UL", Expr.Primary);
+
+            // MSL has no literal suffix for the small integers, and a bare `5` is an int: as an argument
+            // of an overloaded function (`metal::min(b, 5)`) it would pick another overload than the
+            // C# call did. The cast gives the literal the type it has in C#.
+            case byte or sbyte or short or ushort when type.Kind == GpuTypeKind.Scalar:
+                return Call(type.MslName, System.Convert.ToInt32(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture));
             case bool boolean:
                 return new Expr(boolean ? "true" : "false", Expr.Primary);
             default:
@@ -217,6 +230,20 @@ internal sealed partial class MslTranslator
         return value < 0
             ? new Expr(value.ToString(CultureInfo.InvariantCulture), Expr.Unary)
             : new Expr(value.ToString(CultureInfo.InvariantCulture), Expr.Primary);
+    }
+
+    /// <summary>A 64-bit literal: MSL's <c>long</c> is 64 bits wide and <c>L</c> is its suffix.</summary>
+    private static Expr Int64Literal(long value)
+    {
+        if (value == long.MinValue)
+        {
+            // As for int: `-9223372036854775808L` negates a literal that does not fit in a long.
+            return new Expr("-9223372036854775807L - 1L", Expr.Additive);
+        }
+
+        return value < 0
+            ? new Expr(value.ToString(CultureInfo.InvariantCulture) + "L", Expr.Unary)
+            : new Expr(value.ToString(CultureInfo.InvariantCulture) + "L", Expr.Primary);
     }
 
     /// <summary>Formats a float so that it round-trips, independent of the current culture.</summary>
@@ -278,10 +305,11 @@ internal sealed partial class MslTranslator
 
         if (operation.OperatorMethod is { } method)
         {
-            // User-defined conversions between vector/scalar types become MSL constructor-style casts;
-            // one that a type of the user's declares in source becomes a function.
+            // User-defined conversions between vector/scalar types become MSL constructor-style casts
+            // (System.Half declares its conversions to and from the integers as operators); one that a
+            // type of the user's declares in source becomes a function.
             return target.IsNumeric && IsNativeOperator(method)
-                ? Call(target.MslName, Expression(operation.Operand).Text)
+                ? NumericCast(operation, target)
                 : UserConversion(operation, method, target);
         }
 
@@ -305,12 +333,42 @@ internal sealed partial class MslTranslator
                 return Constant(constant, target, operation);
             }
 
-            return Call(target.MslName, Expression(operation.Operand).Text);
+            return NumericCast(operation, target);
         }
 
         return Unsupported(
             operation,
             $"a conversion from '{(operation.Operand.Type is { } source ? TypeResolver.Display(source) : "?")}' to '{TypeResolver.Display(operation.Type!)}'");
+    }
+
+    /// <summary>
+    /// A conversion between scalar or vector types: the MSL constructor-style cast, <c>int(x)</c>.
+    /// Integer conversions truncate or extend as unchecked C# does, and on an Apple GPU a float
+    /// converts to every integer type as it does in .NET (NaN gives 0, out-of-range values saturate
+    /// to the bounds of the target type) with one exception: <c>long(x)</c> wraps instead of
+    /// saturating for a float beyond the range of a long. That conversion goes through the prelude's
+    /// <c>__ms_float_to_long</c>, which clamps first.
+    /// </summary>
+    private Expr NumericCast(IConversionOperation operation, GpuType target)
+    {
+        string operand = Expression(operation.Operand).Text;
+
+        if (target is { Kind: GpuTypeKind.Scalar, MslName: "long" } && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: true })
+        {
+            if (_function.IsGlobalInitializer)
+            {
+                // The helper is a function, which a program-scope initializer must not call. C# folds the
+                // conversion of a constant; what is left reads another program-scope constant.
+                return operation.ConstantValue is { HasValue: true, Value: long folded }
+                    ? Int64Literal(folded)
+                    : NotConstant(operation, "a conversion from a floating-point value to 'long' is a function call in MSL (it saturates as C# does)");
+            }
+
+            UsesPrelude = true;
+            return Call(MslNames.FloatToLong, operand);
+        }
+
+        return Call(target.MslName, operand);
     }
 
     private static bool IsLiteral(IOperation operation) => operation switch
@@ -461,12 +519,20 @@ internal sealed partial class MslTranslator
 
         if (operation.OperatorKind == BinaryOperatorKind.UnsignedRightShift && leftType is not { IsUnsigned: true })
         {
-            if (leftType is not { Kind: GpuTypeKind.Scalar, MslName: "int" })
+            // C# promotes the smaller signed integers to int before it shifts, so only int and long get here.
+            string? unsigned = leftType is { Kind: GpuTypeKind.Scalar } ? leftType.MslName switch
+            {
+                "int" => "uint",
+                "long" => "ulong",
+                _ => null,
+            } : null;
+
+            if (unsigned is null)
             {
                 return Unsupported(operation, "the '>>>' operator on this type");
             }
 
-            return Call("int", "uint(" + left.Text + ") >> " + BinaryOperand(right, Expr.Shift, isRight: true));
+            return Call(leftType!.MslName, unsigned + "(" + left.Text + ") >> " + BinaryOperand(right, Expr.Shift, isRight: true));
         }
 
         return new Expr(BinaryOperand(left, precedence, isRight: false) + " " + text + " " + BinaryOperand(right, precedence, isRight: true), precedence);

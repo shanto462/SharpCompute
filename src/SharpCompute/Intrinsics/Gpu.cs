@@ -12,7 +12,9 @@ namespace SharpCompute;
 /// <para>
 /// Scalar overloads live here; the componentwise vector overloads and the geometric functions are
 /// generated into <c>Gpu.g.cs</c>, and the matrix functions into <c>Gpu.Matrices.g.cs</c>, by
-/// <c>tools/gen_vectors.py</c>; the atomics are in <c>Gpu.Atomics.cs</c>. C# names are the
+/// <c>tools/gen_vectors.py</c>, which also generates the overloads of the integer intrinsics for
+/// <c>byte</c>, <c>sbyte</c>, <c>short</c>, <c>ushort</c>, <c>long</c> and <c>ulong</c> and the rotates
+/// into <c>Gpu.Integers.g.cs</c>; the atomics are in <c>Gpu.Atomics.cs</c>. C# names are the
 /// PascalCase MSL names, except where .NET or HLSL already has a name for the function:
 /// <c>metal::mix</c> is <see cref="Lerp(float, float, float)"/>, <c>popcount</c>, <c>clz</c> and
 /// <c>ctz</c> are <see cref="CountBits(uint)"/>, <see cref="LeadingZeroCount(uint)"/> and
@@ -359,7 +361,7 @@ public static partial class Gpu
     /// <summary>
     /// Packs four floats into one <c>uint</c> of four unorm8 channels, <c>X</c> in the low byte
     /// (<c>x | y &lt;&lt; 8 | z &lt;&lt; 16 | w &lt;&lt; 24</c>): the layout of an <see cref="Rgba32"/> in memory. This is
-    /// how to keep 8-bit data in a buffer, whose elements cannot be bytes.
+    /// how to keep 8-bit colors in a buffer: there are no vectors of bytes, so four channels share a uint.
     /// </summary>
     /// <remarks>
     /// Each channel is converted the way the GPU writes a float to a unorm8 texture: NaN and negative

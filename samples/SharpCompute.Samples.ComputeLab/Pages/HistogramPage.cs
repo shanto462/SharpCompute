@@ -136,7 +136,7 @@ public sealed class HistogramPage : ILabPage
 
 /// <summary>
 /// The histogram's input: drifting color gradients, a soft moving highlight and per-pixel noise,
-/// stored as packed RGBA (one <c>uint</c> per pixel, since buffers cannot hold bytes).
+/// stored as packed RGBA (one <c>uint</c> per pixel: four 8-bit channels).
 /// </summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct GenerateImage(ReadWriteBuffer<uint> image, int size, float time) : IComputeShader

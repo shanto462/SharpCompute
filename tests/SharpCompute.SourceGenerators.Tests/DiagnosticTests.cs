@@ -155,11 +155,11 @@ public class DiagnosticTests
 
     [Theory]
     [InlineData("double", "'double' is not available in Metal Shading Language; use 'float' instead")]
-    [InlineData("long", "64-bit integers are not supported; use 'int' or 'uint' instead")]
-    [InlineData("ulong", "64-bit integers are not supported")]
+    [InlineData("nint", "native-sized integers are not supported; use 'long' or 'ulong' instead")]
+    [InlineData("nuint", "native-sized integers are not supported")]
     [InlineData("bool", "'bool' has no stable layout across the CPU/GPU boundary")]
-    [InlineData("short", "8- and 16-bit integers are not supported")]
-    [InlineData("byte", "8- and 16-bit integers are not supported")]
+    [InlineData("char", "'char' is not supported; use 'ushort' instead")]
+    [InlineData("decimal", "'decimal' is not available on the GPU; use 'float' instead")]
     [InlineData("string", "strings are not available on the GPU")]
     [InlineData("object", "managed objects are not available on the GPU")]
     [InlineData("float[]", "arrays are managed objects; use a ReadWriteBuffer<T> or ReadOnlyBuffer<T> instead")]
@@ -287,9 +287,8 @@ public class DiagnosticTests
     [InlineData("double d = 1.0;", "1.0", "'double'")]
     [InlineData("double d; d = buffer[0];", "double", "'double'")]
     [InlineData("float f = (float)Math.Sqrt(buffer[0]);", "Math.Sqrt(buffer[0])", "'double'")]
-    [InlineData("var l = ThreadIds.X + 1u;", "ThreadIds.X + 1u", "'long'")]
-    [InlineData("long l = 5;", "5", "'long'")]
-    [InlineData("byte b = 1;", "1", "'byte'")]
+    [InlineData("nint n = 5;", "5", "'nint'")]
+    [InlineData("nuint n = 5;", "5", "'nuint'")]
     [InlineData("var day = DayOfWeek.Monday;", "DayOfWeek.Monday", "'DayOfWeek'")]
     [InlineData("float? maybe = buffer[0];", "buffer[0]", "'float?'")]
     [InlineData("var c = 'x';", "'x'", "'char'")]
@@ -986,7 +985,7 @@ public class DiagnosticTests
             .Select(static f => (DiagnosticDescriptor)f.GetValue(null)!)
             .ToArray();
 
-        Assert.Equal(47, descriptors.Length);
+        Assert.Equal(48, descriptors.Length);
         Assert.Equal(descriptors.Length, descriptors.Select(static d => d.Id).Distinct().Count());
         Assert.All(descriptors, static d =>
         {

@@ -51,4 +51,5 @@ SCG0043 | SharpCompute | Error | Too much threadgroup memory
 SCG0044 | SharpCompute | Warning | [GroupShared] array in a shader without [ThreadGroupSize]
 SCG0045 | SharpCompute | Error | Computed property is assigned in a shader
 SCG0046 | SharpCompute | Error | Generic method cannot be specialized
+SCG0047 | SharpCompute | Error | No atomic operation for this element type
 SCG9999 | SharpCompute | Error | Internal generator error

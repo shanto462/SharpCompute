@@ -85,6 +85,16 @@ internal sealed class GpuType
 
     public bool IsUnsigned { get; set; }
 
+    /// <summary>True for the scalar integers: <c>byte</c>, <c>sbyte</c>, <c>short</c>, <c>ushort</c>, <c>int</c>, <c>uint</c>, <c>long</c> and <c>ulong</c>.</summary>
+    public bool IsIntegerScalar => Kind == GpuTypeKind.Scalar && !IsFloating;
+
+    /// <summary>
+    /// True for <c>int</c> and <c>uint</c>, the integers every part of the translation handles. The
+    /// 8-, 16- and 64-bit integers are scalars like them, but have no vectors, no atomics apart from
+    /// the 64-bit minimum and maximum, and are not folded in program-scope initializers.
+    /// </summary>
+    public bool Is32BitInteger => IsIntegerScalar && Size == 4;
+
     /// <summary>
     /// True when <c>[MslType]</c> names a <c>Packed</c> type. Only that type has the same layout as the
     /// C# struct; without it (matrices, bool vectors) the type is limited to locals and parameters.
@@ -366,6 +376,9 @@ internal sealed class TypeResolver
     private static bool IsHalf(ITypeSymbol type) =>
         type is INamedTypeSymbol { Name: "Half", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
 
+    private static bool IsInt128(ITypeSymbol type) =>
+        type is INamedTypeSymbol { Name: "Int128" or "UInt128", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
+
     /// <summary>True for types named <paramref name="names"/> declared directly in the <c>SharpCompute</c> namespace.</summary>
     public static bool IsSharpComputeType(ITypeSymbol? type, params string[] names) =>
         type is INamedTypeSymbol { ContainingType: null, ContainingNamespace: { Name: "SharpCompute", ContainingNamespace.IsGlobalNamespace: true } } named &&
@@ -401,11 +414,36 @@ internal sealed class TypeResolver
                 return new GpuType(GpuTypeKind.Scalar, "int", "int", csharpName, 4, 4);
             case SpecialType.System_UInt32:
                 return new GpuType(GpuTypeKind.Scalar, "uint", "uint", csharpName, 4, 4) { IsUnsigned = true };
+
+            // The 8-, 16- and 64-bit integers have the same size and alignment in MSL as in C#: 1, 2 and
+            // 8 bytes, each aligned to its own size (on arm64 the CLR aligns a long to 8 as well).
+            // MSL's `char` is signed, so `sbyte` maps to it and `byte` to `uchar`.
+            case SpecialType.System_Byte:
+                return new GpuType(GpuTypeKind.Scalar, "uchar", "uchar", csharpName, 1, 1) { IsUnsigned = true };
+            case SpecialType.System_SByte:
+                return new GpuType(GpuTypeKind.Scalar, "char", "char", csharpName, 1, 1);
+            case SpecialType.System_Int16:
+                return new GpuType(GpuTypeKind.Scalar, "short", "short", csharpName, 2, 2);
+            case SpecialType.System_UInt16:
+                return new GpuType(GpuTypeKind.Scalar, "ushort", "ushort", csharpName, 2, 2) { IsUnsigned = true };
+            case SpecialType.System_Int64:
+                return new GpuType(GpuTypeKind.Scalar, "long", "long", csharpName, 8, 8);
+            case SpecialType.System_UInt64:
+                return new GpuType(GpuTypeKind.Scalar, "ulong", "ulong", csharpName, 8, 8) { IsUnsigned = true };
         }
 
         if (IsHalf(type))
         {
             return new GpuType(GpuTypeKind.Scalar, "half", "half", csharpName, 2, 2) { IsFloating = true };
+        }
+
+        if (IsInt128(type))
+        {
+            // Int128 and UInt128 are structs of two ulongs, so they would pass as user structs, but
+            // the CLR aligns them to 16 bytes, which the sequential rules used here do not predict.
+            const string Reason = "128-bit integers are not supported; use 'long' or 'ulong' instead";
+            failure = new TypeFailure(DiagnosticDescriptors.UnsupportedType, Reason, Display(type), Reason);
+            return null;
         }
 
         if (IsTextureType(type, out bool isReadOnlyTexture))
@@ -817,17 +855,11 @@ internal sealed class TypeResolver
         {
             case SpecialType.System_Double:
                 return "'double' is not available in Metal Shading Language; use 'float' instead";
-            case SpecialType.System_Int64:
-            case SpecialType.System_UInt64:
             case SpecialType.System_IntPtr:
             case SpecialType.System_UIntPtr:
-                return "64-bit integers are not supported; use 'int' or 'uint' instead";
-            case SpecialType.System_Int16:
-            case SpecialType.System_UInt16:
-            case SpecialType.System_Byte:
-            case SpecialType.System_SByte:
+                return "native-sized integers are not supported; use 'long' or 'ulong' instead";
             case SpecialType.System_Char:
-                return "8- and 16-bit integers are not supported; use 'int' or 'uint' instead";
+                return "'char' is not supported; use 'ushort' instead";
             case SpecialType.System_Decimal:
                 return "'decimal' is not available on the GPU; use 'float' instead";
             case SpecialType.System_String:
@@ -863,7 +895,7 @@ internal sealed class TypeResolver
             return "managed (reference) types are not available on the GPU";
         }
 
-        return "only float, int, uint, bool, System.Half, [MslType] vectors, and structs of those are supported";
+        return "only float, System.Half, the integers byte, sbyte, short, ushort, int, uint, long and ulong, bool, [MslType] vectors, and structs of those are supported";
     }
 
     private readonly struct StructLayoutInfo

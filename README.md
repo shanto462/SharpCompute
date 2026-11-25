@@ -74,6 +74,10 @@ here as an original game built on SharpCompute.
   `ReadOnlySpan<int> weights = [1, 4, 6, 4, 1];` and `[InlineArray(N)]` structs become fixed-size
   arrays of one GPU thread: filter taps and weights, sorting networks, small stacks and histograms.
   Index them, loop over them with `foreach`, and pass them to helpers. See [Local arrays](#local-arrays).
+- **Every integer width.** `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long` and `ulong` as
+  locals, buffer elements (`ReadWriteBuffer<byte>` is one byte per element), captured constants,
+  struct fields, local arrays and `[GroupShared]` arrays, with C#'s promotion, wraparound and shift
+  rules. See [Scalar types](#shader-language-reference).
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
@@ -129,7 +133,7 @@ full size.
 <tr>
 <td width="50%" valign="top">
 <a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab's privatised-histogram page: an animated image, its luminance histogram counted with global atomics, and the same histogram counted per threadgroup, bin for bin identical"></a>
-<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits and fast math, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
+<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math and the 8-, 16- and 64-bit integers, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
 <br><code>scripts/demo-computelab.sh [--page &lt;name&gt;] [--headless]</code>
 <br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, Up/Down)</sub>
 </td>
@@ -233,7 +237,12 @@ SIMD-group pages.
 <tr>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-bits.png"><img src="docs/screenshots/thumbs/computelab-bits.png" width="100%" alt="ComputeLab Bits page: popcount, bit reversal, leading and trailing zeros, float bits and unorm8 packing drawn as patterns"></a><br><b>Math</b>: Bits<br><code>--page bits</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-fastmath.png"><img src="docs/screenshots/thumbs/computelab-fastmath.png" width="100%" alt="ComputeLab FastMath page: a transcendental-heavy field and its error against the CPU, with and without fast math"></a><br><b>Math</b>: FastMath<br><code>--page fastmath</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
+</tr>
+<tr>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-shared-code.png"><img src="docs/screenshots/thumbs/computelab-shared-code.png" width="100%" alt="ComputeLab Shared code page: a path-traced scene of spheres on a checkerboard, the static class and structs its shaders are built from, and the same scene traced by ForCpu at every 8th pixel"></a><br><b>Code reuse</b>: Shared code<br><code>--page shared-code</code></td>
+<td width="33%" valign="top"></td>
+<td width="33%" valign="top"></td>
 </tr>
 </table>
 
@@ -1105,6 +1114,82 @@ headless runs).
 What is described here is checked against the GPU by the test suite; the full list of `Gpu.*`
 methods, with the MSL each maps to, is in their doc comments.
 
+**Scalar types.** These are the scalars a shader can use. All of them can be locals, parameters and
+return values of helpers (shared ones, and type arguments of generic ones), `const` and
+`static readonly` fields, elements of local arrays, buffer elements, captured constants, fields of
+user structs (with methods, operators and constructors on them) and elements of `[GroupShared]`
+arrays, except `bool`, which has no stable layout and stays inside the shader.
+
+| C# | MSL | Bytes | Notes |
+|---|---|---|---|
+| `float` | `float` | 4 | |
+| `Half` | `half` | 2 | |
+| `int`, `uint` | `int`, `uint` | 4 | Vectors: `Int2..4`, `UInt2..4` |
+| `byte`, `sbyte` | `uchar`, `char` | 1 | MSL's `char` is signed |
+| `short`, `ushort` | `short`, `ushort` | 2 | |
+| `long`, `ulong` | `long`, `ulong` | 8 | Aligned to 8 bytes in buffers, structs and constants |
+| `bool` | `bool` | | Locals, parameters and return values only |
+
+`double`, `decimal`, `char`, `nint`/`nuint` and `Int128` are build errors that name the type to use
+instead.
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Equalise(ReadWriteBuffer<byte> image, ReadOnlyBuffer<byte> lut) : IComputeShader
+{
+    public void Execute() => image[ThreadIds.X] = lut[image[ThreadIds.X]];   // one byte per pixel, in place
+}
+
+using ReadWriteBuffer<byte> image = device.AllocateReadWriteBuffer(grayscalePixels);   // byte[]
+device.For(image.Length, new Equalise(image, lut));
+```
+
+The integers behave as they do in unchecked C#, on the GPU as on the CPU:
+
+- **Promotion.** `byte + byte` is an `int` in C#, and `-uint` and `int + uint` are `long`. The MSL
+  carries the conversions the C# expression has (`uchar(int(a) + int(b))` for `(byte)(a + b)`), so
+  a result is as wide as C# says, and a cast back to the small type wraps at its width. Compound
+  assignments and `++`/`--` on a small integer truncate on every step, as in C#.
+- **Shifts.** The count is masked with 31 for `int` and the smaller integers (which are `int`s by
+  the time they are shifted) and with 63 for `long` and `ulong`: `1L << 65` is 2. `>>>` works on `int`
+  and `long`.
+- **Overflow** wraps at the width of the type, with one caveat for *signed* types: signed overflow
+  is undefined in MSL, so the compiler may assume it does not happen. Within its own width the result
+  wraps as in C#. A signed result that overflowed and is then widened does not: for
+  `(long)(a * b)` with `int` operands whose product overflows, the GPU may return the exact 64-bit
+  product where C# returns the wrapped `int`. Unsigned arithmetic is exact modulo 2^n everywhere, so
+  `(long)(int)((uint)a * (uint)b)` gives C#'s result on both.
+- **Division by zero** does not trap: where C# throws `DivideByZeroException`, the GPU carries on
+  with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit operands).
+  `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on either.
+- **Float to integer** conversions truncate, give 0 for NaN and saturate at the bounds of the target
+  type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
+  `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range of
+  a `long` (2^63 becomes `long.MinValue`), so that one conversion goes through a prelude helper that
+  clamps first; all the others are plain MSL casts. Integer to float rounds to nearest even.
+- **Literals** keep their C# type: `(byte)5` is `uchar(5)`, `5L` is `5L`, `ulong.MaxValue` is
+  `18446744073709551615UL`.
+- **Layout.** A `byte` is aligned to 1, a `short` to 2 and a `long` to 8, in C# and in MSL alike, so
+  `struct { byte Tag; long Key; }` is 16 bytes on both sides. A constants block that holds a 64-bit
+  integer is mirrored field by field at explicit offsets; as for every struct, the generated MSL
+  asserts each size and offset (`static_assert`), so a disagreement fails the build of the pipeline
+  instead of corrupting data. A user struct packed below the alignment of its fields
+  (`Pack = 4` around a `long`) is build error `SCG0009`: MSL cannot under-align a scalar.
+- **Speed.** Bytes and shorts cost what `uint`s cost. 64-bit add, shift, xor and multiply take about
+  twice the time of their 32-bit counterparts on an Apple M4 Pro; 64-bit division and remainder are
+  about 75 times slower than 32-bit (the GPU has no 64-bit divider), so keep `/` and `%` on `long`
+  out of inner loops.
+
+`Gpu.Abs`, `Min`, `Max`, `Clamp`, `CountBits`, `LeadingZeroCount`, `TrailingZeroCount` and
+`ReverseBits` have an overload for each of these integer types (see **Bits** below), and
+`Math.Min/Max/Clamp/Abs` work on them too. As with `Math.Min`, C# finds `Gpu.Min(b, 5)` ambiguous
+between the `byte` and the `int` overload: write `Gpu.Min(b, (byte)5)`.
+
+`scripts/demo-computelab.sh --page small-and-wide-integers` equalises an 8-bit image in place and
+hashes every pixel in 64 bits, checked against the CPU:
+
+![ComputeLab's "Small and wide integers" page: a washed-out 8-bit grayscale image from a ReadWriteBuffer of bytes, the same image after histogram equalisation in place with its levels stretched over the whole range, and a 64-bit hash per pixel as colored noise with the pixel that won the 64-bit atomic maximum marked; below them the histogram before with the lookup table's curve, the histogram after, and the 64 bits of the top row's hashes](docs/screenshots/computelab-small-and-wide-integers.png)
+
 **Atomics.** When many threads write the same buffer element, a plain `counts[bin] += 1` loses
 updates. The `Gpu.Atomic*` methods take the element by `ref` and return the value it had *before*
 the operation:
@@ -1136,12 +1221,18 @@ ComputeLab's Histogram page runs this shader every frame on an animated image:
 | `AtomicExchange(ref location, value)` | `metal::atomic_exchange_explicit` |
 | `AtomicCompareExchange(ref location, comparand, value)` | a strong compare-and-swap (a loop over MSL's weak one); returns the original, so it succeeded when that equals `comparand` |
 | `AtomicAdd(ref float, float)` | `metal::atomic_fetch_add_explicit` on `atomic<float>` for a buffer element; a compare-and-swap loop over the element's bits for a `[GroupShared]` element |
+| `AtomicMin(ref ulong, ulong)`, `AtomicMax(ref ulong, ulong)` | `metal::atomic_min_explicit`, `metal::atomic_max_explicit` on `atomic_ulong`: buffer elements only, and they return nothing |
 
 - The location must be an element of a `ReadWriteBuffer<int>`, `<uint>` or `<float>` captured by
   the shader (`ref buffer[i]`), or an element of a `[GroupShared]` array of `int`, `uint` or `float`
   (`ref tile[i]`, see below). A local, a `ReadOnlyBuffer` element or a field of a struct element is
   build error `SCG0034`. A texture pixel has no address, so it cannot be a location either; a
   shader that captures textures can use atomics on its buffers as usual.
+- 64-bit: MSL 3.2 has exactly two 64-bit atomics, the minimum and the maximum of a `ulong` buffer
+  element, and they do not return the previous value. `Gpu.AtomicMin(ref keys[0], key)` with a key
+  that packs a priority above an index picks a winner and says who it was. Any other atomic on a
+  `long`, `ulong`, `byte`, `sbyte`, `short` or `ushort` element (and the 64-bit pair on a
+  `[GroupShared]` element) is build error `SCG0047`, which says what MSL lacks.
 - The only ordering is relaxed (all MSL has): each operation is atomic by itself, nothing more. Don't
   also read or write the same element non-atomically in the same dispatch; read the results on the
   CPU afterwards, or in a later dispatch.
@@ -1220,19 +1311,20 @@ subnormals.
 | C# | MSL | Notes |
 |---|---|---|
 | `Gpu.AsFloat(int/uint)`, `Gpu.AsInt(float)`, `Gpu.AsUInt(float)`, and `Float2..4`/`Int2..4`/`UInt2..4` overloads | `as_type<T>` | Reinterprets the 32 bits. Also `BitConverter.SingleToInt32Bits`, `Int32BitsToSingle`, `SingleToUInt32Bits`, `UInt32BitsToSingle` |
-| `Gpu.CountBits` | `metal::popcount` | `int`, `uint` and their vectors; the result has the argument's type |
-| `Gpu.LeadingZeroCount`, `Gpu.TrailingZeroCount` | `metal::clz`, `metal::ctz` | 32 for a zero argument |
-| `Gpu.ReverseBits` | `metal::reverse_bits` | Bit 0 becomes bit 31 |
-| `BitOperations.PopCount`, `LeadingZeroCount`, `TrailingZeroCount` | the same, cast to `int` | The `uint` (and `int` for `TrailingZeroCount`) overloads |
-| `BitOperations.RotateLeft`, `RotateRight` | `metal::rotate` | The count is taken modulo 32, as in C# |
+| `Gpu.CountBits` | `metal::popcount` | Every integer type, and the `int` and `uint` vectors; the result has the argument's type |
+| `Gpu.LeadingZeroCount`, `Gpu.TrailingZeroCount` | `metal::clz`, `metal::ctz` | The width of the type for a zero argument: 32 for an `int`, 8 for a `byte`, 64 for a `long`. `LeadingZeroCount((byte)1)` is 7 |
+| `Gpu.ReverseBits` | `metal::reverse_bits` | Within the width of the type: bit 0 becomes bit 31, 7, 15 or 63 |
+| `Gpu.RotateLeft`, `Gpu.RotateRight` | `metal::rotate` | Every integer type; the count is an `int`, taken modulo the width, as in .NET |
+| `BitOperations.PopCount`, `LeadingZeroCount`, `TrailingZeroCount` | the same, cast to `int` | The `uint` and `ulong` (and `int` and `long` for `TrailingZeroCount`) overloads |
+| `BitOperations.RotateLeft`, `RotateRight` | `metal::rotate` | `uint` and `ulong`; the count is taken modulo 32 or 64, as in C# |
 
 **Float helpers.** `Gpu.Fma` (also `MathF.FusedMultiplyAdd`) and `Gpu.CopySign` are bit-exact;
 `Gpu.IsNaN`, `Gpu.IsInfinity` and `Gpu.IsFinite` take a `float` and return a `bool`; `Gpu.Log10` and
 `Gpu.Exp10` agree within a few ULP, like the other transcendentals. `Fma`, `CopySign`, `Log10` and
 `Exp10` have `Float2..4` overloads.
 
-**unorm8 packing.** Buffers cannot hold bytes (textures can: see [Textures](#textures)), so keep
-8-bit colors in a buffer as one `uint` per pixel:
+**unorm8 packing.** There are no vectors of bytes, so keep 8-bit *colors* in a buffer as one `uint`
+per pixel (a single 8-bit channel is simply a `ReadWriteBuffer<byte>`):
 `Gpu.PackUnorm4x8(Float4)` (`metal::pack_float_to_unorm4x8`) and `Gpu.UnpackUnorm4x8(uint)`
 (`metal::unpack_unorm4x8_to_float`). `X` goes to the low byte, which is the layout of an `Rgba32` in
 memory. Packing clamps to [0, 1] (NaN gives 0) and rounds the exact product with 255 to the nearest
@@ -1275,7 +1367,8 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   different operations, and cannot tell lanes apart that reach one call site along different paths
   (a loop iteration some lanes skip, a helper called from two branches). The GPU handles both.
 - Atomics work on elements of `int`, `uint` and (add only) `float`, in buffers and in
-  `[GroupShared]` arrays; not on struct fields.
+  `[GroupShared]` arrays, and (minimum and maximum only) on `ulong` buffer elements; not on struct
+  fields, and not on `long` or the 8- and 16-bit integers, which have no atomics in MSL.
 - Local arrays have a compile-time length and one name: they cannot be sliced, copied to another
   variable or returned (pass them to a helper instead), and multi-dimensional and jagged arrays are
   not supported.
@@ -1288,8 +1381,10 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   six fixed ones.
 - Wrapped Metal resources must use tracked hazard tracking, and `EncodeInto` cannot detect an
   encoder the app left open on its command buffer.
-- 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`
-  (`Gpu.PackUnorm4x8` for colors).
+- The 8-, 16- and 64-bit integers are scalars only: there are no vectors of them, the SIMD-group
+  operations take `float`, `int` and `uint`, and a `static readonly` initializer can use their
+  operators and literals but not call an intrinsic on them. A signed result that overflowed and is
+  then widened is not guaranteed to wrap (see **Scalar types**).
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses
   multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
   Transcendental functions agree with the CPU to within a few ULP.

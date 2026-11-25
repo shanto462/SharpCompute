@@ -186,6 +186,7 @@ public sealed class ComputeLabTests
     {
         Assert.Equal("histogram", LabPages.Slug("Histogram"));
         Assert.Equal("histogram-privatised", LabPages.Slug("Histogram: privatised"));
+        Assert.Equal("small-and-wide-integers", LabPages.Slug("Small and wide integers"));
         Assert.Equal("a-b-c9", LabPages.Slug("  A / b -- C9!?"));
         Assert.Equal(string.Empty, LabPages.Slug(": :"));
     }
@@ -199,7 +200,7 @@ public sealed class ComputeLabTests
         "LocalArrays",
         "SIMD reduction", "SIMD compaction", "SIMD shuffle",
         "Indirect",
-        "Bits", "FastMath",
+        "Bits", "FastMath", "Small and wide integers",
         "Shared code",
     ];
 
@@ -210,8 +211,8 @@ public sealed class ComputeLabTests
         "8-localarrays.png",
         "9-simd-reduction.png", "10-simd-compaction.png", "11-simd-shuffle.png",
         "12-indirect.png",
-        "13-bits.png", "14-fastmath.png",
-        "15-shared-code.png",
+        "13-bits.png", "14-fastmath.png", "15-small-and-wide-integers.png",
+        "16-shared-code.png",
     ];
 
     [MetalFact]
@@ -230,14 +231,14 @@ public sealed class ComputeLabTests
                     "fixed-size local arrays",
                     "SIMD-group reductions", "ballots and prefix sums", "lane shuffles",
                     "indirect dispatch",
-                    "bit and packing intrinsics", "per-shader compile options",
+                    "bit and packing intrinsics", "per-shader compile options", "8-bit and 64-bit integers",
                     "static helpers and struct methods",
                 ],
                 pages.Select(static p => p.Feature));
 
             // Topic by topic, in the lab's order, every topic with at least one page.
             Assert.Equal(
-                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, LabTopics.Math, LabTopics.Math, LabTopics.CodeReuse],
+                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, LabTopics.Math, LabTopics.Math, LabTopics.Math, LabTopics.CodeReuse],
                 pages.Select(static p => p.Topic));
             Assert.Equal(LabTopics.All, pages.Select(static p => p.Topic).Distinct());
             Assert.Equal(pages.Select(static p => p.Topic), pages.Select(static p => p.Topic).OrderBy(static t => LabTopics.All.ToList().IndexOf(t)));
@@ -273,6 +274,8 @@ public sealed class ComputeLabTests
             Assert.Equal(10, LabPages.Find(pages, "SIMD shuffle"));
             Assert.Equal(12, LabPages.Find(pages, "Bits"));
             Assert.Equal(13, LabPages.Find(pages, "fastmath"));
+            Assert.Equal(14, LabPages.Find(pages, "small-and-wide-integers"));
+            Assert.Equal(14, LabPages.Find(pages, "Small and wide integers"));
             Assert.Equal(-1, LabPages.Find(pages, "privatised"));
             Assert.Equal(-1, LabPages.Find(pages, "shuffle"));
         }
@@ -414,8 +417,8 @@ public sealed class ComputeLabTests
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
                 // Every variant of every page: two histograms, compaction, reduction, prefix sum, product, blur, local arrays,
-                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math, shared code.
-                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2 + 1;
+                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math, small and wide integers, shared code.
+                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2 + 1 + 1;
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal)));
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
@@ -433,10 +436,13 @@ public sealed class ComputeLabTests
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains("GFLOP/s   CPU ", StringComparison.Ordinal)));
                 Assert.Equal(1 + 3 + 2 + 2, summary.Split('\n').Count(static line => line.Contains(" ms (one core)", StringComparison.Ordinal))); // the prefix sum, and the SIMD pages' variants
-                Assert.Contains("[9/15] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
+                Assert.Contains("[9/16] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
+
+                Assert.Contains("[15/16] Math / Small and wide integers: 8-bit and 64-bit integers", summary);
+                Assert.Contains("1,048,576 bytes equalised in place, 1,048,576 64-bit hashes: GPU, ForCpu and plain C# agree", summary);
 
                 // The privatised histogram is also timed against the global-atomics one, at both bin counts.
-                Assert.Contains("[2/15] Atomics / Histogram: privatised: threadgroup atomics", summary);
+                Assert.Contains("[2/16] Atomics / Histogram: privatised: threadgroup atomics", summary);
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("global atomics: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
 
                 string[] pictures = s_pictures;
@@ -941,6 +947,181 @@ public sealed class ComputeLabTests
 
         static string Msl<T>()
             where T : struct, IComputeShaderDescriptor<T> => T.MslSource;
+    }
+
+    // ---- small and wide integers ------------------------------------------------------------------
+
+    [Fact]
+    public void Integers_ReferenceHash_IsFnv1aOverTheCoordinates_WithTheFinishingRound()
+    {
+        // The published FNV-1a 64 test vectors.
+        Assert.Equal(0xCBF29CE484222325UL, IntegersPage.Fnv1a([]));
+        Assert.Equal(0xAF63DC4C8601EC8CUL, IntegersPage.Fnv1a("a"u8));
+        Assert.Equal(0x85944171F73967E8UL, IntegersPage.Fnv1a("foobar"u8));
+
+        ulong fnv = IntegersPage.Fnv1a([3, 0, 0, 0, 7, 1, 0, 0, 0x78, 0x56, 0x34, 0x12]);
+        fnv ^= fnv >> 32;
+        fnv *= 0xD6E8FEB86659FD93UL;
+        fnv ^= fnv >> 32;
+
+        Assert.Equal(fnv, IntegersPage.ReferenceHash(3, 263, 0x12345678));
+        Assert.NotEqual(IntegersPage.ReferenceHash(3, 263, 0), IntegersPage.ReferenceHash(263, 3, 0));
+
+        // The key the pixels compete with keeps the top 44 bits of the hash and names the pixel.
+        Assert.Equal(0xFFFFFFFFFFF00000UL | 0x12345, HashPixels.Key(ulong.MaxValue, 0x12345));
+        Assert.Equal(0xABCDEF0123400000UL | 5, HashPixels.Key(0xABCDEF01234FFFFFUL, 5));
+        Assert.Equal((1UL << 20) - 1, HashPixels.IndexMask);
+    }
+
+    [Fact]
+    public void Integers_ReferenceLut_StretchesThePresentLevelsOverTheWholeRange()
+    {
+        // Four levels present, 100 pixels in all: 10 at 50, 40 at 51, 30 at 100, 20 at 200.
+        var counts = new uint[256];
+        counts[50] = 10;
+        counts[51] = 40;
+        counts[100] = 30;
+        counts[200] = 20;
+
+        var lut = new byte[256];
+        IntegersPage.ReferenceLut(counts, lut);
+
+        // (cdf - 10) / (100 - 10) * 255, rounded: the darkest level present becomes 0, the brightest 255.
+        Assert.All(lut[..51], static level => Assert.Equal(0, level));
+        Assert.Equal(113, lut[51]);            // 40 / 90 * 255 = 113.3
+        Assert.All(lut[51..100], static level => Assert.Equal(113, level));
+        Assert.Equal(198, lut[100]);           // 70 / 90 * 255 = 198.3
+        Assert.Equal(255, lut[200]);
+        Assert.Equal(255, lut[255]);
+        Assert.True(lut.Zip(lut.Skip(1)).All(static pair => pair.First <= pair.Second), "the table never decreases");
+
+        // One level only: there is nothing to stretch, and nothing divides by zero.
+        Array.Clear(counts);
+        counts[77] = 1000;
+        IntegersPage.ReferenceLut(counts, lut);
+        Assert.All(lut, static level => Assert.Equal(0, level));
+    }
+
+    [MetalFact]
+    public void Integers_EqualisesTheByteImageInPlace_AndHashesEveryPixelIn64Bits()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using IntegersPage page = new(device);
+
+        page.Compute(Frame);
+        LabCheck check = page.Check();
+        Assert.True(check.Passed, check.Summary);
+
+        byte[] original = page.Original.ToArray(), equalised = page.Equalised.ToArray(), lut = page.Lut.ToArray();
+        uint[] counts = page.Counts.ToArray();
+        ulong[] hashes = page.Hashes.ToArray();
+
+        // The generated picture is washed out: it uses well under half of the 256 levels.
+        Assert.InRange(original.Min(), 40, 110);
+        Assert.InRange(original.Max(), 130, 200);
+        Assert.Equal((uint)(IntegersPage.Size * IntegersPage.Size), counts.Aggregate(0u, static (sum, count) => sum + count));
+
+        // The histogram is that of the bytes, and the table is the one plain C# builds from it.
+        var expectedCounts = new uint[256];
+
+        foreach (byte level in original)
+        {
+            expectedCounts[level]++;
+        }
+
+        var expectedLut = new byte[256];
+        IntegersPage.ReferenceLut(expectedCounts, expectedLut);
+
+        Assert.Equal(expectedCounts, counts);
+        Assert.Equal(expectedLut, lut);
+
+        // In place: every byte is now its table entry, and the levels span the whole range.
+        Assert.Equal(original.Select(level => lut[level]), equalised);
+        Assert.Equal(0, equalised.Min());
+        Assert.Equal(255, equalised.Max());
+
+        // Every hash is the reference hash of its pixel, and they are all distinct.
+        for (int i = 0; i < hashes.Length; i += 331)
+        {
+            Assert.Equal(IntegersPage.ReferenceHash(i % IntegersPage.Size, i / IntegersPage.Size, 0), hashes[i]);
+        }
+
+        Assert.Equal(hashes.Length, hashes.Distinct().Count());
+
+        // The 64-bit atomic maximum holds the largest key, which names its pixel.
+        ulong largest = hashes.Select(HashPixels.Key).Max();
+        int winner = (int)(page.Largest & HashPixels.IndexMask);
+
+        Assert.Equal(largest, page.Largest);
+        Assert.Equal(hashes[winner] & ~HashPixels.IndexMask, page.Largest & ~HashPixels.IndexMask);
+
+        // The bits are well mixed: each of the 64 is set in about half of the million hashes.
+        for (int bit = 0; bit < 64; bit++)
+        {
+            int set = hashes.Count(hash => ((hash >> bit) & 1) != 0);
+            Assert.InRange(set, (hashes.Length / 2) - 4000, (hashes.Length / 2) + 4000);
+        }
+
+        // Computing again starts from the original again: the result does not drift.
+        page.Compute(Frame);
+        Assert.Equal(equalised, page.Equalised.ToArray());
+    }
+
+    [MetalFact]
+    public void Integers_PageShowsTheImageBeforeAndAfter_TheHashes_AndItsCaptions()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using IntegersPage page = new(device);
+        using LabCanvas canvas = new(device);
+
+        page.Compute(Frame);
+        canvas.ClearText();
+        page.Draw(canvas, Frame);
+
+        ReadOnlySpan<uint> pixels = canvas.Pixels.AsReadOnlySpan();
+        ReadOnlySpan<byte> original = page.Original, equalised = page.Equalised;
+        ReadOnlySpan<ulong> hashes = page.Hashes;
+        int winner = (int)(page.Largest & HashPixels.IndexMask);
+        var random = new Random(9);
+
+        static uint Gray(byte level) => 0xFF000000u | ((uint)level << 16) | ((uint)level << 8) | level;
+
+        for (int n = 0; n < 2000; n++)
+        {
+            int u = random.Next(DrawIntegers.PanelSize), v = random.Next(DrawIntegers.PanelSize);
+            int source = ((v * IntegersPage.Size / DrawIntegers.PanelSize) * IntegersPage.Size) + (u * IntegersPage.Size / DrawIntegers.PanelSize);
+            int block = DrawIntegers.HashBlock;
+            int hashSource = ((v / block * block * IntegersPage.Size / DrawIntegers.PanelSize) * IntegersPage.Size) + (u / block * block * IntegersPage.Size / DrawIntegers.PanelSize);
+            int row = (DrawIntegers.PanelY + v) * LabCanvas.Width;
+
+            // The first two panels are the bytes as gray; the third is three bytes of each hash.
+            Assert.Equal(Gray(original[source]), pixels[row + DrawIntegers.PanelX + u]);
+            Assert.Equal(Gray(equalised[source]), pixels[row + DrawIntegers.PanelX + DrawIntegers.PanelPitch + u]);
+
+            int markerX = (winner % IntegersPage.Size) * DrawIntegers.PanelSize / IntegersPage.Size;
+            int markerY = (winner / IntegersPage.Size) * DrawIntegers.PanelSize / IntegersPage.Size;
+
+            if (Math.Abs(u - markerX) > 15 || Math.Abs(v - markerY) > 15)
+            {
+                // One hash per 4 x 4 block of screen pixels.
+                ulong hash = hashes[hashSource];
+                uint color = 0xFF000000u | ((uint)(hash & 255) << 16) | ((uint)((hash >> 28) & 255) << 8) | (uint)(hash >> 56);
+                Assert.Equal(color, pixels[row + DrawIntegers.PanelX + (2 * DrawIntegers.PanelPitch) + u]);
+            }
+        }
+
+        // Between the panels: background.
+        Assert.Equal(pixels[0], pixels[((DrawIntegers.PanelY + 10) * LabCanvas.Width) + DrawIntegers.PanelX + DrawIntegers.PanelSize + 10]);
+
+        string[] text = canvas.TextLines();
+        Assert.Contains(text, static line => line.Contains("READWRITEBUFFER<BYTE> IMAGE", StringComparison.Ordinal));
+        Assert.Contains(text, static line => line.Contains("EQUALISED IN PLACE BY A BYTE LUT", StringComparison.Ordinal));
+        Assert.Contains(text, static line => line.Contains("64-BIT HASH PER PIXEL, 1 IN 16", StringComparison.Ordinal));
+
+        // Nothing a page writes runs into the next column of panels, or off the frame.
+        Assert.All(text, static line => Assert.True(line.Length <= LabCanvas.Columns - 2, line));
+        Assert.Contains(text, static line => line.Contains("LEVELS 0..255 OF 0..255", StringComparison.Ordinal)); // after equalisation
+        Assert.Contains(text, line => line.Contains(FormattableString.Invariant($"GPU.ATOMICMAX: PIXEL ({winner % IntegersPage.Size}, {winner / IntegersPage.Size})"), StringComparison.Ordinal));
     }
 
     [Fact]

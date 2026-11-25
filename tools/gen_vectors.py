@@ -18,14 +18,17 @@ Outputs (checked in; edit this script, not the files):
                                                                    Radians/Degrees
     src/SharpCompute/Intrinsics/Gpu.Matrices.g.cs                    Gpu.Mul ([MslBinaryOperator]),
                                                                    Transpose, Determinant
+    src/SharpCompute/Intrinsics/Gpu.Integers.g.cs                    the byte, sbyte, short, ushort,
+                                                                   long and ulong overloads of the
+                                                                   integer intrinsics, and the rotates
     src/SharpCompute/Intrinsics/Gpu.Wave.g.cs                        typed SIMD-group operations
                                                                    (Gpu.Wave*, Gpu.Quad*)
     src/SharpCompute/Intrinsics/MslPrelude.g.cs                      MslPrelude.Source (__ms_* helpers
                                                                    and types)
 
-Scalar intrinsics (and Gpu.Cross, the unorm8 packing and the atomics) are hand-written in
-src/SharpCompute/Intrinsics/Gpu.cs and Gpu.Atomics.cs; the vector overloads generated here are
-componentwise calls to those scalar implementations.
+Scalar intrinsics for float, int and uint (and Gpu.Cross, the unorm8 packing and the atomics) are
+hand-written in src/SharpCompute/Intrinsics/Gpu.cs and Gpu.Atomics.cs; the vector overloads
+generated here are componentwise calls to those scalar implementations.
 
 Requires only the Python 3 standard library.
 """
@@ -529,6 +532,46 @@ PRELUDE_PACK = "__ms_pack"
 # negative zero in the element cannot stall the loop.
 PRELUDE_ATOMIC_FLOAT_ADD = "__ms_atomic_fetch_add_float"
 
+# The float to long conversion. On an Apple GPU `long(x)` wraps for a float outside the range of a
+# long (2^63 gives long.MinValue, 1e30 gives 0), where every other float to integer conversion
+# saturates as .NET does. This clamps first: NaN fails both comparisons and converts to 0, which is
+# what `long(NaN)` gives. 9223372036854775808.0f is 2^63, exactly representable as a float.
+PRELUDE_FLOAT_TO_LONG = "__ms_float_to_long"
+
+# Rotates behind Gpu.RotateLeft / Gpu.RotateRight. C# takes the count as an int and reduces it modulo
+# the width; metal::rotate takes it in the type of the value. The mask makes the reduction explicit,
+# and a right rotate is a left rotate by the negated count (negated as unsigned: -int.MinValue
+# overflows, which is undefined in MSL).
+PRELUDE_ROTATE_LEFT = "__ms_rotate_left"
+PRELUDE_ROTATE_RIGHT = "__ms_rotate_right"
+
+
+@dataclass(frozen=True)
+class IntegerType:
+    scalar: str  # C# keyword
+    msl: str  # MSL scalar name
+    bits: int
+    signed: bool
+
+    @property
+    def unsigned_scalar(self) -> str:
+        return {"sbyte": "byte", "short": "ushort", "int": "uint", "long": "ulong"}.get(self.scalar, self.scalar)
+
+
+BYTE = IntegerType("byte", "uchar", 8, False)
+SBYTE = IntegerType("sbyte", "char", 8, True)
+SHORT = IntegerType("short", "short", 16, True)
+USHORT = IntegerType("ushort", "ushort", 16, False)
+LONG = IntegerType("long", "long", 64, True)
+ULONG = IntegerType("ulong", "ulong", 64, False)
+
+# The integers besides int and uint (whose intrinsics are hand-written in Gpu.cs, with vector
+# overloads in Gpu.g.cs). They have no vectors, so each intrinsic is one scalar overload per type.
+SMALL_AND_WIDE = (BYTE, SBYTE, SHORT, USHORT, LONG, ULONG)
+
+# Rotates are new for every integer type, int and uint included.
+ROTATE_TYPES = (BYTE, SBYTE, SHORT, USHORT, IntegerType("int", "int", 32, True), IntegerType("uint", "uint", 32, False), LONG, ULONG)
+
 PRELUDE_ATOMICS = tuple(
     (space, t, atomic)
     for space in ("device", "threadgroup")
@@ -550,6 +593,13 @@ def prelude_msl() -> list[str]:
         "{ uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); "
         "while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), "
         "metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }")
+    lines.append(
+        f"inline long {PRELUDE_FLOAT_TO_LONG}(float x) "
+        "{ return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }")
+    for t in ROTATE_TYPES:
+        mask = f"{t.bits - 1}u"
+        lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")
+        lines.append(f"inline {t.msl} {PRELUDE_ROTATE_RIGHT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}((0u - uint(count)) & {mask})); }}")
     for n, packed in PACKED_MATRICES.items():
         msl, column = f"float{n}x{n}", f"float{n}"
         # The boundary form of a matrix: its columns as packed vectors, so the struct has the
@@ -1079,6 +1129,87 @@ def gen_wave_msl_probe() -> list[str]:
 # --------------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------------
+# Gpu.Integers.g.cs: the integer intrinsics for byte, sbyte, short, ushort, long and ulong
+# --------------------------------------------------------------------------------------------
+
+
+def reverse_bits_body(t: IntegerType) -> str:
+    """The CPU bit reversal, built on the 32-bit one in Gpu.cs."""
+    u = t.unsigned_scalar
+    if t.bits == 64:
+        value = "x" if not t.signed else "(ulong)x"
+        reversed_bits = f"((ulong)ReverseBits((uint){value}) << 32) | ReverseBits((uint)({value} >> 32))"
+        return reversed_bits if not t.signed else f"unchecked((long)({reversed_bits}))"
+    widened = "x" if not t.signed else f"({u})x"
+    return f"unchecked(({t.scalar})(ReverseBits((uint){widened}) >> {32 - t.bits}))"
+
+
+def gen_gpu_integers() -> str:
+    out: list[str] = [HEADER]
+    out.append("using System;")
+    out.append("")
+    out.append("namespace SharpCompute;")
+    out.append("")
+    out.append("/// <content>")
+    out.append("/// The integer intrinsics for <c>byte</c>, <c>sbyte</c>, <c>short</c>, <c>ushort</c>, <c>long</c> and")
+    out.append("/// <c>ulong</c>, and the rotates for every integer type. As in MSL the result has the type of the")
+    out.append("/// argument, so a count of bits is at most the width of that type: <c>LeadingZeroCount((byte)1)</c>")
+    out.append("/// is 7, not 31. These types have no vectors, so there are no componentwise overloads.")
+    out.append("/// </content>")
+    out.append("/// <remarks>")
+    out.append("/// C# promotes a <c>byte</c> or a <c>short</c> to <c>int</c> in arithmetic, and an <c>int</c> literal")
+    out.append("/// is an <c>int</c>: <c>Gpu.Min(b, 5)</c> is ambiguous between the <c>byte</c> and the <c>int</c>")
+    out.append("/// overload, exactly as <c>Math.Min(b, 5)</c> is. Cast the literal (<c>Gpu.Min(b, (byte)5)</c>) or")
+    out.append("/// the value, depending on the width the result should have.")
+    out.append("/// </remarks>")
+    out.append("public static partial class Gpu")
+    out.append("{")
+
+    def method(doc: str, msl: str, ret: str, name: str, params: str, body: str) -> None:
+        out.append(f"    /// <summary>{doc}</summary>")
+        out.append(f"    [MslIntrinsic(\"{msl}\")]")
+        out.append(f"    public static {ret} {name}({params}) => {body};")
+        out.append("")
+
+    for t in SMALL_AND_WIDE:
+        s, b = t.scalar, t.bits
+        cref = {"byte": "byte", "sbyte": "sbyte", "short": "short", "ushort": "ushort", "long": "long", "ulong": "ulong"}[s]
+        out.append(f"    // ---- {s} (MSL {t.msl}) " + "-" * (78 - len(s) - len(t.msl)))
+        out.append("")
+        if t.signed:
+            method(f"Absolute value; wraps for <see cref=\"{cref}.MinValue\"/> (no overflow exception), like MSL.",
+                   "metal::abs", s, "Abs", f"{s} x", f"x < 0 ? unchecked(({s})(-x)) : x")
+        else:
+            method("Absolute value: the value itself, as it is unsigned (MSL <c>abs</c>).", "metal::abs", s, "Abs", f"{s} x", "x")
+        method("The smaller of two values (MSL <c>min</c>).", "metal::min", s, "Min", f"{s} x, {s} y", "Math.Min(x, y)")
+        method("The larger of two values (MSL <c>max</c>).", "metal::max", s, "Max", f"{s} x, {s} y", "Math.Max(x, y)")
+        method("<c>min(max(x, minValue), maxValue)</c>, as MSL defines it; never throws when the bounds are reversed.",
+               "metal::clamp", s, "Clamp", f"{s} x, {s} minValue, {s} maxValue", "Math.Min(Math.Max(x, minValue), maxValue)")
+        method(f"The number of set bits among the {b} (MSL <c>popcount</c>).", "metal::popcount", s, "CountBits", f"{s} x", f"{s}.PopCount(x)")
+        negative = " and 0 for negative values" if t.signed else ""
+        method(f"The number of zero bits above the highest set bit; {b} for 0{negative} (MSL <c>clz</c>).",
+               "metal::clz", s, "LeadingZeroCount", f"{s} x", f"{s}.LeadingZeroCount(x)")
+        method(f"The number of zero bits below the lowest set bit; {b} for 0 (MSL <c>ctz</c>).",
+               "metal::ctz", s, "TrailingZeroCount", f"{s} x", f"{s}.TrailingZeroCount(x)")
+        method(f"Reverses the order of the {b} bits: bit 0 becomes bit {b - 1} (MSL <c>reverse_bits</c>).",
+               "metal::reverse_bits", s, "ReverseBits", f"{s} x", reverse_bits_body(t))
+
+    out.append("    // ---- rotates " + "-" * 76)
+    out.append("    // metal::rotate takes the count in the type of the value; the prelude helpers take the int of")
+    out.append("    // C# and reduce it modulo the width, as the .NET rotates do.")
+    out.append("")
+    for name, helper, direction in (("RotateLeft", PRELUDE_ROTATE_LEFT, "left"), ("RotateRight", PRELUDE_ROTATE_RIGHT, "right")):
+        for t in ROTATE_TYPES:
+            method(f"Rotates the {t.bits} bits {direction} by <paramref name=\"count\"/>, taken modulo {t.bits} (MSL <c>rotate</c>).",
+                   helper, t.scalar, name, f"{t.scalar} x, int count", f"{t.scalar}.{name}(x, count)")
+
+    while out[-1] == "":
+        out.pop()
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
 def gen_msl_probe() -> str:
     lines = ["#include <metal_stdlib>", "using namespace metal;", ""] + prelude_msl() + ["",
              "kernel void probe(device float* sink [[buffer(0)]], uint tid [[thread_position_in_grid]])", "{",
@@ -1189,6 +1320,22 @@ def gen_msl_probe() -> str:
             lines.append(f"    acc += float({PRELUDE_ATOMIC_CAS}({a}, s{t}, s{t}));")
     lines.append(f"    acc += metal::atomic_fetch_add_explicit((device metal::atomic<float>*)&(sink[tid]), sfloat, {order});")
     lines.append(f"    acc += {PRELUDE_ATOMIC_FLOAT_ADD}((threadgroup metal::atomic_uint*)&(tgfloat[tid & 3u]), sfloat);")
+    # The small and wide integers: every intrinsic of Gpu.Integers.g.cs, the saturating float to long
+    # conversion, and the one 64-bit atomic pair MSL 3.2 has (minimum and maximum of a ulong in
+    # device memory, which return nothing).
+    for t in SMALL_AND_WIDE:
+        v = f"s{t.msl}"
+        lines.append(f"    {t.msl} {v} = {t.msl}(tid) + {t.msl}(3);")
+        for fn, arity in (("abs", 1), ("min", 2), ("max", 2), ("clamp", 3), ("popcount", 1), ("clz", 1), ("ctz", 1), ("reverse_bits", 1)):
+            lines.append(f"    {v} = metal::{fn}({', '.join([v] * arity)});")
+        lines.append(f"    acc += float({v});")
+    for t in ROTATE_TYPES:
+        v = f"rot{t.msl}"
+        lines.append(f"    {t.msl} {v} = {t.msl}(tid) + {t.msl}(3);")
+        lines.append(f"    acc += float({PRELUDE_ROTATE_LEFT}({v}, int(tid))) + float({PRELUDE_ROTATE_RIGHT}({v}, int(tid)));")
+    lines.append(f"    acc += float({PRELUDE_FLOAT_TO_LONG}(sfloat));")
+    for fn in ("min", "max"):
+        lines.append(f"    metal::atomic_{fn}_explicit((device metal::atomic_ulong*)&(((device ulong*)sink)[tid]), sulong, {order});")
     lines += gen_wave_msl_probe()
     lines.append("    sink[tid] = acc;")
     lines.append("}")
@@ -1208,6 +1355,7 @@ def outputs() -> dict[Path, str]:
         files[VECTORS_DIR / f"{mat(n)}.g.cs"] = gen_matrix(n)
     files[INTRINSICS_DIR / "Gpu.g.cs"] = gen_gpu()
     files[INTRINSICS_DIR / "Gpu.Matrices.g.cs"] = gen_gpu_matrices()
+    files[INTRINSICS_DIR / "Gpu.Integers.g.cs"] = gen_gpu_integers()
     files[INTRINSICS_DIR / "Gpu.Wave.g.cs"] = gen_gpu_wave()
     files[INTRINSICS_DIR / "MslPrelude.g.cs"] = gen_prelude()
     return files

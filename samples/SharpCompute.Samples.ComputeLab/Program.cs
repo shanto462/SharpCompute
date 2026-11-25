@@ -36,7 +36,7 @@ public static class Program
         --list      the pages, by topic: atomics (Histogram, Histogram: privatised, Compaction), shared
                     memory (Reduction, PrefixSum, MatMul, Blur), local arrays (LocalArrays), SIMD groups
                     (SIMD reduction, SIMD compaction, SIMD shuffle), dispatch (Indirect) and math (Bits,
-                    FastMath)
+                    FastMath, Small and wide integers)
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
@@ -107,7 +107,7 @@ public static class Program
             {
                 foreach (ILabPage page in pages)
                 {
-                    Console.WriteLine($"{LabPages.Slug(page.Name),-22} {page.Topic,-14} {page.Name}: {page.Feature}");
+                    Console.WriteLine($"{LabPages.Slug(page.Name),-24} {page.Topic,-14} {page.Name}: {page.Feature}");
                 }
 
                 return 0;

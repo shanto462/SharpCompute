@@ -17,6 +17,9 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// <see cref="CompileOptions"/> holds the shader's <c>[ShaderOptions]</c> as <c>ShaderCompileOptions</c> bits.
 /// <see cref="UsesSimdGroups"/> is true when the kernel uses a SIMD-group operation or built-in, whose
 /// results the lanes of a SIMD group compute together (the CPU has to run such a shader differently).
+/// <see cref="ExplicitConstantsSize"/> is the size in bytes of the constants struct when it holds a
+/// 64-bit integer and its C# mirror is laid out explicitly, and 0 for the usual sequential
+/// <c>Pack = 4</c> mirror.
 /// </summary>
 internal sealed record ShaderModel(
     string HintName,
@@ -40,7 +43,8 @@ internal sealed record ShaderModel(
     bool UsesThreadgroupMemory,
     int ThreadgroupMemoryLength,
     int CompileOptions,
-    bool UsesSimdGroups)
+    bool UsesSimdGroups,
+    int ExplicitConstantsSize)
 {
     /// <summary><c>ShaderCompileOptions.FastMath</c>.</summary>
     public const int FastMath = 1;
@@ -59,5 +63,8 @@ internal sealed record TypeDeclarationInfo(string Keyword, string Name);
 /// </summary>
 internal sealed record BufferArgument(int Index, string Access, string DisplayName);
 
-/// <summary>A field of the C# constants mirror struct, assigned from <see cref="Value"/>.</summary>
-internal sealed record ConstantArgument(string TypeName, string FieldName, string Value);
+/// <summary>
+/// A field of the C# constants mirror struct, assigned from <see cref="Value"/>. <see cref="Offset"/>
+/// is its byte offset, which the MSL asserts and an explicitly laid out mirror states.
+/// </summary>
+internal sealed record ConstantArgument(string TypeName, string FieldName, string Value, int Offset);

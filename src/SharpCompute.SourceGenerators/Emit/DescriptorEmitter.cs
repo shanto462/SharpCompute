@@ -210,15 +210,31 @@ internal static class DescriptorEmitter
         if (model.Constants.Count > 0)
         {
             writer.Line();
+            const string Interop = "global::System.Runtime.InteropServices.";
+            bool isExplicit = model.ExplicitConstantsSize > 0;
+
             writer.Line("/// <summary>The C# mirror of the MSL <c>__Constants</c> struct bound after the buffers.</summary>");
-            writer.Line("[global::System.Runtime.InteropServices.StructLayout(global::System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 4)]");
+
+            if (isExplicit)
+            {
+                // A 64-bit integer is aligned to 8 in MSL, which Pack = 4 would not reproduce: state the
+                // offsets the MSL asserts instead of relying on a packing rule.
+                writer.Line("/// <remarks>It holds a 64-bit integer, which MSL aligns to 8 bytes: every field is placed at the offset the MSL asserts.</remarks>");
+                writer.Line($"[{Interop}StructLayout({Interop}LayoutKind.Explicit, Size = {model.ExplicitConstantsSize.ToString(CultureInfo.InvariantCulture)})]");
+            }
+            else
+            {
+                writer.Line($"[{Interop}StructLayout({Interop}LayoutKind.Sequential, Pack = 4)]");
+            }
+
             writer.Line($"private struct {ConstantsStruct}");
             writer.Line("{");
             writer.Indent++;
 
             foreach (ConstantArgument constant in model.Constants)
             {
-                writer.Line($"public {constant.TypeName} {constant.FieldName};");
+                string offset = isExplicit ? $"[{Interop}FieldOffset({constant.Offset.ToString(CultureInfo.InvariantCulture)})] " : string.Empty;
+                writer.Line($"{offset}public {constant.TypeName} {constant.FieldName};");
             }
 
             writer.Indent--;

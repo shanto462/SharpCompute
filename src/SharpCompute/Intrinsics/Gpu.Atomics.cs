@@ -9,7 +9,9 @@ namespace SharpCompute;
 /// an element of a captured <see cref="ReadWriteBuffer{T}"/> of int, uint or float, or an element of a
 /// <see cref="GroupSharedAttribute"/> array of int, uint or float, passed by reference:
 /// <c>Gpu.AtomicAdd(ref counts[bin], 1)</c>. Every operation returns the value the element had
-/// <b>before</b> it was applied.
+/// <b>before</b> it was applied. The one exception in both respects is 64-bit:
+/// <see cref="AtomicMin(ref ulong, ulong)"/> and <see cref="AtomicMax(ref ulong, ulong)"/> work on an
+/// element of a buffer of ulong and return nothing, and they are the only 64-bit atomics MSL has.
 /// </content>
 /// <remarks>
 /// <para>
@@ -192,6 +194,65 @@ public static partial class Gpu
         }
 
         return original;
+    }
+
+    // ---- 64-bit min / max --------------------------------------------------------------------
+    // All MSL 3.2 has for 64-bit integers: atomic_min_explicit and atomic_max_explicit on an
+    // atomic_ulong in device memory. They are not "fetch" functions, so they return nothing.
+
+    /// <summary>
+    /// Atomically stores the smaller of the element and <paramref name="value"/>. Unlike the 32-bit
+    /// overloads this returns nothing: MSL's 64-bit atomic minimum does not report the original value.
+    /// </summary>
+    /// <remarks>
+    /// In a shader the location must be an element of a <see cref="ReadWriteBuffer{T}"/> of
+    /// <c>ulong</c>: MSL 3.2 has this operation for device memory only, not for
+    /// <see cref="GroupSharedAttribute"/> arrays, and has no other 64-bit atomic (no add, exchange or
+    /// compare-and-swap, and nothing for <c>long</c>). A typical use is a 64-bit key that packs a
+    /// priority above an index, so that one atomic minimum picks the winner and says who it was.
+    /// </remarks>
+    [MslAtomic("metal::atomic_min_explicit")]
+    public static void AtomicMin(ref ulong location, ulong value)
+    {
+        ulong original = Volatile.Read(ref location);
+
+        while (value < original)
+        {
+            ulong seen = Interlocked.CompareExchange(ref location, value, original);
+
+            if (seen == original)
+            {
+                break;
+            }
+
+            original = seen;
+        }
+    }
+
+    /// <summary>
+    /// Atomically stores the larger of the element and <paramref name="value"/>. Unlike the 32-bit
+    /// overloads this returns nothing: MSL's 64-bit atomic maximum does not report the original value.
+    /// </summary>
+    /// <remarks>
+    /// In a shader the location must be an element of a <see cref="ReadWriteBuffer{T}"/> of
+    /// <c>ulong</c>; see <see cref="AtomicMin(ref ulong, ulong)"/>.
+    /// </remarks>
+    [MslAtomic("metal::atomic_max_explicit")]
+    public static void AtomicMax(ref ulong location, ulong value)
+    {
+        ulong original = Volatile.Read(ref location);
+
+        while (value > original)
+        {
+            ulong seen = Interlocked.CompareExchange(ref location, value, original);
+
+            if (seen == original)
+            {
+                break;
+            }
+
+            original = seen;
+        }
     }
 
     // ---- bitwise -----------------------------------------------------------------------------
