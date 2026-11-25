@@ -26,10 +26,13 @@ public static class Program
           SharpCompute.Samples.ComputeLab --list
 
         Keys: <-/-> switch page, Space pause, S save PNG, Esc quit; each page lists its own keys.
-        --page      start on this page (see --list)
+        --page      start on this page: a name from --list, e.g. histogram-privatised
         --frames    close the window after this many frames (for scripted runs)
         --headless  no window: writes <dir>/<n>-<page>.png and <dir>/summary.txt (default dir: computelab),
                     and exits with 2 if a GPU result does not match the CPU
+        --list      the pages: Histogram and Compaction (atomics on buffers), Histogram: privatised
+                    (atomics on threadgroup memory, timed against the global-atomics histogram), Bits,
+                    Indirect and FastMath
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
@@ -84,13 +87,13 @@ public static class Program
             {
                 foreach (ILabPage page in pages)
                 {
-                    Console.WriteLine($"{page.Name,-12} {page.Feature}");
+                    Console.WriteLine($"{LabPages.Slug(page.Name),-22} {page.Name}: {page.Feature}");
                 }
 
                 return 0;
             }
 
-            int index = start is null ? 0 : pages.FindIndex(p => string.Equals(p.Name, start, StringComparison.OrdinalIgnoreCase));
+            int index = start is null ? 0 : LabPages.Find(pages, start);
 
             if (index < 0)
             {
@@ -145,7 +148,7 @@ public static class Headless
     private const int TimedDispatches = 7;
 
     /// <summary>The PNG a page is written to, e.g. <c>1-histogram.png</c>.</summary>
-    public static string FileName(IReadOnlyList<ILabPage> pages, int index) => Invariant($"{index + 1}-{pages[index].Name.ToLowerInvariant()}.png");
+    public static string FileName(IReadOnlyList<ILabPage> pages, int index) => Invariant($"{index + 1}-{LabPages.Slug(pages[index].Name)}.png");
 
     /// <summary>
     /// Renders every page into <paramref name="directory"/> and writes <c>summary.txt</c> there (also
@@ -181,6 +184,11 @@ public static class Headless
                 summary.AppendLine(Invariant($"    {(check.Passed ? "PASS" : "FAIL")}  {check.Summary}"));
                 summary.AppendLine(Invariant($"    {timing}"));
 
+                if (timing.BaselineText is { } baseline)
+                {
+                    summary.AppendLine(Invariant($"    {baseline}"));
+                }
+
                 if (variant == 0)
                 {
                     LabView.Compose(canvas, pages, index, frame, check, timing: null);
@@ -205,16 +213,27 @@ public static class Headless
         page.Compute(frame);
 
         double[] gpu = new double[TimedDispatches];
+        double[] baseline = new double[TimedDispatches];
+        string? baselineName = null;
 
         for (int i = 0; i < gpu.Length; i++)
         {
             page.Compute(frame);
             gpu[i] = page.GpuMilliseconds;
+
+            if (page.Baseline is { } other)
+            {
+                (baselineName, baseline[i]) = (other.Name, other.GpuMilliseconds);
+            }
         }
 
         Array.Sort(gpu);
+        Array.Sort(baseline);
         LabCheck check = page.Check();
-        timing = new LabTiming(gpu[gpu.Length / 2], check.CpuMilliseconds);
+        timing = new LabTiming(gpu[gpu.Length / 2], check.CpuMilliseconds)
+        {
+            Baseline = baselineName is null ? null : new LabBaseline(baselineName, baseline[baseline.Length / 2]),
+        };
         return check;
     }
 }
@@ -321,7 +340,7 @@ internal sealed class LabApp : IDisposable
                 break;
 
             case Key.S when !e.IsRepeat:
-                string path = Path.GetFullPath(Invariant($"computelab-{Current.Name.ToLowerInvariant()}-{DateTime.Now:yyyyMMdd-HHmmss}.png"));
+                string path = Path.GetFullPath(Invariant($"computelab-{LabPages.Slug(Current.Name)}-{DateTime.Now:yyyyMMdd-HHmmss}.png"));
                 PngEncoder.Write(path, _canvas.ToArray(), LabCanvas.Width, LabCanvas.Height);
                 Console.WriteLine($"Saved {path}");
                 break;

@@ -1192,7 +1192,7 @@ public class GroupSharedTests
     public void AnElement_CannotBePassedByReference()
     {
         // Threadgroup memory is its own address space; a helper's `ref` parameter is thread-local.
-        // (Atomics on group-shared memory will need exactly this to be accepted for their intrinsics.)
+        // Only the atomic intrinsics take an element by reference (ThreadgroupAtomicTests).
         GeneratorRun run = Run(
             """
                 [GroupShared] private static readonly float[] tile = new float[4];
@@ -1205,21 +1205,6 @@ public class GroupSharedTests
         Diagnostic diagnostic = run.AssertOnlyDiagnostic("SCG0012", "ref tile[0]");
 
         Assert.Contains("by-reference argument", diagnostic.GetMessage());
-    }
-
-    [Fact]
-    public void AnElement_CannotBeTheLocationOfAnAtomicYet()
-    {
-        GeneratorRun run = Run(
-            """
-                [GroupShared] private static readonly int[] counts = new int[4];
-
-                public void Execute() { Gpu.AtomicAdd(ref counts[GroupIds.X & 3], 1); }
-            """);
-
-        Diagnostic diagnostic = run.AssertOnlyDiagnostic("SCG0034", "counts[GroupIds.X & 3]");
-
-        Assert.Contains("it is an element of a [GroupShared] array, and atomics on threadgroup memory are not supported yet", diagnostic.GetMessage());
     }
 
     [Fact]
@@ -1254,6 +1239,7 @@ public class GroupSharedTests
 
         Assert.True(descriptor.UsesThreadgroupMemory);
         Assert.True(descriptor.UsesAtomics);
+        Assert.True(descriptor.UsesDeviceAtomics);
         Assert.Contains("threadgroup int tile[64];", descriptor.MslSource);
         Assert.Contains("atomic_fetch_add_explicit", descriptor.MslSource);
     }

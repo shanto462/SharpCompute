@@ -14,12 +14,12 @@ namespace SharpCompute.SourceGenerators;
 /// barriers of <c>Gpu</c> become <c>metal::threadgroup_barrier</c>.
 /// </summary>
 /// <remarks>
-/// TODO: atomics on group-shared memory are not translated. <c>ref name[i]</c> is rejected as the
-/// location of a <c>Gpu.Atomic*</c> call (SCG0034, with a reason of its own) and, like any other
-/// by-reference argument that is not a local, as an argument of a helper (see <c>IsThreadLocal</c>).
-/// The extension point is <c>AtomicTarget</c> in <c>MslTranslator.Intrinsics.cs</c>: accept a
-/// <see cref="GroupSharedElement"/> of int, uint or float there, in the <c>threadgroup</c> address
-/// space instead of <c>device</c>.
+/// <c>ref name[i]</c> is accepted in one place: as the location of a <c>Gpu.Atomic*</c> call on an int
+/// or uint element, which becomes an atomic in the <c>threadgroup</c> address space, or of the float
+/// add, which becomes a loop over the element's bits there (<c>AtomicTarget</c> in
+/// <c>MslTranslator.Intrinsics.cs</c>). As an argument of a helper it is rejected like any other
+/// by-reference argument that is not a local (see <c>IsThreadLocal</c>): a helper's <c>ref</c>
+/// parameter is a reference into the <c>thread</c> address space.
 /// </remarks>
 internal sealed partial class MslTranslator
 {

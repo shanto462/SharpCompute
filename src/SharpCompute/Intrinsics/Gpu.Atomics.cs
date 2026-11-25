@@ -5,22 +5,38 @@ using System.Threading;
 namespace SharpCompute;
 
 /// <content>
-/// Atomic operations on buffer elements. In a shader the location must be an element of a captured
-/// <see cref="ReadWriteBuffer{T}"/>, passed by reference: <c>Gpu.AtomicAdd(ref counts[bin], 1)</c>.
-/// Every operation returns the value the element had <b>before</b> it was applied.
+/// Atomic operations on buffer elements and on threadgroup memory. In a shader the location must be
+/// an element of a captured <see cref="ReadWriteBuffer{T}"/> of int, uint or float, or an element of a
+/// <see cref="GroupSharedAttribute"/> array of int, uint or float, passed by reference:
+/// <c>Gpu.AtomicAdd(ref counts[bin], 1)</c>. Every operation returns the value the element had
+/// <b>before</b> it was applied.
 /// </content>
 /// <remarks>
 /// <para>
-/// On the GPU these are <c>metal::atomic_fetch_*_explicit</c> on <c>device</c> memory. MSL only
+/// On the GPU these are <c>metal::atomic_fetch_*_explicit</c> on <c>device</c> memory (a buffer
+/// element) or on <c>threadgroup</c> memory (a group-shared element). MSL only
 /// offers <c>memory_order_relaxed</c>: each operation is atomic on its own element, but nothing is
 /// promised about how it is ordered against operations on <i>other</i> elements, and a plain
 /// (non-atomic) read or write of the same element in the same dispatch is a data race. Read the
 /// results on the CPU after the dispatch, or in a later dispatch.
 /// </para>
 /// <para>
+/// <b>Threadgroup memory.</b> An element of a <see cref="GroupSharedAttribute"/> array is shared by
+/// the threads of one threadgroup only, so an atomic on it is contended by at most a threadgroup's
+/// worth of threads instead of the whole dispatch: accumulate per group there, and merge into a
+/// buffer with one buffer atomic per group (a privatised histogram). Threadgroup memory starts out
+/// undefined, so the group clears the elements first, and a plain read or write of an element is
+/// separated from the atomics on it by a barrier
+/// (<see cref="GroupMemoryBarrierWithGroupSync"/>): clear, barrier, atomics, barrier, read. MSL 3.2
+/// has no atomic float in threadgroup memory, so <see cref="AtomicAdd(ref float, float)"/> on a
+/// group-shared element is a compare-and-swap loop over the element's bits there: the same API and
+/// the same guarantees as on a buffer, at the cost of a retry when two threads collide.
+/// </para>
+/// <para>
 /// The CPU implementations are truly atomic as well (<see cref="Interlocked"/>, and compare-and-swap
 /// loops where it has no primitive: min, max, xor and the float add), because <c>ForCpu</c> runs
-/// shader threads on every core. Integer arithmetic wraps, as in MSL. The final value of an element
+/// shader threads on every core, and the threads of a threadgroup concurrently when the shader uses
+/// threadgroup memory. Integer arithmetic wraps, as in MSL. The final value of an element
 /// is the same on both, except for <see cref="AtomicAdd(ref float, float)"/>, where float addition
 /// is not associative and the sum depends on the order the threads happened to run in. The values
 /// <i>returned</i> to the individual threads depend on that order everywhere, on the CPU and on
@@ -32,9 +48,11 @@ namespace SharpCompute;
 /// and CPU code running at the same time: the GPU's atomics and the CPU's <see cref="Interlocked"/>
 /// operations do not exclude each other on shared memory, and updates are lost. <c>ForAsync</c> next
 /// to <c>ForCpu</c> (or any other CPU code) on the same buffer is such a race, and so is a CPU+GPU
-/// split, which is why <c>ForSplit</c> never divides a shader that uses atomics: an explicit share
-/// strictly between 0 and 1 throws <see cref="NotSupportedException"/>, and the adaptive mode runs
-/// the whole grid on the GPU.
+/// split, which is why <c>ForSplit</c> never divides a shader that uses atomics on buffer elements:
+/// an explicit share strictly between 0 and 1 throws <see cref="NotSupportedException"/>, and the
+/// adaptive mode runs the whole grid on the GPU. Atomics on threadgroup memory are the exception: a
+/// threadgroup runs entirely on one device, so a shader whose only atomics are on group-shared
+/// elements is split like any other.
 /// </para>
 /// </remarks>
 public static partial class Gpu
@@ -54,7 +72,13 @@ public static partial class Gpu
     /// exactly once, but float addition is not associative: with rounding, the final sum depends on
     /// the order in which the threads ran, on the GPU and on the CPU.
     /// </summary>
-    [MslAtomic("metal::atomic_fetch_add_explicit")]
+    /// <remarks>
+    /// On a buffer element this is MSL's own <c>atomic&lt;float&gt;</c> add. MSL 3.2 has none for
+    /// threadgroup memory, so on a <see cref="GroupSharedAttribute"/> element it is a compare-and-swap
+    /// loop over the element's bits (<c>__ms_atomic_fetch_add_float</c> in the prelude), which is also
+    /// how the CPU does it. The guarantees are the same.
+    /// </remarks>
+    [MslAtomic("metal::atomic_fetch_add_explicit", ThreadgroupFloat = "__ms_atomic_fetch_add_float")]
     public static float AtomicAdd(ref float location, float value)
     {
         // Compare the bits, not the floats: a NaN never equals itself, and -0 equals +0.

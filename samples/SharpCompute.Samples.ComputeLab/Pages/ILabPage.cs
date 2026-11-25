@@ -19,6 +19,11 @@ public readonly record struct LabFrame(float Time, bool Deterministic);
 /// <param name="CpuMilliseconds">How long the CPU took for the work the GPU is timed on.</param>
 public readonly record struct LabCheck(bool Passed, string Summary, double CpuMilliseconds);
 
+/// <summary>A second GPU dispatch a page times next to its feature kernel: the same work done another way.</summary>
+/// <param name="Name">What it is, e.g. "global atomics".</param>
+/// <param name="GpuMilliseconds">How long its dispatch of the last <see cref="ILabPage.Compute"/> took (commit to completion).</param>
+public readonly record struct LabBaseline(string Name, double GpuMilliseconds);
+
 /// <summary>
 /// One page of the lab: one core compute feature, shown, checked and timed. To add a page, implement
 /// this and add it to <see cref="LabPages.Create"/>; the window, the keys, the text and the headless
@@ -31,7 +36,7 @@ public readonly record struct LabCheck(bool Passed, string Summary, double CpuMi
 /// </remarks>
 public interface ILabPage : IDisposable
 {
-    /// <summary>The page's name, also the stem of its PNG file (lowercase).</summary>
+    /// <summary>The page's name; its PNG file and <c>--page</c> also go by <see cref="LabPages.Slug"/> of it.</summary>
     string Name { get; }
 
     /// <summary>The feature the page is about, e.g. "atomics".</summary>
@@ -48,6 +53,12 @@ public interface ILabPage : IDisposable
 
     /// <summary>How long the feature kernel's GPU dispatch of the last <see cref="Compute"/> took (commit to completion).</summary>
     double GpuMilliseconds { get; }
+
+    /// <summary>
+    /// The dispatch the page compares its feature kernel with, timed in the same <see cref="Compute"/>,
+    /// or null (the default) when it has none. The headless summary reports it next to the page's own time.
+    /// </summary>
+    LabBaseline? Baseline => null;
 
     /// <summary>Prepares this frame's inputs and runs the feature kernel on the GPU.</summary>
     void Compute(LabFrame frame);
@@ -68,9 +79,47 @@ public static class LabPages
     public static List<ILabPage> Create(GraphicsDevice device) =>
     [
         new HistogramPage(device),
+        new PrivatisedHistogramPage(device),
         new CompactionPage(device),
         new BitsPage(device),
         new IndirectPage(device),
         new FastMathPage(device),
     ];
+
+    /// <summary>
+    /// A page's name as a file-name stem and a command-line word: lowercase letters and digits, with
+    /// every run of anything else as one '-' ("Histogram: privatised" is "histogram-privatised").
+    /// </summary>
+    public static string Slug(string name)
+    {
+        System.Text.StringBuilder slug = new(name.Length);
+
+        foreach (char c in name)
+        {
+            if (char.IsAsciiLetterOrDigit(c))
+            {
+                slug.Append(char.ToLowerInvariant(c));
+            }
+            else if (slug.Length > 0 && slug[^1] != '-')
+            {
+                slug.Append('-');
+            }
+        }
+
+        return slug.ToString().TrimEnd('-');
+    }
+
+    /// <summary>The index of the page called <paramref name="name"/> (its name or its <see cref="Slug"/>, in any case), or -1.</summary>
+    public static int Find(IReadOnlyList<ILabPage> pages, string name)
+    {
+        for (int i = 0; i < pages.Count; i++)
+        {
+            if (string.Equals(pages[i].Name, name, StringComparison.OrdinalIgnoreCase) || string.Equals(Slug(pages[i].Name), name, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 }

@@ -40,13 +40,27 @@ public interface IComputeShaderDescriptor<TSelf>
 
     /// <summary>
     /// True when the kernel, or a helper it calls, contains an atomic operation (a <c>Gpu.Atomic*</c>
-    /// call, or any other <see cref="MslAtomicAttribute"/> method). Such a shader lets many threads
-    /// update one element, which is only safe among the threads of one dispatch on one device: the
-    /// GPU's atomics and the CPU's interlocked operations do not exclude each other on shared memory.
-    /// <c>GraphicsDevice.ForSplit</c> therefore never divides it between the CPU and the GPU. The
-    /// default is false: hand-written descriptors and generated shaders without atomics.
+    /// call, or any other <see cref="MslAtomicAttribute"/> method), on a buffer element or on an
+    /// element of threadgroup memory (<see cref="GroupSharedAttribute"/>). Whether that keeps the shader
+    /// on one device is said by <see cref="UsesDeviceAtomics"/>. The default is false: hand-written
+    /// descriptors and generated shaders without atomics.
     /// </summary>
     static virtual bool UsesAtomics => false;
+
+    /// <summary>
+    /// True when one of those atomic operations is on a buffer element (<c>device</c> memory). Such a
+    /// shader lets many threads of the dispatch update one element, which is only safe among the
+    /// threads of one dispatch on one device: the GPU's atomics and the CPU's interlocked operations
+    /// do not exclude each other on shared memory. <c>GraphicsDevice.ForSplit</c> therefore never
+    /// divides it between the CPU and the GPU. An atomic on threadgroup memory is shared only by the
+    /// threads of one threadgroup, and a split never divides a threadgroup, so a shader whose atomics
+    /// are all of that kind reports false here and can be split.
+    /// </summary>
+    /// <remarks>
+    /// The default is <see cref="UsesAtomics"/>: a descriptor that only says it uses atomics is taken
+    /// to use them on buffers, the case that must not be divided.
+    /// </remarks>
+    static virtual bool UsesDeviceAtomics => TSelf.UsesAtomics;
 
     /// <summary>
     /// True when the kernel declares threadgroup memory (<see cref="GroupSharedAttribute"/>) or calls a

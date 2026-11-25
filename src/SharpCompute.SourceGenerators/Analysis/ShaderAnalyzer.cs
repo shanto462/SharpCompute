@@ -494,6 +494,7 @@ internal sealed class ShaderAnalyzer
             usesInstanceAccess,
             gridWindowIndex,
             translator.UsesAtomics,
+            translator.UsesDeviceAtomics,
             usesThreadgroupMemory: groupShared.Count > 0 || translator.UsesBarriers,
             threadgroupMemoryLength: (int)threadgroupMemory,
             usesSimdGroups: translator.UsesSimdGroups);
@@ -826,6 +827,7 @@ internal sealed class ShaderAnalyzer
         bool usesInstanceAccess = false,
         int gridWindowIndex = -1,
         bool usesAtomics = false,
+        bool usesDeviceAtomics = false,
         bool usesThreadgroupMemory = false,
         int threadgroupMemoryLength = 0,
         bool usesSimdGroups = false)
@@ -866,6 +868,7 @@ internal sealed class ShaderAnalyzer
             UsesInstanceAccess: usesInstanceAccess,
             GridWindowIndex: gridWindowIndex,
             UsesAtomics: usesAtomics,
+            UsesDeviceAtomics: usesDeviceAtomics,
             UsesThreadgroupMemory: usesThreadgroupMemory,
             ThreadgroupMemoryLength: threadgroupMemoryLength,
             CompileOptions: _compileOptions,
