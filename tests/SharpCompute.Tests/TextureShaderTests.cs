@@ -634,6 +634,135 @@ public unsafe class TextureShaderTests
         AssertBitEqual(gpu.ToArray(), split.ToArray(), "split");
     }
 
+    public static TheoryData<Type> SplitWriteFormats => new(typeof(R8), typeof(Rgba32), typeof(float));
+
+    /// <summary>
+    /// The other direction of <see cref="ForSplit_WithATextureReadingShader_EqualsOneGpuDispatch"/>:
+    /// the CPU part and the GPU part write the same texture at the same time, each its own rows.
+    /// Every pixel must end up with its own value: none skipped at the cut, none written by the
+    /// wrong side's coordinates, none lost to the other side's writes.
+    /// </summary>
+    [MetalTheory]
+    [MemberData(nameof(SplitWriteFormats))]
+    public void ForSplit_WithATextureWritingShader_WritesEveryPixel(Type format)
+    {
+        if (format == typeof(R8))
+        {
+            AssertSplitWritesEveryPixel(
+                static target => new WritePositionR8(target),
+                static (x, y) => new R8((byte)PositionValue(x, y)),
+                static (x, y) => new R8((byte)~PositionValue(x, y)));
+        }
+        else if (format == typeof(Rgba32))
+        {
+            AssertSplitWritesEveryPixel(
+                static target => new WritePositionRgba32(target),
+                static (x, y) => new Rgba32((byte)PositionValue(x, y), (byte)(255 - PositionValue(x, y)), (byte)(PositionValue(x, y) ^ 85), 255),
+                static (_, _) => new Rgba32(1, 2, 3, 0));
+        }
+        else
+        {
+            AssertSplitWritesEveryPixel(
+                static target => new WritePositionSingle(target),
+                static (x, y) => (float)((x * 7) + (y * 13)),
+                static (_, _) => -1f);
+        }
+
+        static int PositionValue(int x, int y) => ((x * 7) + (y * 13)) & 255;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="create"/>'s shader split over textures of three sizes (rows that are and are
+    /// not a multiple of the threadgroup height, and one small enough for a share to round to a whole
+    /// side) at three CPU shares, a few times each because the two sides race, and compares every pixel
+    /// with <paramref name="expected"/>. Each run starts from <paramref name="stale"/>, a value no pixel
+    /// should keep, so a pixel that neither side wrote cannot pass.
+    /// </summary>
+    private static void AssertSplitWritesEveryPixel<TPixel, TShader>(
+        Func<ReadWriteTexture2D<TPixel>, TShader> create, Func<int, int, TPixel> expected, Func<int, int, TPixel> stale)
+        where TPixel : unmanaged
+        where TShader : struct, IComputeShader, IComputeShaderDescriptor<TShader>
+    {
+        const int runs = 3;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+
+        foreach ((int width, int height) in new[] { (250, 130), (1021, 517), (64, 64) })
+        {
+            TPixel[] want = new TPixel[width * height], before = new TPixel[width * height], actual = new TPixel[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    want[(y * width) + x] = expected(x, y);
+                    before[(y * width) + x] = stale(x, y);
+                    Assert.False(SamePixel(in want[(y * width) + x], in before[(y * width) + x]), "The stale value must differ from the expected one at every pixel.");
+                }
+            }
+
+            using ReadWriteTexture2D<TPixel> texture = device.AllocateReadWriteTexture2D<TPixel>(width, height);
+            TShader shader = create(texture);
+
+            // The expectation itself, against the GPU alone.
+            texture.CopyFrom(before);
+            device.For(width, height, in shader);
+            texture.CopyTo(actual);
+            AssertEveryPixel(want, actual, width, $"{typeof(TPixel).Name} {width}×{height}, one GPU dispatch");
+
+            foreach (double fraction in new[] { 0.1, 0.5, 0.9 })
+            {
+                for (int run = 0; run < runs; run++)
+                {
+                    texture.CopyFrom(before);
+
+                    SplitDispatchInfo info = device.ForSplit(width, height, in shader, fraction);
+
+                    texture.CopyTo(actual);
+                    AssertEveryPixel(want, actual, width, $"{typeof(TPixel).Name} {width}×{height}, cpuFraction {fraction}, run {run} ({info.CpuExtent} rows on the CPU)");
+
+                    // Cut along the rows; and an even share of any of these grids gives both sides some.
+                    Assert.Equal(1, info.Axis);
+                    Assert.Equal(height, info.CpuExtent + info.GpuExtent);
+
+                    if (fraction == 0.5)
+                    {
+                        Assert.InRange(info.CpuExtent, 1, height - 1);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>Every pixel equal, reporting how many are not and where the first one is (a wrong cut shows as whole rows).</summary>
+    private static void AssertEveryPixel<TPixel>(TPixel[] expected, TPixel[] actual, int width, string what)
+        where TPixel : unmanaged
+    {
+        Assert.Equal(expected.Length, actual.Length);
+
+        // The pixel types are plain bytes or floats without padding, so equal pixels are equal bytes.
+        if (MemoryMarshal.AsBytes<TPixel>(expected).SequenceEqual(MemoryMarshal.AsBytes<TPixel>(actual)))
+        {
+            return;
+        }
+
+        int wrong = 0, first = -1;
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            if (!SamePixel(in expected[i], in actual[i]))
+            {
+                wrong++;
+                first = first < 0 ? i : first;
+            }
+        }
+
+        Assert.Fail($"{what}: {wrong} of {expected.Length} pixels are wrong, the first at ({first % width}, {first / width}): expected {expected[first]}, got {actual[first]}.");
+    }
+
+    private static bool SamePixel<TPixel>(in TPixel a, in TPixel b)
+        where TPixel : unmanaged =>
+        MemoryMarshal.AsBytes(new ReadOnlySpan<TPixel>(in a)).SequenceEqual(MemoryMarshal.AsBytes(new ReadOnlySpan<TPixel>(in b)));
+
     // ---- lifetime ---------------------------------------------------------------------------------
 
     [MetalFact]

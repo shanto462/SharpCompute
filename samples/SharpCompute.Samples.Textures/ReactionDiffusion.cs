@@ -47,8 +47,20 @@ public sealed class ReactionDiffusion : IDisposable
         Reset();
     }
 
+    /// <summary>The closest <see cref="ZoomBy"/> and <see cref="ZoomAt"/> go: a tenth of the field fills the frame.</summary>
+    public const float MinZoom = 0.1f;
+
+    /// <summary>The furthest <see cref="ZoomBy"/> and <see cref="ZoomAt"/> go: six copies of the field across the frame.</summary>
+    public const float MaxZoom = 6f;
+
     /// <summary>Frame heights of field per frame height in the display: above 1 shows the field tiled.</summary>
     public float Zoom { get; set; } = 1f;
+
+    /// <summary>
+    /// The field coordinate offset of the display: the middle of the frame shows <c>0.5 + Pan</c>.
+    /// The field wraps around, so offsets a whole number apart show the same picture.
+    /// </summary>
+    public Float2 Pan { get; set; }
 
     /// <summary>The texture that holds the latest state.</summary>
     public ReadWriteTexture2D<Float4> Current => _textures[_current];
@@ -104,7 +116,44 @@ public sealed class ReactionDiffusion : IDisposable
 
     /// <summary>The field coordinate under frame pixel (<paramref name="x"/>, <paramref name="y"/>) of a <paramref name="width"/> × <paramref name="height"/> frame.</summary>
     public Float2 FrameToField(double x, double y, int width, int height) =>
-        ShowField.FieldUv(new Float2((float)(x / width), (float)(y / height)), Zoom);
+        ShowField.FieldUv(new Float2((float)(x / width), (float)(y / height)), Zoom, Pan);
+
+    /// <summary>Back to the starting view: one field, filling the frame.</summary>
+    public void ResetView()
+    {
+        Zoom = 1f;
+        Pan = default;
+    }
+
+    /// <summary>
+    /// Multiplies <see cref="Zoom"/> by <paramref name="factor"/> (below 1 moves closer), between
+    /// <see cref="MinZoom"/> and <see cref="MaxZoom"/>. The middle of the frame stays where it is.
+    /// </summary>
+    public void ZoomBy(float factor) => Zoom = Math.Clamp(Zoom * factor, MinZoom, MaxZoom);
+
+    /// <summary>
+    /// <see cref="ZoomBy"/>, around a point of the frame instead of its middle: the field coordinate
+    /// under frame position (<paramref name="x"/>, <paramref name="y"/>) of a
+    /// <paramref name="width"/> × <paramref name="height"/> frame is still under it afterwards (the
+    /// same place in the field, possibly a whole number of copies over).
+    /// </summary>
+    public void ZoomAt(float factor, double x, double y, int width, int height)
+    {
+        Float2 position = new((float)(x / width), (float)(y / height));
+        float zoom = Zoom;
+
+        ZoomBy(factor);
+
+        // FieldUv is 0.5 + (position - 0.5) * zoom + pan: the pan takes up what the zoom's change
+        // would have moved under the pointer. It uses the zoom actually reached, so nothing slides
+        // once the zoom is at a limit.
+        Float2 pan = Pan + ((position - 0.5f) * (zoom - Zoom));
+
+        // Only the fraction matters to a field that repeats. Keeping just that stops the offset (and
+        // with it the rounding of every coordinate the display computes) growing over a long
+        // session of zooming in at one place and out at another.
+        Pan = new Float2(pan.X - MathF.Floor(pan.X), pan.Y - MathF.Floor(pan.Y));
+    }
 
     /// <summary>Records the queued brush dabs, then <paramref name="steps"/> steps, each reading the texture the one before wrote.</summary>
     public void RecordSteps(ComputeContext context, int steps = StepsPerFrame)
@@ -133,7 +182,7 @@ public sealed class ReactionDiffusion : IDisposable
 
     /// <summary>Records the display pass: the latest state, sampled through its read-only view into <paramref name="target"/>.</summary>
     public void RecordDisplay(ComputeContext context, ReadWriteTexture2D<Rgba32> target, TextLayer labels) =>
-        context.ForEach(target, new ShowField(_views[_current], labels.Texture, Zoom));
+        context.ForEach(target, new ShowField(_views[_current], labels.Texture, Zoom, Pan));
 
     /// <summary>Runs <paramref name="steps"/> steps now, in one submission.</summary>
     public void Run(int steps)
@@ -159,7 +208,7 @@ public sealed class ReactionDiffusion : IDisposable
 
         labels.Fill(0, labels.Height - layout.BottomBar, labels.Width, layout.BottomBar, TextLayer.Plate);
         labels.Text(
-            "TAB SAMPLERS   DRAG PAINT   RIGHT-DRAG ERASE   +/- ZOOM (TILES)   SPACE PAUSE   C RESTART   0 RESET ZOOM   S SAVE PNG   ESC QUIT",
+            "TAB SAMPLERS   DRAG PAINT   RIGHT-DRAG ERASE   WHEEL OR +/- ZOOM (TILES)   SPACE PAUSE   C RESTART   0 RESET VIEW   S SAVE PNG   ESC QUIT",
             3 * small, labels.Height - layout.BottomBar + (3 * small), small);
     }
 

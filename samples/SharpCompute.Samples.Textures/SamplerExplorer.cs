@@ -40,6 +40,19 @@ public readonly record struct ExplorerLayout(int Width, int Height)
     public Float2 PanelOrigin(int panel) => new(Origin.X + ((panel % 3) * Cell.X), Origin.Y + ((panel / 3) * Cell.Y));
 
     /// <summary>
+    /// The panel under frame position (<paramref name="x"/>, <paramref name="y"/>), 0..5. A position
+    /// off the grid (in a bar of text, or outside the frame) counts for the nearest panel, whose
+    /// mapping simply continues there, so the answer never jumps.
+    /// </summary>
+    public int PanelAt(double x, double y)
+    {
+        int column = Math.Clamp((int)Math.Floor((x - Origin.X) / Cell.X), 0, 2);
+        int row = Math.Clamp((int)Math.Floor((y - Origin.Y) / Cell.Y), 0, 1);
+
+        return (row * 3) + column;
+    }
+
+    /// <summary>
     /// The texture coordinate the shader samples at the center of frame pixel (<paramref name="x"/>,
     /// <paramref name="y"/>), which must lie in panel <paramref name="panel"/>: the same arithmetic
     /// as <see cref="SamplerGrid"/>, on the CPU.
@@ -129,6 +142,26 @@ public sealed class SamplerExplorer : IDisposable
     public void ZoomBy(float factor) => Zoom = Math.Clamp(Zoom * factor, 0.05f, 16f);
 
     /// <summary>
+    /// <see cref="ZoomBy"/>, around a point of the frame instead of the middle of the panels: the
+    /// texture coordinate under frame position (<paramref name="x"/>, <paramref name="y"/>) is still
+    /// under it afterwards, at any rotation. Every panel maps its pixels the same way, so the matching
+    /// point of the other five panels stays put too.
+    /// </summary>
+    public void ZoomAt(float factor, double x, double y, ExplorerLayout layout)
+    {
+        Float2 local = (new Float2((float)x, (float)y) - layout.PanelOrigin(layout.PanelAt(x, y))) / layout.Cell;
+        float zoom = Zoom;
+
+        ZoomBy(factor);
+
+        // PanelUv is 0.5 + rotate(p) * zoom + pan: the pan takes up what the zoom's change would have
+        // moved under the pointer. Both terms come from the shader's own mapping, without the pan, so
+        // a large pan costs no precision; and the zoom is the one actually reached, so nothing slides
+        // once it is at a limit.
+        Pan += SamplerGrid.PanelUv(local, layout.Cell, zoom, default, Angle) - SamplerGrid.PanelUv(local, layout.Cell, Zoom, default, Angle);
+    }
+
+    /// <summary>
     /// Pans so that the picture follows the pointer: what was under a pixel is, afterwards, under
     /// the pixel (<paramref name="dx"/>, <paramref name="dy"/>) further on, in every panel and at
     /// any rotation.
@@ -207,7 +240,7 @@ public sealed class SamplerExplorer : IDisposable
 
         labels.Fill(0, labels.Height - layout.BottomBar, labels.Width, layout.BottomBar, TextLayer.Plate);
         labels.Text(
-            "TAB PING-PONG   F FORMAT   +/- ZOOM   DRAG PAN   RIGHT-DRAG ZOOM   R ROTATE   0 RESET   S SAVE PNG   ESC QUIT",
+            "TAB PING-PONG   F FORMAT   WHEEL OR +/- ZOOM   DRAG PAN   RIGHT-DRAG ZOOM   R ROTATE   0 RESET   S SAVE PNG   ESC QUIT",
             3 * small, labels.Height - layout.BottomBar + (3 * small), small);
     }
 

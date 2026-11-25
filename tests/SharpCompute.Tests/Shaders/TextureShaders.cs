@@ -323,6 +323,38 @@ public readonly partial struct TextureToBuffer(ReadOnlyTexture2D<Rgba32> source,
 }
 
 /// <summary>
+/// Writes a value that depends on the pixel's position to every pixel of an R8 texture, over a 2D grid
+/// (so it can be split between the CPU and the GPU): <c>(7x + 13y) mod 256</c>, as a byte.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WritePositionR8(ReadWriteTexture2D<R8> target) : IComputeShader
+{
+    public void Execute()
+    {
+        int value = ((ThreadIds.X * 7) + (ThreadIds.Y * 13)) & 255;
+        target[ThreadIds.XY] = new Float4(value / 255f, 0f, 0f, 1f);
+    }
+}
+
+/// <summary><see cref="WritePositionR8"/> for an Rgba32 texture, with a different function of the value in each channel.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WritePositionRgba32(ReadWriteTexture2D<Rgba32> target) : IComputeShader
+{
+    public void Execute()
+    {
+        int value = ((ThreadIds.X * 7) + (ThreadIds.Y * 13)) & 255;
+        target[ThreadIds.XY] = new Float4(value / 255f, (255 - value) / 255f, (value ^ 85) / 255f, 1f);
+    }
+}
+
+/// <summary><see cref="WritePositionR8"/> for a float texture: <c>7x + 13y</c>, which no two pixels of a row or a column share.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WritePositionSingle(ReadWriteTexture2D<float> target) : IComputeShader
+{
+    public void Execute() => target[ThreadIds.XY] = new Float4((ThreadIds.X * 7) + (ThreadIds.Y * 13), 0f, 0f, 1f);
+}
+
+/// <summary>
 /// One Jacobi relaxation step: every pixel of <paramref name="target"/> becomes the mean of its four
 /// neighbours in <paramref name="source"/> (clamped at the border). Run back and forth between two textures.
 /// </summary>

@@ -23,10 +23,12 @@ public static class Program
           SharpCompute.Samples.Textures --headless --out <dir> [--size <W>x<H>]
 
         Keys: Tab switches between the sampler explorer and the ping-pong simulation · S saves a PNG · Esc quits
-          Samplers:  F next format (Shift+F previous) · + / - zoom · drag pans · right-drag zooms ·
-                     R toggles a slow rotation · 0 resets the view
-          Ping-pong: drag paints · right-drag erases · + / - zoom (zoomed out, the field tiles) ·
-                     Space pauses · C restarts · 0 resets the zoom
+          Both:      the scroll wheel (or a two-finger scroll) zooms around the pointer · + / - zoom
+                     around the middle · 0 resets the view
+          Samplers:  F next format (Shift+F previous) · drag pans · right-drag zooms ·
+                     R toggles a slow rotation
+          Ping-pong: drag paints · right-drag erases · zoomed out, the field tiles ·
+                     Space pauses · C restarts
         --headless  no window: writes one PNG per format of the sampler explorer and one of the
                     ping-pong simulation to --out (the same pixels every run)
         --frames    exit after that many frames (for scripted runs)
@@ -216,6 +218,7 @@ internal sealed class TexturesApp : IDisposable
         window.KeyDown += OnKeyDown;
         window.MouseDown += (_, e) => OnMouse(e, pressed: true);
         window.MouseDragged += (_, e) => OnMouse(e, pressed: false);
+        window.MouseWheel += OnWheel;
         UpdateTitle();
     }
 
@@ -266,13 +269,13 @@ internal sealed class TexturesApp : IDisposable
         // Zoom repeats while the key is held; everything else acts once per press.
         if (e.Character is '+' or '=')
         {
-            Zoom(1f / 1.1f);
+            _demo.ZoomBy(1f / WheelZoom.Step);
             return;
         }
 
         if (e.Character is '-' or '_')
         {
-            Zoom(1.1f);
+            _demo.ZoomBy(WheelZoom.Step);
             return;
         }
 
@@ -305,7 +308,7 @@ internal sealed class TexturesApp : IDisposable
                 break;
 
             case Key.D0:
-                _demo.Reaction.Zoom = 1f;
+                _demo.Reaction.ResetView();
                 break;
 
             case Key.Space when !samplers:
@@ -326,16 +329,22 @@ internal sealed class TexturesApp : IDisposable
         UpdateTitle();
     }
 
-    /// <summary>Multiplies the current mode's zoom: below 1 moves closer.</summary>
-    private void Zoom(float factor)
+    /// <summary>
+    /// The wheel zooms the current mode around the pointer. The frame is rendered at the drawable's
+    /// own size, so the event's position is already a frame position, as in <see cref="OnMouse"/>.
+    /// </summary>
+    private void OnWheel(object? sender, MouseWheelEventArgs e)
     {
-        if (_demo.Mode == DemoMode.Samplers)
+        if (_target is null)
         {
-            _demo.Explorer.ZoomBy(factor);
+            return;
         }
-        else
+
+        float factor = WheelZoom.Factor(e, _window.ScaleFactor);
+
+        if (factor != 1f)
         {
-            _demo.Reaction.Zoom = Math.Clamp(_demo.Reaction.Zoom * factor, 0.1f, 6f);
+            _demo.ZoomAt(factor, e.X, e.Y, _target.Width, _target.Height);
         }
     }
 
