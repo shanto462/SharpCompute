@@ -126,6 +126,27 @@ public class DeterminismTests
     }
 
     [Fact]
+    public void LoadedDescriptor_ReportsTheMslOfItsOwnRun()
+    {
+        // Descriptor() checks this for every shader it loads; here the check itself is checked: the
+        // MSL read from the generated syntax is non-trivial, differs per input, and is what the loaded type returns.
+        string[][] inputs = Inputs();
+        GeneratorRun[] runs = inputs.Select(static input => GeneratorHarness.Run(input)).ToArray();
+        string?[] generated = runs.Select(static run => run.GeneratedMsl("Tests.TestShader")).ToArray();
+
+        Assert.All(generated, static msl => Assert.StartsWith("#include <metal_stdlib>", msl));
+        Assert.Equal(inputs.Length, generated.Distinct().Count());
+
+        // Loaded in the reverse order of generation, so a mix-up between runs would show.
+        for (int i = runs.Length - 1; i >= 0; i--)
+        {
+            Assert.Equal(generated[i], runs[i].Descriptor("Tests.TestShader").MslSource);
+        }
+
+        Assert.Null(runs[0].GeneratedMsl("Tests.NoSuchShader"));
+    }
+
+    [Fact]
     public void SameInput_GivesTheSameOutput_WhenManyCompilationsRunInParallel()
     {
         const int Repetitions = 40;

@@ -276,8 +276,14 @@ using (ComputeContext context = device.CreateComputeContext())
 formats, and a simulation that ping-pongs between two textures while you paint into it.
 
 Shaders with textures run on the CPU too (`ForCpu`, `ForSplit`), with the same reads, writes and
-address modes. Two things differ slightly from the GPU: bilinear filtering (the GPU rounds its
-weights to 1/256) and sRGB decoding (the GPU decodes to 12 bits).
+address modes. The CPU is exact where the GPU (measured on an M4 Pro) is not quite:
+
+- Bilinear filtering: the GPU rounds its weights to 1/256, so a bilinear sample written to an 8-bit
+  format can differ by one step between `ForCpu` and the GPU.
+- sRGB decoding: the GPU decodes to 12 bits.
+- Point sampling picks the same pixel with Clamp, for coordinates in [0, 1) and for power-of-two
+  sizes. With Repeat or Mirror outside [0, 1) on other sizes, a coordinate within float rounding of
+  a pixel boundary can pick the neighbouring pixel on the GPU.
 
 ### Batching and async dispatch
 

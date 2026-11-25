@@ -206,8 +206,10 @@ public unsafe class TextureShaderTests
 
                 if (!linear)
                 {
-                    // A point sample is one texel, so it must be the same texel on both sides: exact,
-                    // or for sRGB within the precision of the GPU's decode.
+                    // A point sample is one texel, and at these coordinates (none within float
+                    // rounding of a texel boundary, except at the power-of-two size) it is the same
+                    // texel on both sides: exact, or for sRGB within the precision of the GPU's decode.
+                    // PointSample_PicksTheSameTexelAsTheGpu_WhereThatHolds covers the boundaries.
                     tolerance = typeof(T) == typeof(Rgba32Srgb) ? SrgbReadTolerance : 0f;
                 }
                 else if (IsEightBit<T>())
@@ -277,6 +279,98 @@ public unsafe class TextureShaderTests
 
         // And the quantization is real: with exact weights the difference would be around 1e-7.
         Assert.True(worst > 1e-4f, $"{typeof(T).Name}: expected the GPU's 8-bit weights to show, but the largest difference is only {worst:R}.");
+    }
+
+    [MetalTheory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(8)]
+    [InlineData(37)]
+    [InlineData(100)]
+    [InlineData(255)]
+    [InlineData(256)]
+    [InlineData(1000)]
+    [InlineData(1023)]
+    [InlineData(4096)]
+    public void PointSample_PicksTheSameTexelAsTheGpu_WhereThatHolds(int size)
+    {
+        // What holds, measured on an Apple M4 Pro: PointClamp is the GPU's texel at every size and
+        // coordinate; so are PointRepeat and PointMirror at power-of-two sizes, and at any size for
+        // coordinates in [0, 1). At other sizes, Repeat and Mirror outside [0, 1) can differ within
+        // float rounding of a texel boundary (e.g. size 37, u = -1.972973, the float nearest -73/37:
+        // the CPU's single-precision u * 37 is exactly -73, texel 1; the GPU reads texel 0). The
+        // differences are not pinned by count, only bounded: a neighbouring texel, that close to a boundary.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        bool powerOfTwo = (size & (size - 1)) == 0;
+
+        // On and around every texel boundary (or every 64th of the texture, for large ones) from two
+        // sizes below 0 to three sizes above, then random coordinates.
+        List<float> positions = [];
+        int stride = Math.Max(1, size / 64);
+
+        foreach (double offset in new[] { 0.4, 0.1, 1.0 / 256, 1.0 / 1024, 1e-3, 1e-4, 1e-5, 0 })
+        {
+            for (int boundary = -2 * size; boundary <= 3 * size; boundary += stride)
+            {
+                positions.Add((float)((boundary - offset) / size));
+                positions.Add((float)((boundary + offset) / size));
+            }
+        }
+
+        Random random = new(12345 + size);
+
+        for (int i = 0; i < 20000; i++)
+        {
+            positions.Add((float)((random.NextDouble() * 7) - 3));
+        }
+
+        // One texel per value along the axis under test, so a sample says which texel it read.
+        Float4[] pixels = Enumerable.Range(0, size).Select(static i => new Float4(i, 0f, 0f, 1f)).ToArray();
+
+        foreach (bool vertical in new[] { false, true })
+        {
+            Float2[] coordinates = positions.Select(position => vertical ? new Float2(0.5f, position) : new Float2(position, 0.5f)).ToArray();
+
+            using ReadOnlyTexture2D<Float4> texture = vertical
+                ? device.AllocateReadOnlyTexture2D<Float4>(pixels, 1, size)
+                : device.AllocateReadOnlyTexture2D<Float4>(pixels, size, 1);
+            using ReadOnlyBuffer<Float2> uvs = device.AllocateReadOnlyBuffer<Float2>(coordinates);
+            using ReadWriteBuffer<Float4> gpuOutput = device.AllocateReadWriteBuffer<Float4>(coordinates.Length);
+            using ReadWriteBuffer<Float4> cpuOutput = device.AllocateReadWriteBuffer<Float4>(coordinates.Length);
+
+            for (int sampler = 0; sampler < 3; sampler++)
+            {
+                device.For(coordinates.Length, new SampleFloat4(texture, uvs, gpuOutput, sampler));
+                device.ForCpu(coordinates.Length, new SampleFloat4(texture, uvs, cpuOutput, sampler));
+
+                Float4[] gpu = gpuOutput.ToArray(), cpu = cpuOutput.ToArray();
+                bool exact = Samplers[sampler].AddressMode == TextureAddressMode.Clamp || powerOfTwo;
+
+                for (int i = 0; i < gpu.Length; i++)
+                {
+                    if (gpu[i].X == cpu[i].X)
+                    {
+                        continue;
+                    }
+
+                    float u = positions[i];
+                    string where = $"size {size}{(vertical ? " (vertical)" : "")}, {Samplers[sampler]}, coordinate {u:R}: GPU texel {gpu[i].X}, CPU texel {cpu[i].X}";
+
+                    Assert.False(exact, $"{where}. Clamp and power-of-two sizes must agree everywhere.");
+                    Assert.False(u >= 0f && u < 1f, $"{where}. Coordinates in [0, 1) must agree.");
+
+                    // The neighbouring texel (texels 0 and size - 1 are neighbours where the texture repeats)...
+                    float apart = MathF.Abs(gpu[i].X - cpu[i].X);
+                    Assert.True(apart == 1f || apart == size - 1, $"{where}. Not a neighbouring texel.");
+
+                    // ...for a coordinate within a float step of the boundary between them: its exact
+                    // position in texels is within size × 2⁻²² of a whole number (measured: up to 0.7 of that).
+                    double texels = (double)u * size;
+                    Assert.True(Math.Abs(texels - Math.Round(texels)) <= size * Math.Pow(2, -22), $"{where}. Not at a texel boundary: {texels:R} texels.");
+                }
+            }
+        }
     }
 
     [MetalTheory]

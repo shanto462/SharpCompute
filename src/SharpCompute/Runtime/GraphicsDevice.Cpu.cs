@@ -46,7 +46,9 @@ public sealed unsafe partial class GraphicsDevice
     /// (conversions from float saturate, shift counts are masked and arithmetic wraps on both), except
     /// for the two divisions below. Texture reads and writes convert pixels as the GPU does;
     /// <see cref="ReadOnlyTexture2D{T}.Sample"/> with a linear filter and reads of <see cref="Rgba32Srgb"/>
-    /// are slightly more precise than the GPU's (see those members).
+    /// are deliberately exact rather than as coarse as the GPU's, so a bilinear sample written to an
+    /// 8-bit format can differ by one step between the two, and a point sample with Repeat or Mirror
+    /// outside [0, 1) can land on the neighbouring pixel right at a pixel boundary (see those members).
     /// </para>
     /// <para>
     /// Differences from the GPU: buffer and texture accesses are bounds-checked (an out-of-range index

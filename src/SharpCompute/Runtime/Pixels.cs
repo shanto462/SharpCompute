@@ -33,8 +33,8 @@ public struct Rg16(byte r, byte g)
 /// the sRGB transfer function, and alpha is linear. Only <see cref="ReadOnlyTexture2D{T}"/> supports it.
 /// </summary>
 /// <remarks>
-/// The CPU decodes with the exact transfer function; Apple GPUs decode to 12 bits, so the same pixel
-/// can read up to 1.2e-4 differently on the two.
+/// The CPU decodes with the exact transfer function; the GPU decodes to 12 bits (measured on an
+/// Apple M4 Pro), so the same pixel can read up to 1.2e-4 differently on the two.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct Rgba32Srgb(byte r, byte g, byte b, byte a)
@@ -51,9 +51,13 @@ public struct Rgba32Srgb(byte r, byte g, byte b, byte a)
 }
 
 /// <summary>
-/// A 16-bit float RGBA pixel (<c>MTLPixelFormatRGBA16Float</c>). A shader's write rounds each channel
-/// toward zero to the nearest half, as Apple GPUs do (and as <see cref="System.Half"/> textures do).
+/// A 16-bit float RGBA pixel (<c>MTLPixelFormatRGBA16Float</c>).
 /// </summary>
+/// <remarks>
+/// A shader's write rounds each channel toward zero to a half, here and in a texture of
+/// <see cref="System.Half"/> (<c>R16Float</c>). That is what an Apple M4 Pro was measured to do, not
+/// IEEE's round-to-nearest, and the CPU (<c>ForCpu</c>) does the same so that both store the same bits.
+/// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 2)]
 public struct Rgba16Float(Half r, Half g, Half b, Half a)
 {

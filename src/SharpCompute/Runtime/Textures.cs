@@ -467,11 +467,27 @@ public sealed unsafe class ReadOnlyTexture2D<T> : Texture2D<T>
     /// </param>
     /// <param name="uv">Normalized coordinates; outside <c>[0, 1]</c> the sampler's address mode applies.</param>
     /// <remarks>
-    /// Point filtering returns the same pixel on the CPU and the GPU. Linear filtering does not quite:
-    /// the CPU interpolates with full float precision, while Apple GPUs round the two interpolation
-    /// weights to 1/256 (so each is off by up to 1/512 of the difference between neighbouring pixels)
-    /// and, for a half-float texture, round the result to a half. Coordinates that are not finite
-    /// give an unspecified pixel of the texture.
+    /// <para>
+    /// How closely the CPU (<c>ForCpu</c>) follows the GPU, as measured on an Apple M4 Pro:
+    /// </para>
+    /// <para>
+    /// <b>Point filtering</b> picks the same pixel with <see cref="TextureAddressMode.Clamp"/>, for
+    /// coordinates in <c>[0, 1)</c> with any address mode, and along an axis whose size is a power of
+    /// two. With <see cref="TextureAddressMode.Repeat"/> or <see cref="TextureAddressMode.Mirror"/>
+    /// outside <c>[0, 1)</c> on other sizes, a coordinate within float rounding (about 2e-7) of the
+    /// boundary between two pixels can pick the neighbouring pixel on the GPU. The CPU uses
+    /// <c>floor(u * size)</c> in single precision; the GPU's exact arithmetic there is not known.
+    /// </para>
+    /// <para>
+    /// <b>Linear filtering</b> is close but not equal: the CPU interpolates with full float precision,
+    /// while the GPU rounds the two interpolation weights to 1/256 (so each is off by up to 1/512 of
+    /// the difference between neighbouring pixels) and, for a half-float texture, rounds the result to
+    /// a half. In practice a bilinear sample that is written to an 8-bit format can come out one step
+    /// (1/255) different on the CPU and the GPU.
+    /// </para>
+    /// <para>
+    /// Coordinates that are not finite give an unspecified pixel of the texture.
+    /// </para>
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The texture has been disposed (CPU only).</exception>
     public Float4 Sample(Sampler sampler, Float2 uv) => SampleCore(sampler, uv);
@@ -504,7 +520,8 @@ public sealed unsafe class ReadWriteTexture2D<T> : Texture2D<T>
     /// <summary>
     /// The pixel at (<paramref name="x"/>, <paramref name="y"/>): reading gives the pixel as a shader
     /// sees it (<c>read</c> in MSL), writing stores a color with the format's conversion (<c>write</c>):
-    /// normalized formats clamp to [0, 1] and round, and channels the format does not store are dropped.
+    /// normalized formats clamp to [0, 1] and round, half-float formats round toward zero (what an
+    /// Apple M4 Pro was measured to do), and channels the format does not store are dropped.
     /// On the CPU it is bounds-checked; in a shader it is not, and an access outside the texture is undefined.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The pixel is outside the texture (CPU only).</exception>

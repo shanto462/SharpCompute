@@ -33,8 +33,9 @@ internal readonly record struct TextureFormat(nuint PixelFormat, string Name, in
 
 /// <summary>
 /// The texture element types SharpCompute supports and the CPU side of reading and writing them. The
-/// conversions match what Apple GPUs do when a shader reads or writes a <c>texture2d&lt;float&gt;</c>, so
-/// a shader run with <c>ForCpu</c> sees the same values as on the GPU (see each method for the details).
+/// conversions follow what the GPU does when a shader reads or writes a <c>texture2d&lt;float&gt;</c>, as
+/// measured on an Apple M4 Pro, so a shader run with <c>ForCpu</c> sees the same values as on the GPU
+/// (see each method for the details and the one exception, the sRGB decode).
 /// </summary>
 internal static unsafe class TextureFormats
 {
@@ -107,8 +108,9 @@ internal static unsafe class TextureFormats
     /// What a shader's <c>read</c> returns for the pixel at <paramref name="pixel"/>. Unorm channels are
     /// <c>c / 255</c> and float channels are widened, both exactly as on the GPU; missing channels read
     /// as <c>(0, 0, 1)</c>. sRGB channels go through the exact transfer function, which the GPU only
-    /// approximates: Apple GPUs decode sRGB to 12 bits (<c>round(linear × 4095) / 4095</c>), so a GPU
-    /// read can differ from this one by up to half such a step, 1.2e-4.
+    /// approximates: an Apple M4 Pro was measured to decode sRGB to 12 bits
+    /// (<c>round(linear × 4095) / 4095</c>), so a GPU read can differ from this one by up to half such
+    /// a step, 1.2e-4.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static Float4 Load<T>(T* pixel)
@@ -161,9 +163,9 @@ internal static unsafe class TextureFormats
     }
 
     /// <summary>
-    /// What a shader's <c>write</c> stores for <paramref name="value"/>. Both conversions are the ones
-    /// measured on Apple GPUs: unorm channels use <see cref="CpuDispatcher.ToUnorm8"/>, half channels
-    /// <see cref="ToHalf"/>. Channels the format does not store are dropped.
+    /// What a shader's <c>write</c> stores for <paramref name="value"/>. Both conversions are measured
+    /// ones: unorm channels use <see cref="CpuDispatcher.ToUnorm8"/>, half channels <see cref="ToHalf"/>
+    /// (measured on an Apple M4 Pro). Channels the format does not store are dropped.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static void Store<T>(T* pixel, Float4 value)
@@ -215,12 +217,15 @@ internal static unsafe class TextureFormats
     }
 
     /// <summary>
-    /// The conversion Apple GPUs apply when a shader writes a float to a half channel: toward zero.
-    /// Measured rather than assumed: IEEE's default (to nearest even, which is what <c>(Half)value</c>
-    /// does) is off by one for about half of all values. So 0.99999994 stores the half just below 1,
-    /// a finite value beyond the largest half stores that largest half rather than infinity, and a
-    /// value smaller than the smallest subnormal half stores zero. Infinities stay infinite and NaN
-    /// stays NaN (its sign and payload are unspecified on the GPU).
+    /// The conversion the GPU applies when a shader writes a float to a half channel, as measured on
+    /// an Apple M4 Pro (macOS 15+): toward zero. It is mimicked rather than assumed: IEEE's default
+    /// (to nearest even, which is what <c>(Half)value</c> does) is off by one for about half of all
+    /// values on that GPU. So 0.99999994 stores the half just below 1, a finite value beyond the
+    /// largest half stores that largest half rather than infinity, and a value smaller than the
+    /// smallest subnormal half stores zero. Infinities stay infinite and NaN stays NaN (its sign and
+    /// payload are unspecified on the GPU). Only that one GPU was measured; the
+    /// <c>Write_StoresWhatTextureFormatsStoreEncodes</c> test compares this with the GPU it runs on,
+    /// so another GPU that rounds differently fails that test rather than going unnoticed.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static Half ToHalf(float value)
