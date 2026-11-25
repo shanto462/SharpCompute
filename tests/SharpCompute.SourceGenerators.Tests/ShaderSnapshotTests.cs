@@ -297,7 +297,7 @@ public class ShaderSnapshotTests
                     float t = x * x - y * y + cx;
                     y = 2.0f * x * y + cy;
                     x = t;
-                    i++;
+                    i = int(uint(i) + 1u);
                 }
                 return i;
             }
@@ -316,7 +316,7 @@ public class ShaderSnapshotTests
                 float cx = __c.origin.x + float(id.x) * __c.scale;
                 float cy = __c.origin.y + float(id.y) * __c.scale;
                 int n = ::Iterate(cx, cy, ::MaxIterations);
-                output[id.y * width + id.x] = n == ::MaxIterations ? 0u : uint(n);
+                output[int(uint(id.y) * uint(width) + uint(id.x))] = n == ::MaxIterations ? 0u : uint(n);
             }
             """),
             Normalize(descriptor.MslSource));
@@ -452,7 +452,7 @@ public class ShaderSnapshotTests
                 p.Velocity += acceleration * __c.settings.DeltaTime;
                 p.Position += p.Velocity * __c.settings.DeltaTime;
                 p.Position.x = metal::clamp(p.Position.x, __c.settings.Bounds.x, __c.settings.Bounds.y);
-                p.Age++;
+                p.Age = int(uint(p.Age) + 1u);
                 particles[i] = p;
                 particles[i].Velocity.xy = p.Velocity.xy * float(__c.damping);
                 particles[i].Cell = int2(p.Position.xy);

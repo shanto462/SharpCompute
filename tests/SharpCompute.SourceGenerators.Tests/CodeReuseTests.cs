@@ -1150,7 +1150,7 @@ public class CodeReuseTests
         ShaderDescriptor drawn = RunBody("Counter counter = default; int first = counter.Drawn; buffer[0] = first + counter.Drawn;", trailer: Counter).Verify(Shader);
 
         Assert.Contains("static int Counter_Drawn(thread Counter& __this);", drawn.MslSource);
-        Assert.Equal("Counter counter = Counter{};\nint first = ::Counter_Drawn(counter);\nbuffer[0] = float(first + ::Counter_Drawn(counter));", drawn.KernelBody);
+        Assert.Equal("Counter counter = Counter{};\nint first = ::Counter_Drawn(counter);\nbuffer[0] = float(int(uint(first) + uint(::Counter_Drawn(counter))));", drawn.KernelBody);
 
         // Methods that only read may be called as often as you like.
         RunBody("Counter counter = default; counter.Next(); buffer[0] = counter.Peek() + counter.Peek() + counter.Count;", trailer: Counter).Verify(Shader);

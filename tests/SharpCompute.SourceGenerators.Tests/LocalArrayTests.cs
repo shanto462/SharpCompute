@@ -174,7 +174,7 @@ public class LocalArrayTests
         Assert.Contains("half halves[2] = {};", descriptor.KernelBody);
         Assert.Contains("points[0].y = 4.0f;", descriptor.KernelBody);
         Assert.Contains("particles[1].Position = points[1];", descriptor.KernelBody);
-        Assert.Contains("particles[1].Weight += 2;", descriptor.KernelBody);
+        Assert.Contains("particles[1].Weight = int(uint(particles[1].Weight) + 2u);", descriptor.KernelBody);
         Assert.DoesNotContain("__ms_unpack", descriptor.KernelBody);
     }
 
@@ -261,7 +261,7 @@ public class LocalArrayTests
         Assert.Contains("static void Fill(thread float* values, int __len_values, float value)", descriptor.MslSource);
         Assert.Contains("static void Scale(thread float* values, int __len_values)", descriptor.MslSource);
         Assert.Contains("static float Dot(thread const float* a, int __len_a, thread const float* b, int __len_b)", descriptor.MslSource);
-        Assert.Contains("for (int k = 0; k < __len_values; k++)", descriptor.FunctionBody("static void Fill("));
+        Assert.Contains("for (int k = 0; k < __len_values; k = int(uint(k) + 1u))", descriptor.FunctionBody("static void Fill("));
         Assert.Contains("::Scale(values, __len_values);", descriptor.FunctionBody("static void Fill("));
         Assert.Equal("values[0] *= float(__len_values);", descriptor.FunctionBody("static void Scale("));
         Assert.Contains("::Fill(taps, 5, buffer[i]);", descriptor.KernelBody);
@@ -596,7 +596,7 @@ public class LocalArrayTests
         ShaderDescriptor descriptor = run.Verify(Shader);
 
         Assert.Contains("    Four Taps;", descriptor.MslSource);
-        Assert.Contains("k.Taps._e[k.Count - 1] = k.Scale;", descriptor.KernelBody);
+        Assert.Contains("k.Taps._e[int(uint(k.Count) - 1u)] = k.Scale;", descriptor.KernelBody);
         Assert.Contains("kernels[int(__tid.x)].Taps._e[0] += k.Taps._e[1];", descriptor.KernelBody);
         descriptor.AssertLayoutMatchesClr("Kernel", run.LoadType("Tests.Kernel"));
     }

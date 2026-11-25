@@ -420,6 +420,12 @@ internal sealed partial class MslTranslator
             return OperatorCall(operation, userOperator, operation.Operand) ?? Expr.Error;
         }
 
+        if (SignedArithmetic(operation) is { } wrapped)
+        {
+            // `-a` on a signed integer: `int(-uint(a))`, which wraps for MinValue as C# does.
+            return wrapped;
+        }
+
         string operand = Expression(operation.Operand).Operand(Expr.Unary);
 
         // Avoid gluing `-` and `-x` into a decrement.
@@ -502,6 +508,12 @@ internal sealed partial class MslTranslator
         {
             // In MSL, comparing vectors yields a bool vector, not the single bool that C# computed.
             return Unsupported(operation, $"a '{text}' comparison of vectors that returns 'bool' (MSL compares component-wise; compare the components or use an intrinsic such as all/any)");
+        }
+
+        if (SignedArithmetic(operation) is { } wrapped)
+        {
+            // Signed `+`, `-` and `*` are computed unsigned, where overflow wraps as in C#.
+            return wrapped;
         }
 
         Expr left = Expression(operation.LeftOperand);
@@ -604,6 +616,12 @@ internal sealed partial class MslTranslator
         }
 
         Expr target = StoreTarget(operation.Target, out bool packed);
+
+        if (!packed && SignedCompoundAssignment(operation, target, text, precedence) is { } wrapped)
+        {
+            return wrapped;
+        }
+
         Expr value = Expression(operation.Value);
         GpuType? targetType = _types.Resolve(operation.Target.Type);
 
@@ -651,6 +669,11 @@ internal sealed partial class MslTranslator
 
         string text = operation.Kind == OperationKind.Increment ? "++" : "--";
         Expr target = Expression(operation.Target);
+
+        if (SignedIncrementOrDecrement(operation, target) is { } wrapped)
+        {
+            return wrapped;
+        }
 
         return operation.IsPostfix
             ? new Expr(target.Operand(Expr.Primary) + text, Expr.Primary)
@@ -713,9 +736,14 @@ internal sealed partial class MslTranslator
         return false;
     }
 
-    private static bool HasSideEffects(IOperation operation)
+    /// <summary>
+    /// True when evaluating <paramref name="operation"/> may have effects, so that its MSL must not be
+    /// evaluated twice: a call, an assignment, an increment, a construction, or anything else that
+    /// runs code of the user's (see <see cref="CallsUserCode"/>).
+    /// </summary>
+    private bool HasSideEffects(IOperation operation)
     {
-        if (operation is IInvocationOperation or IAssignmentOperation or IIncrementOrDecrementOperation or IObjectCreationOperation)
+        if (operation is IInvocationOperation or IAssignmentOperation or IIncrementOrDecrementOperation or IObjectCreationOperation || CallsUserCode(operation))
         {
             return true;
         }
@@ -730,4 +758,19 @@ internal sealed partial class MslTranslator
 
         return false;
     }
+
+    /// <summary>
+    /// True for an operation that is a function call in MSL although it is no invocation in C#: a
+    /// computed property or indexer (one whose getter has a body, <c>int Next { get { ... } }</c>),
+    /// and an operator or conversion a user type declares. The properties and operators of
+    /// <c>[MslType]</c> vectors and of SharpCompute's own types are native, not user code.
+    /// </summary>
+    private bool CallsUserCode(IOperation operation) => operation switch
+    {
+        IPropertyReferenceOperation { Property: var property } => IsComputedProperty(property) && _types.Resolve(property.ContainingType) is not { IsNumeric: true },
+        IBinaryOperation { OperatorMethod: { } method } => !IsNativeOperator(method),
+        IUnaryOperation { OperatorMethod: { } method } => !IsNativeOperator(method),
+        IConversionOperation { OperatorMethod: { } method } => !IsNativeOperator(method),
+        _ => false,
+    };
 }
