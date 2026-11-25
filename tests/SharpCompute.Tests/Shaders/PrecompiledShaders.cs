@@ -121,6 +121,37 @@ public readonly partial struct WindowedField(ReadWriteBuffer<float> field, float
     }
 }
 
+/// <summary>
+/// The small and 64-bit integer types in one kernel: constants of them, which give the constants
+/// struct an explicit layout with holes (a byte before a long, a short before a ulong), 64-bit
+/// arithmetic and shifts, narrowing casts, and a float converted to a long, which goes through a
+/// helper of the MSL prelude. Eight results per thread.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct IntegerSweep(
+    byte tag, long key, short delta, ulong hash, ReadOnlyBuffer<float> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Outputs = 8;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int o = i * Outputs;
+
+        // Scaled so that some values are beyond the range of a long; the inputs also hold NaN and infinity.
+        float wide = input[i * MathSweep.Inputs] * 4e18f;
+
+        output[o] = (long)wide;
+        output[o + 1] = key + (tag * delta) + i;
+        output[o + 2] = (long)(hash ^ (ulong)key) >> (tag & 63);
+        output[o + 3] = (byte)(tag + i);
+        output[o + 4] = (short)(delta * i);
+        output[o + 5] = (long)(hash * (ulong)(i + 1));
+        output[o + 6] = (long)input[(i * MathSweep.Inputs) + 1] * key;
+        output[o + 7] = (sbyte)i + (ushort)(delta - i);
+    }
+}
+
 /// <summary>Shaders nothing else dispatches, so each test sees their first use on its own device.</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct PrecompiledProbeA(ReadWriteBuffer<int> data) : IComputeShader

@@ -352,6 +352,55 @@ public class PrecompiledShaderTests
     }
 
     [PrecompiledFact]
+    public void SmallAndWideIntegerKernel_GivesTheSameBits_PrecompiledAndCompiledFromSource()
+    {
+        const byte Tag = 0xA5;
+        const long Key = unchecked((long)0x8877665544332211);
+        const short Delta = -12345;
+        const ulong Hash = 0xFEDCBA9876543210;
+        float[] input = MathInputs();
+
+        // What the build tool had to get through the offline compiler for this kernel: the 64-bit
+        // and 8- and 16-bit types, a constants struct with explicit offsets, and the prelude's helper
+        // for the float to long conversion.
+        string msl = Source<IntegerSweep>();
+        Assert.Contains("__ms_float_to_long(", msl);
+        Assert.Contains("static_assert(__builtin_offsetof(__Constants, ", msl);
+        Assert.Matches(@"\bulong\b", msl);
+        Assert.Matches(@"\buchar\b", msl);
+
+        long[] RunLongs(GraphicsDevice device, bool onCpu = false)
+        {
+            using ReadOnlyBuffer<float> source = device.AllocateReadOnlyBuffer<float>(input);
+            using ReadWriteBuffer<long> output = device.AllocateReadWriteBuffer<long>(Length * IntegerSweep.Outputs);
+            IntegerSweep shader = new(Tag, Key, Delta, Hash, source, output);
+
+            if (onCpu)
+            {
+                device.ForCpu(Length, shader);
+            }
+            else
+            {
+                device.For(Length, shader);
+            }
+
+            return output.ToArray();
+        }
+
+        AssertSameBits<IntegerSweep>(device => MemoryMarshal.Cast<long, int>(RunLongs(device)).ToArray(), windowed: false);
+
+        // And the precompiled kernel computes what the C# does, constants and conversions included.
+        using GraphicsDevice precompiled = GraphicsDevice.CreateSystemDefault();
+        long[] gpu = RunLongs(precompiled);
+        long[] cpu = RunLongs(precompiled, onCpu: true);
+
+        Assert.Equal(PipelineOrigin.Precompiled, precompiled.GetPipelineOrigin<IntegerSweep>());
+        Assert.Equal(cpu, gpu);
+        Assert.Contains(long.MaxValue, gpu);
+        Assert.Contains(long.MinValue, gpu);
+    }
+
+    [PrecompiledFact]
     public void PixelShader_GivesTheSamePixels_PrecompiledAndCompiledFromSource()
     {
         int[] Run(GraphicsDevice device)
@@ -542,6 +591,9 @@ public class PrecompiledShaderTests
 
     private static string EntryPoint<T>()
         where T : struct, IComputeShaderDescriptor<T> => T.EntryPoint;
+
+    private static string Source<T>()
+        where T : struct, IComputeShaderDescriptor<T> => T.MslSource;
 
     /// <summary>Runs <see cref="PrecompiledProbeA"/> on <paramref name="device"/> and checks that it was compiled from its MSL and still gives its values.</summary>
     private static void AssertCompiledFromSource(GraphicsDevice device)
