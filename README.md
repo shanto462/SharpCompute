@@ -219,7 +219,8 @@ Without a picture, because they print timings or play sound:
 
 `scripts/demo-computelab.sh --page <name>` starts on a page; `--list` shows them all.
 `scripts/demo-groupshared.sh` and `scripts/demo-simdgroups.sh` open the lab on its shared-memory and
-SIMD-group pages.
+SIMD-group pages. The Indirect and FastMath pages also say whether their kernel was
+[precompiled](#precompiled-shaders) when the lab was built or compiled at run time.
 
 <table>
 <tr>
@@ -244,7 +245,7 @@ SIMD-group pages.
 </tr>
 <tr>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-bits.png"><img src="docs/screenshots/thumbs/computelab-bits.png" width="100%" alt="ComputeLab Bits page: popcount, bit reversal, leading and trailing zeros, float bits and unorm8 packing drawn as patterns"></a><br><b>Math</b>: Bits<br><code>--page bits</code></td>
-<td width="33%" valign="top"><a href="docs/screenshots/computelab-fastmath.png"><img src="docs/screenshots/thumbs/computelab-fastmath.png" width="100%" alt="ComputeLab FastMath page: a transcendental-heavy field and its error against the CPU, with and without fast math"></a><br><b>Math</b>: FastMath<br><code>--page fastmath</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-fastmath.png"><img src="docs/screenshots/thumbs/computelab-fastmath.png" width="100%" alt="ComputeLab FastMath page: a transcendental-heavy field and its error against the CPU, with and without fast math, and whether the kernel was precompiled"></a><br><b>Math</b>: FastMath<br><code>--page fastmath</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 </tr>
 <tr>
@@ -1075,9 +1076,9 @@ device.Prepare<Blur>(PrepareOptions.IncludeSplit);                       // also
 ```
 
 The first time an application runs on a machine, the first frame of a large shader (a raymarched
-scene of about 300 lines) takes 245 ms without `Prepare` and 11 ms with it, the 233 ms having moved
+scene of about 300 lines) takes 245 ms without `Prepare` and 12 ms with it, the 236 ms having moved
 into `Prepare`. On later launches macOS has the compiled shader in its cache and the first frame
-takes 8 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
+takes about 10 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
 
 ### Precompiled shaders
 
@@ -1122,14 +1123,14 @@ has never seen, so with an empty shader cache):
 
 | | First launch on a machine | Later launches |
 |---|---|---|
-| RaymarchedGarden, compiled at run time | 245 ms | 8 ms |
-| RaymarchedGarden, compiled at run time, after `Prepare` (233 ms) | 11 ms | 6 ms |
-| RaymarchedGarden, precompiled | 184 ms | 9 ms |
-| RaymarchedGarden, precompiled, after `Prepare` (177 ms) | 12 ms | 5 ms |
-| The gallery's 13 shaders, compiled at run time | 1380 ms | 44 ms |
-| The gallery's 13 shaders, precompiled | 712 ms | 43 ms |
+| RaymarchedGarden (about 300 lines), compiled at run time | 245 ms | 14 ms |
+| the same, with `Prepare` first | 236 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 6 ms |
+| RaymarchedGarden, precompiled | 188 ms | 10 ms |
+| the same, with `Prepare` first | 188 ms in `Prepare`, then 13 ms | 4 ms in `Prepare`, then 7 ms |
+| The gallery's 13 shaders, compiled at run time | 1474 ms | 45 ms |
+| The gallery's 13 shaders, precompiled | 752 ms | 45 ms |
 
-A steady frame is 2 ms for the one shader and 12 ms for the thirteen. Precompiling takes 60 ms off
+A steady frame is 2 ms for the one shader and 12 ms for the thirteen. Precompiling takes 57 ms off
 the first frame of the large shader and halves the wait for the gallery; what remains is the GPU
 driver compiling for this machine, which macOS does once and caches, and which `Prepare` moves off
 the first frame. On later launches the cache already holds the result, and precompiling makes no
