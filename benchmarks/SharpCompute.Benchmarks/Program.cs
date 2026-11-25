@@ -10,6 +10,11 @@ using SharpCompute.Benchmarks.Shaders;
 //   --verify            run every workload once on CPU and GPU and compare (exit 1 on failure)
 //   --first-dispatch    time device creation and the first Mandelbrot dispatch in this fresh process
 //   --msl               print the generated MSL of every benchmark shader
+//   --runtime-features  quick Stopwatch measurements of GPU copies, FP contraction off and pipeline
+//                       warm-up (a few seconds; not part of the report)
+//   --first-frame cold|prepared cached|uncached
+//                       time the first frame of a gallery shader in this fresh process, without or
+//                       with GraphicsDevice.Prepare (--runtime-features spawns these)
 //   --run [--quick] [--out RESULTS.md] [--filter <glob>] [--merge <run-data.json>]
 //                       verify, measure first dispatch, run BenchmarkDotNet, write the report
 //   --render <run-data.json> [--out RESULTS.md]
@@ -20,6 +25,11 @@ if (args.Contains("--first-dispatch"))
 {
     FirstDispatch.Measure().Print();
     return 0;
+}
+
+if (args.Contains("--first-frame"))
+{
+    return RuntimeFeatures.FirstFrame(args);
 }
 
 if (!GraphicsDevice.IsSupported)
@@ -34,6 +44,11 @@ if (args.Contains("--verify"))
     int failed = checks.Count(c => !c.Passed);
     Console.WriteLine(failed == 0 ? $"verify: all {checks.Count} checks passed" : $"verify: {failed} of {checks.Count} checks FAILED");
     return failed == 0 ? 0 : 1;
+}
+
+if (args.Contains("--runtime-features"))
+{
+    return RuntimeFeatures.Run();
 }
 
 if (args.Contains("--msl"))

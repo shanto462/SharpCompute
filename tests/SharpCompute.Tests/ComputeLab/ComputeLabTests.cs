@@ -117,17 +117,17 @@ public sealed class ComputeLabTests
     // ---- the pages --------------------------------------------------------------------------------
 
     [MetalFact]
-    public void Pages_AreTheThreeOfThisLab_EachWithAtLeastOneVariant()
+    public void Pages_AreTheFiveOfThisLab_EachWithAtLeastOneVariant()
     {
         List<ILabPage> pages = LabPages.Create(GraphicsDevice.GetDefault());
 
         try
         {
-            Assert.Equal(["Histogram", "Compaction", "Bits"], pages.Select(static p => p.Name));
-            Assert.Equal(["atomics", "atomics", "bit and packing intrinsics"], pages.Select(static p => p.Feature));
+            Assert.Equal(["Histogram", "Compaction", "Bits", "Indirect", "FastMath"], pages.Select(static p => p.Name));
+            Assert.Equal(["atomics", "atomics", "bit and packing intrinsics", "indirect dispatch", "per-shader compile options"], pages.Select(static p => p.Feature));
             Assert.All(pages, static p => Assert.NotEmpty(p.Variants));
             Assert.All(pages, static p => Assert.Equal(0, p.Variant));
-            Assert.Equal(["1-histogram.png", "2-compaction.png", "3-bits.png"], Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
+            Assert.Equal(["1-histogram.png", "2-compaction.png", "3-bits.png", "4-indirect.png", "5-fastmath.png"], Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
         }
         finally
         {
@@ -218,12 +218,16 @@ public sealed class ComputeLabTests
                 Assert.Equal(summary, log.ToString());
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
-                Assert.Equal(4, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // histogram twice
+                Assert.Equal(8, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // histogram, indirect and fast math twice
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
-                Assert.Equal(4, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
+                Assert.Contains("indirect: compact, dispatch the survivors", summary);
+                Assert.Contains("direct: all 1,048,576 threads test themselves", summary);
+                Assert.Contains("safe math (the default)", summary);
+                Assert.Contains("[ShaderOptions(FastMath = true)]", summary);
+                Assert.Equal(8, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
 
-                string[] pictures = ["1-histogram.png", "2-compaction.png", "3-bits.png"];
+                string[] pictures = ["1-histogram.png", "2-compaction.png", "3-bits.png", "4-indirect.png", "5-fastmath.png"];
                 Assert.Equal(pictures.Append("summary.txt").Order(), Directory.GetFiles(directory).Select(Path.GetFileName).Order());
                 Assert.All(pictures, name => Assert.Contains(name, summary));
                 files.Add(pictures.ToDictionary(static name => name, name => File.ReadAllBytes(Path.Combine(directory, name))));
@@ -365,6 +369,110 @@ public sealed class ComputeLabTests
 
         // Between the tiles: background.
         Assert.Equal(pixels[0], pixels[(BitPatterns.OriginY * LabCanvas.Width) + BitPatterns.OriginX + 270]);
+    }
+
+    [MetalFact]
+    public void Indirect_DispatchesWholeThreadGroupsOverTheSurvivors_AndBothVariantsAgree()
+    {
+        using IndirectPage page = new(GraphicsDevice.GetDefault());
+
+        // Indirect: the GPU's own count, rounded up to whole groups of 256, is what ran.
+        page.Compute(Frame);
+        int kept = page.Kept;
+        Assert.InRange(kept, IndirectPage.Count / 50, IndirectPage.Count / 2);
+        Assert.Equal(DispatchArguments.FromCount(kept, ShadeSurvivors.GroupSize), page.Arguments);
+        Assert.Equal((kept + 255) / 256 * 256, page.ThreadsDispatched);
+        Assert.InRange(page.ThreadsDispatched - kept, 0, 255);
+        Assert.True(page.GpuMilliseconds > 0 && page.OtherMilliseconds > 0);
+
+        LabCheck check = page.Check();
+        Assert.True(check.Passed, check.Summary);
+        Assert.Contains(kept.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), check.Summary);
+
+        // Exactly the survivors were written, each with its own value.
+        uint[] indirect = page.Shaded.ToArray();
+        Assert.Equal(kept, indirect.Count(static value => value != 0u));
+
+        // Direct: every thread of the array tests its own element, and the result is the same.
+        Assert.True(page.OnKeyDown(Key.D));
+        Assert.Equal(1, page.Variant);
+        page.Compute(Frame);
+        Assert.Equal(kept, page.Kept);
+        Assert.Equal(IndirectPage.Count, page.ThreadsDispatched);
+        Assert.Equal(indirect, page.Shaded.ToArray());
+        LabCheck direct = page.Check();
+        Assert.True(direct.Passed, direct.Summary);
+        Assert.True(page.OnKeyDown(Key.D));
+
+        // A higher threshold leaves fewer survivors and fewer threadgroups; other keys are not the page's.
+        uint cutoff = page.Cutoff;
+        uint groups = page.Arguments.ThreadGroupsX;
+        Assert.True(page.OnKeyDown(Key.Up));
+        Assert.True(page.Cutoff > cutoff);
+        page.Compute(Frame);
+        Assert.True(page.Kept < kept);
+        Assert.True(page.Arguments.ThreadGroupsX < groups);
+        Assert.True(page.Check().Passed);
+        Assert.False(page.OnKeyDown(Key.C));
+
+        for (int i = 0; i < 40; i++)
+        {
+            page.OnKeyDown(Key.Up);
+        }
+
+        Assert.Equal(63000u, page.Cutoff); // clamped
+
+        // Almost nothing survives at the top of the range; both ways still agree, down to few groups.
+        page.Compute(new LabFrame(Headless.Time, Deterministic: false));
+        Assert.True(page.Kept < kept / 4);
+        Assert.True(page.Check().Passed);
+        page.Variant = 1;
+        page.Compute(Frame);
+        Assert.True(page.Check().Passed);
+    }
+
+    [MetalFact]
+    public void FastMath_BothVariantsStayWithinTheirBounds_AndFastMathIsTheLooserOne()
+    {
+        using FastMathPage page = new(GraphicsDevice.GetDefault());
+
+        page.Compute(Frame);
+        LabCheck safe = page.Check();
+        Assert.True(safe.Passed, safe.Summary);
+        Assert.Equal(FastMathPage.SafeBound, page.Bound);
+        Assert.InRange(page.MaxError, 0f, FastMathPage.SafeBound);
+        Assert.Contains("max error against the CPU", safe.Summary);
+
+        Assert.True(page.OnKeyDown(Key.F));
+        Assert.Equal(1, page.Variant);
+        page.Compute(Frame);
+        LabCheck fast = page.Check();
+        Assert.True(fast.Passed, fast.Summary);
+        Assert.Equal(FastMathPage.FastBound, page.Bound);
+        Assert.True(FastMathPage.FastBound > FastMathPage.SafeBound);
+        Assert.False(page.OnKeyDown(Key.C));
+
+        // The two shaders differ in their compile options and in nothing else.
+        Assert.Equal(ShaderCompileOptions.None, Options<WaveField>());
+        Assert.Equal(ShaderCompileOptions.FastMath, Options<WaveFieldFast>());
+        Assert.Equal(Source<WaveField>().Replace(nameof(WaveFieldFast), "X").Replace(nameof(WaveField), "X"), Source<WaveFieldFast>().Replace(nameof(WaveFieldFast), "X"));
+
+        static ShaderCompileOptions Options<T>()
+            where T : struct, IComputeShaderDescriptor<T> => T.CompileOptions;
+
+        static string Source<T>()
+            where T : struct, IComputeShaderDescriptor<T> => T.MslSource;
+    }
+
+    [Fact]
+    public void Indirect_ShadeIsNeverZero_SoZeroMarksAnElementThatWasNotWritten()
+    {
+        for (uint i = 0; i < 10_000; i++)
+        {
+            Assert.NotEqual(0u, ShadeSurvivors.Shade(i * 7u, i));
+        }
+
+        Assert.NotEqual(ShadeSurvivors.Shade(1000u, 1u), ShadeSurvivors.Shade(1000u, 2u));
     }
 
     [MetalFact]

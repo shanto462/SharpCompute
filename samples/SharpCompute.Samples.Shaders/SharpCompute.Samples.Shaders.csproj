@@ -9,6 +9,10 @@
     <RootNamespace>SharpCompute.Samples.Shaders</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The first-frame measurement (benchmarks, runtime-features mode) prepares and dispatches a gallery shader by type. -->
+    <InternalsVisibleTo Include="SharpCompute.Benchmarks" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

@@ -97,8 +97,9 @@ public sealed class ShaderOptionsAttribute : Attribute
     /// </summary>
     /// <remarks>
     /// With contraction off, arithmetic that uses only <c>+ - * /</c> and <c>Gpu.Sqrt</c> gives the
-    /// same bits on the GPU as in C# on the CPU, at the cost of the fused operations. Math functions
-    /// (<c>Gpu.Sin</c> and so on) still differ by a few ULP either way. <c>Gpu.Fma</c> is always fused.
+    /// same bits on the GPU as in C# on the CPU, at the cost of the fused operations. Two things it
+    /// does not change: math functions (<c>Gpu.Sin</c> and so on) still differ by a few ULP, and the
+    /// GPU still flushes subnormal results to zero. <c>Gpu.Fma</c> is always fused.
     /// </remarks>
     public bool FpContract { get; init; } = true;
 }

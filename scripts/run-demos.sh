@@ -99,7 +99,7 @@ dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Shooter 
 step "Textures: the six samplers on each of the eight formats, and a ping-pong simulation (headless)"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Textures -- --headless --out "$OUT/textures"
 
-step "ComputeLab: atomics, bit and packing intrinsics, one page each, GPU checked against the CPU"
+step "ComputeLab: atomics, bit and packing intrinsics, indirect dispatch, compile options; one page each, GPU checked against the CPU"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.ComputeLab -- --headless --out "$OUT/computelab"
 
 step "GroupShared: a reduction, a prefix sum, a tiled matrix product and a tiled blur in threadgroup shared memory (headless)"

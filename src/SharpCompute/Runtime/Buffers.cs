@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using SharpCompute.Interop;
@@ -27,7 +28,9 @@ namespace SharpCompute;
 /// passed to <c>Copy</c>, <c>Fill</c> and <c>Clear</c>. Everything about a view is relative to its
 /// start: index 0 is its first element and <see cref="Length"/> is its own length, in C# and in the
 /// shader alike. A view owns no memory: disposing it releases nothing, and it counts as disposed
-/// once the buffer it was made from is.
+/// once the buffer that owns the memory is (for a view of a view, that is the buffer at the root, not
+/// the view in between). Making a view allocates a small object and registers it with that buffer;
+/// keep a view you bind every frame rather than slicing again each time.
 /// </para>
 /// </remarks>
 public abstract unsafe class Buffer<T> : IDisposable
@@ -43,12 +46,16 @@ public abstract unsafe class Buffer<T> : IDisposable
     private readonly Buffer<T> _root;
     private readonly int _start;
 
-    // Equal to _length while this object is alive and 0 once it is disposed, so one comparison in the
-    // indexers rejects both an out-of-range index and a disposed buffer. A second one, against the
-    // root, rejects a view whose source was disposed (for a buffer that owns its memory the root is
-    // the buffer itself).
+    // Equal to _length while the buffer is usable and 0 once it is not, so the indexers need a single
+    // comparison to reject an out-of-range index, a disposed buffer and a view whose memory was
+    // released: disposing the buffer that owns the memory zeroes this field in every view of it (see
+    // ViewRegistry). The indexers are the inner loop of CPU dispatches, where a second comparison
+    // against the root measured about 25 % on a kernel that does little else.
     private int _accessibleLength;
     private int _disposed;
+
+    // The views of this buffer, when it owns its memory and has ever been sliced.
+    private ViewRegistry? _views;
 
     private protected Buffer(GraphicsDevice device, int length)
     {
@@ -130,6 +137,14 @@ public abstract unsafe class Buffer<T> : IDisposable
         _isCpuWritable = source._isCpuWritable;
         _root = source._root;
         _start = source._start + start;
+
+        // From here on, disposing the root makes this view unusable. If the root was disposed since
+        // the check above, the view was never usable at all.
+        if (!_root.Register(this))
+        {
+            _accessibleLength = 0;
+            throw new ObjectDisposedException(source.GetType().FullName);
+        }
     }
 
     /// <summary>The device this buffer was allocated from. It can only be bound to shaders dispatched on that device.</summary>
@@ -254,14 +269,30 @@ public abstract unsafe class Buffer<T> : IDisposable
 
         if (!IsView)
         {
+            // Before the memory goes: a view's indexer checks nothing but its own length.
+            Volatile.Read(ref _views)?.DisposeAll();
             _handle.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Makes <paramref name="view"/> depend on this buffer, which owns its memory: when this buffer is
+    /// disposed, the view's accessible length is zeroed. False when this buffer is already disposed.
+    /// </summary>
+    private bool Register(Buffer<T> view)
+    {
+        ViewRegistry views = Volatile.Read(ref _views) ?? Interlocked.CompareExchange(ref _views, new ViewRegistry(), null) ?? _views!;
+
+        // The registry exists before the disposed check, and Dispose sets the flag before it looks for
+        // the registry, so one of the two always sees the other: a view is either refused here or
+        // found by DisposeAll.
+        return views.Add(view, this);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private protected ref T GetReference(int index)
     {
-        if ((uint)index >= (uint)_accessibleLength || _root._disposed != 0)
+        if ((uint)index >= (uint)_accessibleLength)
         {
             ThrowIndexFailure(index);
         }
@@ -278,6 +309,79 @@ public abstract unsafe class Buffer<T> : IDisposable
         throw new ArgumentOutOfRangeException(
             nameof(index), index, $"Index must be non-negative and less than the buffer length ({_length}).");
     }
+
+    /// <summary>
+    /// The views of one buffer, held weakly: a view that is dropped without being disposed is simply
+    /// collected, and its entry is swept out as the list grows. Thread-safe.
+    /// </summary>
+    private sealed class ViewRegistry
+    {
+        private const int FirstSweep = 16;
+
+        private readonly Lock _lock = new();
+        private List<WeakReference<Buffer<T>>>? _entries = [];
+        private int _sweepAt = FirstSweep;
+
+        /// <summary>Adds <paramref name="view"/>; false when <paramref name="owner"/> is disposed (the view must not be used).</summary>
+        internal bool Add(Buffer<T> view, Buffer<T> owner)
+        {
+            lock (_lock)
+            {
+                if (_entries is null || Volatile.Read(ref owner._disposed) != 0)
+                {
+                    return false;
+                }
+
+                // Dead entries are swept when the list has doubled since the last sweep, so a loop that
+                // slices every frame keeps a list about as long as the number of views still alive.
+                if (_entries.Count >= _sweepAt)
+                {
+                    _entries.RemoveAll(static entry => !entry.TryGetTarget(out _));
+                    _sweepAt = Math.Max(FirstSweep, _entries.Count * 2);
+                }
+
+                _entries.Add(new WeakReference<Buffer<T>>(view));
+                return true;
+            }
+        }
+
+        /// <summary>Makes every registered view unusable; later <see cref="Add"/> calls are refused.</summary>
+        internal void DisposeAll()
+        {
+            lock (_lock)
+            {
+                if (_entries is null)
+                {
+                    return;
+                }
+
+                foreach (WeakReference<Buffer<T>> entry in _entries)
+                {
+                    if (entry.TryGetTarget(out Buffer<T>? view))
+                    {
+                        Volatile.Write(ref view._accessibleLength, 0);
+                    }
+                }
+
+                _entries = null;
+            }
+        }
+
+        /// <summary>Tests only: the number of entries, dead ones included until the next sweep.</summary>
+        internal int Count
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _entries?.Count ?? 0;
+                }
+            }
+        }
+    }
+
+    /// <summary>Tests only: how many view entries this buffer's registry holds (0 when it was never sliced).</summary>
+    internal int RegisteredViewCount => Volatile.Read(ref _views)?.Count ?? 0;
 }
 
 /// <summary>A read/write buffer; <c>device T*</c> in MSL.</summary>
@@ -312,8 +416,9 @@ public sealed class ReadWriteBuffer<T> : Buffer<T>
     /// indexing a view outside 0..<paramref name="length"/> reaches the rest of this buffer.
     /// </para>
     /// <para>
-    /// The view owns nothing. Disposing it releases nothing, it counts as disposed once this buffer
-    /// is, and a dispatch that binds it leases this buffer's memory until the GPU is done. Views may
+    /// The view owns nothing. Disposing it releases nothing, it counts as disposed once the buffer
+    /// that owns the memory is (this buffer, or for a view of a view the buffer at the root), and a
+    /// dispatch that binds it leases that memory until the GPU is done. Views may
     /// overlap each other and this buffer; binding two that overlap to one dispatch that writes
     /// either is a data race, exactly like binding the same buffer twice.
     /// </para>

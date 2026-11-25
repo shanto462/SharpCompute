@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using SharpCompute.Interop;
 using SharpCompute.Tests.Shaders;
@@ -341,6 +343,112 @@ public class BufferViewTests
 
         // Disposing a view of a disposed source is still fine.
         view.Dispose();
+    }
+
+    [MetalFact]
+    public void SliceOfASlice_DependsOnTheBufferThatOwnsTheMemory_NotOnTheSliceInBetween()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Enumerable.Range(0, 100).ToArray());
+        ReadWriteBuffer<int> outer = buffer.Slice(20, 60);
+        ReadWriteBuffer<int> inner = outer.Slice(5, 10);
+
+        outer.Dispose();
+
+        // The inner view is its own window onto the buffer's memory; only the buffer can end it.
+        Assert.False(inner.IsDisposed);
+        Assert.Equal(25, inner[0]);
+        device.For(10, new IncrementAll(inner));
+        Assert.Equal(26, buffer[25]);
+        Assert.Throws<ObjectDisposedException>(() => outer.Slice(0, 1));
+
+        buffer.Dispose();
+        Assert.True(inner.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => inner[0]);
+    }
+
+    [MetalFact]
+    public void SlicesThatAreDropped_AreNotKeptByTheirSource()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(1024);
+        Assert.Equal(0, buffer.RegisteredViewCount);
+
+        // A loop that slices every "frame" and keeps nothing: the source's registry of views must not
+        // grow with the number of slices ever made, only with the number still alive.
+        ReadWriteBuffer<int> kept = buffer.Slice(0, 16);
+
+        for (int round = 0; round < 20; round++)
+        {
+            SliceAndDrop(buffer, 1000);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        Assert.InRange(buffer.RegisteredViewCount, 1, 2100);
+
+        // The one that was kept is still wired to its source (element 15 was written through a dropped slice).
+        Assert.Equal(15, kept[15]);
+        buffer.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => kept[15]);
+        Assert.Equal(0, buffer.RegisteredViewCount);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void SliceAndDrop(ReadWriteBuffer<int> buffer, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            buffer.Slice(i, 8)[0] = i;
+        }
+    }
+
+    [MetalFact]
+    public void SlicingWhileTheSourceIsDisposed_NeverLeavesAUsableSliceBehind()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+
+        for (int round = 0; round < 200; round++)
+        {
+            ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(256);
+            ReadWriteBuffer<int>?[] slices = new ReadWriteBuffer<int>?[64];
+            using Barrier barrier = new(2);
+
+            Task slicing = Task.Run(() =>
+            {
+                barrier.SignalAndWait();
+
+                for (int i = 0; i < slices.Length; i++)
+                {
+                    try
+                    {
+                        slices[i] = buffer.Slice(i, 8);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The dispose won the race for this one.
+                    }
+                }
+            });
+
+            Task disposing = Task.Run(() =>
+            {
+                barrier.SignalAndWait();
+                buffer.Dispose();
+            });
+
+            Task.WaitAll(slicing, disposing);
+
+            // Whichever side won each race, every slice that exists is disposed now: none can reach freed memory.
+            foreach (ReadWriteBuffer<int>? slice in slices)
+            {
+                if (slice is not null)
+                {
+                    Assert.True(slice.IsDisposed);
+                    Assert.Throws<ObjectDisposedException>(() => slice[0]);
+                }
+            }
+        }
     }
 
     [MetalFact]

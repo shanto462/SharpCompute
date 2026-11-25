@@ -605,6 +605,41 @@ public class GpuCopyTests
     }
 
     [MetalFact]
+    public void Copy_BetweenBufferAndTexture_OfOneAndTwoBytePixels_AtOddWidths()
+    {
+        // Packed rows of 5 and 10 bytes: not multiples of 4, and shorter than the texture's padded rows.
+        const int width = 5, height = 3;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+
+        R8[] bytes = Enumerable.Range(0, width * height).Select(i => new R8((byte)(i * 17))).ToArray();
+        using ReadWriteBuffer<R8> packedBytes = device.AllocateReadWriteBuffer<R8>(bytes);
+        using ReadWriteTexture2D<R8> byteTexture = device.AllocateReadWriteTexture2D<R8>(width, height);
+        using ReadWriteBuffer<R8> bytesBack = device.AllocateReadWriteBuffer<R8>((width * height) + 3);
+
+        device.Copy(packedBytes, byteTexture);
+        device.Copy(byteTexture, bytesBack.Slice(3));
+        Assert.Equal(bytes, byteTexture.ToArray());
+        Assert.Equal(bytes, bytesBack.ToArray()[3..]);
+        Assert.All(bytesBack.ToArray()[..3], pixel => Assert.Equal(default, pixel));
+
+        Half[] halves = Enumerable.Range(0, width * height).Select(i => (Half)(i * 0.25f)).ToArray();
+        using ReadWriteBuffer<Half> packedHalves = device.AllocateReadWriteBuffer<Half>(halves);
+        using ReadWriteTexture2D<Half> halfTexture = device.AllocateReadWriteTexture2D<Half>(width, height);
+        using ReadOnlyTexture2D<Half> halfCopy = device.AllocateReadOnlyTexture2D<Half>(width, height);
+        using ReadWriteBuffer<Half> halvesBack = device.AllocateReadWriteBuffer<Half>((width * height) + 1);
+
+        using (ComputeContext context = device.CreateComputeContext())
+        {
+            context.Copy(packedHalves, halfTexture);
+            context.Copy(halfTexture, halfCopy);
+            context.Copy(halfCopy, halvesBack.Slice(1));
+        }
+
+        Assert.Equal(halves, halfCopy.ToArray());
+        Assert.Equal(halves, halvesBack.ToArray()[1..]);
+    }
+
+    [MetalFact]
     public void Copy_OfFloatTextures_KeepsTheBits()
     {
         const int width = 37, height = 5;

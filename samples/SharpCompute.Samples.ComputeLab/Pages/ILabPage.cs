@@ -70,5 +70,7 @@ public static class LabPages
         new HistogramPage(device),
         new CompactionPage(device),
         new BitsPage(device),
+        new IndirectPage(device),
+        new FastMathPage(device),
     ];
 }
