@@ -123,9 +123,19 @@ internal static class DescriptorEmitter
         if (model.UsesAtomics)
         {
             // Without this member the interface's default (false) applies.
-            writer.Line("/// <summary>The kernel uses atomic operations, so a CPU+GPU split dispatch must not divide it between the two.</summary>");
+            writer.Line(model.UsesDeviceAtomics
+                ? "/// <summary>The kernel uses atomic operations on buffer elements, so a CPU+GPU split dispatch must not divide it between the two.</summary>"
+                : "/// <summary>The kernel uses atomic operations.</summary>");
             writer.Line($"static bool {contract}.UsesAtomics => true;");
             writer.Line();
+
+            if (!model.UsesDeviceAtomics)
+            {
+                // Without this member the interface's default (UsesAtomics) applies.
+                writer.Line("/// <summary>All of them are on threadgroup memory, which the threads of one threadgroup share: a CPU+GPU split dispatch may divide the kernel.</summary>");
+                writer.Line($"static bool {contract}.UsesDeviceAtomics => false;");
+                writer.Line();
+            }
         }
 
         if (model.UsesThreadgroupMemory)

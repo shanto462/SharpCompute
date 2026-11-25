@@ -134,9 +134,23 @@ public class ContractTests
             Assert.Equal(name == "AtomicAdd" ? ["Int32", "Single", "UInt32"] : new[] { "Int32", "UInt32" }, elements.Select(t => t.Name).Order());
         }
 
-        // The strong compare-and-swap is a prelude helper, one overload per atomic type.
-        Assert.Contains("inline int __ms_atomic_compare_exchange(device metal::atomic_int* location, int comparand, int value)", MslPrelude.Source, StringComparison.Ordinal);
-        Assert.Contains("inline uint __ms_atomic_compare_exchange(device metal::atomic_uint* location, uint comparand, uint value)", MslPrelude.Source, StringComparison.Ordinal);
+        // The strong compare-and-swap is a prelude helper, one overload per atomic type and address
+        // space: buffer elements (device) and [GroupShared] elements (threadgroup).
+        foreach (string space in new[] { "device", "threadgroup" })
+        {
+            Assert.Contains($"inline int __ms_atomic_compare_exchange({space} metal::atomic_int* location, int comparand, int value)", MslPrelude.Source, StringComparison.Ordinal);
+            Assert.Contains($"inline uint __ms_atomic_compare_exchange({space} metal::atomic_uint* location, uint comparand, uint value)", MslPrelude.Source, StringComparison.Ordinal);
+        }
+
+        // MSL 3.2 has no atomic float in threadgroup memory: the float add, and only it, names the
+        // prelude's loop over the element's bits for [GroupShared] elements.
+        foreach (MethodInfo m in atomics)
+        {
+            bool floatAdd = m.Name == "AtomicAdd" && m.ReturnType == typeof(float);
+            Assert.Equal(floatAdd ? "__ms_atomic_fetch_add_float" : null, m.GetCustomAttribute<MslAtomicAttribute>()!.ThreadgroupFloat);
+        }
+
+        Assert.Contains("inline float __ms_atomic_fetch_add_float(threadgroup metal::atomic_uint* location, float value)", MslPrelude.Source, StringComparison.Ordinal);
     }
 
     /// <summary>Every <c>__ms_</c> helper a <see cref="Gpu"/> method maps to is defined, for that signature, in <see cref="MslPrelude.Source"/>.</summary>

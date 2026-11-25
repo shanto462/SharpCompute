@@ -8,7 +8,9 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// primitives (no symbols or syntax) so that it is cheap to compare between generator runs.
 /// <see cref="GridWindowIndex"/> is the buffer index of the hidden grid window (the first index after
 /// the buffers and constants), or -1 when every index is taken and the shader cannot run a partial grid.
-/// <see cref="UsesAtomics"/> is true when the kernel or a helper it reaches contains an atomic operation.
+/// <see cref="UsesAtomics"/> is true when the kernel or a helper it reaches contains an atomic operation,
+/// and <see cref="UsesDeviceAtomics"/> when one of them is on a buffer element rather than on threadgroup
+/// memory (only those keep a CPU+GPU split from dividing the shader).
 /// <see cref="UsesThreadgroupMemory"/> is true when the kernel uses group-shared memory or a barrier (its
 /// threads then cooperate, which the CPU has to run differently), and <see cref="ThreadgroupMemoryLength"/>
 /// is the bytes of group-shared memory it declares.
@@ -34,6 +36,7 @@ internal sealed record ShaderModel(
     bool UsesInstanceAccess,
     int GridWindowIndex,
     bool UsesAtomics,
+    bool UsesDeviceAtomics,
     bool UsesThreadgroupMemory,
     int ThreadgroupMemoryLength,
     int CompileOptions,

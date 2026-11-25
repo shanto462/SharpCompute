@@ -463,10 +463,17 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// True when an <c>[MslAtomic]</c> call was translated, in the kernel or in a helper it reaches
-    /// (helpers are only translated when called). Published on the descriptor so that the runtime
-    /// never divides such a shader between the CPU and the GPU.
+    /// (helpers are only translated when called), on a buffer element or on threadgroup memory.
     /// </summary>
     public bool UsesAtomics { get; private set; }
+
+    /// <summary>
+    /// True when one of those calls is on a buffer element (<c>device</c> memory), which every thread
+    /// of the dispatch shares. Published on the descriptor so that the runtime never divides such a
+    /// shader between the CPU and the GPU; atomics on threadgroup memory stay within one group, which
+    /// runs on one device, and do not set it.
+    /// </summary>
+    public bool UsesDeviceAtomics { get; private set; }
 
     /// <summary>Every local and parameter name that was emitted, used to detect clashes with struct names.</summary>
     public HashSet<string> LocalNames { get; } = new(StringComparer.Ordinal);

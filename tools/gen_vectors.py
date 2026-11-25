@@ -522,7 +522,17 @@ PRELUDE_ATOMIC_CAS = "__ms_atomic_compare_exchange"
 # generator emits them by these names for every [MslType] whose Packed type starts with __ms_.
 PRELUDE_UNPACK = "__ms_unpack"
 PRELUDE_PACK = "__ms_pack"
-PRELUDE_ATOMICS = (("device", "int", "metal::atomic_int"), ("device", "uint", "metal::atomic_uint"))
+# The float add on threadgroup memory behind Gpu.AtomicAdd(ref float, float). MSL 3.2 defines the
+# atomic<float> functions for device memory only, so this views the element as an atomic_uint and
+# swaps in the bits of the sum until no other thread got in between (a spurious failure of the weak
+# form leaves `expected` as it was and simply retries). Bits are compared, not floats, so a NaN or a
+# negative zero in the element cannot stall the loop.
+PRELUDE_ATOMIC_FLOAT_ADD = "__ms_atomic_fetch_add_float"
+
+PRELUDE_ATOMICS = tuple(
+    (space, t, atomic)
+    for space in ("device", "threadgroup")
+    for t, atomic in (("int", "metal::atomic_int"), ("uint", "metal::atomic_uint")))
 
 
 def prelude_msl() -> list[str]:
@@ -535,6 +545,11 @@ def prelude_msl() -> list[str]:
             f"inline {t} {PRELUDE_ATOMIC_CAS}({space} {atomic}* location, {t} comparand, {t} value) "
             f"{{ {t} expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, "
             f"metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) {{ }} return expected; }}")
+    lines.append(
+        f"inline float {PRELUDE_ATOMIC_FLOAT_ADD}(threadgroup metal::atomic_uint* location, float value) "
+        "{ uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); "
+        "while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), "
+        "metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }")
     for n, packed in PACKED_MATRICES.items():
         msl, column = f"float{n}x{n}", f"float{n}"
         # The boundary form of a matrix: its columns as packed vectors, so the struct has the
@@ -1067,6 +1082,9 @@ def gen_wave_msl_probe() -> list[str]:
 def gen_msl_probe() -> str:
     lines = ["#include <metal_stdlib>", "using namespace metal;", ""] + prelude_msl() + ["",
              "kernel void probe(device float* sink [[buffer(0)]], uint tid [[thread_position_in_grid]])", "{",
+             "    threadgroup int tgint[4];",
+             "    threadgroup uint tguint[4];",
+             "    threadgroup float tgfloat[4];",
              "    float acc = 0;"]
     vals = {FLOAT: "1.5f", INT: "3", UINT: "3u"}
     for kind in KINDS:
@@ -1159,15 +1177,18 @@ def gen_msl_probe() -> str:
             # The boundary type: read, written and used in place through device memory.
             p = f"((device {PACKED_MATRICES[n]}*)sink)"
             lines.append(f"    {m} = {PRELUDE_UNPACK}({p}[tid]); {p}[tid] = {PRELUDE_PACK}({m}); acc += {mul(v, PRELUDE_UNPACK + '(' + p + '[tid])')}.x;")
-    # Atomics on device memory (Gpu.Atomic*): every function for int and uint, the float add, and the
-    # prelude's strong compare-and-swap.
+    # Atomics (Gpu.Atomic*) on device memory and on threadgroup memory: every function for int and
+    # uint and the prelude's strong compare-and-swap, in both address spaces. The float add is MSL's
+    # own for device memory and the prelude's loop over the bits for threadgroup memory (MSL 3.2
+    # defines no atomic<float> functions there).
     order = "metal::memory_order_relaxed"
     for t, atomic in (("int", "metal::atomic_int"), ("uint", "metal::atomic_uint")):
-        a = f"(device {atomic}*)&(((device {t}*)sink)[tid])"
-        for fn in ("fetch_add", "fetch_sub", "fetch_min", "fetch_max", "fetch_and", "fetch_or", "fetch_xor", "exchange"):
-            lines.append(f"    acc += float(metal::atomic_{fn}_explicit({a}, s{t}, {order}));")
-        lines.append(f"    acc += float({PRELUDE_ATOMIC_CAS}({a}, s{t}, s{t}));")
+        for a in (f"(device {atomic}*)&(((device {t}*)sink)[tid])", f"(threadgroup {atomic}*)&(tg{t}[tid & 3u])"):
+            for fn in ("fetch_add", "fetch_sub", "fetch_min", "fetch_max", "fetch_and", "fetch_or", "fetch_xor", "exchange"):
+                lines.append(f"    acc += float(metal::atomic_{fn}_explicit({a}, s{t}, {order}));")
+            lines.append(f"    acc += float({PRELUDE_ATOMIC_CAS}({a}, s{t}, s{t}));")
     lines.append(f"    acc += metal::atomic_fetch_add_explicit((device metal::atomic<float>*)&(sink[tid]), sfloat, {order});")
+    lines.append(f"    acc += {PRELUDE_ATOMIC_FLOAT_ADD}((threadgroup metal::atomic_uint*)&(tgfloat[tid & 3u]), sfloat);")
     lines += gen_wave_msl_probe()
     lines.append("    sink[tid] = acc;")
     lines.append("}")
