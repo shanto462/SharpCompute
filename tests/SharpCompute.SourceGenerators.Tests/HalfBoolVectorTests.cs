@@ -35,7 +35,7 @@ public class HalfBoolVectorTests
             b -= a / half(2);
             b = metal::fmod(b, a);
             b = metal::fmod(b, half(3));
-            b = -b * half(-2) + half(200) * a;
+            b = -b * half(char(-2)) + half(uchar(200)) * a;
             half4 c = half4(b, half(1.0f));
             half4 d = half4(c.xy, half2(half(0.25f)));
             half2 s = d.zx;
@@ -207,15 +207,15 @@ public class HalfBoolVectorTests
     [Fact]
     public void HalfConstants_AreWrittenAsCasts()
     {
-        // C# has no half literal. A float goes through half(...), which rounds as (Half) does, and the
-        // few integer constants that convert implicitly (those that fit only one of byte and sbyte)
-        // are written out as integers instead of going through 'byte', which has no MSL type.
+        // C# has no half literal. A float goes through half(...), which rounds as (Half) does. The few
+        // integer constants that convert implicitly are the ones that fit only one of sbyte and byte,
+        // Half's two implicit conversions, and they keep that step: half(char(-1)), half(uchar(255)).
         AssertKernel(
             """
             half a = half(0.1f);
             half b = half(3);
-            half c = a * half(-1);
-            half2 v = half2(a, b) * half(255) + half(-128);
+            half c = a * half(char(-1));
+            half2 v = half2(a, b) * half(uchar(255)) + half(char(-128));
             buffer[0] = float(v.x) + float(c);
             """,
             """

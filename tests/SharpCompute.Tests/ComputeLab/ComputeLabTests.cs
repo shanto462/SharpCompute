@@ -256,7 +256,7 @@ public sealed class ComputeLabTests
 
             // The CPU side runs on all cores unless the page says otherwise, as its check line does too.
             Assert.Equal(
-                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle", "Shared code"],
+                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle", "Half precision", "Shared code"],
                 pages.Where(static p => p.CpuNote != "all cores").Select(static p => p.Name));
             Assert.All(pages.Where(static p => p.CpuNote != "all cores" && p.Name is not ("Shared code" or "Half precision")), static p => Assert.Equal("one core", p.CpuNote));
 
