@@ -6,9 +6,10 @@ namespace SharpCompute.Tests.Viewer;
 
 /// <summary>
 /// Locates and loads the built <c>SharpCompute.Samples.Viewer</c> assembly, whose demo shaders these
-/// tests exercise. This test project has no project reference to the Viewer, so the tests load the
-/// build output that <c>dotnet build SharpCompute.slnx</c> (and <c>dotnet test SharpCompute.slnx</c>)
-/// produces, for the same configuration as the tests.
+/// tests exercise. The tests load it from the Viewer's own output folder, for the same configuration
+/// as the tests. This project's reference to the Viewer is build-only
+/// (<c>ReferenceOutputAssembly="false"</c>): it makes any build of the tests build the Viewer too,
+/// without referencing or copying it.
 /// </summary>
 internal static class ViewerAssembly
 {
@@ -17,8 +18,7 @@ internal static class ViewerAssembly
     private static readonly Lazy<string?> s_path = new(Locate);
     private static readonly Lazy<Assembly> s_assembly = new(() => Assembly.LoadFrom(Path ?? throw new InvalidOperationException(NotBuilt)));
 
-    internal static string NotBuilt =>
-        $"{Name} has not been built for this configuration; build SharpCompute.slnx (dotnet test SharpCompute.slnx builds it).";
+    internal static string NotBuilt => Imaging.SampleAssembly.NotBuilt(Name);
 
     /// <summary>Full path of the Viewer's dll, or null when it hasn't been built.</summary>
     internal static string? Path => s_path.Value;

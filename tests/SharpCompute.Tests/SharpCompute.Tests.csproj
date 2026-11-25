@@ -19,9 +19,21 @@
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
     <!-- Pulsewake is an Exe; its simulation and renderer types are tested directly. -->
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Shooter\SharpCompute.Samples.Shooter.csproj" />
-    <!-- A class library, so a plain reference (the Exe samples are loaded from their build output instead). -->
+    <!-- A class library, so a plain reference (the other Exe samples are loaded from their build output: see below). -->
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Audio\SharpCompute.Samples.Audio.csproj" />
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Platformer\SharpCompute.Samples.Platformer.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Build-only references: SampleAssembly and ViewerAssembly load these Exe samples from their own
+      output folders, so nothing is referenced or copied here. Without them, `dotnet test` builds only
+      the test projects and what they reference, and every test of these samples skips as "not built".
+      Private="false" matters: without it each sample's apphost, deps.json and runtimeconfig.json are
+      still copied into the test output, next to no dll.
+    -->
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.ImageProcessing\SharpCompute.Samples.ImageProcessing.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.Paint\SharpCompute.Samples.Paint.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.Viewer\SharpCompute.Samples.Viewer.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 </Project>
