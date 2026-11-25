@@ -47,6 +47,12 @@ internal static class MslNames
     public const string Unpack = "__ms_unpack";
     public const string Pack = "__ms_pack";
 
+    /// <summary>
+    /// The prelude's conversion of a float to a <c>long</c>, which saturates as C# does. MSL's own
+    /// <c>long(x)</c> wraps for a float outside the range of a long.
+    /// </summary>
+    public const string FloatToLong = "__ms_float_to_long";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";

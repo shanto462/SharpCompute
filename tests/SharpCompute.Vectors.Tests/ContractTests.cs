@@ -25,7 +25,12 @@ public class ContractTests
         ["copysign"] = "CopySign",
         ["pack_float_to_unorm4x8"] = "PackUnorm4x8",
         ["unpack_unorm4x8_to_float"] = "UnpackUnorm4x8",
+        ["rotate_left"] = "RotateLeft",
+        ["rotate_right"] = "RotateRight",
     };
+
+    /// <summary>The integers besides int and uint: one scalar overload of each integer intrinsic, no vectors.</summary>
+    private static readonly Type[] SmallAndWide = [typeof(byte), typeof(sbyte), typeof(short), typeof(ushort), typeof(long), typeof(ulong)];
 
     /// <summary>
     /// Every public static <see cref="Gpu"/> method maps to MSL in exactly one way: a function call
@@ -118,20 +123,37 @@ public class ContractTests
 
         foreach (MethodInfo m in atomics)
         {
-            Assert.Equal(expected[m.Name], m.GetCustomAttribute<MslAtomicAttribute>()!.Name);
             ParameterInfo[] ps = m.GetParameters();
             Assert.True(ps[0].ParameterType.IsByRef && !ps[0].IsOut && !ps[0].IsIn, $"{m}: the location is a ref parameter");
             Type element = ps[0].ParameterType.GetElementType()!;
-            Assert.Equal(element, m.ReturnType);
             Assert.All(ps.Skip(1), p => Assert.Equal(element, p.ParameterType));
             Assert.Equal(m.Name == "AtomicCompareExchange" ? 3 : 2, ps.Length);
+
+            if (element == typeof(ulong))
+            {
+                // The 64-bit minimum and maximum are not "fetch" functions in MSL: they return nothing.
+                Assert.Equal(m.Name == "AtomicMin" ? "metal::atomic_min_explicit" : "metal::atomic_max_explicit", m.GetCustomAttribute<MslAtomicAttribute>()!.Name);
+                Assert.Equal(typeof(void), m.ReturnType);
+                continue;
+            }
+
+            Assert.Equal(expected[m.Name], m.GetCustomAttribute<MslAtomicAttribute>()!.Name);
+            Assert.Equal(element, m.ReturnType);
         }
 
-        // int and uint for every operation; float only for the add.
+        // int and uint for every operation; float only for the add; ulong only for the minimum and the
+        // maximum, the two 64-bit atomics MSL 3.2 has. Nothing for long or the 8- and 16-bit integers.
         foreach (string name in expected.Keys)
         {
-            Type[] elements = atomics.Where(m => m.Name == name).Select(m => m.ReturnType).ToArray();
-            Assert.Equal(name == "AtomicAdd" ? ["Int32", "Single", "UInt32"] : new[] { "Int32", "UInt32" }, elements.Select(t => t.Name).Order());
+            Type[] elements = atomics.Where(m => m.Name == name).Select(m => m.GetParameters()[0].ParameterType.GetElementType()!).ToArray();
+            string[] names = name switch
+            {
+                "AtomicAdd" => ["Int32", "Single", "UInt32"],
+                "AtomicMin" or "AtomicMax" => ["Int32", "UInt32", "UInt64"],
+                _ => ["Int32", "UInt32"],
+            };
+
+            Assert.Equal(names, elements.Select(t => t.Name).Order());
         }
 
         // The strong compare-and-swap is a prelude helper, one overload per atomic type and address
@@ -181,13 +203,14 @@ public class ContractTests
             "Sinh", "Cosh", "Tanh", "Lerp", "Step", "Smoothstep", "Fma", "CopySign", "Radians", "Degrees",
         ];
         string[] bits = ["CountBits", "LeadingZeroCount", "TrailingZeroCount", "ReverseBits"];
+        string[] rotates = ["RotateLeft", "RotateRight"];
         string[] other =
         [
             "Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul", "Transpose", "Determinant",
             "AsFloat", "AsInt", "AsUInt", "IsNaN", "IsInfinity", "IsFinite", "PackUnorm4x8", "UnpackUnorm4x8",
             "AtomicAdd", "AtomicSub", "AtomicMin", "AtomicMax", "AtomicAnd", "AtomicOr", "AtomicXor", "AtomicExchange", "AtomicCompareExchange",
         ];
-        string[] expected = [.. componentwise, .. bits, .. other];
+        string[] expected = [.. componentwise, .. bits, .. rotates, .. other];
         string[] actual = MathMethods().Select(m => m.Name).Distinct().ToArray();
         Assert.Equal(expected.Concat(Barriers).Order(), actual.Order());
 
@@ -209,6 +232,29 @@ public class ContractTests
             }
 
             Assert.Null(typeof(Gpu).GetMethod(name, [typeof(float)]));
+        }
+
+        // The 8-, 16- and 64-bit integers: a scalar overload of abs/min/max/clamp and of every bit
+        // function, each returning the type it takes (so a count is that of the type's own width).
+        foreach (Type element in SmallAndWide)
+        {
+            foreach (string name in bits.Append("Abs"))
+            {
+                Assert.Equal(element, typeof(Gpu).GetMethod(name, [element])?.ReturnType);
+            }
+
+            Assert.Equal(element, typeof(Gpu).GetMethod("Min", [element, element])?.ReturnType);
+            Assert.Equal(element, typeof(Gpu).GetMethod("Max", [element, element])?.ReturnType);
+            Assert.Equal(element, typeof(Gpu).GetMethod("Clamp", [element, element, element])?.ReturnType);
+        }
+
+        // Rotates for every integer type, int and uint included; the count is always an int.
+        foreach (string name in rotates)
+        {
+            MethodInfo[] overloads = typeof(Gpu).GetMethods().Where(m => m.Name == name).ToArray();
+
+            Assert.Equal([.. SmallAndWide, typeof(int), typeof(uint)], overloads.Select(m => m.ReturnType).OrderBy(t => Array.IndexOf([.. SmallAndWide, typeof(int), typeof(uint)], t)));
+            Assert.All(overloads, m => Assert.Equal([m.ReturnType, typeof(int)], m.GetParameters().Select(p => p.ParameterType)));
         }
 
         // Bit reinterpretation between float and int/uint, scalars and vectors of the same width.
@@ -380,5 +426,11 @@ public class ContractTests
         t == typeof(float) ? "float"
         : t == typeof(int) ? "int"
         : t == typeof(uint) ? "uint"
+        : t == typeof(byte) ? "uchar"
+        : t == typeof(sbyte) ? "char"
+        : t == typeof(short) ? "short"
+        : t == typeof(ushort) ? "ushort"
+        : t == typeof(long) ? "long"
+        : t == typeof(ulong) ? "ulong"
         : t.GetCustomAttribute<MslTypeAttribute>()?.Name ?? throw new InvalidOperationException($"no MSL name for {t}");
 }

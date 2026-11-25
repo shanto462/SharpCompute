@@ -377,6 +377,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor UnsupportedAtomicElementType = new(
+        id: "SCG0047",
+        title: "No atomic operation for this element type",
+        messageFormat: "The atomic operation '{0}' is not available for '{1}' elements: {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",

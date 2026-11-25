@@ -123,7 +123,6 @@ public class BitAndMathIntrinsicTests
     }
 
     [Theory]
-    [InlineData("u[0] = (uint)System.Numerics.BitOperations.PopCount((ulong)u[0]);", "SCG0007", "64-bit integers are not supported")]
     [InlineData("f[0] = (float)BitConverter.Int64BitsToDouble(1);", "SCG0007", "'double' is not available")]
     [InlineData("i[0] = System.Numerics.BitOperations.Log2(u[0]);", "SCG0016", "it has no MSL equivalent")]
     [InlineData("u[0] = System.Numerics.BitOperations.RoundUpToPowerOf2(u[0]);", "SCG0016", "it has no MSL equivalent")]

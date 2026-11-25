@@ -136,6 +136,7 @@ public static class LabPages
         // Math.
         new BitsPage(device),
         new FastMathPage(device),
+        new IntegersPage(device),
 
         // Code reuse: shaders built from static helpers and struct members that are not their own.
         new SharedCodePage(device),

@@ -474,7 +474,7 @@ internal sealed class ShaderAnalyzer
             return translation;
         }
 
-        int constantsSize = LayOutConstants(constants);
+        int constantsSize = LayOutConstants(constants, out bool explicitConstants);
 
         // The grid window takes the first free buffer index. A shader that uses all of them still
         // works for whole-grid dispatches; it just cannot be split (GraphicsDevice.ForSplit rejects it).
@@ -489,7 +489,7 @@ internal sealed class ShaderAnalyzer
             msl,
             new EquatableArray<BufferArgument>(buffers.Select((b, i) => new BufferArgument(i, Access(b, usesInstanceAccess), shaderName + "." + b.Symbol.Name))),
             new EquatableArray<BufferArgument>(textures.Select((t, i) => new BufferArgument(firstTextureIndex + i, Access(t, usesInstanceAccess), shaderName + "." + t.Symbol.Name))),
-            new EquatableArray<ConstantArgument>(constants.Select(static c => new ConstantArgument(c.Type.CSharpName, CSharpIdentifier(c.Name), c.Value))),
+            new EquatableArray<ConstantArgument>(constants.Select(static c => new ConstantArgument(c.Type.CSharpName, CSharpIdentifier(c.Name), c.Value, c.Offset))),
             constantsIndex: buffers.Count,
             usesInstanceAccess,
             gridWindowIndex,
@@ -497,24 +497,37 @@ internal sealed class ShaderAnalyzer
             translator.UsesDeviceAtomics,
             usesThreadgroupMemory: groupShared.Count > 0 || translator.UsesBarriers,
             threadgroupMemoryLength: (int)threadgroupMemory,
-            usesSimdGroups: translator.UsesSimdGroups);
+            usesSimdGroups: translator.UsesSimdGroups,
+            explicitConstantsSize: explicitConstants ? constantsSize : 0);
 
         return translation;
     }
 
     /// <summary>
-    /// Assigns offsets with the rules of <c>[StructLayout(Sequential, Pack = 4)]</c>. Every supported
-    /// type has an alignment of at most 4, so this is also the natural layout of the MSL struct.
+    /// Assigns the offsets of the constants struct: every member at its natural alignment, which is
+    /// how MSL lays the struct out.
     /// </summary>
-    private static int LayOutConstants(List<ConstantMember> constants)
+    /// <remarks>
+    /// Without a 64-bit integer every member has an alignment of at most 4 (a <c>byte</c> 1, a
+    /// <c>short</c> or a <c>Half</c> 2), and the natural layout is that of the C# mirror's
+    /// <c>[StructLayout(Sequential, Pack = 4)]</c>. A <c>long</c> or <c>ulong</c> (or a struct that holds
+    /// one) is aligned to 8 in MSL, and MSL has no way to pack it tighter: <c>Pack = 4</c> would put it
+    /// at an offset MSL does not. For such a struct <paramref name="isExplicit"/> is true, and the C#
+    /// mirror is emitted with <c>LayoutKind.Explicit</c> and these offsets, padding included, so the
+    /// C# side is the layout computed here by construction and the MSL side is pinned to it by the
+    /// <c>static_assert</c> drift guards.
+    /// </remarks>
+    private static int LayOutConstants(List<ConstantMember> constants, out bool isExplicit)
     {
-        const int Pack = 4;
+        isExplicit = constants.Any(static c => c.Type.Alignment > 4);
+
+        int pack = isExplicit ? 8 : 4;
         int offset = 0;
         int alignment = 1;
 
         foreach (ConstantMember member in constants)
         {
-            int memberAlignment = Math.Min(member.Type.Alignment, Pack);
+            int memberAlignment = Math.Min(member.Type.Alignment, pack);
 
             offset = TypeResolver.AlignUp(offset, memberAlignment);
             member.Offset = offset;
@@ -830,7 +843,8 @@ internal sealed class ShaderAnalyzer
         bool usesDeviceAtomics = false,
         bool usesThreadgroupMemory = false,
         int threadgroupMemoryLength = 0,
-        bool usesSimdGroups = false)
+        bool usesSimdGroups = false,
+        int explicitConstantsSize = 0)
     {
         var types = new List<TypeDeclarationInfo>();
 
@@ -872,7 +886,8 @@ internal sealed class ShaderAnalyzer
             UsesThreadgroupMemory: usesThreadgroupMemory,
             ThreadgroupMemoryLength: threadgroupMemoryLength,
             CompileOptions: _compileOptions,
-            UsesSimdGroups: usesSimdGroups);
+            UsesSimdGroups: usesSimdGroups,
+            ExplicitConstantsSize: explicitConstantsSize);
     }
 
     // ---------------------------------------------------------------------------------------------

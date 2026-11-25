@@ -152,7 +152,9 @@ internal sealed partial class MslTranslator
     /// <summary>
     /// Resolves the location argument of an atomic operation, or reports SCG0034 and returns null.
     /// An element of a <c>ReadWriteBuffer&lt;T&gt;</c> with <c>T</c> = int, uint or float qualifies, and
-    /// an element of a <c>[GroupShared]</c> array of int or uint. A float element of a
+    /// an element of a <c>[GroupShared]</c> array of int or uint. A ulong element of a buffer qualifies
+    /// for the two methods that take one (the 64-bit minimum and maximum); any other element type
+    /// without an atomic is SCG0047. A float element of a
     /// <c>[GroupShared]</c> array qualifies when <paramref name="hasThreadgroupFloat"/> is true: MSL 3.2
     /// has no atomic float in the threadgroup address space, so the element is then viewed as an
     /// <c>atomic_uint</c> for the method's bit-level replacement. A local is private to its thread (and
@@ -180,7 +182,7 @@ internal sealed partial class MslTranslator
 
             if (AtomicType(elementType) is not { } atomicType)
             {
-                return InvalidAtomicTarget(target, method, $"MSL has no atomic type for '{TypeResolver.Display(element.Property.Type)}' elements (only for int, uint and float)");
+                return UnsupportedAtomicElement(target, method, element.Property.Type);
             }
 
             Expr lvalue = Expression(target);
@@ -196,11 +198,10 @@ internal sealed partial class MslTranslator
                 return null;
             }
 
-            string display = sharedField.Type is IArrayTypeSymbol { ElementType: { } sharedElement } ? TypeResolver.Display(sharedElement) : groupShared.Element.MslName;
-
-            if (AtomicType(groupShared.Element) is not { } atomicType)
+            // MSL 3.2 declares the 64-bit minimum and maximum for device memory only.
+            if (AtomicType(groupShared.Element) is not { } atomicType || groupShared.Element.Size == 8)
             {
-                return InvalidAtomicTarget(target, method, $"MSL has no atomic type for '{display}' elements (only for int, uint and float)");
+                return UnsupportedAtomicElement(target, method, (sharedField.Type as IArrayTypeSymbol)?.ElementType, isGroupShared: true);
             }
 
             // metal_atomic only defines the float atomics for threadgroup memory under
@@ -251,14 +252,110 @@ internal sealed partial class MslTranslator
         return InvalidAtomicTarget(target, method, reason);
     }
 
-    /// <summary>The MSL atomic type that overlays an element of <paramref name="element"/>'s type, or null when there is none.</summary>
+    /// <summary>
+    /// The MSL atomic type that overlays an element of <paramref name="element"/>'s type, or null when
+    /// there is none. <c>atomic_ulong</c> exists for the minimum and the maximum only, and the only
+    /// <c>[MslAtomic]</c> methods that take a <c>ref ulong</c> are those two.
+    /// </summary>
     private static string? AtomicType(GpuType element) => element is { Kind: GpuTypeKind.Scalar } ? element.MslName switch
     {
         "int" => "metal::atomic_int",
         "uint" => "metal::atomic_uint",
         "float" => "metal::atomic<float>",
+        "ulong" => "metal::atomic_ulong",
         _ => null,
     } : null;
+
+    /// <summary>
+    /// Why an element of <paramref name="element"/>, one of the 8-, 16- and 64-bit integers, cannot
+    /// be the location of an atomic operation, for SCG0047. Measured against MSL 3.2: <c>atomic_int</c>, <c>atomic_uint</c> and
+    /// <c>atomic&lt;float&gt;</c> are the only atomic types with the full set of functions;
+    /// <c>atomic_ulong</c> has <c>atomic_min_explicit</c> and <c>atomic_max_explicit</c>, on device
+    /// memory only; and there is nothing for <c>long</c> or for the 8- and 16-bit integers.
+    /// </summary>
+    private static string AtomicElementReason(ITypeSymbol? element, bool isGroupShared) => element?.SpecialType switch
+    {
+        SpecialType.System_UInt64 when isGroupShared =>
+            "MSL 3.2 has the 64-bit atomic minimum and maximum for buffer elements only, not for threadgroup memory; keep the value in a ReadWriteBuffer<ulong>",
+        SpecialType.System_UInt64 =>
+            "MSL 3.2 has only two 64-bit atomics, the minimum and the maximum of a ulong buffer element (Gpu.AtomicMin and Gpu.AtomicMax, which return nothing); there is no 64-bit add, exchange or compare-and-swap. Use a ReadWriteBuffer<uint> or ReadWriteBuffer<int>",
+        SpecialType.System_Int64 =>
+            "MSL 3.2 has no atomics for long; its only 64-bit atomics are Gpu.AtomicMin and Gpu.AtomicMax on a ulong buffer element. Use a ReadWriteBuffer<ulong> for those, or a ReadWriteBuffer<int> or ReadWriteBuffer<uint>",
+        _ => "MSL has no 8- or 16-bit atomics; keep the value in a buffer or [GroupShared] array of int or uint",
+    };
+
+    /// <summary>
+    /// Reports an element type that has no atomic of the requested kind: SCG0047 with the reason for
+    /// the 8-, 16- and 64-bit integers, and SCG0034 as before for everything else (a struct, a vector).
+    /// </summary>
+    private AtomicLocation? UnsupportedAtomicElement(IOperation target, IMethodSymbol method, ITypeSymbol? element, bool isGroupShared = false)
+    {
+        if (_types.Resolve(element) is not { IsIntegerScalar: true, Is32BitInteger: false })
+        {
+            return InvalidAtomicTarget(target, method, $"MSL has no atomic type for '{(element is null ? "?" : TypeResolver.Display(element))}' elements (only for int, uint and float)");
+        }
+
+        _diagnostics.Report(
+            DiagnosticDescriptors.UnsupportedAtomicElementType,
+            target.Syntax.GetLocation(),
+            method.Name,
+            element is null ? "?" : TypeResolver.Display(element),
+            AtomicElementReason(element, isGroupShared));
+        return null;
+    }
+
+    /// <summary>
+    /// Explains a <c>Gpu.Atomic*</c> call that C# could not bind because no overload takes the
+    /// location's type: <c>Gpu.AtomicAdd(ref totals[i], 1L)</c> on a <c>ReadWriteBuffer&lt;long&gt;</c>.
+    /// The compiler's own error (CS1503, "cannot convert from 'ref long' to 'ref int'") does not say
+    /// that the operation does not exist on the GPU, so SCG0047 is reported next to it. Nothing is
+    /// reported for any other invalid call.
+    /// </summary>
+    private void ExplainUnboundAtomicCall(IInvalidOperation operation)
+    {
+        if (operation.Syntax is not Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax { ArgumentList.Arguments: { Count: > 0 } arguments } invocation)
+        {
+            return;
+        }
+
+        SemanticModel model = GetSemanticModel(invocation.SyntaxTree);
+        SymbolInfo info = model.GetSymbolInfo(invocation, _cancellationToken);
+
+        if (info.Symbol is not null ||
+            info.CandidateSymbols.Length == 0 ||
+            !info.CandidateSymbols.All(static c => c is IMethodSymbol candidate && TypeResolver.FindAttribute(candidate.OriginalDefinition, "MslAtomicAttribute") is not null))
+        {
+            return;
+        }
+
+        // The location is the first parameter of every [MslAtomic] method: the first positional
+        // argument, or the one named after it.
+        string locationName = ((IMethodSymbol)info.CandidateSymbols[0]).Parameters is { Length: > 0 } parameters ? parameters[0].Name : string.Empty;
+        var location = arguments.FirstOrDefault(a => a.NameColon?.Name.Identifier.ValueText == locationName) ?? arguments[0];
+
+        if (location.NameColon is not null && location.NameColon.Name.Identifier.ValueText != locationName)
+        {
+            return;
+        }
+
+        ITypeSymbol? type = model.GetTypeInfo(location.Expression, _cancellationToken).Type;
+
+        // Only the element types this explains: an integer scalar that has no atomic of that name.
+        if (_types.Resolve(type) is not { IsIntegerScalar: true, Is32BitInteger: false })
+        {
+            return;
+        }
+
+        bool isGroupShared = model.GetOperation(location.Expression, _cancellationToken) is IArrayElementReferenceOperation array &&
+            GroupSharedReference(array.ArrayReference) is not null;
+
+        _diagnostics.Report(
+            DiagnosticDescriptors.UnsupportedAtomicElementType,
+            location.Expression.GetLocation(),
+            info.CandidateSymbols[0].Name,
+            TypeResolver.Display(type!),
+            AtomicElementReason(type, isGroupShared));
+    }
 
     private AtomicLocation? InvalidAtomicTarget(IOperation target, IMethodSymbol method, string reason)
     {
@@ -306,17 +403,18 @@ internal sealed partial class MslTranslator
     };
 
     /// <summary>
-    /// The 32-bit members of <c>BitConverter</c> and <c>BitOperations</c> whose semantics MSL matches:
-    /// bit casts are <c>as_type</c>; the counts return the argument's type in MSL and <c>int</c> in C#
-    /// (and agree on 32 for a zero argument); a rotate count is taken modulo 32 in C#, which is made
-    /// explicit, and a right rotate is a left rotate by the negated count.
+    /// The members of <c>BitConverter</c> and <c>BitOperations</c> whose semantics MSL matches: the
+    /// 32-bit bit casts are <c>as_type</c>; the counts return the argument's type in MSL and
+    /// <c>int</c> in C# (and agree on 32, or 64 for a <c>ulong</c>, for a zero argument); a rotate count
+    /// is taken modulo the width in C#, which is made explicit, and a right rotate is a left rotate by
+    /// the negated count.
     /// </summary>
     private Expr BitCall(IInvocationOperation operation)
     {
         IMethodSymbol method = operation.TargetMethod;
         Location location = operation.Syntax.GetLocation();
 
-        // Report 64-bit overloads (PopCount(ulong), DoubleToInt64Bits) as the unsupported type they use.
+        // Report the double overloads (DoubleToInt64Bits) as the unsupported type they use.
         if (ResolveType(method.ReturnType, location) is not { } returnType)
         {
             return Expr.Error;
@@ -356,14 +454,25 @@ internal sealed partial class MslTranslator
                 return Call("as_type<" + returnType.MslName + ">", arguments);
 
             case ("BitOperations", "PopCount(uint)"):
+            case ("BitOperations", "PopCount(ulong)"):
                 return Call("int", "metal::popcount(" + arguments[0] + ")");
 
             case ("BitOperations", "LeadingZeroCount(uint)"):
+            case ("BitOperations", "LeadingZeroCount(ulong)"):
                 return Call("int", "metal::clz(" + arguments[0] + ")");
 
             case ("BitOperations", "TrailingZeroCount(int)"):
             case ("BitOperations", "TrailingZeroCount(uint)"):
+            case ("BitOperations", "TrailingZeroCount(long)"):
+            case ("BitOperations", "TrailingZeroCount(ulong)"):
                 return Call("int", "metal::ctz(" + arguments[0] + ")");
+
+            // The 64-bit rotates: the count is taken modulo 64, in the type of the value.
+            case ("BitOperations", "RotateLeft(ulong, int)"):
+                return Call("metal::rotate", arguments[0], "ulong(uint(" + arguments[1] + ") & 63u)");
+
+            case ("BitOperations", "RotateRight(ulong, int)"):
+                return Call("metal::rotate", arguments[0], "ulong((0u - uint(" + arguments[1] + ")) & 63u)");
 
             case ("BitOperations", "RotateLeft(uint, int)"):
                 return Call("metal::rotate", arguments[0], "uint(" + arguments[1] + ") & 31u");

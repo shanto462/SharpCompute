@@ -161,8 +161,10 @@ public sealed class MslIntrinsicAttribute(string name) : Attribute
 /// array (<c>ref tile[i]</c>) and emits <c>name((device metal::atomic_int*)&amp;(buffer[i]), args...)</c>,
 /// or <c>name((threadgroup metal::atomic_int*)&amp;(tile[i]), args...)</c>, with <c>metal::atomic_uint</c>
 /// for <c>uint</c> and <c>metal::atomic&lt;float&gt;</c> for <c>float</c> elements of a buffer. A
-/// <c>float</c> element of threadgroup memory needs <see cref="ThreadgroupFloat"/>. Anything else as
-/// the location is diagnostic SCG0034.
+/// <c>float</c> element of threadgroup memory needs <see cref="ThreadgroupFloat"/>. A <c>ulong</c>
+/// element of a buffer is viewed as <c>metal::atomic_ulong</c>, for which MSL 3.2 only has
+/// <c>atomic_min_explicit</c> and <c>atomic_max_explicit</c>. Anything else as the location is
+/// diagnostic SCG0034, or SCG0047 when it is the element type that has no atomic.
 /// </summary>
 /// <remarks>
 /// A function whose name ends in <c>_explicit</c> takes a memory order (the C and MSL naming

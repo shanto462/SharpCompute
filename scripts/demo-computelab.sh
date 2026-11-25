@@ -22,6 +22,8 @@
 #   Math
 #     Bits: popcount, bit reversal, clz/ctz, float bits and unorm8 packing as patterns
 #     FastMath: one kernel with and without [ShaderOptions(FastMath = true)]; F toggles
+#     Small and wide integers: an 8-bit image in a ReadWriteBuffer<byte> equalised in place (uint histogram,
+#       byte lookup table), and a 64-bit hash per pixel with the largest found by a 64-bit atomic maximum
 #   Code reuse
 #     Shared code: a path-traced scene built from a static class and structs with methods
 #       (ShaderMath, Ray.At, Sphere.Intersect); ForCpu checks every 8th pixel

@@ -162,6 +162,13 @@ internal sealed class ConstantFolder
             return type.Alignment == 4 ? ScalarKind.Float : throw Fail(operation, $"a value of type '{type.MslName}' in");
         }
 
+        // Likewise only int and uint: components are doubles, which cannot hold every 64-bit value,
+        // and the 8- and 16-bit integers wrap at their own width.
+        if (type.Kind == GpuTypeKind.Scalar && !type.Is32BitInteger)
+        {
+            throw Fail(operation, $"a value of type '{type.MslName}' in");
+        }
+
         return type.IsUnsigned ? ScalarKind.UInt : ScalarKind.Int;
     }
 
