@@ -76,6 +76,16 @@ public sealed unsafe partial class GraphicsDevice
     /// reported, and its result is undefined.
     /// </para>
     /// <para>
+    /// <b>Evaluation order</b> is the same on both sides. C# evaluates left to right; MSL evaluates the
+    /// value of an assignment before its target and leaves the order of unsequenced operands open, so an
+    /// expression whose result would depend on it is build error SCG0021. That covers side effects in
+    /// locals and in the shader's memory alike: <c>data[0] += Bump(0)</c>, where the helper
+    /// <c>Bump</c> writes <c>data[0]</c>, is refused, because here it reads <c>data[0]</c> before the
+    /// call and on the GPU after it. Buffers, <c>[GroupShared]</c> arrays and textures are tracked,
+    /// inside helpers too and through <c>Gpu.Atomic*</c> locations, with any two elements of one of
+    /// them treated as possibly the same.
+    /// </para>
+    /// <para>
     /// <b>Shaders with threadgroup memory or barriers</b> (<see cref="GroupSharedAttribute"/>,
     /// <see cref="Gpu.GroupMemoryBarrierWithGroupSync"/> and its siblings) run differently, because their
     /// threads cooperate: the threads of one threadgroup run concurrently, each on a dedicated thread
