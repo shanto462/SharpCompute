@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SharpCompute.Game: a thin 2D game layer on top of SharpCompute. A fixed-timestep loop, per-step
+    input with action mapping, a follow camera, a compute-shader sprite batch with an atlas builder,
+    bitmap fonts and post-processing passes (bloom, vignette, shockwave distortion, whole-number
+    upscale). A separate package: the core stays a compute-shader library.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <RootNamespace>SharpCompute.Game</RootNamespace>
+    <AssemblyName>SharpCompute.Game</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpCompute.Game.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpCompute\SharpCompute.csproj" />
+    <ProjectReference Include="..\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
