@@ -103,7 +103,7 @@ public sealed partial class GraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         ObjectDisposedException.ThrowIf(texture.IsDisposed, texture);
 
-        if (!ReferenceEquals(texture.Device, this))
+        if (!IsSameDevice(texture.Device))
         {
             throw new ArgumentException(
                 "The texture was allocated from a different GraphicsDevice than the one dispatching the shader.", nameof(texture));

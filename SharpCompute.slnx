@@ -23,6 +23,7 @@
     <Project Path="samples/SharpCompute.Samples.Textures/SharpCompute.Samples.Textures.csproj" />
     <Project Path="samples/SharpCompute.Samples.ComputeLab/SharpCompute.Samples.ComputeLab.csproj" />
     <Project Path="samples/SharpCompute.Samples.GroupShared/SharpCompute.Samples.GroupShared.csproj" />
+    <Project Path="samples/SharpCompute.Samples.NativeInterop/SharpCompute.Samples.NativeInterop.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/SharpCompute.Benchmarks/SharpCompute.Benchmarks.csproj" />

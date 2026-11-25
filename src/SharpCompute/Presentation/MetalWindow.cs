@@ -375,7 +375,7 @@ public sealed class MetalWindow : IDisposable
         ObjectDisposedException.ThrowIf(frame.IsDisposed, frame);
         ObjectDisposedException.ThrowIf(Device.IsDisposed, Device);
 
-        if (!ReferenceEquals(frame.Device, Device))
+        if (!Device.IsSameDevice(frame.Device))
         {
             throw new ArgumentException("The frame was allocated from a different GraphicsDevice than the window presents with.", nameof(frame));
         }

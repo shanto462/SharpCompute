@@ -470,7 +470,7 @@ public class ComputeContextTests
     public void FailedRecording_LeavesTheContextUsable()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
         using ReadWriteBuffer<int> foreign = other.AllocateReadWriteBuffer<int>(Length);
         using ReadWriteTexture2D<Rgba32> foreignTexture = other.AllocateReadWriteTexture2D<Rgba32>(4, 4);

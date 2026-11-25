@@ -285,7 +285,7 @@ public class CpuExecutionTests
         disposed.Dispose();
         Assert.Throws<ObjectDisposedException>(() => device.ForCpu(4, new MultiplyByTwo(disposed, 2f)));
 
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<float> foreign = other.AllocateReadWriteBuffer<float>([1f, 2f]);
         ArgumentException wrongDevice = Assert.Throws<ArgumentException>(() => device.ForCpu(2, new MultiplyByTwo(foreign, 2f)));
         Assert.Contains("different GraphicsDevice", wrongDevice.Message);

@@ -85,6 +85,11 @@ here as an original game built on SharpCompute.
   dispatches of a context. `ForIndirect` takes its thread count from a buffer an earlier pass wrote,
   so the GPU decides how much work the next pass does. `device.Prepare<T>()` compiles a shader
   before its first frame. See [Buffers and dispatch](#buffers-and-dispatch).
+- **Interop with existing Metal code.** `GraphicsDevice.FromNative` runs SharpCompute on an app's
+  own `MTLDevice` and queue, `WrapNativeReadWriteBuffer`/`WrapNativeReadWriteTexture2D` adopt its
+  buffers and textures (private storage included), `NativeHandle` hands SharpCompute's objects to
+  other Metal code, and `ComputeContext.EncodeInto` puts compute passes into the app's own command
+  buffer, between its render passes. See [Interop with existing Metal code](#interop-with-existing-metal-code).
 - **CPU execution and CPU+GPU split.** The same shader also runs as C# on all CPU cores
   (`device.ForCpu`), or split between the CPU and the GPU in one dispatch (`device.ForSplit`).
 - **Correct by default.** Shaders compile with IEEE-safe math and precise functions (a shader opts
@@ -118,6 +123,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
 | `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
 | `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-nativeinterop.sh`<br><img src="docs/screenshots/nativeinterop.png" width="240" alt="The native interop demo: a dusk landscape and glowing particle ribbons drawn by a raw Metal host renderer, with SharpCompute's ripple and bloom pass on top"> | **Live window:** SharpCompute inside an app that already renders with Metal. A small host renderer written straight against Metal (its own device, queue, particle buffer, textures and render pipeline) draws a textured quad and an instanced particle field; SharpCompute wraps the host's objects and encodes a particle simulation before the host's scene pass and a post-process (ripples, color split, bloom) after it, into the host's own command buffer. 1 and 2 toggle the two passes, click or drag moves the ripples, S save PNG. The title bar shows fps and the frame's GPU time. `--headless` writes the same frames every run: both passes, each one off, and the host alone |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
 
@@ -567,6 +573,79 @@ GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % 
 ([`benchmarks/RESULTS.md`](benchmarks/RESULTS.md#cpu-execution-and-cpugpu-split)). `ForCpu` is a
 correct fallback and a debugging aid rather than a fast CPU path.
 
+### Interop with existing Metal code
+
+An app that already renders with Metal can run SharpCompute kernels on its own resources (particles,
+lighting, post-processing) without handing its renderer over. Wrap its device, and its queue so that
+SharpCompute's work is ordered with the app's:
+
+```csharp
+GraphicsDevice device = GraphicsDevice.FromNative(mtlDevice, mtlCommandQueue); // both retained; Dispose releases them
+```
+
+Resources belong to the `MTLDevice`, not to a wrapper: every "same device" check compares the
+underlying object. `MTLCreateSystemDefaultDevice` returns the same object every time, so when the
+app renders on the default device, `GraphicsDevice.GetDefault()` is that device as well.
+
+**Buffers and textures.** Wrapping retains the object and never copies it; it is then an ordinary
+SharpCompute buffer or texture (bindable, sliceable, copyable, kept alive by pending work). The
+length is `buffer.length / sizeof(T)`, and a texture must be single-sample 2D in the pixel format of
+`T` with `ShaderRead` (and `ShaderWrite` for read-write) usage. Only mip level 0 is used.
+
+```csharp
+ReadWriteBuffer<Particle> particles = device.WrapNativeReadWriteBuffer<Particle>(mtlBuffer);
+ReadWriteTexture2D<Rgba32> frame = device.WrapNativeReadWriteTexture2D<Rgba32>(mtlTexture);
+ReadOnlyTexture2D<Rgba32> image = device.WrapNativeReadOnlyTexture2D<Rgba32>(mtlImage);
+```
+
+| Wrapped object | Shaders, `Copy`, `Fill` | CPU access (`AsSpan`, indexers, `ForCpu`) | `CopyTo`/`CopyFrom` |
+|---|---|---|---|
+| Buffer, shared storage | yes | yes, in place | yes |
+| Buffer, private storage | yes | `NotSupportedException` (`IsCpuAccessible` is false) | `NotSupportedException` |
+| Texture that is a linear view of a shared buffer | yes | yes, in place | yes |
+| Other texture, shared storage | yes | `NotSupportedException` | yes, through `getBytes`/`replaceRegion` |
+| Texture, private storage | yes | `NotSupportedException` | `NotSupportedException` |
+
+Untracked resources (`MTLHazardTrackingModeUntracked`, the default inside an `MTLHeap`) are rejected:
+SharpCompute orders its passes through Metal's hazard tracking.
+
+**Into the app's command buffer.** `EncodeInto` encodes what a context recorded into a command buffer
+the app created, without committing it, so SharpCompute's passes run in order with the app's own
+passes in one submission. What the recorded work uses stays alive until that command buffer completes:
+
+```csharp
+nint commandBuffer = app.BeginFrame();                // the app's [queue commandBuffer]
+context.For(count, new SimulateParticles(particles, time, dt));
+context.EncodeInto(commandBuffer);                    // before the app's scene pass, which draws the particles
+app.EncodeScene(commandBuffer);                       // the app's render pass
+context.For(width, height, new Ripple(scene, frame, center, time));
+Task done = context.EncodeInto(commandBuffer);        // after it; completes with the command buffer
+app.EncodeOverlayAndCommit(commandBuffer);            // the app's last pass, present and commit
+```
+
+The app must end its own encoder before calling `EncodeInto` (Metal terminates the process when two
+encoders are open on one command buffer) and must commit the command buffer; one that is already
+committed is rejected.
+
+**Native handles.** `device.NativeHandle`, `device.NativeCommandQueueHandle`, `buffer.NativeHandle`
+(with `buffer.NativeByteOffset` for a view) and `texture.NativeHandle` give other Metal code
+SharpCompute's objects. They are not owned by the caller: they are valid while the SharpCompute
+object is alive, and code that keeps one longer retains it.
+
+```csharp
+nint mtlBuffer = view.NativeHandle;       // a view's MTLBuffer is the one that owns the memory...
+nuint offset = view.NativeByteOffset;     // ...and the view starts this many bytes into it
+nint mtlTexture = texture.NativeHandle;   // e.g. [renderEncoder setFragmentTexture:mtlTexture atIndex:0]
+```
+
+[`samples/SharpCompute.Samples.NativeInterop`](samples/SharpCompute.Samples.NativeInterop) is a
+complete example: a host renderer written straight against Metal, with SharpCompute's particle
+simulation and post-process in its command buffer. The whole frame, host passes and both
+SharpCompute passes, takes about 0.5 ms of GPU time at 1280 × 720 on an Apple M4 Pro (median of five
+headless runs).
+
+![The native interop demo: a dusk landscape and glowing particle ribbons drawn by a raw Metal host renderer, with SharpCompute's ripple and bloom pass on top](docs/screenshots/nativeinterop.png)
+
 ### Shader language reference
 
 What is described here is checked against the GPU by the test suite; the full list of `Gpu.*`
@@ -671,7 +750,10 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 - Apple Silicon and macOS 15+ only, for now.
 - Atomics work on buffer elements of `int`, `uint` and (add only) `float`, not on struct fields
   and not on `[GroupShared]` memory.
-- Textures are 2D with one mip level; samplers are the six fixed ones.
+- Textures are 2D with one mip level (a wrapped mipmapped texture uses level 0); samplers are the
+  six fixed ones.
+- Wrapped Metal resources must use tracked hazard tracking, and `EncodeInto` cannot detect an
+  encoder the app left open on its command buffer.
 - 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`
   (`Gpu.PackUnorm4x8` for colors).
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses

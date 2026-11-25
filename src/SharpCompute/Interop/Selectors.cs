@@ -8,6 +8,7 @@ internal static class Selectors
     public static readonly nint Init = ObjC.GetSelector("init");
     public static readonly nint Retain = ObjC.GetSelector("retain");
     public static readonly nint Release = ObjC.GetSelector("release");
+    public static readonly nint ConformsToProtocol = ObjC.GetSelector("conformsToProtocol:");
 
     // NSString
     public static readonly nint Length = ObjC.GetSelector("length");
@@ -28,6 +29,27 @@ internal static class Selectors
     public static readonly nint NewLibraryWithSourceOptionsError = ObjC.GetSelector("newLibraryWithSource:options:error:");
     public static readonly nint NewComputePipelineStateWithFunctionError = ObjC.GetSelector("newComputePipelineStateWithFunction:error:");
     public static readonly nint MinimumLinearTextureAlignmentForPixelFormat = ObjC.GetSelector("minimumLinearTextureAlignmentForPixelFormat:");
+
+    // MTLResource / MTLCommandQueue / MTLCommandBuffer (all have a device)
+    public static readonly nint Device = ObjC.GetSelector("device");
+    public static readonly nint StorageMode = ObjC.GetSelector("storageMode");
+    public static readonly nint HazardTrackingMode = ObjC.GetSelector("hazardTrackingMode");
+
+    // MTLTexture
+    public static readonly nint TextureType = ObjC.GetSelector("textureType");
+    public static readonly nint PixelFormat = ObjC.GetSelector("pixelFormat");
+    public static readonly nint Width = ObjC.GetSelector("width");
+    public static readonly nint Height = ObjC.GetSelector("height");
+    public static readonly nint Depth = ObjC.GetSelector("depth");
+    public static readonly nint ArrayLength = ObjC.GetSelector("arrayLength");
+    public static readonly nint MipmapLevelCount = ObjC.GetSelector("mipmapLevelCount");
+    public static readonly nint SampleCount = ObjC.GetSelector("sampleCount");
+    public static readonly nint Usage = ObjC.GetSelector("usage");
+    public static readonly nint Buffer = ObjC.GetSelector("buffer");
+    public static readonly nint BufferOffset = ObjC.GetSelector("bufferOffset");
+    public static readonly nint BufferBytesPerRow = ObjC.GetSelector("bufferBytesPerRow");
+    public static readonly nint GetBytesFromRegion = ObjC.GetSelector("getBytes:bytesPerRow:fromRegion:mipmapLevel:");
+    public static readonly nint ReplaceRegion = ObjC.GetSelector("replaceRegion:mipmapLevel:withBytes:bytesPerRow:");
 
     // MTLCompileOptions
     public static readonly nint SetLanguageVersion = ObjC.GetSelector("setLanguageVersion:");
@@ -80,7 +102,8 @@ internal static class Selectors
     // MTLBlitCommandEncoder
     public static readonly nint CopyFromBufferToBuffer = ObjC.GetSelector("copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:");
     public static readonly nint FillBufferRangeValue = ObjC.GetSelector("fillBuffer:range:value:");
-    public static readonly nint CopyFromTextureToTexture = ObjC.GetSelector("copyFromTexture:toTexture:");
+    public static readonly nint CopyFromTextureToTextureLevels = ObjC.GetSelector(
+        "copyFromTexture:sourceSlice:sourceLevel:toTexture:destinationSlice:destinationLevel:sliceCount:levelCount:");
     public static readonly nint CopyFromBufferToTexture = ObjC.GetSelector(
         "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:");
     public static readonly nint CopyFromTextureToBuffer = ObjC.GetSelector(

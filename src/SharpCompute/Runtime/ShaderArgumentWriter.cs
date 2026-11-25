@@ -62,6 +62,7 @@ public unsafe ref struct ShaderArgumentWriter
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
     /// <exception cref="ArgumentException"><paramref name="buffer"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException"><paramref name="buffer"/> has been disposed.</exception>
+    /// <exception cref="NotSupportedException">A CPU dispatch binds a buffer the CPU cannot access (<see cref="Buffer{T}.IsCpuAccessible"/>).</exception>
     public void SetBuffer<T>(int index, Buffer<T> buffer)
         where T : unmanaged
     {
@@ -70,7 +71,7 @@ public unsafe ref struct ShaderArgumentWriter
         ArgumentNullException.ThrowIfNull(buffer);
         ObjectDisposedException.ThrowIf(buffer.IsDisposed, buffer);
 
-        if (!ReferenceEquals(buffer.Device, device))
+        if (!device.IsSameDevice(buffer.Device))
         {
             throw new ArgumentException(
                 $"The buffer bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
@@ -79,6 +80,8 @@ public unsafe ref struct ShaderArgumentWriter
 
         if (_cpuLeases is not null)
         {
+            buffer.ThrowIfNotCpuAccessible();
+
             // The CPU reads the buffer through its indexers for the whole dispatch, so the lease
             // must last that long: a concurrent Dispose then fails the indexers instead of freeing
             // memory under them.
@@ -121,6 +124,7 @@ public unsafe ref struct ShaderArgumentWriter
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
     /// <exception cref="ArgumentException"><paramref name="texture"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException"><paramref name="texture"/> has been disposed.</exception>
+    /// <exception cref="NotSupportedException">A CPU dispatch binds a texture the CPU cannot address (<see cref="Texture2D{T}.IsCpuAccessible"/>).</exception>
     public void SetTexture<T>(int index, Texture2D<T> texture)
         where T : unmanaged
     {
@@ -129,7 +133,7 @@ public unsafe ref struct ShaderArgumentWriter
         ArgumentNullException.ThrowIfNull(texture);
         ObjectDisposedException.ThrowIf(texture.IsDisposed, texture);
 
-        if (!ReferenceEquals(texture.Device, device))
+        if (!device.IsSameDevice(texture.Device))
         {
             throw new ArgumentException(
                 $"The texture bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
@@ -141,6 +145,8 @@ public unsafe ref struct ShaderArgumentWriter
         // its GC memory pressure dropped) while the GPU may still touch it.
         if (_cpuLeases is not null)
         {
+            texture.ThrowIfNotCpuAccessible();
+
             // The CPU reads and writes the pixels through the indexers for the whole dispatch.
             _cpuLeases.EnsureCapacity(_cpuLeases.Count + 2);
             texture.Handle.AddLease(texture);

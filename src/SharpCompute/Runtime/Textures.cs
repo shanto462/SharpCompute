@@ -33,6 +33,19 @@ namespace SharpCompute;
 /// (<c>Width * Height</c> elements).
 /// </para>
 /// <para>
+/// <b>Native textures.</b> <see cref="GraphicsDevice.WrapNativeReadOnlyTexture2D{T}"/> and
+/// <see cref="GraphicsDevice.WrapNativeReadWriteTexture2D{T}"/> make a texture over an
+/// <c>MTLTexture</c> that other Metal code created. Such a texture is usually not a view of a buffer,
+/// so the CPU cannot address its pixels: <see cref="IsCpuAccessible"/> is false and the indexers,
+/// <see cref="ReadOnlyTexture2D{T}.Sample"/> on the CPU, <c>ForCpu</c> and <c>ForEachCpu</c> throw
+/// <see cref="NotSupportedException"/>. <see cref="CopyTo"/>, <see cref="CopyFrom"/> and
+/// <see cref="ToArray"/> still work when its storage is shared (Metal copies the pixels with
+/// <c>getBytes</c> and <c>replaceRegion</c>), and throw when it is private (GPU-only); GPU copies
+/// work in every case. A native texture that is a linear view of a shared buffer is CPU-accessible
+/// like one SharpCompute allocated. Only mipmap level 0 is used. <see cref="NativeHandle"/> hands the
+/// <c>MTLTexture</c> of any texture to other Metal code.
+/// </para>
+/// <para>
 /// Lifetime follows <see cref="Buffer{T}"/>: <see cref="Dispose"/> releases the GPU memory, any later
 /// use throws <see cref="ObjectDisposedException"/>, and a texture that is never disposed is released
 /// when its handles are finalized. A dispatch that binds a texture leases it, so disposing a texture
@@ -48,10 +61,14 @@ namespace SharpCompute;
 public abstract unsafe class Texture2D<T> : IDisposable
     where T : unmanaged
 {
+    // The texture's storage. For a texture SharpCompute allocated, or a native one that is a view of
+    // a buffer, the MTLBuffer behind it; for any other native texture there is no such buffer and this
+    // is _texture again, so that the code that leases "the texture and its storage" needs no special case.
     private readonly ObjCHandle _buffer;
     private readonly ObjCHandle _texture;
     private readonly byte* _contents;
     private readonly nuint _bytesPerRow;
+    private readonly TextureCpuAccess _cpuAccess;
     private readonly int _width;
     private readonly int _height;
 
@@ -130,6 +147,40 @@ public abstract unsafe class Texture2D<T> : IDisposable
         _height = height;
         _accessibleWidth = width;
         _accessibleHeight = height;
+        _cpuAccess = TextureCpuAccess.Linear;
+        _root = this;
+    }
+
+    /// <summary>
+    /// Wraps a validated native texture (<see cref="GraphicsDevice.WrapNativeReadOnlyTexture2D{T}"/>),
+    /// taking ownership of <paramref name="texture"/> and <paramref name="storage"/>.
+    /// </summary>
+    /// <param name="device">The device the texture belongs to.</param>
+    /// <param name="texture">The retained <c>MTLTexture</c>.</param>
+    /// <param name="storage">
+    /// The retained <c>MTLBuffer</c> the texture is a view of, or <paramref name="texture"/> itself when it has none.
+    /// </param>
+    /// <param name="contents">The CPU address of pixel (0, 0) for <see cref="TextureCpuAccess.Linear"/>, otherwise null.</param>
+    /// <param name="bytesPerRow">The row pitch in the buffer for <see cref="TextureCpuAccess.Linear"/>.</param>
+    /// <param name="width">Width of level 0.</param>
+    /// <param name="height">Height of level 0.</param>
+    /// <param name="cpuAccess">How the CPU reaches the pixels.</param>
+    private protected Texture2D(
+        GraphicsDevice device, ObjCHandle texture, ObjCHandle storage, byte* contents, nuint bytesPerRow, int width, int height, TextureCpuAccess cpuAccess)
+    {
+        Device = device;
+        _texture = texture;
+        _buffer = storage;
+        _contents = contents;
+        _width = width;
+        _height = height;
+        _cpuAccess = cpuAccess;
+        _bytesPerRow = cpuAccess == TextureCpuAccess.Linear ? bytesPerRow : (nuint)width * (nuint)sizeof(T);
+
+        // Zero makes the indexers and the sampler reject every pixel of a texture the CPU cannot address.
+        bool addressable = cpuAccess == TextureCpuAccess.Linear;
+        _accessibleWidth = addressable ? width : 0;
+        _accessibleHeight = addressable ? height : 0;
         _root = this;
     }
 
@@ -146,9 +197,10 @@ public abstract unsafe class Texture2D<T> : IDisposable
         _texture = source._texture;
         _contents = source._contents;
         _bytesPerRow = source._bytesPerRow;
+        _cpuAccess = source._cpuAccess;
         _width = source._width;
         _height = source._height;
-        _accessibleWidth = source._width;
+        _accessibleWidth = source._cpuAccess == TextureCpuAccess.Linear ? source._width : 0;
         _root = source._root;
     }
 
@@ -161,10 +213,38 @@ public abstract unsafe class Texture2D<T> : IDisposable
     /// <summary>Height in pixels. In a shader this is <c>get_height()</c>.</summary>
     public int Height => _height;
 
+    /// <summary>
+    /// True when the CPU can address the pixels directly, so the indexers, CPU sampling, <c>ForCpu</c>
+    /// and <c>ForEachCpu</c> work: for every texture SharpCompute allocates, and for a native texture
+    /// that is a linear view of a shared buffer. False for other native textures (see the class
+    /// remarks); for those in shared storage <see cref="CopyTo"/> and <see cref="CopyFrom"/> still work.
+    /// </summary>
+    public bool IsCpuAccessible => _cpuAccess == TextureCpuAccess.Linear;
+
+    /// <summary>The <c>id&lt;MTLTexture&gt;</c>, for other Metal code. For a view (<see cref="ReadWriteTexture2D{T}.AsReadOnly"/>), its source's texture.</summary>
+    /// <remarks>
+    /// The reference is not owned by the caller: it is valid while this texture (for a view, its
+    /// source) is not disposed, and for as long as GPU work that uses it is pending. Code that keeps
+    /// it longer must retain it (<c>[texture retain]</c>) and release it when done.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">The texture has been disposed.</exception>
+    public nint NativeHandle
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _texture.DangerousGetHandle();
+        }
+    }
+
     /// <summary>The underlying <c>id&lt;MTLTexture&gt;</c>. For a view, the source's handle.</summary>
     internal ObjCHandle Handle => _texture;
 
-    /// <summary>The shared <c>id&lt;MTLBuffer&gt;</c> that stores the texture's pixels. For a view, the source's handle.</summary>
+    /// <summary>
+    /// The <c>id&lt;MTLBuffer&gt;</c> that stores the texture's pixels, or for a native texture that is
+    /// not a view of a buffer the texture's own handle. For a view, the source's handle. Lease it with
+    /// <see cref="Handle"/> wherever the texture is used.
+    /// </summary>
     internal ObjCHandle BufferHandle => _buffer;
 
     /// <summary>The CPU address of pixel (0, 0) in the backing buffer. Valid while <see cref="BufferHandle"/> is leased.</summary>
@@ -182,9 +262,11 @@ public abstract unsafe class Texture2D<T> : IDisposable
     /// <summary>Copies all pixels, row-major and tightly packed (<c>Width * Height</c> elements).</summary>
     /// <exception cref="ArgumentException"><paramref name="destination"/> is shorter than <c>Width * Height</c>.</exception>
     /// <exception cref="ObjectDisposedException">The texture has been disposed.</exception>
+    /// <exception cref="NotSupportedException">The texture is a native one in private (GPU-only) storage.</exception>
     public void CopyTo(Span<T> destination)
     {
         ThrowIfDisposed();
+        ThrowIfGpuOnly();
 
         int pixelCount = _width * _height;
 
@@ -196,6 +278,12 @@ public abstract unsafe class Texture2D<T> : IDisposable
 
         // The lease keeps the MTLBuffer alive even if another thread disposes the texture mid-copy.
         using ObjCHandle.Lease lease = _buffer.Acquire(this);
+
+        if (_cpuAccess != TextureCpuAccess.Linear)
+        {
+            CopyRegionTo(destination.Slice(0, pixelCount));
+            return;
+        }
 
         if (_bytesPerRow == (nuint)_width * (nuint)sizeof(T))
         {
@@ -215,9 +303,11 @@ public abstract unsafe class Texture2D<T> : IDisposable
     /// </summary>
     /// <exception cref="ArgumentException"><paramref name="source"/> is longer than <c>Width * Height</c>.</exception>
     /// <exception cref="ObjectDisposedException">The texture has been disposed.</exception>
+    /// <exception cref="NotSupportedException">The texture is a native one in private (GPU-only) storage.</exception>
     public void CopyFrom(ReadOnlySpan<T> source)
     {
         ThrowIfDisposed();
+        ThrowIfGpuOnly();
 
         int pixelCount = _width * _height;
 
@@ -229,6 +319,12 @@ public abstract unsafe class Texture2D<T> : IDisposable
 
         using ObjCHandle.Lease lease = _buffer.Acquire(this);
 
+        if (_cpuAccess != TextureCpuAccess.Linear)
+        {
+            CopyRegionFrom(source);
+            return;
+        }
+
         for (int y = 0, start = 0; start < source.Length; y++, start += _width)
         {
             ReadOnlySpan<T> row = source.Slice(start, Math.Min(_width, source.Length - start));
@@ -238,9 +334,11 @@ public abstract unsafe class Texture2D<T> : IDisposable
 
     /// <summary>Copies all pixels into a new array (row-major, <c>Width * Height</c> elements).</summary>
     /// <exception cref="ObjectDisposedException">The texture has been disposed.</exception>
+    /// <exception cref="NotSupportedException">The texture is a native one in private (GPU-only) storage.</exception>
     public T[] ToArray()
     {
         ThrowIfDisposed();
+        ThrowIfGpuOnly();
 
         T[] result = GC.AllocateUninitializedArray<T>(_width * _height);
         CopyTo(result);
@@ -295,6 +393,7 @@ public abstract unsafe class Texture2D<T> : IDisposable
         if (width == 0 || height == 0)
         {
             ThrowIfDisposed();
+            ThrowIfNotCpuAccessible();
         }
 
         TextureAddressMode mode = sampler.AddressMode;
@@ -369,9 +468,73 @@ public abstract unsafe class Texture2D<T> : IDisposable
 
     private protected void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(IsDisposed, this);
 
+    /// <summary>The exception for direct CPU access (indexers, CPU sampling, <c>ForCpu</c>) to a texture whose pixels the CPU cannot address.</summary>
+    internal void ThrowIfNotCpuAccessible()
+    {
+        if (_cpuAccess != TextureCpuAccess.Linear)
+        {
+            throw new NotSupportedException(
+                (_cpuAccess == TextureCpuAccess.None
+                    ? "This native texture is in private (GPU-only) storage, so the CPU cannot address its pixels"
+                    : "This native texture is not a linear view of a buffer, so the CPU cannot address its pixels") +
+                ": the indexers, Sample on the CPU, ForCpu and ForEachCpu do not support it. Shaders on the GPU and GPU copies do" +
+                (_cpuAccess == TextureCpuAccess.None ? "." : ", and so do CopyTo, CopyFrom and ToArray."));
+        }
+    }
+
+    private void ThrowIfGpuOnly()
+    {
+        if (_cpuAccess == TextureCpuAccess.None)
+        {
+            throw new NotSupportedException(
+                "This native texture is in private (GPU-only) storage, so the CPU cannot copy its pixels. " +
+                "Copy it on the GPU into a texture or buffer SharpCompute allocated (GraphicsDevice.Copy), and read that.");
+        }
+    }
+
+    /// <summary>
+    /// <c>getBytes:bytesPerRow:fromRegion:mipmapLevel:</c> of level 0 into tightly packed rows. Metal
+    /// does the copy (and any detiling) on the calling thread; the caller holds a lease on the texture.
+    /// </summary>
+    private void CopyRegionTo(Span<T> destination)
+    {
+        fixed (T* pixels = destination)
+        {
+            MTLRegion region = new(default, new MTLSize((nuint)_width, (nuint)_height, 1));
+            ObjC.SendVoid(_texture.DangerousGetHandle(), Selectors.GetBytesFromRegion, pixels, _bytesPerRow, region, 0);
+        }
+    }
+
+    /// <summary>
+    /// <c>replaceRegion:mipmapLevel:withBytes:bytesPerRow:</c> of level 0 from tightly packed rows: the
+    /// whole rows <paramref name="source"/> covers, then the start of the last row when it ends mid-row.
+    /// </summary>
+    private void CopyRegionFrom(ReadOnlySpan<T> source)
+    {
+        int rows = source.Length / _width;
+        int rest = source.Length - (rows * _width);
+        nint texture = _texture.DangerousGetHandle();
+
+        fixed (T* pixels = source)
+        {
+            if (rows > 0)
+            {
+                MTLRegion region = new(default, new MTLSize((nuint)_width, (nuint)rows, 1));
+                ObjC.SendVoid(texture, Selectors.ReplaceRegion, region, 0, pixels, _bytesPerRow);
+            }
+
+            if (rest > 0)
+            {
+                MTLRegion region = new(new MTLOrigin(0, (nuint)rows, 0), new MTLSize((nuint)rest, 1, 1));
+                ObjC.SendVoid(texture, Selectors.ReplaceRegion, region, 0, pixels + (rows * _width), _bytesPerRow);
+            }
+        }
+    }
+
     private void ThrowPixelFailure(int x, int y)
     {
         ThrowIfDisposed();
+        ThrowIfNotCpuAccessible();
 
         if ((uint)x >= (uint)_width)
         {
@@ -436,6 +599,13 @@ public sealed unsafe class ReadOnlyTexture2D<T> : Texture2D<T>
 {
     internal ReadOnlyTexture2D(GraphicsDevice device, int width, int height)
         : base(device, width, height, readWrite: false)
+    {
+    }
+
+    /// <summary>A native texture; see <see cref="GraphicsDevice.WrapNativeReadOnlyTexture2D{T}"/>.</summary>
+    internal ReadOnlyTexture2D(
+        GraphicsDevice device, ObjCHandle texture, ObjCHandle storage, byte* contents, nuint bytesPerRow, int width, int height, TextureCpuAccess cpuAccess)
+        : base(device, texture, storage, contents, bytesPerRow, width, height, cpuAccess)
     {
     }
 
@@ -522,6 +692,13 @@ public sealed unsafe class ReadWriteTexture2D<T> : Texture2D<T>
     {
     }
 
+    /// <summary>A native texture; see <see cref="GraphicsDevice.WrapNativeReadWriteTexture2D{T}"/>.</summary>
+    internal ReadWriteTexture2D(
+        GraphicsDevice device, ObjCHandle texture, ObjCHandle storage, byte* contents, nuint bytesPerRow, int width, int height, TextureCpuAccess cpuAccess)
+        : base(device, texture, storage, contents, bytesPerRow, width, height, cpuAccess)
+    {
+    }
+
     /// <summary>
     /// The pixel at (<paramref name="x"/>, <paramref name="y"/>): reading gives the pixel as a shader
     /// sees it (<c>read</c> in MSL), writing stores a color with the format's conversion (<c>write</c>):
@@ -555,6 +732,19 @@ public sealed unsafe class ReadWriteTexture2D<T> : Texture2D<T>
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The texture has been disposed.</exception>
     public ReadOnlyTexture2D<T> AsReadOnly() => new(this);
+}
+
+/// <summary>How the CPU reaches a texture's pixels.</summary>
+internal enum TextureCpuAccess
+{
+    /// <summary>Directly, in a shared buffer the texture is a linear view of: every CPU feature works.</summary>
+    Linear,
+
+    /// <summary>Only through Metal's copies (<c>getBytes</c>, <c>replaceRegion</c>): a native texture in shared storage.</summary>
+    Region,
+
+    /// <summary>Not at all: a native texture in private storage.</summary>
+    None,
 }
 
 file static class TextureDescriptorClass

@@ -13,8 +13,18 @@ namespace SharpCompute;
 /// A Metal GPU device (<c>id&lt;MTLDevice&gt;</c>) plus its command queue and pipeline cache.
 /// </summary>
 /// <remarks>
+/// <para>
 /// All members are thread-safe. Every dispatch uses its own command buffer and encoder, and the
 /// device, queue and pipeline states they share are safe to use concurrently.
+/// </para>
+/// <para>
+/// <b>Same device.</b> Buffers and textures belong to the <c>MTLDevice</c>, not to the
+/// <see cref="GraphicsDevice"/> they were allocated or wrapped through, so the "different device"
+/// checks of dispatches, copies and presentation compare the underlying <c>id&lt;MTLDevice&gt;</c>.
+/// <c>MTLCreateSystemDefaultDevice</c> returns the same object every time (measured on an Apple M4
+/// Pro), so <see cref="GetDefault"/> and a device made by <see cref="FromNative"/> from the system
+/// default device are the same device and share resources; each still has its own queue.
+/// </para>
 /// </remarks>
 public sealed unsafe partial class GraphicsDevice : IDisposable
 {
@@ -33,29 +43,39 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     private int _pipelineCompileCount;
     private int _disposed;
 
-    private GraphicsDevice(nint device, bool isDefault)
+    /// <param name="device">A +1 reference to the <c>id&lt;MTLDevice&gt;</c>; ownership transfers to the new object.</param>
+    /// <param name="isDefault">True for the shared <see cref="GetDefault"/> instance, which Dispose leaves alone.</param>
+    /// <param name="queue">A +1 reference to a queue of <paramref name="device"/> to use, or 0 to create one.</param>
+    /// <param name="identity">What this device compares as (see <see cref="Identity"/>); 0 for <paramref name="device"/> itself.</param>
+    private GraphicsDevice(nint device, bool isDefault, nint queue = 0, nint identity = 0)
     {
         _isDefault = isDefault;
         _device = new ObjCHandle(device);
+        Identity = identity == 0 ? device : identity;
 
         try
         {
             using AutoreleasePool pool = AutoreleasePool.Push();
 
-            nint queue = ObjC.SendIntPtr(device, Selectors.NewCommandQueue);
-
             if (queue == 0)
             {
-                throw new InvalidOperationException("Metal failed to create a command queue.");
+                queue = ObjC.SendIntPtr(device, Selectors.NewCommandQueue);
+
+                if (queue == 0)
+                {
+                    throw new InvalidOperationException("Metal failed to create a command queue.");
+                }
             }
 
             _queue = new ObjCHandle(queue);
+            queue = 0;
             Name = NSString.ToManaged(ObjC.SendIntPtr(device, Selectors.Name)) ?? string.Empty;
             MaxBufferLength = ObjC.SendNUInt(device, Selectors.MaxBufferLength);
             MaxThreadgroupMemoryLength = ObjC.SendNUInt(device, Selectors.MaxThreadgroupMemoryLength);
         }
         catch
         {
+            ObjC.Release(queue);
             _queue?.Dispose();
             _device.Dispose();
             throw;
@@ -80,6 +100,21 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
+    /// <summary>
+    /// The <c>id&lt;MTLDevice&gt;</c> this object wraps, as a number: what "the same device" means. Two
+    /// <see cref="GraphicsDevice"/> objects over one <c>MTLDevice</c> (<see cref="GetDefault"/> and
+    /// <see cref="FromNative"/> of the system default device, say) are the same device, and resources
+    /// of one can be used with the other. The value stays valid after Dispose, for the comparison only.
+    /// </summary>
+    internal nint Identity { get; }
+
+    /// <summary>
+    /// True when a resource of <paramref name="other"/> can be used with this device: both wrap the
+    /// same <c>MTLDevice</c>. A buffer or texture belongs to an <c>MTLDevice</c>, not to the wrapper it
+    /// was allocated through, and Metal accepts it on any queue of that device.
+    /// </summary>
+    internal bool IsSameDevice(GraphicsDevice other) => other.Identity == Identity;
+
     /// <summary>The <c>id&lt;MTLDevice&gt;</c>. Lease it (<see cref="ObjCHandle.Acquire"/>) for the duration of a native call.</summary>
     internal ObjCHandle DeviceHandle => _device;
 
@@ -88,9 +123,31 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
     /// <summary>
     /// A new, independently disposable wrapper around the system default device. It has its own
-    /// command queue and pipeline cache, and buffers are not interchangeable with other wrappers.
+    /// command queue and pipeline cache. It is the same device as <see cref="GetDefault"/> (see
+    /// <see cref="Identity"/>), so their buffers and textures are interchangeable.
     /// </summary>
     internal static GraphicsDevice CreateSystemDefault() => TryCreateSystemDefault(isDefault: false) ?? throw NotSupported();
+
+    /// <summary>
+    /// Tests only: a wrapper around the system default device that counts as a different
+    /// <c>MTLDevice</c>, standing in for a second GPU. Apple silicon Macs have one GPU, and
+    /// <c>MTLCreateSystemDefaultDevice</c> returns the same object every time, so the wrong-device
+    /// checks cannot be reached with real devices here. Its identity is a negative number, which no
+    /// object address is.
+    /// </summary>
+    internal static GraphicsDevice CreateStandInForAnotherDevice()
+    {
+        nint device = Metal.CreateSystemDefaultDevice();
+
+        if (device == 0)
+        {
+            throw NotSupported();
+        }
+
+        return new GraphicsDevice(device, isDefault: false, identity: -(nint)Interlocked.Increment(ref s_standInIdentities));
+    }
+
+    private static long s_standInIdentities;
 
     public ReadWriteBuffer<T> AllocateReadWriteBuffer<T>(int length)
         where T : unmanaged => new(this, length);
@@ -243,7 +300,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
             map = null;
             view = null;
-            return new ReadOnlyBuffer<T>(this, handle, (T*)start, length, isCpuWritable: false);
+            return new ReadOnlyBuffer<T>(this, handle, (T*)start, length, isMemoryWritable: false);
         }
         finally
         {
@@ -325,7 +382,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         ObjectDisposedException.ThrowIf(texture.IsDisposed, texture);
 
-        if (!ReferenceEquals(texture.Device, this))
+        if (!IsSameDevice(texture.Device))
         {
             throw new ArgumentException(
                 "The texture was allocated from a different GraphicsDevice than the one dispatching the shader.", nameof(texture));
@@ -545,11 +602,16 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     private static PlatformNotSupportedException NotSupported() =>
         new("SharpCompute requires macOS 15 or later on Apple Silicon with a Metal device. Check GraphicsDevice.IsSupported first.");
 
+    /// <summary>
+    /// MSL 3.2 and <c>MTLCompileOptions.mathMode</c> (both fixed by the contract) need macOS 15, and
+    /// the <c>objc_msgSend</c> call shapes in Interop are written for the arm64 ABI.
+    /// </summary>
+    private static bool IsPlatformSupported =>
+        OperatingSystem.IsMacOSVersionAtLeast(15) && RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+
     private static GraphicsDevice? TryCreateSystemDefault(bool isDefault)
     {
-        // MSL 3.2 and MTLCompileOptions.mathMode (both fixed by the contract) need macOS 15, and the
-        // objc_msgSend call shapes in Interop are written for the arm64 ABI.
-        if (!OperatingSystem.IsMacOSVersionAtLeast(15) || RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
+        if (!IsPlatformSupported)
         {
             return null;
         }

@@ -263,8 +263,10 @@ public sealed unsafe partial class GraphicsDevice
         }
 
         // Views share their source's MTLBuffer, so positions are compared in that buffer, in elements
-        // (a 64-bit sum: two views of a large buffer can each start past 2^31 bytes).
-        if (ReferenceEquals(source.Root, destination.Root))
+        // (a 64-bit sum: two views of a large buffer can each start past 2^31 bytes). The MTLBuffer is
+        // compared rather than the wrapper: two wrappers of one native buffer share memory too, and
+        // both start at its first byte.
+        if (source.Root.Handle.DangerousGetHandle() == destination.Root.Handle.DangerousGetHandle())
         {
             long from = source.StartInRoot + (long)sourceOffset;
             long to = destination.StartInRoot + (long)destinationOffset;
@@ -293,8 +295,8 @@ public sealed unsafe partial class GraphicsDevice
                 $"The textures differ in size: the source is {source.Width}×{source.Height} and the destination {destination.Width}×{destination.Height}.", nameof(destination));
         }
 
-        // A view (AsReadOnly) is its source's MTLTexture.
-        if (ReferenceEquals(source.Handle, destination.Handle))
+        // A view (AsReadOnly) is its source's MTLTexture, and two wrappers of one native texture are one MTLTexture too.
+        if (source.Handle.DangerousGetHandle() == destination.Handle.DangerousGetHandle())
         {
             throw new ArgumentException("The source and the destination are the same texture.", nameof(destination));
         }
@@ -365,7 +367,7 @@ public sealed unsafe partial class GraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         ObjectDisposedException.ThrowIf(buffer.IsDisposed, buffer);
 
-        if (!ReferenceEquals(buffer.Device, this))
+        if (!IsSameDevice(buffer.Device))
         {
             throw new ArgumentException("The buffer was allocated from a different GraphicsDevice than the one it is used with.", parameterName);
         }
@@ -379,7 +381,7 @@ public sealed unsafe partial class GraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         ObjectDisposedException.ThrowIf(texture.IsDisposed, texture);
 
-        if (!ReferenceEquals(texture.Device, this))
+        if (!IsSameDevice(texture.Device))
         {
             throw new ArgumentException("The texture was allocated from a different GraphicsDevice than the one it is used with.", parameterName);
         }
@@ -392,7 +394,7 @@ public sealed unsafe partial class GraphicsDevice
     private static void ThrowIfReadOnlyMemory<T>(Buffer<T> destination)
         where T : unmanaged
     {
-        if (!destination.IsCpuWritable)
+        if (!destination.IsMemoryWritable)
         {
             throw new NotSupportedException("The destination buffer maps read-only memory (a memory-mapped file) and cannot be written.");
         }
