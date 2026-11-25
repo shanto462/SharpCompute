@@ -256,13 +256,55 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     }
 
     /// <summary>
-    /// Allocates a zero-filled <paramref name="width"/> × <paramref name="height"/> GPU-writable texture.
-    /// v1: <c>T</c> = <see cref="Rgba32"/>.
+    /// Allocates a zero-filled <paramref name="width"/> × <paramref name="height"/> texture that shaders
+    /// read and write (<c>access::read_write</c>), and that pixel shaders render into when
+    /// <typeparamref name="T"/> is <see cref="Rgba32"/>.
     /// </summary>
-    /// <exception cref="NotSupportedException"><typeparamref name="T"/> is not <see cref="Rgba32"/>.</exception>
+    /// <typeparam name="T">
+    /// The pixel: <see cref="Rgba32"/>, <see cref="R8"/>, <see cref="Half"/>, <see cref="Rgba16Float"/>,
+    /// <see cref="float"/> or <see cref="Float4"/>.
+    /// </typeparam>
+    /// <exception cref="NotSupportedException">
+    /// <typeparamref name="T"/> is not a texture element type, or is one the GPU cannot read and write
+    /// in one shader (<see cref="Rg16"/>, <see cref="Rgba32Srgb"/>).
+    /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is not in 1..16384.</exception>
     public ReadWriteTexture2D<T> AllocateReadWriteTexture2D<T>(int width, int height)
         where T : unmanaged => new(this, width, height);
+
+    /// <summary>
+    /// Allocates a read-write texture and copies <paramref name="pixels"/> (row-major, tightly packed)
+    /// into it, starting at pixel (0, 0); pixels it does not cover stay zero.
+    /// </summary>
+    /// <inheritdoc cref="AllocateReadWriteTexture2D{T}(int, int)" path="/typeparam"/>
+    /// <inheritdoc cref="AllocateReadWriteTexture2D{T}(int, int)" path="/exception"/>
+    /// <exception cref="ArgumentException"><paramref name="pixels"/> is longer than <c>width * height</c>.</exception>
+    public ReadWriteTexture2D<T> AllocateReadWriteTexture2D<T>(ReadOnlySpan<T> pixels, int width, int height)
+        where T : unmanaged => Fill(new ReadWriteTexture2D<T>(this, width, height), pixels);
+
+    /// <summary>
+    /// Allocates a zero-filled <paramref name="width"/> × <paramref name="height"/> texture that shaders
+    /// read and sample (<c>access::sample</c>), to be filled from the CPU with
+    /// <see cref="Texture2D{T}.CopyFrom"/>.
+    /// </summary>
+    /// <typeparam name="T">
+    /// The pixel: <see cref="Rgba32"/>, <see cref="Rgba32Srgb"/>, <see cref="R8"/>, <see cref="Rg16"/>,
+    /// <see cref="Half"/>, <see cref="Rgba16Float"/>, <see cref="float"/> or <see cref="Float4"/>.
+    /// </typeparam>
+    /// <exception cref="NotSupportedException"><typeparamref name="T"/> is not a texture element type.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A dimension is not in 1..16384.</exception>
+    public ReadOnlyTexture2D<T> AllocateReadOnlyTexture2D<T>(int width, int height)
+        where T : unmanaged => new(this, width, height);
+
+    /// <summary>
+    /// Allocates a read-only texture and copies <paramref name="pixels"/> (row-major, tightly packed)
+    /// into it, starting at pixel (0, 0); pixels it does not cover stay zero.
+    /// </summary>
+    /// <inheritdoc cref="AllocateReadOnlyTexture2D{T}(int, int)" path="/typeparam"/>
+    /// <inheritdoc cref="AllocateReadOnlyTexture2D{T}(int, int)" path="/exception"/>
+    /// <exception cref="ArgumentException"><paramref name="pixels"/> is longer than <c>width * height</c>.</exception>
+    public ReadOnlyTexture2D<T> AllocateReadOnlyTexture2D<T>(ReadOnlySpan<T> pixels, int width, int height)
+        where T : unmanaged => Fill(new ReadOnlyTexture2D<T>(this, width, height), pixels);
 
     /// <summary>
     /// Runs a pixel shader once per pixel of <paramref name="texture"/> and waits for completion.
@@ -379,6 +421,23 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
         // No memory pressure: the memory is not allocated by this buffer.
         return new ObjCHandle(buffer, afterRelease: release);
+    }
+
+    /// <summary>Copies the initial pixels into a new texture, releasing it if they do not fit.</summary>
+    private static TTexture Fill<TTexture, T>(TTexture texture, ReadOnlySpan<T> pixels)
+        where TTexture : Texture2D<T>
+        where T : unmanaged
+    {
+        try
+        {
+            texture.CopyFrom(pixels);
+            return texture;
+        }
+        catch
+        {
+            texture.Dispose();
+            throw;
+        }
     }
 
     /// <summary><c>minimumLinearTextureAlignmentForPixelFormat:</c>: the required alignment of a linear texture's offset and <c>bytesPerRow</c>.</summary>
@@ -546,7 +605,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         using ObjCHandle.Lease outputTexture = output is null ? default : output.Handle.Acquire(output);
         using ObjCHandle.Lease outputStorage = output is null ? default : output.BufferHandle.Acquire(output);
 
-        // Every bound buffer stays leased until the GPU is done with it (see ShaderArgumentWriter.SetBuffer).
+        // Every bound buffer and texture stays leased until the GPU is done with it (see ShaderArgumentWriter.SetBuffer).
         List<ObjCHandle> leased = [];
 
         try

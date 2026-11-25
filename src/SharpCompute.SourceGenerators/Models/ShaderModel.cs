@@ -21,6 +21,7 @@ internal sealed record ShaderModel(
     int ThreadGroupSizeY,
     int ThreadGroupSizeZ,
     EquatableArray<BufferArgument> Buffers,
+    EquatableArray<BufferArgument> Textures,
     EquatableArray<ConstantArgument> Constants,
     int ConstantsIndex,
     bool UsesInstanceAccess,
@@ -30,8 +31,9 @@ internal sealed record ShaderModel(
 internal sealed record TypeDeclarationInfo(string Keyword, string Name);
 
 /// <summary>
-/// A buffer bound with <c>writer.SetBuffer(Index, Access)</c>. <see cref="DisplayName"/> (<c>Shader.field</c>)
-/// names it in the exception thrown when it is null, e.g. for <c>default(Shader)</c>.
+/// A buffer bound with <c>writer.SetBuffer(Index, Access)</c>, or a texture bound with
+/// <c>writer.SetTexture(Index, Access)</c>. <see cref="DisplayName"/> (<c>Shader.field</c>) names it in
+/// the exception thrown when it is null, e.g. for <c>default(Shader)</c>.
 /// </summary>
 internal sealed record BufferArgument(int Index, string Access, string DisplayName);
 

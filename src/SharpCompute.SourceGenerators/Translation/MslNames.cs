@@ -24,6 +24,13 @@ internal static class MslNames
     public const string ConstantsStruct = "__Constants";
     public const string Output = "__output";
 
+    /// <summary>
+    /// The prefix of the program-scope <c>constexpr sampler</c> of each <c>Sampler</c> property that is
+    /// used (<c>__ms_sampler_linear_clamp</c>). No C# identifier escapes to such a name: <see cref="Escape"/>
+    /// only adds <c>__ms_</c> to reserved names, and no reserved name starts with <c>sampler_</c>.
+    /// </summary>
+    public const string SamplerPrefix = "__ms_sampler_";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";
@@ -87,6 +94,9 @@ internal static class MslNames
             // plus names the generator relies on resolving to their built-in meaning.
             "kernel", "vertex", "fragment", "device", "constant", "thread", "threadgroup", "threadgroup_imageblock",
             "ray_data", "object_data", "main", "metal", "simd", "std",
+
+            // The texture type and its access qualifier, which texture parameters and locals name unqualified.
+            "texture2d", "access",
 
             // Scalar types and common typedefs. Vector and matrix types are added below.
             "uchar", "ushort", "uint", "ulong", "half", "bfloat", "size_t", "ptrdiff_t", "intptr_t", "uintptr_t",

@@ -200,6 +200,9 @@ internal sealed unsafe class CommandBatch
     /// <summary>Records <c>setBuffer:offset:0 atIndex:</c> for an already leased buffer.</summary>
     internal void RecordBuffer(nint buffer, int index) => _commands.Add(new Command(CommandKind.Buffer, buffer, index));
 
+    /// <summary>Records <c>setTexture:atIndex:</c> for an already leased texture.</summary>
+    internal void RecordTexture(nint texture, int index) => _commands.Add(new Command(CommandKind.Texture, texture, index));
+
     /// <summary>Records <c>setBytes:length:atIndex:</c> with a copy of the bytes, taken now.</summary>
     internal void RecordBytes(void* bytes, int length, int index)
     {
@@ -417,7 +420,7 @@ internal sealed unsafe class CommandBatch
                             ObjC.SendVoid(encoder, Selectors.SetComputePipelineState, command.Pointer);
                             break;
                         case CommandKind.Texture:
-                            ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, command.Pointer, (nuint)0);
+                            ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, command.Pointer, (nuint)command.Index);
                             break;
                         case CommandKind.Buffer:
                             ObjC.SendVoid(encoder, Selectors.SetBufferOffsetAtIndex, command.Pointer, (nuint)0, (nuint)command.Index);

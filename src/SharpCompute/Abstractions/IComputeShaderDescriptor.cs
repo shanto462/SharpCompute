@@ -5,7 +5,9 @@ namespace SharpCompute;
 /// <summary>
 /// Implemented by the source generator for every <see cref="IComputeShader"/> or
 /// <see cref="IComputeShader{TPixel}"/> marked with <see cref="GeneratedComputeShaderDescriptorAttribute"/>. This is the ABI between the generator
-/// and the runtime: buffers bind at <c>[[buffer(0..n-1)]]</c>, then one packed constants struct.
+/// and the runtime: buffers bind at <c>[[buffer(0..n-1)]]</c>, then one packed constants struct;
+/// textures bind at <c>[[texture(0..m-1)]]</c>, or from 1 in a pixel shader, whose output the runtime
+/// binds at texture 0.
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public interface IComputeShaderDescriptor<TSelf>

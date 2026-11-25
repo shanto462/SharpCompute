@@ -31,9 +31,11 @@ public enum TextureAddressMode
 /// <remarks>
 /// Shaders pass one of the static properties straight to <see cref="ReadOnlyTexture2D{T}.Sample"/>, e.g.
 /// <c>texture.Sample(Sampler.LinearClamp, uv)</c>. Each becomes a <c>constexpr sampler</c> in the
-/// generated MSL, so there is nothing to allocate or bind. On the CPU (<c>ForCpu</c>) the same filtering is
-/// done in C#; linear filtering of 8-bit formats can differ from the GPU by about one step of 1/255,
-/// because GPUs interpolate with limited precision.
+/// generated MSL, so there is nothing to allocate or bind; any other expression is a build error.
+/// On the CPU (<c>ForCpu</c>) the same filtering is done in C#. Point sampling picks the same texel as
+/// the GPU. Linear filtering is done in full float precision, while Apple GPUs round the two
+/// interpolation weights to 1/256 (and round the result for a half-float texture to a half), so the
+/// results can differ by up to 1/512 of the difference between neighbouring texels per axis.
 /// </remarks>
 public readonly struct Sampler
 {

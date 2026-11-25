@@ -23,6 +23,9 @@ internal static partial class Metal
     /// <summary><c>MTLPixelFormatRGBA8Unorm</c>.</summary>
     internal const nuint PixelFormatRGBA8Unorm = 70;
 
+    /// <summary><c>MTLTextureUsageShaderRead</c>: the texture can be read and sampled.</summary>
+    internal const nuint TextureUsageShaderRead = 0x1;
+
     /// <summary><c>MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite</c>.</summary>
     internal const nuint TextureUsageShaderReadWrite = 0x1 | 0x2;
 
@@ -49,6 +52,9 @@ internal static partial class Metal
 
     /// <summary>Buffer argument table size: valid indices are 0..30.</summary>
     internal const int MaxBufferBindings = 31;
+
+    /// <summary>Texture argument table size of a compute encoder: valid indices are 0..30.</summary>
+    internal const int MaxTextureBindings = 31;
 }
 
 /// <summary>Metal <c>MTLSize</c>: three <c>NSUInteger</c>s, passed by value.</summary>

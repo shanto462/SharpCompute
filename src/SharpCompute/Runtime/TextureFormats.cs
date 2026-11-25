@@ -53,6 +53,9 @@ internal static unsafe class TextureFormats
     /// <summary>The supported element types, listed in messages.</summary>
     internal const string SupportedTypes = "Rgba32, Rgba32Srgb, R8, Rg16, Half, Rgba16Float, float or Float4";
 
+    /// <summary>The element types with <see cref="TextureFormat.SupportsReadWrite"/>, listed in messages.</summary>
+    internal const string ReadWriteTypes = "Rgba32, R8, Half, Rgba16Float, float or Float4";
+
     /// <summary>The format of <typeparamref name="T"/>, or null when it is not a texture element type.</summary>
     internal static TextureFormat? Get<T>()
         where T : unmanaged
@@ -102,8 +105,10 @@ internal static unsafe class TextureFormats
 
     /// <summary>
     /// What a shader's <c>read</c> returns for the pixel at <paramref name="pixel"/>. Unorm channels are
-    /// <c>c / 255</c> (exact in float), sRGB channels go through the transfer function, and missing
-    /// channels read as <c>(0, 0, 1)</c>.
+    /// <c>c / 255</c> and float channels are widened, both exactly as on the GPU; missing channels read
+    /// as <c>(0, 0, 1)</c>. sRGB channels go through the exact transfer function, which the GPU only
+    /// approximates: Apple GPUs decode sRGB to 12 bits (<c>round(linear × 4095) / 4095</c>), so a GPU
+    /// read can differ from this one by up to half such a step, 1.2e-4.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static Float4 Load<T>(T* pixel)
@@ -156,9 +161,9 @@ internal static unsafe class TextureFormats
     }
 
     /// <summary>
-    /// What a shader's <c>write</c> stores for <paramref name="value"/>. Unorm channels use the measured
-    /// GPU conversion (<see cref="CpuDispatcher.ToUnorm8"/>), half channels round to nearest even, and
-    /// channels the format does not store are dropped.
+    /// What a shader's <c>write</c> stores for <paramref name="value"/>. Both conversions are the ones
+    /// measured on Apple GPUs: unorm channels use <see cref="CpuDispatcher.ToUnorm8"/>, half channels
+    /// <see cref="ToHalf"/>. Channels the format does not store are dropped.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static void Store<T>(T* pixel, Float4 value)
@@ -183,13 +188,13 @@ internal static unsafe class TextureFormats
 
         if (typeof(T) == typeof(Half))
         {
-            *(Half*)p = (Half)value.X;
+            *(Half*)p = ToHalf(value.X);
             return;
         }
 
         if (typeof(T) == typeof(Rgba16Float))
         {
-            *(Rgba16Float*)p = new Rgba16Float((Half)value.X, (Half)value.Y, (Half)value.Z, (Half)value.W);
+            *(Rgba16Float*)p = new Rgba16Float(ToHalf(value.X), ToHalf(value.Y), ToHalf(value.Z), ToHalf(value.W));
             return;
         }
 
@@ -207,6 +212,29 @@ internal static unsafe class TextureFormats
 
         // Rg16 and Rgba32Srgb are read-only formats; ReadWriteTexture2D rejects them at allocation.
         throw Unsupported<T>();
+    }
+
+    /// <summary>
+    /// The conversion Apple GPUs apply when a shader writes a float to a half channel: toward zero.
+    /// Measured rather than assumed: IEEE's default (to nearest even, which is what <c>(Half)value</c>
+    /// does) is off by one for about half of all values. So 0.99999994 stores the half just below 1,
+    /// a finite value beyond the largest half stores that largest half rather than infinity, and a
+    /// value smaller than the smallest subnormal half stores zero. Infinities stay infinite and NaN
+    /// stays NaN (its sign and payload are unspecified on the GPU).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static Half ToHalf(float value)
+    {
+        Half nearest = (Half)value;
+
+        // Rounded away from zero (possibly all the way to infinity): step back to the next half
+        // towards zero. The magnitude bits are not zero here, so the sign bit is not touched.
+        if (MathF.Abs((float)nearest) > MathF.Abs(value))
+        {
+            nearest = BitConverter.UInt16BitsToHalf((ushort)(BitConverter.HalfToUInt16Bits(nearest) - 1));
+        }
+
+        return nearest;
     }
 
     internal static NotSupportedException Unsupported<T>() =>

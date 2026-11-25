@@ -31,4 +31,11 @@ SCG0023 | SharpCompute | Error | Unsupported pixel type
 SCG0024 | SharpCompute | Error | Static field cannot be lowered to an MSL constant
 SCG0025 | SharpCompute | Error | Local function captures a local or parameter
 SCG0026 | SharpCompute | Error | Static field is assigned in a static constructor
+SCG0027 | SharpCompute | Error | Texture nested inside a struct
+SCG0028 | SharpCompute | Error | Unsupported texture element type
+SCG0029 | SharpCompute | Error | Too many textures
+SCG0030 | SharpCompute | Error | Sampler must be a static property of Sampler passed to Sample
+SCG0031 | SharpCompute | Error | Texture element is modified in place
+SCG0032 | SharpCompute | Error | Texture is returned or passed by reference
+SCG0033 | SharpCompute | Error | Read-write texture cannot be sampled
 SCG9999 | SharpCompute | Error | Internal generator error

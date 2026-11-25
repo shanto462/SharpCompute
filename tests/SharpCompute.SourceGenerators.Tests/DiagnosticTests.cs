@@ -1002,7 +1002,7 @@ public class DiagnosticTests
             .Select(static f => (DiagnosticDescriptor)f.GetValue(null)!)
             .ToArray();
 
-        Assert.Equal(27, descriptors.Length);
+        Assert.Equal(34, descriptors.Length);
         Assert.Equal(descriptors.Length, descriptors.Select(static d => d.Id).Distinct().Count());
         Assert.All(descriptors, static d =>
         {
