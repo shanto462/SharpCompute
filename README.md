@@ -284,7 +284,7 @@ results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silic
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01). The matrix
 product is the naive kernel; written with [`WaveMatrix8x8`](#matrix-units) for the GPU's matrix
-units, the same 1024×1024 product takes 0.58 ms instead of 4.46 ms.
+units, the same 1024×1024 product takes 0.58 ms instead of 4.51 ms.
 
 Moving and converting data can cost more than the kernel, and unified memory means it can be
 skipped: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
@@ -777,7 +777,7 @@ pinned by the tests:
   to any sum; ComputeLab's `WaveMatMul.Pad` and `Unpad` do that for its kernel.
 - **Offsets are added term by term.** `Load(a, row * n + k, n)` becomes `a + row * n + k` in MSL:
   each term of a sum of `int`s is one pointer addition, which the GPU compiler turns into far better
-  addressing than a 32-bit sum that is then widened (5.2 against 4.5 TFLOP/s for the product below).
+  addressing than a 32-bit sum that is then widened (5.1 against 4.4 TFLOP/s for the product below).
   This is the one place where signed arithmetic is not C#'s: every term wraps as usual, but their
   sum is formed in 64 bits, so it does not wrap where the terms add up to more than an `int` holds.
   An offset into a buffer never does (the wrapped index would be negative, or 4 billion elements
@@ -793,25 +793,25 @@ when they bring different arguments, or when fewer than 32 take part, and
 checking a kernel at small sizes, not for bulk work.
 
 **How fast.** `C = A × B` for random floats, in TFLOP/s (2 n³ operations per product), on an Apple
-M4 Pro (12 CPU cores, 16-core GPU, macOS 27.2) with nothing else running:
+M4 Pro (12 CPU cores, 16-core GPU, macOS 27.2):
 
 | Kernel | 1024 × 1024 | 2048 × 2048 |
 |---|---:|---:|
-| Naive, a thread per element (C#) | 0.50 (4.28 ms) | 0.50 (34.4 ms) |
-| 16 × 16 tiles in shared memory (C#) | 0.92 (2.34 ms) | 0.97 (17.8 ms) |
-| **Wave matrices (C#)**, commit to completion | **4.67** (0.46 ms) | **5.08** (3.38 ms) |
+| Naive, a thread per element (C#) | 0.46 (4.67 ms) | 0.45 (38.1 ms) |
+| 16 × 16 tiles in shared memory (C#) | 0.92 (2.34 ms) | 0.98 (17.6 ms) |
+| **Wave matrices (C#)**, commit to completion | **4.62** (0.47 ms) | **5.12** (3.35 ms) |
 | **Wave matrices (C#)**, GPU time | **5.08** (0.423 ms) | **5.19** (3.31 ms) |
-| Hand-written MSL with `simdgroup_matrix`, GPU time | 5.17 (0.415 ms) | 5.27 (3.26 ms) |
-| `MPSMatrixMultiplication`, GPU time | 5.37 (0.400 ms) | 5.51 (3.12 ms) |
+| Hand-written MSL with `simdgroup_matrix`, GPU time | 5.13 (0.418 ms) | 5.20 (3.31 ms) |
+| `MPSMatrixMultiplication`, GPU time | 5.33 (0.403 ms) | 5.43 (3.16 ms) |
 
 The first three rows are ComputeLab's headless summary (the median of five runs, each the median of
 seven timings from commit to completion; the wave-matrix kernel is dispatched four times per command
 buffer, because a product of 0.4 ms is otherwise as short as a command buffer's round trip). The
 GPU times are `gpuEndTime − gpuStartTime` of a command buffer of 10 products (3 at 2048), the median
-of three runs of seven, read by a small native Metal program that runs the MSL the generator emitted
+of seven runs of seven, read by a small native Metal program that runs the MSL the generator emitted
 for the C# kernel, unchanged, next to a hand-written kernel of the same shape and MPS. In
 `benchmarks/`, the 1024 × 1024 product as one synchronous dispatch takes 576 µs with wave matrices
-and 4.46 ms naive (BenchmarkDotNet, the median of three runs).
+and 4.51 ms naive (BenchmarkDotNet, the median of three runs).
 
 The kernel is `MatMulWaveMatrix` in
 [`MatrixUnitsPage.cs`](samples/SharpCompute.Samples.ComputeLab/Pages/Simd/MatrixUnitsPage.cs), and

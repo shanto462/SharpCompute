@@ -64,10 +64,10 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
 
     /// <summary>
     /// GFLOP/s of the three kernels (<see cref="Wave"/>, <see cref="Tiled"/>, <see cref="Naive"/>) at
-    /// 1024 and at 2048, as this page's headless summary measured them on an Apple M4 Pro with nothing
-    /// else running: commit to completion, the median of five runs, each the median of seven timings.
+    /// 1024 and at 2048, as this page's headless summary measured them on an Apple M4 Pro: commit to
+    /// completion, the median of five runs, each the median of seven timings.
     /// </summary>
-    public static readonly double[][] RecordedGigaFlops = [[4670, 920, 500], [5080, 965, 500]];
+    public static readonly double[][] RecordedGigaFlops = [[4620, 920, 460], [5120, 980, 450]];
 
     private readonly GraphicsDevice _device;
     private readonly ComputeContext _context;
