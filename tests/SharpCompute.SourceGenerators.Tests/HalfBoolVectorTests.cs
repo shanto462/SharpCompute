@@ -169,6 +169,41 @@ public class HalfBoolVectorTests
         Assert.DoesNotContain("__ms_", descriptor.MslSource);
     }
 
+    /// <summary>The example of the README's "Half precision" section, as it is printed there.</summary>
+    [Fact]
+    public void HalfVectors_TheReadmeExampleTranslates()
+    {
+        ShaderDescriptor descriptor = GeneratorHarness.Run(
+            """
+            using System;
+            using SharpCompute;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct Tone(ReadWriteBuffer<Half4> pixels, Half3 gain) : IComputeShader
+            {
+                private static readonly Half3 Luma = (Half3)new Float3(0.299f, 0.587f, 0.114f);
+
+                public void Execute()
+                {
+                    Half4 pixel = pixels[ThreadIds.X];
+                    Half3 color = pixel.XYZ * gain;
+                    Half level = Gpu.Dot(color, Luma);
+
+                    pixels[ThreadIds.X] = new Half4(Gpu.Select(color > (Half)1f, new Half3(level), color), pixel.W);
+                }
+            }
+            """).Verify("Tone");
+
+        Assert.Equal(
+            """
+            half4 pixel = pixels[int(__tid.x)];
+            half3 color = pixel.xyz * __c.gain;
+            half level = metal::dot(color, ::Luma);
+            pixels[int(__tid.x)] = half4(metal::select(color, half3(level), color > half(1.0f)), pixel.w);
+            """.ReplaceLineEndings("\n"),
+            descriptor.KernelBody);
+    }
+
     [Fact]
     public void HalfConstants_AreWrittenAsCasts()
     {

@@ -12,6 +12,8 @@ using SharpCompute.Benchmarks.Shaders;
 //   --msl               print the generated MSL of every benchmark shader
 //   --runtime-features  quick Stopwatch measurements of GPU copies, FP contraction off and pipeline
 //                       warm-up (a few seconds; not part of the report)
+//   --half-precision    quick Stopwatch measurements of the same kernels on Float4 and on Half4 (a few
+//                       seconds; not part of the report)
 //   --first-frames      time the first frame of a large shader (RaymarchedGarden) and the pipelines of thirteen
 //                       small kernels, compiled at run time, prepared and precompiled, on a first launch (an empty
 //                       system shader cache) and on a later one (under a minute; the last part of --runtime-features)
@@ -56,6 +58,11 @@ if (args.Contains("--verify"))
 if (args.Contains("--runtime-features"))
 {
     return RuntimeFeatures.Run();
+}
+
+if (args.Contains("--half-precision"))
+{
+    return HalfPrecision.Run();
 }
 
 if (args.Contains("--msl"))

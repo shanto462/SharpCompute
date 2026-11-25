@@ -48,6 +48,25 @@ namespace SharpCompute;
 /// results, also in safe math); pow/exp/log/trigonometric/hyperbolic functions agree within a few
 /// ULP only (up to 4 ULP for tan on Apple GPUs).
 /// </para>
+/// <para>
+/// Half precision: the functions MSL defines for halves have <see cref="Half2"/>, <see cref="Half3"/>
+/// and <see cref="Half4"/> overloads (not scalar <see cref="Half"/> ones: next to the float overload
+/// they would make <c>Gpu.Sqrt(2)</c> ambiguous). They were measured the same way, every function of
+/// one argument over all 65,536 halves, and the CPU returns what the GPU does bit for bit for
+/// everything but the transcendental functions, which agree within one half ULP. Half arithmetic on
+/// an Apple GPU is IEEE half arithmetic, one rounding per operation, and it keeps subnormals. The
+/// geometric functions of half vectors are not rescaled (<see cref="Length(Half3)"/> overflows above
+/// 255.9, <see cref="Normalize(Half3)"/> of a zero vector is NaN), a zero remainder of
+/// <see cref="Fmod(Half3, Half3)"/> is <c>+0</c> also for a negative dividend, and
+/// <see cref="Sin(Half3)"/>, <see cref="Tan(Half3)"/> and <see cref="Asin(Half3)"/> of <c>-0</c> are <c>+0</c>.
+/// </para>
+/// <para>
+/// Bool vectors: the comparisons of the vector types return <see cref="Bool2"/>, <see cref="Bool3"/>
+/// or <see cref="Bool4"/>; <see cref="Equal(Float3, Float3)"/> and <see cref="NotEqual(Float3, Float3)"/>
+/// are the MSL operators <c>==</c> and <c>!=</c> (methods here, because a C# <c>==</c> has to return
+/// <c>bool</c>), <see cref="Any(Bool3)"/> and <see cref="All(Bool3)"/> reduce a bool vector to one
+/// <c>bool</c>, and <see cref="Select(Bool3, Float3, Float3)"/> picks components with one. All exact.
+/// </para>
 /// </remarks>
 public static partial class Gpu
 {
