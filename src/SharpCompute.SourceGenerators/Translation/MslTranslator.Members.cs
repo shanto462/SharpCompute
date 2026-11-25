@@ -41,9 +41,10 @@ internal sealed partial class MslTranslator
                 : Unsupported(operation, $"the constant '{field.Name}'");
         }
 
-        if (field.IsConst || (field.IsStatic && field.IsReadOnly && IsShaderOrContainingType(field.ContainingType)))
+        if (field.IsConst || (field.IsStatic && field.IsReadOnly && IsGlobalSource(field)))
         {
-            // The shader's own consts and static readonly fields become program-scope `constant`s.
+            // The shader's own consts, and static readonly fields declared in source (the shader's or
+            // those of a class of shared helpers), become program-scope `constant`s.
             // `::` names the global even where a local of the same name shadows it.
             return GlobalReference(operation, field) is { } global ? new Expr("::" + global.Name, Expr.Primary) : Expr.Error;
         }
@@ -54,11 +55,11 @@ internal sealed partial class MslTranslator
                 operation,
                 field,
                 field.IsReadOnly
-                    ? "only static readonly fields of the shader struct (or a type containing it) can be used; declare it there"
+                    ? "only static readonly fields whose source is part of this compilation can be used (its initializer is what the GPU gets); declare it in the shader struct or in a type of your own"
                     : "static fields that are not readonly are not available on the GPU; make it 'static readonly' or 'const', or capture the value in an instance field");
         }
 
-        if (operation.Instance is IInstanceReferenceOperation)
+        if (operation.Instance is IInstanceReferenceOperation && _function.This is null)
         {
             if (_captures.TryGet(field, out Capture capture))
             {
@@ -149,7 +150,13 @@ internal sealed partial class MslTranslator
                 return Expr.Error;
             }
 
-            return UnsupportedMember(operation, property, "static properties are not available on the GPU");
+            if (IsComputedProperty(property) && UserMethodProblem(property.GetMethod!) is null)
+            {
+                // A computed static property in source is a function without parameters.
+                return UserCall(operation, property.GetMethod!, receiver: null, operation.Arguments);
+            }
+
+            return UnsupportedMember(operation, property, "static properties are not available on the GPU, unless they are computed properties whose source is part of this compilation");
         }
 
         if (TypeResolver.IsTextureType(WithoutImplicitConversions(operation.Instance)?.Type, out _))
@@ -201,18 +208,41 @@ internal sealed partial class MslTranslator
             return new Expr(instance + "." + property.Name.ToLowerInvariant(), Expr.Primary);
         }
 
+        bool isShaderProperty = operation.Instance is IInstanceReferenceOperation && _function.This is null;
+
+        if (IsComputedProperty(property) && (isShaderProperty || instanceType is { Kind: GpuTypeKind.Struct }))
+        {
+            if (IsWriteTarget(operation))
+            {
+                _diagnostics.Report(DiagnosticDescriptors.ComputedPropertyAssigned, location, property.Name, TypeResolver.Display(property.ContainingType));
+                return Expr.Error;
+            }
+
+            if (isShaderProperty)
+            {
+                // A computed property of the shader is an instance helper: the captured state it reads
+                // arrives as hidden inputs.
+                return UserCall(operation, property.GetMethod!, receiver: null, operation.Arguments);
+            }
+
+            // A computed property (or indexer) of a user struct is a function of the struct.
+            return UserMethodProblem(property.GetMethod!) is { } problem
+                ? UnsupportedMember(operation, property, problem)
+                : UserCall(operation, property.GetMethod!, operation.Instance, operation.Arguments);
+        }
+
         if (instanceType is { Kind: GpuTypeKind.Struct } && instanceType.FindField(property) is { } backingField)
         {
             // An auto-property of a user struct is just its backing field.
             return BoundaryRead(operation, backingField.Type, new Expr(Expression(operation.Instance).Operand(Expr.Primary) + "." + backingField.MslName, Expr.Primary));
         }
 
-        if (operation.Instance is IInstanceReferenceOperation)
+        if (isShaderProperty)
         {
-            return UnsupportedMember(operation, property, "properties of the shader struct are not captured; use a field or a primary constructor parameter");
+            return UnsupportedMember(operation, property, "auto-properties of the shader struct are not captured; use a field or a primary constructor parameter");
         }
 
-        return UnsupportedMember(operation, property, "only swizzle properties of [MslType] vectors and auto-properties of user structs are supported");
+        return UnsupportedMember(operation, property, "only swizzle properties of [MslType] vectors, and the properties of user structs whose source is part of this compilation, are supported");
     }
 
     private Expr BufferLength(IPropertyReferenceOperation operation)
@@ -386,8 +416,12 @@ internal sealed partial class MslTranslator
             case GpuTypeKind.Struct when operation.Arguments.Length == 0 && operation.Constructor is null or { IsImplicitlyDeclared: true }:
                 return Zero(type, operation);
 
+            case GpuTypeKind.Struct when operation.Constructor is { } constructor && UserMethodProblem(constructor) is null:
+                // A constructor declared in source is a function that returns the struct.
+                return UserCall(operation, constructor, receiver: null, operation.Arguments);
+
             default:
-                return Unsupported(operation, $"a constructor call on the struct '{TypeResolver.Display(operation.Type!)}' (use 'default' and assign the fields instead)");
+                return Unsupported(operation, $"a constructor call on the struct '{TypeResolver.Display(operation.Type!)}', whose source is not part of this compilation (use 'default' and assign the fields instead)");
         }
     }
 
@@ -521,48 +555,24 @@ internal sealed partial class MslTranslator
                 return Expr.Error;
             }
 
-            if (method.IsGenericMethod)
+            if (isLocalFunction && method.IsGenericMethod)
             {
-                return UnsupportedCall(operation, isLocalFunction ? "generic local functions are not supported" : "generic helper methods are not supported");
+                return UnsupportedCall(operation, "generic local functions are not supported");
             }
 
-            // Translate the helper first: if its signature is rejected, the arguments converted to
-            // its parameter types would only repeat that diagnostic.
-            HelperFunction? helper = GetHelper(method, operation);
-
-            if (helper is null)
-            {
-                return Expr.Error;
-            }
-
-            foreach (IArgumentOperation argument in operation.Arguments)
-            {
-                if (argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } && !IsThreadLocal(argument.Value))
-                {
-                    return Unsupported(argument, $"the by-reference argument '{argument.Syntax}' (only locals and parameters, or their fields, can be passed by reference to a helper)");
-                }
-
-                if (argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } && IsPackedField(argument.Value))
-                {
-                    return Unsupported(argument, $"the by-reference argument '{argument.Syntax}' (a matrix in a struct field is stored packed; copy it to a local, pass that, and assign it back)");
-                }
-            }
-
-            string[] arguments = Arguments(operation.Arguments, method, out bool argumentsOk);
-
-            if (!argumentsOk)
-            {
-                return Expr.Error;
-            }
-
-            // Forward the captured state and kernel built-ins the helper (transitively) reads.
-            _function.Inputs.Add(helper.Inputs);
-
-            // `::Name` selects our global function even if `metal::` declares one with the same name.
-            return Call("::" + helper.Name, arguments.Concat(helper.Inputs.Arguments()).ToArray());
+            return UserCall(operation, method, receiver: null, operation.Arguments);
         }
 
-        return UnsupportedCall(operation, "it is not an [MslIntrinsic] method, a supported System.Math/MathF method, or a method of the shader struct");
+        // 4. Code shared between shaders: static methods of any type in this compilation, and the
+        // methods of user structs, which take the struct they are called on as their first parameter.
+        if (method.MethodKind != MethodKind.Ordinary || UserMethodProblem(method) is { } problem)
+        {
+            return UnsupportedCall(operation, method.MethodKind != MethodKind.Ordinary && HasSource(method)
+                ? "only ordinary methods can be called by name"
+                : UserMethodProblem(method) ?? "only ordinary methods can be called by name");
+        }
+
+        return UserCall(operation, method, method.IsStatic ? null : operation.Instance, operation.Arguments);
     }
 
     // ---------------------------------------------------------------------------------------------

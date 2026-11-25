@@ -407,7 +407,7 @@ internal sealed class ConstantFolder
     {
         IFieldSymbol field = operation.Field.OriginalDefinition;
 
-        if (!field.IsStatic || !field.IsReadOnly || !IsShaderOrContainingType(field.ContainingType))
+        if (!field.IsStatic || !field.IsReadOnly || (!IsShaderOrContainingType(field.ContainingType) && field.DeclaringSyntaxReferences.Length == 0))
         {
             throw Fail(operation, "the field");
         }

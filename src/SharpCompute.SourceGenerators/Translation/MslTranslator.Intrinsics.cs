@@ -242,6 +242,8 @@ internal sealed partial class MslTranslator
             _ when IsThreadLocal(target) => "it is a local, which is private to one GPU thread and never shared",
             IFieldReferenceOperation field when IsBufferElementField(field) => "it is a field of a struct element, and only whole elements can be atomic; keep the value in its own buffer of int or uint",
             IFieldReferenceOperation field when IsGroupSharedElementField(field) => "it is a field of a struct element, and only whole elements can be atomic; keep the value in its own [GroupShared] array of int or uint",
+            IFieldReferenceOperation { Instance: IInstanceReferenceOperation } when _function.This is not null =>
+                "it is a field of the struct this method is called on, and only whole elements of a buffer or of a [GroupShared] array can be atomic",
             IFieldReferenceOperation { Instance: IInstanceReferenceOperation } or IParameterReferenceOperation => "captured shader state is read-only on the GPU",
             _ => "it is not an element of a buffer or of a [GroupShared] array",
         };

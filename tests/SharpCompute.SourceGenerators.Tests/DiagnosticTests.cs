@@ -583,7 +583,7 @@ public class DiagnosticTests
     [InlineData("ref float first = ref buffer[0];", "the ref local 'first'", "ref float")]
     [InlineData("while (Fn.Modf(factor, out float integral) > 0) { break; }", "an inline variable declaration", "float integral")]
     [InlineData("var pair = new Pair { Left = 1 };", "an object initializer", "{ Left = 1 }")]
-    [InlineData("var pair = new Pair(1, 2);", "a constructor call on the struct 'Pair'", "new Pair(1, 2)")]
+    [InlineData("var index = new Index(1);", "a constructor call on the struct 'Index', whose source is not part of this compilation", "new Index(1)")]
     [InlineData("var copy = this;", "'this' used as a value", "this")]
     [InlineData("var local = buffer;", "the buffer-typed local 'local'", "var")]
     [InlineData("switch (ThreadIds.X) { case > 3: break; }", "a pattern-based switch case", "case > 3:")]
@@ -692,22 +692,19 @@ public class DiagnosticTests
     [InlineData("Console.WriteLine(1);", "Console.WriteLine(1)", "it is not an [MslIntrinsic] method")]
     [InlineData("buffer[0] = MathF.Cbrt(factor);", "MathF.Cbrt(factor)", "it has no MSL equivalent")]
     [InlineData("buffer[0] = MathF.Round(factor, 2);", "MathF.Round(factor, 2)", "it has no MSL equivalent")]
-    [InlineData("buffer[0] = Other.Twice(factor);", "Other.Twice(factor)", "it is not an [MslIntrinsic] method")]
     [InlineData("buffer[0] = factor.GetHashCode();", "factor.GetHashCode()", "it is not an [MslIntrinsic] method")]
-    [InlineData("var sum = new Money() + new Money(); buffer[0] = sum.Amount;", "new Money() + new Money()", "only operators declared by [MslType] vector types are supported")]
-    [InlineData("float amount = (float)new Money(); buffer[0] = amount;", "(float)new Money()", "only conversion operators declared by [MslType] vector types are supported")]
+    [InlineData("Money money = default; money++; buffer[0] = money.Amount;", "money++", "only operators declared by [MslType] vector types are supported here; write the operation as a method call")]
     public void MSG0016_UnsupportedMethodCall(string statement, string location, string reason)
     {
+        // Methods, operators and conversions whose source is part of the compilation are translated
+        // (see CodeReuseTests); what is left is code without source, and `++` on a user type.
         GeneratorRun run = RunBody(statement, trailer: """
-
-            public static class Other { public static float Twice(float value) => value * 2; }
 
             public struct Money
             {
                 public float Amount;
 
-                public static Money operator +(Money a, Money b) => a;
-                public static explicit operator float(Money value) => value.Amount;
+                public static Money operator ++(Money value) => value;
             }
             """);
 
@@ -717,12 +714,10 @@ public class DiagnosticTests
 
     [Theory]
     [InlineData("buffer[0] = Shared;", "Shared", "static fields that are not readonly are not available on the GPU")]
-    [InlineData("buffer[0] = Other.Field;", "Other.Field", "only static readonly fields of the shader struct (or a type containing it) can be used")]
-    [InlineData("buffer[0] = Computed;", "Computed", "properties of the shader struct are not captured")]
-    [InlineData("buffer[0] = Stored;", "Stored", "properties of the shader struct are not captured")]
+    [InlineData("buffer[0] = Stored;", "Stored", "auto-properties of the shader struct are not captured")]
     [InlineData("var device = buffer.Device;", "buffer.Device", "only the indexer and 'Length' of a buffer can be used in a shader")]
     [InlineData("buffer[0] = Other.Value;", "Other.Value", "static properties are not available on the GPU")]
-    [InlineData("Shape shape = default; buffer[0] = shape.Area;", "shape.Area", "only swizzle properties of [MslType] vectors and auto-properties of user structs are supported")]
+    [InlineData("Index index = default; buffer[0] = index.Value;", "index.Value", "only swizzle properties of [MslType] vectors, and the properties of user structs whose source is part of this compilation, are supported")]
     public void MSG0017_UnsupportedMember(string statement, string location, string reason)
     {
         GeneratorRun run = RunBody(
@@ -730,21 +725,11 @@ public class DiagnosticTests
             """
             private static float Shared = 2;
 
-            private float Computed => factor * 2;
-
             public float Stored { get; }
             """,
             """
 
-            public static class Other { public static float Value => 1; public static readonly float Field = 1; }
-
-            public struct Shape
-            {
-                public float Width;
-                public float Height;
-
-                public float Area => Width * Height;
-            }
+            public static class Other { public static float Value { get; } = 1; }
             """);
 
         Assert.Contains(reason, run.AssertOnlyDiagnostic("SCG0017", location).GetMessage());
@@ -1001,7 +986,7 @@ public class DiagnosticTests
             .Select(static f => (DiagnosticDescriptor)f.GetValue(null)!)
             .ToArray();
 
-        Assert.Equal(45, descriptors.Length);
+        Assert.Equal(47, descriptors.Length);
         Assert.Equal(descriptors.Length, descriptors.Select(static d => d.Id).Distinct().Count());
         Assert.All(descriptors, static d =>
         {

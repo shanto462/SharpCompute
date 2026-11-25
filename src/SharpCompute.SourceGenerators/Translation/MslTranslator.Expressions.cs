@@ -51,6 +51,12 @@ internal sealed partial class MslTranslator
             return localArray;
         }
 
+        if (operation is IInstanceReferenceOperation && _function.This is not null)
+        {
+            // In a member of a user struct, `this` is the struct the function was called on.
+            return new Expr(MslNames.This, Expr.Primary);
+        }
+
         if (DescribeUnsupported(operation) is { } construct)
         {
             return Unsupported(operation, construct);
@@ -153,6 +159,12 @@ internal sealed partial class MslTranslator
         if (_captures.IsFailed(operation.Parameter))
         {
             return Expr.Error;
+        }
+
+        if (_function.This is { } self && IsKeptParameter(operation.Parameter, self.Method.ContainingType) && KeptParameterField(self.Type, operation.Parameter) is { } kept)
+        {
+            // A primary-constructor parameter that a method of the struct reads is a (hidden) field of it.
+            return BoundaryRead(operation, kept.Type, new Expr(MslNames.This + "." + kept.MslName, Expr.Primary));
         }
 
         return Unsupported(operation, $"a reference to the parameter '{operation.Parameter.Name}'");
@@ -266,18 +278,11 @@ internal sealed partial class MslTranslator
 
         if (operation.OperatorMethod is { } method)
         {
-            // User-defined conversions between vector/scalar types become MSL constructor-style casts.
-            if (!target.IsNumeric || _types.Resolve(method.ContainingType) is not { IsNumeric: true })
-            {
-                _diagnostics.Report(
-                    DiagnosticDescriptors.UnsupportedMethodCall,
-                    operation.Syntax.GetLocation(),
-                    method.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat),
-                    "only conversion operators declared by [MslType] vector types are supported");
-                return Expr.Error;
-            }
-
-            return Call(target.MslName, Expression(operation.Operand).Text);
+            // User-defined conversions between vector/scalar types become MSL constructor-style casts;
+            // one that a type of the user's declares in source becomes a function.
+            return target.IsNumeric && IsNativeOperator(method)
+                ? Call(target.MslName, Expression(operation.Operand).Text)
+                : UserConversion(operation, method, target);
         }
 
         if (operation.Operand is IDefaultValueOperation && (conversion.IsDefaultLiteral || conversion.IsIdentity))
@@ -320,7 +325,7 @@ internal sealed partial class MslTranslator
     /// <summary>User-defined operators are only native in MSL when they belong to a scalar or vector type.</summary>
     private bool CheckOperatorMethod(IMethodSymbol? method, IOperation operation)
     {
-        if (method is null || _types.Resolve(method.ContainingType) is { IsNumeric: true })
+        if (method is null || IsNativeOperator(method))
         {
             return true;
         }
@@ -329,7 +334,7 @@ internal sealed partial class MslTranslator
             DiagnosticDescriptors.UnsupportedMethodCall,
             operation.Syntax.GetLocation(),
             method.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat),
-            "only operators declared by [MslType] vector types are supported");
+            "only operators declared by [MslType] vector types are supported here; write the operation as a method call");
         return false;
     }
 
@@ -349,9 +354,10 @@ internal sealed partial class MslTranslator
             return Unsupported(operation, Humanize(operation.Syntax));
         }
 
-        if (!CheckOperatorMethod(operation.OperatorMethod, operation))
+        if (operation.OperatorMethod is { } userOperator && !IsNativeOperator(userOperator))
         {
-            return Expr.Error;
+            // An operator a user type declares is a function.
+            return OperatorCall(operation, userOperator, operation.Operand) ?? Expr.Error;
         }
 
         string operand = Expression(operation.Operand).Operand(Expr.Unary);
@@ -418,9 +424,13 @@ internal sealed partial class MslTranslator
             return Unsupported(operation, Humanize(operation.Syntax));
         }
 
-        if (!CheckOperatorMethod(operation.OperatorMethod, operation))
+        if (operation.OperatorMethod is { } userOperator && !IsNativeOperator(userOperator))
         {
-            return Expr.Error;
+            // An operator a user type declares is a function: `a + b` -> `::Complex_op_Addition(a, b)`.
+            // (`&&` and `||` on such a type would also need its `true`/`false` operators.)
+            return operation.OperatorKind is BinaryOperatorKind.ConditionalAnd or BinaryOperatorKind.ConditionalOr
+                ? Unsupported(operation, $"a user-defined '{text}' operator")
+                : OperatorCall(operation, userOperator, operation.LeftOperand, operation.RightOperand) ?? Expr.Error;
         }
 
         GpuType? leftType = _types.Resolve(operation.LeftOperand.Type);
@@ -510,7 +520,7 @@ internal sealed partial class MslTranslator
             return Unsupported(operation, Humanize(operation.Syntax));
         }
 
-        if (!CheckOperatorMethod(operation.OperatorMethod, operation) || !CheckWritable(operation.Target))
+        if (!CheckWritable(operation.Target))
         {
             return Expr.Error;
         }
@@ -518,6 +528,11 @@ internal sealed partial class MslTranslator
         if (TextureElement(operation.Target) is not null)
         {
             return TextureElementModifiedInPlace(operation);
+        }
+
+        if (operation.OperatorMethod is { } userOperator && !IsNativeOperator(userOperator))
+        {
+            return UserCompoundAssignment(operation, userOperator);
         }
 
         Expr target = StoreTarget(operation.Target, out bool packed);
@@ -597,7 +612,7 @@ internal sealed partial class MslTranslator
         {
             switch (current)
             {
-                case IFieldReferenceOperation { Instance: IInstanceReferenceOperation } field:
+                case IFieldReferenceOperation { Instance: IInstanceReferenceOperation } field when _function.This is null:
                     return ReportReadOnly(target, field.Field.Name);
                 case IParameterReferenceOperation parameter when _captures.TryGet(parameter.Parameter, out _) || _captures.IsFailed(parameter.Parameter):
                     return ReportReadOnly(target, parameter.Parameter.Name);

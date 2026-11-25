@@ -208,6 +208,39 @@ internal sealed class TypeResolver
     /// <summary>Set when an error type was seen: the user's code does not compile, so we stay quiet.</summary>
     public bool SawErrorType { get; private set; }
 
+    /// <summary>
+    /// The type arguments of the generic method being translated, by type parameter. While it is set,
+    /// a type parameter resolves to its argument, which is how one generic method becomes one MSL
+    /// function per instantiation.
+    /// </summary>
+    public IReadOnlyDictionary<ITypeParameterSymbol, ITypeSymbol>? TypeArguments { get; set; }
+
+    /// <summary>Replaces the type parameters in <paramref name="type"/> that <see cref="TypeArguments"/> has an argument for.</summary>
+    public ITypeSymbol Substitute(ITypeSymbol type)
+    {
+        if (TypeArguments is not { Count: > 0 } map)
+        {
+            return type;
+        }
+
+        switch (type)
+        {
+            case ITypeParameterSymbol parameter:
+                return map.TryGetValue(parameter, out ITypeSymbol? argument) ? argument : type;
+
+            case INamedTypeSymbol { IsGenericType: true, IsUnboundGenericType: false } named:
+                ITypeSymbol[] arguments = named.TypeArguments.Select(Substitute).ToArray();
+
+                // Only when something changed, so that an ordinary type keeps its identity.
+                return arguments.Zip(named.TypeArguments, static (a, b) => SymbolEqualityComparer.Default.Equals(a, b)).All(static same => same)
+                    ? type
+                    : named.ConstructedFrom.Construct(arguments);
+
+            default:
+                return type;
+        }
+    }
+
     /// <summary>Resolves a type, reporting a diagnostic at <paramref name="usage"/> when it is unsupported.</summary>
     public GpuType? Resolve(ITypeSymbol? type, DiagnosticBag diagnostics, Location? usage)
     {
@@ -231,6 +264,8 @@ internal sealed class TypeResolver
         {
             return null;
         }
+
+        type = Substitute(type);
 
         if (type.TypeKind == TypeKind.Error)
         {
@@ -609,7 +644,7 @@ internal sealed class TypeResolver
         for (int i = 0; i < fields.Count; i++)
         {
             IFieldSymbol symbol = fields[i].Symbol;
-            string fieldName = symbol.AssociatedSymbol?.Name ?? symbol.Name;
+            string fieldName = symbol.AssociatedSymbol?.Name ?? KeptParameterName(symbol) ?? symbol.Name;
             gpuFields[i] = new GpuField(symbol, fieldName, memberNames.Allocate(MslNames.Escape(fieldName)), fields[i].Type, offsets[i]);
         }
 
@@ -692,6 +727,15 @@ internal sealed class TypeResolver
         _structs.Add(result);
         return result;
     }
+
+    /// <summary>
+    /// The parameter name for the hidden field (<c>&lt;seed&gt;P</c>) in which the compiler keeps a
+    /// primary-constructor parameter that the struct's methods read; null for any other field.
+    /// </summary>
+    public static string? KeptParameterName(IFieldSymbol field) =>
+        field.IsImplicitlyDeclared && field.Name.Length > 3 && field.Name[0] == '<' && field.Name.EndsWith(">P", StringComparison.Ordinal)
+            ? field.Name.Substring(1, field.Name.Length - 3)
+            : null;
 
     /// <summary>True for failures that describe a problem with a user struct (SCG0009, SCG0010, SCG0027).</summary>
     public static bool IsStructFailure(TypeFailure? failure) =>

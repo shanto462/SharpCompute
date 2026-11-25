@@ -30,6 +30,9 @@ internal static class MslNames
     public const string ConstantsStruct = "__Constants";
     public const string Output = "__output";
 
+    /// <summary>The struct a member function of a user struct was called on: its first parameter.</summary>
+    public const string This = "__this";
+
     /// <summary>
     /// The prefix of the program-scope <c>constexpr sampler</c> of each <c>Sampler</c> property that is
     /// used (<c>__ms_sampler_linear_clamp</c>). No C# identifier escapes to such a name: <see cref="Escape"/>

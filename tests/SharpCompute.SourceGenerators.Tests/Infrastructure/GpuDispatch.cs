@@ -40,6 +40,33 @@ internal static class GpuDispatch
         return output.ToArray();
     }
 
+    /// <summary>
+    /// Like <see cref="For"/>, and then the same shader over a second buffer with <c>device.ForCpu</c>:
+    /// what the GPU computed from the MSL, and what the C# it was translated from computes.
+    /// </summary>
+    public static (float[] Gpu, float[] Cpu) ForBoth(GeneratorRun run, string typeName, int threads, int outputLength, params object[] arguments)
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<float> output = device.AllocateReadWriteBuffer<float>(outputLength);
+
+        Type type = run.LoadType(typeName);
+        MethodInfo method = typeof(GraphicsDevice)
+            .GetMethods()
+            .Single(static m => m.Name == nameof(GraphicsDevice.ForCpu) && m.GetParameters().Length == 2)
+            .MakeGenericMethod(type);
+
+        try
+        {
+            method.Invoke(device, [threads, Activator.CreateInstance(type, [output, .. arguments])!]);
+        }
+        catch (TargetInvocationException e) when (e.InnerException is not null)
+        {
+            throw e.InnerException;
+        }
+
+        return (For(run, typeName, threads, outputLength, arguments), output.ToArray());
+    }
+
     /// <summary>Runs <c>device.For(1, default(T))</c> and returns what it throws.</summary>
     public static Exception? ForDefault(GeneratorRun run, string typeName)
     {

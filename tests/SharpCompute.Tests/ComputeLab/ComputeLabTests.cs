@@ -200,6 +200,7 @@ public sealed class ComputeLabTests
         "SIMD reduction", "SIMD compaction", "SIMD shuffle",
         "Indirect",
         "Bits", "FastMath",
+        "Shared code",
     ];
 
     private static readonly string[] s_pictures =
@@ -210,6 +211,7 @@ public sealed class ComputeLabTests
         "9-simd-reduction.png", "10-simd-compaction.png", "11-simd-shuffle.png",
         "12-indirect.png",
         "13-bits.png", "14-fastmath.png",
+        "15-shared-code.png",
     ];
 
     [MetalFact]
@@ -229,12 +231,13 @@ public sealed class ComputeLabTests
                     "SIMD-group reductions", "ballots and prefix sums", "lane shuffles",
                     "indirect dispatch",
                     "bit and packing intrinsics", "per-shader compile options",
+                    "static helpers and struct methods",
                 ],
                 pages.Select(static p => p.Feature));
 
             // Topic by topic, in the lab's order, every topic with at least one page.
             Assert.Equal(
-                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, LabTopics.Math, LabTopics.Math],
+                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, LabTopics.Math, LabTopics.Math, LabTopics.CodeReuse],
                 pages.Select(static p => p.Topic));
             Assert.Equal(LabTopics.All, pages.Select(static p => p.Topic).Distinct());
             Assert.Equal(pages.Select(static p => p.Topic), pages.Select(static p => p.Topic).OrderBy(static t => LabTopics.All.ToList().IndexOf(t)));
@@ -408,8 +411,8 @@ public sealed class ComputeLabTests
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
                 // Every variant of every page: two histograms, compaction, reduction, prefix sum, product, blur, local arrays,
-                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math.
-                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2;
+                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math, shared code.
+                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2 + 1;
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal)));
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
@@ -427,10 +430,10 @@ public sealed class ComputeLabTests
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains("GFLOP/s   CPU ", StringComparison.Ordinal)));
                 Assert.Equal(1 + 3 + 2 + 2, summary.Split('\n').Count(static line => line.Contains(" ms (one core)", StringComparison.Ordinal))); // the prefix sum, and the SIMD pages' variants
-                Assert.Contains("[9/14] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
+                Assert.Contains("[9/15] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
 
                 // The privatised histogram is also timed against the global-atomics one, at both bin counts.
-                Assert.Contains("[2/14] Atomics / Histogram: privatised: threadgroup atomics", summary);
+                Assert.Contains("[2/15] Atomics / Histogram: privatised: threadgroup atomics", summary);
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("global atomics: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
 
                 string[] pictures = s_pictures;
@@ -822,6 +825,118 @@ public sealed class ComputeLabTests
             where T : struct, IComputeShaderDescriptor<T> => T.CompileOptions;
 
         static string Source<T>()
+            where T : struct, IComputeShaderDescriptor<T> => T.MslSource;
+    }
+
+    [MetalFact]
+    public void SharedCode_TracesTheScene_AndForCpuAgreesOnTheSample()
+    {
+        using SharedCodePage page = new(GraphicsDevice.GetDefault());
+
+        page.Compute(Frame);
+        LabCheck check = page.Check();
+
+        Assert.True(check.Passed, check.Summary);
+        Assert.Contains("sampled pixels within 2/255 of ForCpu", check.Summary);
+        Assert.InRange(page.Agreeing, (int)(SharedCodePage.RequiredAgreement * SharedCodePage.SampleWidth * SharedCodePage.SampleHeight), SharedCodePage.SampleWidth * SharedCodePage.SampleHeight);
+        Assert.True(page.GpuMilliseconds > 0 && check.CpuMilliseconds > 0);
+
+        // The picture is the scene: blue sky along the top, the red sphere in the middle, lit ground below.
+        ReadOnlySpan<Float3> light = page.Light;
+        Float3 sky = light[(8 * SharedCodePage.ImageWidth) + (SharedCodePage.ImageWidth / 2)];
+        Float3 sphere = light[(SharedCodePage.ImageHeight / 2 * SharedCodePage.ImageWidth) + (SharedCodePage.ImageWidth / 2)];
+        Float3 ground = light[((SharedCodePage.ImageHeight - 8) * SharedCodePage.ImageWidth) + (SharedCodePage.ImageWidth / 2)];
+
+        Assert.True(sky.Z > sky.X * 1.2f, $"sky {sky}");
+        Assert.True(sphere.X > sphere.Z * 1.5f, $"sphere {sphere}");
+        Assert.True(ground.X + ground.Y + ground.Z > 0.3f, $"ground {ground}");
+
+        foreach (Float3 pixel in light)
+        {
+            Assert.True(float.IsFinite(pixel.X + pixel.Y + pixel.Z) && pixel.X >= 0 && pixel.Y >= 0 && pixel.Z >= 0, $"light {pixel}");
+        }
+    }
+
+    [Fact]
+    public void SharedCode_TheSharedStructsAndHelpers_AreOrdinaryCSharp()
+    {
+        // What the shaders call is what this test calls: the CPU needs no second implementation.
+        Ray ray = new(new Float3(0f, 1f, -5f), new Float3(0f, 0f, 3f));
+        Assert.Equal(new Float3(0f, 0f, 1f), ray.Direction);
+        Assert.Equal(new Float3(0f, 1f, -3f), ray.At(2f));
+
+        Sphere sphere = new(new Float3(0f, 1f, 0f), 1f, new Float3(1f, 0f, 0f), mirror: true);
+        Assert.Equal(4f, sphere.Intersect(ray));
+        Assert.Equal(-1f, sphere.Intersect(new Ray(new Float3(3f, 1f, -5f), new Float3(0f, 0f, 1f))));
+        Assert.Equal(-1f, sphere.Intersect(new Ray(new Float3(0f, 1f, 5f), new Float3(0f, 0f, 1f))));
+        Assert.Equal(new Float3(0f, 0f, -1f), sphere.NormalAt(ray.At(4f)));
+        Assert.Equal(1, sphere.Mirror);
+        Assert.Equal(32, System.Runtime.CompilerServices.Unsafe.SizeOf<Sphere>());
+
+        Assert.False(default(Hit).Found);
+        Assert.True(new Hit { Distance = 0.5f }.Found);
+
+        Camera camera = new(new Float3(0f, 0f, -4f), new Float3(0f, 0f, 0f), verticalFov: MathF.PI / 2f, aspect: 2f);
+        Assert.Equal(new Float3(0f, 0f, 1f), camera.RayThrough(new Float2(0f, 0f)).Direction);
+        Assert.True(camera.RayThrough(new Float2(1f, 0f)).Direction.X > 0.8f);
+        Assert.True(camera.RayThrough(new Float2(0f, 1f)).Direction.Y > 0.6f);
+
+        // A stream is its seed: two with one seed give the same numbers, and the numbers are in 0..1.
+        RandomStream a = new(42u), b = new(42u), c = new(43u);
+        float first = a.Next();
+        Assert.Equal(first, b.Next());
+        Assert.NotEqual(first, c.Next());
+        Assert.NotEqual(first, a.Next());
+
+        for (int i = 0; i < 1000; i++)
+        {
+            Assert.InRange(a.Next(), 0f, 0.99999994f);
+            Assert.InRange(Gpu.Length(a.NextDirection()), 0.9999f, 1.0001f);
+        }
+
+        Assert.Equal(1.5f, ShaderMath.Pick(true, 1.5f, 2.5f));
+        Assert.Equal(new Float3(2f), ShaderMath.Pick(false, new Float3(1f), new Float3(2f)));
+        Assert.Equal(new Float3(0f), ShaderMath.Tonemap(new Float3(0f)));
+        Assert.True(ShaderMath.Tonemap(new Float3(100f)).X is > 0.99f and <= 1f);
+        Assert.True(ShaderMath.Sky(new Float3(0f, 1f, 0f)).Z > ShaderMath.Sky(new Float3(0f, 1f, 0f)).X);
+        Assert.InRange(Gpu.Length(ShaderMath.SunDirection), 0.9999f, 1.0001f);
+    }
+
+    [Fact]
+    public void SharedCode_EachShaderHasTheSharedFunctionsItCalls_Once()
+    {
+        string trace = Msl<TraceScene>(), draw = Msl<DrawSharedCode>();
+
+        // The tracer: the static class, the structs' members (by value, or by reference where they
+        // modify the struct), a constructor, and a generic method at the one type it is used with.
+        Assert.Equal(1, trace.Split("static float3 ShaderMath_Sky(float3 direction)\n{").Length - 1);
+        Assert.Equal(1, trace.Split("static uint ShaderMath_Hash(uint x)\n{").Length - 1);
+        Assert.Contains("static float3 ShaderMath_Pick_float3(bool condition, float3 whenTrue, float3 whenFalse)", trace);
+        Assert.Contains("static Ray Ray_new(float3 origin, float3 direction)", trace);
+        Assert.Contains("static float3 Ray_At(Ray __this, float distance)", trace);
+        Assert.Contains("static float Sphere_Intersect(Sphere __this, Ray ray)", trace);
+        Assert.Contains("static Ray Camera_RayThrough(Camera __this, float2 point)", trace);
+        Assert.Contains("static float RandomStream_Next(thread RandomStream& __this)", trace);
+        Assert.Contains("static float3 RandomStream_NextDirection(thread RandomStream& __this)", trace);
+        Assert.Contains("static bool Hit_Found(Hit __this)", trace);
+        Assert.Contains("constant float3 ShaderMath_SunDirection = float3(", trace);
+        Assert.Contains("::Sphere_Intersect(spheres[i], ray)", trace);
+        Assert.Contains("::Camera_RayThrough(__c.camera, point)", trace);
+
+        // The drawing shader shares the class, and gets only what it calls. (Its copy of the function
+        // has its parameter renamed: `light` is the name of a buffer that shader captures.)
+        Assert.Equal(1, draw.Split("static float3 ShaderMath_Tonemap(float3 __local_light)\n{").Length - 1);
+        Assert.DoesNotContain("ShaderMath_Sky", draw);
+        Assert.DoesNotContain("ShaderMath_Tonemap", trace);
+
+        // Other pages share code the same way: both fast-math variants call one method, and the two
+        // generators of test data call the lab's hash.
+        Assert.Contains("static float WaveMath_Value(int x, int y, int size, float time)", Msl<WaveField>());
+        Assert.Contains("static float WaveMath_Value(int x, int y, int size, float time)", Msl<WaveFieldFast>());
+        Assert.Contains("static uint ShaderMath_Hash(uint x)", Msl<SharpCompute.Samples.ComputeLab.Pages.GenerateImage>());
+        Assert.Contains("static uint ShaderMath_Hash(uint x)", Msl<SharpCompute.Samples.ComputeLab.Pages.GenerateField>());
+
+        static string Msl<T>()
             where T : struct, IComputeShaderDescriptor<T> => T.MslSource;
     }
 
