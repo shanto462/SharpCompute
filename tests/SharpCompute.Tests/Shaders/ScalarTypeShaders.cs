@@ -175,7 +175,9 @@ public readonly partial struct SmallIntegerOps(
 /// <summary>
 /// 64-bit arithmetic: wrapping add, subtract and multiply, division, shifts whose count runs below 0
 /// and beyond 63 (C# masks it with 63), comparisons, the int and uint operands that promote to long,
-/// and conversions to and from every other integer type.
+/// and conversions to and from every other integer type. Unsigned overflow wraps by definition on
+/// both sides; the signed sums and products here are only stored, where the GPU's undefined signed
+/// overflow still comes out wrapped (nothing in the kernel lets the compiler reason about it).
 /// </summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct WideIntegerOps(ReadOnlyBuffer<long> longs, ReadOnlyBuffer<ulong> ulongs, ReadWriteBuffer<long> output) : IComputeShader
@@ -301,9 +303,10 @@ public readonly partial struct WideIntegerOps(ReadOnlyBuffer<long> longs, ReadOn
         output[o + 48] = bucket;
         output[o + 49] = default(long) + (long)default(ulong);
 
-        // An int product that overflows, widened afterwards. Signed overflow is undefined in MSL (the
-        // compiler may widen first and keep the exact product), so C#'s wrapped result is spelled
-        // through uint, where the multiplication is exact modulo 2^32 on both sides.
+        // An int product that overflows, widened afterwards. Signed overflow is undefined on the GPU
+        // (the compiler widens first and keeps the exact product), so C#'s wrapped result is spelled
+        // through uint, where the multiplication is exact modulo 2^32 on both sides. The signed
+        // sums and products above are only stored, which is where they still come out wrapped.
         output[o + 50] = (long)(int)((uint)n * (uint)n);
         output[o + 51] = (long)((uint)n * m);
     }

@@ -76,8 +76,9 @@ here as an original game built on SharpCompute.
   Index them, loop over them with `foreach`, and pass them to helpers. See [Local arrays](#local-arrays).
 - **Every integer width.** `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long` and `ulong` as
   locals, buffer elements (`ReadWriteBuffer<byte>` is one byte per element), captured constants,
-  struct fields, local arrays and `[GroupShared]` arrays, with C#'s promotion, wraparound and shift
-  rules. See [Scalar types](#shader-language-reference).
+  struct fields, local arrays and `[GroupShared]` arrays, with C#'s promotion and shift rules;
+  unsigned arithmetic wraps as in C# (signed overflow is undefined on the GPU for now). See
+  [Scalar types](#shader-language-reference).
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
@@ -1024,7 +1025,11 @@ device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shad
 ```
 
 Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
-the GPU up to floating-point rounding. Only split shaders whose threads write their own elements;
+the GPU up to floating-point rounding; integer results are identical (conversions from float
+saturate, shift counts are masked and unsigned arithmetic wraps on both), except that signed integer
+overflow, which wraps in C#, is undefined on the GPU for now: do arithmetic that may overflow in the
+unsigned type, `(int)((uint)a * (uint)b)` (see [Scalar types](#shader-language-reference)). Only
+split shaders whose threads write their own elements;
 a shader that uses `Gpu.Atomic*` on buffer elements is never divided, while atomics on `[GroupShared]`
 elements stay within one threadgroup and do not prevent a split (see [Atomics](#shader-language-reference)).
 Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
@@ -1144,7 +1149,8 @@ using ReadWriteBuffer<byte> image = device.AllocateReadWriteBuffer(grayscalePixe
 device.For(image.Length, new Equalise(image, lut));
 ```
 
-The integers behave as they do in unchecked C#, on the GPU as on the CPU:
+The integers behave as they do in unchecked C#, on the GPU as on the CPU, with one exception,
+signed overflow:
 
 - **Promotion.** `byte + byte` is an `int` in C#, and `-uint` and `int + uint` are `long`. The MSL
   carries the conversions the C# expression has (`uchar(int(a) + int(b))` for `(byte)(a + b)`), so
@@ -1153,12 +1159,24 @@ The integers behave as they do in unchecked C#, on the GPU as on the CPU:
 - **Shifts.** The count is masked with 31 for `int` and the smaller integers (which are `int`s by
   the time they are shifted) and with 63 for `long` and `ulong`: `1L << 65` is 2. `>>>` works on `int`
   and `long`.
-- **Overflow** wraps at the width of the type, with one caveat for *signed* types: signed overflow
-  is undefined in MSL, so the compiler may assume it does not happen. Within its own width the result
-  wraps as in C#. A signed result that overflowed and is then widened does not: for
-  `(long)(a * b)` with `int` operands whose product overflows, the GPU may return the exact 64-bit
-  product where C# returns the wrapped `int`. Unsigned arithmetic is exact modulo 2^n everywhere, so
-  `(long)(int)((uint)a * (uint)b)` gives C#'s result on both.
+- **Unsigned overflow wraps** at the width of the type, on the GPU as in C#: `byte`, `ushort`, `uint`
+  and `ulong` arithmetic is exact modulo 2^n.
+- **Signed overflow is undefined on the GPU**, for now. C# wraps a signed `+`, `-` or `*` that
+  overflows; in MSL it is undefined, and the Metal compiler assumes it does not happen. Measured
+  on an Apple M4 Pro with `int` operands:
+
+  | Expression | C# (and `ForCpu`) | GPU |
+  |---|---|---|
+  | `(a * b) / b` with `a * b` overflowing | the wrapped product divided by `b` | `a` |
+  | `a * 2 / 2` for `int.MaxValue` | -1 | `a` |
+  | `a + 1 > a` for `int.MaxValue` | false | true |
+  | `b > 0 && (a + b) < a` when `a + b` overflows | true | false |
+  | `(long)(a * b)` with `a * b` overflowing | the wrapped `int`, widened | the exact 64-bit product |
+
+  An overflowed result that is only stored comes out wrapped in practice, but nothing guarantees
+  it. Until the generated MSL makes signed arithmetic wrap, do arithmetic that may overflow in the
+  unsigned type, where it wraps on both sides, and convert back: `(int)((uint)a * (uint)b)`, and
+  `(long)(int)((uint)a * (uint)b)` for the widened case. The same holds for `long` through `ulong`.
 - **Division by zero** does not trap: where C# throws `DivideByZeroException`, the GPU carries on
   with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit operands).
   `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on either.
@@ -1383,8 +1401,10 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   encoder the app left open on its command buffer.
 - The 8-, 16- and 64-bit integers are scalars only: there are no vectors of them, the SIMD-group
   operations take `float`, `int` and `uint`, and a `static readonly` initializer can use their
-  operators and literals but not call an intrinsic on them. A signed result that overflowed and is
-  then widened is not guaranteed to wrap (see **Scalar types**).
+  operators and literals but not call an intrinsic on them.
+- Signed integer overflow is undefined on the GPU for now, where C# wraps: an expression that
+  depends on the wrap (`a + 1 > a`, `(a * b) / b`, `(long)(a * b)`) can give another result than on
+  the CPU. Unsigned arithmetic wraps on both; use `(int)((uint)a * (uint)b)` (see **Scalar types**).
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses
   multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
   Transcendental functions agree with the CPU to within a few ULP.
