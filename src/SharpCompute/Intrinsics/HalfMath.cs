@@ -26,8 +26,9 @@ namespace SharpCompute;
 /// <see cref="Fract"/>, <see cref="Fmod"/>, <see cref="Sqrt"/>, <see cref="Rsqrt"/>,
 /// <see cref="Lerp"/>, <see cref="Step"/>, <see cref="Smoothstep"/> and <see cref="CopySign"/>.
 /// The transcendental functions are computed in <c>float</c> and rounded to half; the GPU's are
-/// within 1 half ULP of that, for every input measured (its <c>tan</c> and <c>atan</c> are off by
-/// that one ULP for about 4% and 7% of all halves; the others for a handful).
+/// within 1 half ULP of that for every input measured. Of the 65,536 halves its <c>tan</c> is off by
+/// that one ULP for 2,283 (3.5%) and its <c>atan</c> for 3,731 (5.7%), every other function of one
+/// argument for at most 7, and <c>exp</c>, <c>exp2</c> and <c>log10</c> for none.
 /// </para>
 /// <para>
 /// A <c>float</c> has 24 significant bits and a half 11. For <c>+ - * /</c> and <c>sqrt</c> a result
