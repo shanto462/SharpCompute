@@ -170,7 +170,9 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor UnsequencedModification = new(
         id: "SCG0021",
         title: "Expression depends on C# evaluation order",
-        messageFormat: "'{0}' is modified and used again within one expression; C# evaluates it left to right, but Metal Shading Language leaves the order undefined. Split the expression into separate statements.",
+        // {1} says what MSL does and how to split the expression: for a buffer, texture or [GroupShared]
+        // array, with an example built from the assignment where the orders differ.
+        messageFormat: "'{0}' is modified and used again within one expression; C# evaluates it left to right, but Metal Shading Language {1}",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
