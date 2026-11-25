@@ -24,9 +24,9 @@ namespace SharpCompute.Samples.ComputeLab.Pages.Simd;
 /// so there they are the rates recorded on an Apple M4 Pro (<see cref="RecordedGigaFlops"/>), and say so.
 /// </para>
 /// <para>
-/// The matrix-unit kernel is short enough (0.4 ms at 1024) that the round trip of one command buffer
-/// would be a quarter of its time, so it is dispatched <see cref="WaveRepeats"/> times in one command
-/// buffer and timed per product; the other two take long enough to be timed one at a time.
+/// Every kernel is timed by the GPU's own clock (<see cref="GraphicsDevice.LastGpuTime"/>), one
+/// product per dispatch: at 0.4 ms the matrix-unit kernel is as short as the round trip of a command
+/// buffer, which a stopwatch around the call would count in.
 /// </para>
 /// </remarks>
 public sealed class MatrixUnitsPage : ILabPage, IRatedPage
@@ -38,9 +38,6 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
 
     /// <summary>How many rows of C the check recomputes in double precision (evenly spaced).</summary>
     public const int CheckedRows = 32;
-
-    /// <summary>Products of the matrix-unit kernel per command buffer; its time is that of one.</summary>
-    public const int WaveRepeats = 4;
 
     private const float StepsPerSecond = 2f;
     private const int OtherKernelsInterval = 12;
@@ -64,13 +61,12 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
 
     /// <summary>
     /// GFLOP/s of the three kernels (<see cref="Wave"/>, <see cref="Tiled"/>, <see cref="Naive"/>) at
-    /// 1024 and at 2048, as this page's headless summary measured them on an Apple M4 Pro: commit to
-    /// completion, the median of five runs, each the median of seven timings.
+    /// 1024 and at 2048 on an Apple M4 Pro, by GPU time: the generated SGEMM rows of the benchmarks'
+    /// native baselines (benchmarks/RESULTS.md), which time these kernels on the same machine.
     /// </summary>
-    public static readonly double[][] RecordedGigaFlops = [[4620, 920, 460], [5120, 980, 450]];
+    public static readonly double[][] RecordedGigaFlops = [[5080, 1070, 520], [5190, 1080, 520]];
 
     private readonly GraphicsDevice _device;
-    private readonly ComputeContext _context;
     private readonly ReadWriteBuffer<float> _a;
     private readonly ReadWriteBuffer<float> _b;
     private readonly ReadWriteBuffer<float> _c;
@@ -91,7 +87,6 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
         int largest = s_sizes[^1];
 
         _device = device;
-        _context = device.CreateComputeContext();
         _a = device.AllocateReadWriteBuffer<float>(largest * largest);
         _b = device.AllocateReadWriteBuffer<float>(largest * largest);
         _c = device.AllocateReadWriteBuffer<float>(largest * largest);
@@ -163,18 +158,11 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
     private void Multiply(int kernel, int size)
     {
         int n = s_sizes[size];
-        long start = Stopwatch.GetTimestamp();
-        int products = 1;
 
         switch (kernel)
         {
             case Wave:
-                for (products = 0; products < WaveRepeats; products++)
-                {
-                    WaveMatMul.Multiply(_context, _a, _b, _c, n);
-                }
-
-                _context.Execute();
+                WaveMatMul.Multiply(_device, _a, _b, _c, n);
                 break;
 
             case Tiled:
@@ -186,7 +174,8 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
                 break;
         }
 
-        double milliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds / products;
+        // The GPU's time for the dispatch just made, not a stopwatch's around it.
+        double milliseconds = _device.LastGpuTime.TotalMilliseconds;
         _milliseconds[size][kernel] = milliseconds;
         _smoothed[size][kernel] = _smoothed[size][kernel] == 0 ? milliseconds : (_smoothed[size][kernel] * 0.8) + (milliseconds * 0.2);
     }
@@ -295,7 +284,7 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
         // Right: a bar per kernel, its description above it and its rate at the end of that line.
         int x = DrawMatrixUnits.BarX;
         int end = (x + DrawMatrixUnits.BarWidth) / LabCanvas.CellWidth;
-        canvas.Label(x, DrawMatrixUnits.PanelY - (2 * LabCanvas.CellHeight), live ? "GFLOP/s on this machine, commit to completion" : "GFLOP/s recorded on Apple M4 Pro; the window shows this machine's");
+        canvas.Label(x, DrawMatrixUnits.PanelY - (2 * LabCanvas.CellHeight), live ? "GFLOP/s on this machine, by GPU time" : "GFLOP/s recorded on Apple M4 Pro; the window shows this machine's");
 
         for (int kernel = 0; kernel < Kernels; kernel++)
         {
@@ -340,7 +329,6 @@ public sealed class MatrixUnitsPage : ILabPage, IRatedPage
 
     public void Dispose()
     {
-        _context.Dispose();
         _a.Dispose();
         _b.Dispose();
         _c.Dispose();

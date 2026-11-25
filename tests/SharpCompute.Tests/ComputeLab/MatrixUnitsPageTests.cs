@@ -353,7 +353,7 @@ public class MatrixUnitsPageTests
         page.Draw(canvas, live);
         string window = string.Join("\n", canvas.TextLines());
 
-        Assert.Contains("GFLOP/S ON THIS MACHINE, COMMIT TO COMPLETION", window);
+        Assert.Contains("GFLOP/S ON THIS MACHINE, BY GPU TIME", window);
         Assert.DoesNotContain("RECORDED", window);
         Assert.Equal(3, window.Split('\n').Count(static line => line.Contains(" GFLOP/S  ", StringComparison.Ordinal) && line.EndsWith(" MS", StringComparison.Ordinal)));
     }
