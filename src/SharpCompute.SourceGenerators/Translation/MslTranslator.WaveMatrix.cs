@@ -29,12 +29,19 @@ namespace SharpCompute.SourceGenerators;
 /// </para>
 /// <para>
 /// <b>The offset is added term by term.</b> <c>Load(a, row * n + k, n)</c> becomes
-/// <c>a + (row * n) + k</c>, not <c>a + ((row * n) + k)</c>: the terms of a sum of ints are added to
-/// the pointer one at a time. A 32-bit sum that is then widened to an address is opaque to the GPU
-/// compiler's addressing of the 64 elements; pointer increments are not, and the difference is 5.3
-/// against 4.5 TFLOP/s for a matrix product (Apple M4 Pro). The two forms agree unless the int sum
-/// overflows, which is undefined in MSL already. A sum of uints is defined to wrap there and is left
-/// whole.
+/// <c>a + int(uint(row) * uint(n)) + k</c>, not <c>a + int(uint(row) * uint(n) + uint(k))</c>: the
+/// terms of a sum of ints are added to the pointer one at a time. A 32-bit sum that is then widened
+/// to an address is opaque to the GPU compiler's addressing of the 64 elements; pointer increments
+/// are not, and the difference is 5.1 against 4.4 TFLOP/s for a matrix product (Apple M4 Pro).
+/// </para>
+/// <para>
+/// This is the one place where the generator does not make signed arithmetic wrap as C# does
+/// (<c>SignedArithmetic</c>): every term is computed as usual and wraps, but their sum is the
+/// pointer's, in 64 bits. The two differ only where the terms add up to more than an int holds, and
+/// an index into a buffer cannot depend on that: the wrapped sum would be negative, or the terms
+/// 2^32 elements apart. Only a sum of <c>int</c>s at the top of the offset is split; a sum of
+/// <c>uint</c>s, where adding a huge value to subtract a small one is an idiom, reaches the offset
+/// through a conversion and is left whole.
 /// </para>
 /// </remarks>
 internal sealed partial class MslTranslator

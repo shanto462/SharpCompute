@@ -186,7 +186,7 @@ public class WaveMatrixTests
 
         Assert.Equal(
             [
-                "metal::simdgroup_float8x8 m = __ms_wave_matrix_load(tile + int(__sgid) * 64, ulong(8), false);",
+                "metal::simdgroup_float8x8 m = __ms_wave_matrix_load(tile + int(uint(int(__sgid)) * 64u), ulong(8), false);",
                 "metal::simdgroup_half8x8 h = __ms_wave_matrix_load(halves + 0, ulong(8), true);",
                 "metal::simdgroup_store(m, tile + 64, ulong(8), ulong2(0), true);",
                 "metal::simdgroup_store(h, halves + 64, ulong(8), ulong2(0), false);",
@@ -276,17 +276,17 @@ public class WaveMatrixTests
     // ---- the offset: one pointer addition per term ------------------------------------------------
 
     [Theory]
-    [InlineData("row * n + k", "a + row * __c.n + k")]
-    [InlineData("(row * n) + k", "a + (row * __c.n) + k")]
-    [InlineData("(row + 8) * n + k + 8", "a + (row + 8) * __c.n + k + 8")]
+    [InlineData("row * n + k", "a + int(uint(row) * uint(__c.n)) + k")]
+    [InlineData("(row * n) + k", "a + (int(uint(row) * uint(__c.n))) + k")]
+    [InlineData("(row + 8) * n + k + 8", "a + int((uint(row) + 8u) * uint(__c.n)) + k + 8")]
     [InlineData("k", "a + k")]
     [InlineData("0", "a + 0")]
-    [InlineData("row * n", "a + row * __c.n")]
-    [InlineData("row * n - k", "a + row * __c.n - k")]
-    [InlineData("row * n - (k + 8)", "a + row * __c.n - k - 8")]
-    [InlineData("row * n - (k - 8)", "a + row * __c.n - k + 8")]
-    [InlineData("(row * n + k) + (8 + row)", "a + row * __c.n + k + 8 + row")]
-    [InlineData("-k + row", "a + -k + row")]
+    [InlineData("row * n", "a + int(uint(row) * uint(__c.n))")]
+    [InlineData("row * n - k", "a + int(uint(row) * uint(__c.n)) - k")]
+    [InlineData("row * n - (k + 8)", "a + int(uint(row) * uint(__c.n)) - k - 8")]
+    [InlineData("row * n - (k - 8)", "a + int(uint(row) * uint(__c.n)) - k + 8")]
+    [InlineData("(row * n + k) + (8 + row)", "a + int(uint(row) * uint(__c.n)) + k + 8 + row")]
+    [InlineData("-k + row", "a + int(-uint(k)) + row")]
     [InlineData("row << 3", "a + (row << 3)")]
     [InlineData("row > 2 ? k : 8", "a + (row > 2 ? k : 8)")]
     [InlineData("(int)(urow + uk)", "a + int(urow + uk)")]

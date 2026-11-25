@@ -63,9 +63,10 @@ namespace SharpCompute;
 /// <i>directly from the buffers</i>: staging them through <c>[GroupShared]</c> memory first made that
 /// kernel slower still, 0.4 TFLOP/s. And write an offset as a plain sum, <c>row * n + k</c>: the
 /// generator adds the terms to the buffer's address one at a time, which the GPU compiler turns into
-/// far better addressing than one 32-bit sum (5.3 against 4.5 TFLOP/s). The price of that is that the
-/// sum is formed in 64 bits on the GPU: an offset whose terms overflow <see cref="int"/> does not
-/// wrap there as it does in C#.
+/// far better addressing than one 32-bit sum (5.1 against 4.4 TFLOP/s). The price of that is the one
+/// place where signed arithmetic is not C#'s on the GPU: each term wraps as usual, but their sum is
+/// formed in 64 bits and does not, where the terms add up to more than an <see cref="int"/> holds.
+/// An offset into a buffer never does.
 /// </para>
 /// <para>
 /// <b>On the CPU</b> (<c>GraphicsDevice.ForCpu</c>, <c>ForSplit</c>) the lanes of a SIMD group meet at
@@ -122,7 +123,10 @@ public readonly partial struct WaveMatrix8x8
     /// <c>source[offset + column * stride + row]</c> with <paramref name="transpose"/>.
     /// </summary>
     /// <param name="source">A captured buffer, or a view of one.</param>
-    /// <param name="offset">The index of the matrix's first element. Write it as a sum of terms (see the remarks of <see cref="WaveMatrix8x8"/>).</param>
+    /// <param name="offset">
+    /// The index of the matrix's first element. Write it as a sum of terms: on the GPU they are added to
+    /// the buffer's address one by one, without wrapping (see the remarks of <see cref="WaveMatrix8x8"/>).
+    /// </param>
     /// <param name="stride">The number of elements from one row to the next in <paramref name="source"/> (its width when it holds a row-major matrix). Not negative.</param>
     /// <param name="transpose">True to load the transpose: the rows of the matrix are then columns of <paramref name="source"/>.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>

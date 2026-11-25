@@ -192,10 +192,11 @@ public class MatrixUnitsPageTests
         Assert.Equal(16, msl.Split("= __ms_wave_matrix_multiply_accumulate<float>(").Length - 1);
         Assert.Equal(8, msl.Split("metal::simdgroup_store(c").Length - 1);
 
-        // The offsets are added to the buffer one term at a time, which is where the speed comes from.
-        Assert.Contains("__ms_wave_matrix_load(a + row * __c.stride + k, ulong(__c.stride), false)", msl);
-        Assert.Contains("__ms_wave_matrix_load(b + (k + 8) * __c.stride + column + 24, ulong(__c.stride), false)", msl);
-        Assert.Contains("metal::simdgroup_store(c13, c + (row + 8) * __c.stride + column + 24, ulong(__c.stride), ulong2(0), false);", msl);
+        // The offsets are added to the buffer one term at a time, which is where the speed comes from:
+        // each term wraps like any int arithmetic, their sum is the pointer's.
+        Assert.Contains("__ms_wave_matrix_load(a + int(uint(row) * uint(__c.stride)) + k, ulong(__c.stride), false)", msl);
+        Assert.Contains("__ms_wave_matrix_load(b + int((uint(k) + 8u) * uint(__c.stride)) + column + 24, ulong(__c.stride), false)", msl);
+        Assert.Contains("metal::simdgroup_store(c13, c + int((uint(row) + 8u) * uint(__c.stride)) + column + 24, ulong(__c.stride), ulong2(0), false);", msl);
     }
 
     // ---- the page ---------------------------------------------------------------------------------
