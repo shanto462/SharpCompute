@@ -38,8 +38,10 @@ namespace SharpCompute.SourceGenerators;
 /// This is the one place where the generator does not make signed arithmetic wrap as C# does
 /// (<c>SignedArithmetic</c>): every term is computed as usual and wraps, but their sum is the
 /// pointer's, in 64 bits. The two differ only where the terms add up to more than an int holds, and
-/// an index into a buffer cannot depend on that: the wrapped sum would be negative, or the terms
-/// 2^32 elements apart. Only a sum of <c>int</c>s at the top of the offset is split; a sum of
+/// an index into a buffer cannot depend on that: a sum past int.MaxValue wraps to a negative offset
+/// in C#, which is out of range on the CPU too (the meeting throws ArgumentOutOfRangeException), and
+/// for C# to get an offset inside the buffer the sum has to wrap all the way round, below
+/// int.MinValue or past 2^32. Only a sum of <c>int</c>s at the top of the offset is split; a sum of
 /// <c>uint</c>s, where adding a huge value to subtract a small one is an idiom, reaches the offset
 /// through a conversion and is left whole.
 /// </para>

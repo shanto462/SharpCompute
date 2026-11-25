@@ -65,8 +65,12 @@ namespace SharpCompute;
 /// generator adds the terms to the buffer's address one at a time, which the GPU compiler turns into
 /// far better addressing than one 32-bit sum (5.1 against 4.4 TFLOP/s). The price of that is the one
 /// place where signed arithmetic is not C#'s on the GPU: each term wraps as usual, but their sum is
-/// formed in 64 bits and does not, where the terms add up to more than an <see cref="int"/> holds.
-/// An offset into a buffer never does.
+/// formed in 64 bits and does not. The two differ only where the terms add up to more than an
+/// <see cref="int"/> holds, and that is no valid offset in C# either: a sum past
+/// <see cref="int.MaxValue"/> wraps to a negative one, which the CPU refuses as out of range
+/// (<see cref="ArgumentOutOfRangeException"/>). Only a sum that wraps all the way round (below
+/// <see cref="int.MinValue"/>, or past 2^32) gives C# an offset inside the buffer that the GPU does
+/// not use.
 /// </para>
 /// <para>
 /// <b>On the CPU</b> (<c>GraphicsDevice.ForCpu</c>, <c>ForSplit</c>) the lanes of a SIMD group meet at

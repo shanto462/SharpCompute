@@ -779,9 +779,11 @@ pinned by the tests:
   each term of a sum of `int`s is one pointer addition, which the GPU compiler turns into far better
   addressing than a 32-bit sum that is then widened (5.1 against 4.4 TFLOP/s for the product below).
   This is the one place where signed arithmetic is not C#'s: every term wraps as usual, but their
-  sum is formed in 64 bits, so it does not wrap where the terms add up to more than an `int` holds.
-  An offset into a buffer never does (the wrapped index would be negative, or 4 billion elements
-  away), which is why the generator takes the faster form.
+  sum is formed in 64 bits and does not. The two differ only where the terms add up to more than an
+  `int` holds, which is no valid offset in C# either: a sum past `int.MaxValue` wraps to a negative
+  offset, and `ForCpu` refuses that as out of range (`ArgumentOutOfRangeException`). Only a sum that
+  wraps all the way round (below `int.MinValue`, or past 2³²) gives C# an offset inside the buffer
+  that the GPU does not use.
 - **Results** agree with a reference within rounding: the order in which the eight terms of an
   element are added is the GPU's. Compare with a tolerance.
 
@@ -1843,7 +1845,8 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   matrix units have. A matrix needs all 32 lanes of its SIMD group and the same arguments in each;
   the GPU does not check that, `ForCpu` refuses anything else. Sizes that are not a multiple of 8
   (of the kernel's tile) are the caller's to pad. The terms of a load's or store's offset are summed
-  without wrapping on the GPU.
+  without wrapping on the GPU; where C# would wrap the sum, the CPU reports the offset as out of
+  range (see [Matrix units](#matrix-units)).
 - Atomics work on elements of `int`, `uint` and (add only) `float`, in buffers and in
   `[GroupShared]` arrays, and (minimum and maximum only) on `ulong` buffer elements; not on struct
   fields, and not on `long` or the 8- and 16-bit integers, which have no atomics in MSL.

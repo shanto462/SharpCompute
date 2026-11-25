@@ -393,6 +393,50 @@ public class WaveMatrixCpuTests
         Assert.Equal(Iota(64), destination.ToArray()[36..]);
     }
 
+    [MetalTheory]
+    [InlineData(0, 0)]
+    [InlineData(3, 5)]
+    [InlineData(100, -36)]
+    [InlineData(-8, 72)]
+    public void AnOffsetThatIsASum_NamesTheSameElements_OnTheGpuAndOnTheCpu(int first, int second)
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<float> source = device.AllocateReadOnlyBuffer(Iota(128));
+        using ReadWriteBuffer<float> gpu = device.AllocateReadWriteBuffer<float>(64);
+        using ReadWriteBuffer<float> cpu = device.AllocateReadWriteBuffer<float>(64);
+
+        // The GPU adds the two terms to the buffer's address one after the other; C# adds them first.
+        device.For(32, new WaveMatrixOffsetSum(source, gpu, first, second));
+        device.ForCpu(32, new WaveMatrixOffsetSum(source, cpu, first, second));
+
+        Assert.Equal(Iota(128)[(first + second)..(first + second + 64)], gpu.ToArray());
+        Assert.Equal(gpu.ToArray(), cpu.ToArray());
+    }
+
+    [MetalTheory]
+    [InlineData(int.MaxValue, 1)]
+    [InlineData(int.MaxValue, int.MaxValue)]
+    [InlineData(1_500_000_000, 1_000_000_000)]
+    public void AnOffsetWhoseTermsAddUpToMoreThanAnInt_IsOutOfRangeOnTheCpu(int first, int second)
+    {
+        // The one place where the GPU's signed arithmetic is not C#'s: the GPU forms this sum in 64
+        // bits, C# wraps it. The wrapped sum is negative, so the CPU never loads a matrix from it:
+        // it reports the offset, as it does for any other that is outside the buffer.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<float> source = device.AllocateReadOnlyBuffer(Iota(128));
+        using ReadWriteBuffer<float> destination = device.AllocateReadWriteBuffer<float>(64);
+        destination.AsSpan().Fill(-1f);
+
+        Assert.True(unchecked(first + second) < 0);
+
+        ArgumentOutOfRangeException exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => device.ForCpu(32, new WaveMatrixOffsetSum(source, destination, first, second)));
+
+        Assert.Equal("offset", exception.ParamName);
+        Assert.Equal(unchecked(first + second), exception.ActualValue);
+        Assert.All(destination.ToArray(), static value => Assert.Equal(-1f, value));
+    }
+
     // ---- outside a shader -------------------------------------------------------------------------
 
     [Fact]

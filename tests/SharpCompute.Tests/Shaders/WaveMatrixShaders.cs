@@ -301,6 +301,21 @@ public readonly partial struct MatMulBlocks(ReadOnlyBuffer<float> a, ReadOnlyBuf
     }
 }
 
+/// <summary>
+/// A copy whose load offset is a sum of two captured terms. On the GPU each term is added to the
+/// buffer's address on its own, in 64 bits; in C# the sum is an <c>int</c> and wraps.
+/// </summary>
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WaveMatrixOffsetSum(ReadOnlyBuffer<float> source, ReadWriteBuffer<float> destination, int first, int second) : IComputeShader
+{
+    public void Execute()
+    {
+        WaveMatrix8x8 matrix = WaveMatrix8x8.Load(source, first + second, 8);
+        matrix.Store(destination, 0, 8);
+    }
+}
+
 // ---- misuse: what the CPU refuses -------------------------------------------------------------
 
 /// <summary>The lanes at or past <c>lanes</c> return before the matrix operations: a SIMD group that is not full.</summary>
