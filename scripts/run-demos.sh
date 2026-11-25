@@ -102,6 +102,9 @@ dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Textures
 step "ComputeLab: atomics, bit and packing intrinsics, one page each, GPU checked against the CPU"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.ComputeLab -- --headless --out "$OUT/computelab"
 
+step "GroupShared: a reduction, a prefix sum, a tiled matrix product and a tiled blur in threadgroup shared memory (headless)"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.GroupShared -- --headless --out "$OUT/groupshared"
+
 step "Done: $OUT"
 find "$OUT" -maxdepth 2 \( -name '*.png' -o -name '*.mp4' -o -name '*.txt' \) -not -path '*/video/*/*' | sed "s#^$OUT/#  #" | sort
 

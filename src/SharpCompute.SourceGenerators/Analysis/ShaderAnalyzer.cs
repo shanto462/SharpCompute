@@ -319,7 +319,8 @@ internal sealed class ShaderAnalyzer
         }
 
         var translator = new MslTranslator(_semanticModel, _symbol, types, captures, diagnostics, globalNames, reservedLocalNames, _isPixelShader, _cancellationToken);
-        string? body = translator.TranslateKernel(execute, out Builtins builtins);
+        translator.CollectGroupShared();
+        string? body = translator.TranslateKernel(execute, out Builtins builtins, out IReadOnlyList<GroupSharedField> groupShared);
 
         translation.LocalNames = translator.LocalNames;
         translation.StructNames.UnionWith(types.Structs.Select(static s => s.MslName));
@@ -379,6 +380,42 @@ internal sealed class ShaderAnalyzer
                 _isPixelShader ? " (including the output texture of a pixel shader)" : string.Empty);
         }
 
+        // Threadgroup memory is one fixed allocation per threadgroup; the arrays the kernel declares
+        // (the ones it uses) must fit in it together.
+        long threadgroupMemory = groupShared.Sum(static g => g.ByteLength);
+
+        if (threadgroupMemory > MslTranslator.MaxThreadgroupMemoryLength)
+        {
+            diagnostics.Report(
+                DiagnosticDescriptors.ThreadgroupMemoryTooLarge,
+                _location,
+                _symbol.Name,
+                threadgroupMemory.ToString(CultureInfo.InvariantCulture),
+                string.Join(" + ", groupShared.Select(static g => $"{g.Symbol.Name}: {g.ByteLength.ToString(CultureInfo.InvariantCulture)}")),
+                MslTranslator.MaxThreadgroupMemoryLength.ToString(CultureInfo.InvariantCulture));
+        }
+
+        // An array is sized for the threads that share it, and without [ThreadGroupSize] the shader
+        // does not say how many that is. Only arrays the kernel uses, and only those that some
+        // group the runtime may pick could overrun: one with an element per thread of the largest
+        // threadgroup Metal allows is safe whatever size is picked. Barriers alone need no size.
+        if (groupShared.Count > 0 && TypeResolver.FindAttribute(_symbol, "ThreadGroupSizeAttribute") is null)
+        {
+            foreach (GroupSharedField field in groupShared)
+            {
+                if (field.Length < MaxThreadsPerThreadgroup)
+                {
+                    diagnostics.Report(
+                        DiagnosticDescriptors.GroupSharedWithoutThreadGroupSize,
+                        field.Symbol.Locations.FirstOrDefault() ?? _location,
+                        field.Symbol.Name,
+                        field.Length.ToString(CultureInfo.InvariantCulture),
+                        _symbol.Name,
+                        MaxThreadsPerThreadgroup.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
         if (diagnostics.HasErrors || translator.SawInvalidCode || types.SawErrorType)
         {
             // Either we reported why, or the user's code does not compile and the C# compiler will.
@@ -391,6 +428,7 @@ internal sealed class ShaderAnalyzer
         // with a Packed form): either makes the shader depend on it.
         bool usesPrelude = translator.UsesPrelude ||
             buffers.Any(static b => b.Type.Element!.NeedsExplicitPacking) ||
+            groupShared.Any(static g => g.Element.NeedsExplicitPacking) ||
             constants.Any(static c => c.Type.NeedsExplicitPacking) ||
             types.Structs.Any(static s => s.Fields.Any(static f => f.Type.NeedsExplicitPacking));
 
@@ -409,7 +447,7 @@ internal sealed class ShaderAnalyzer
         // The grid window takes the first free buffer index. A shader that uses all of them still
         // works for whole-grid dispatches; it just cannot be split (GraphicsDevice.ForSplit rejects it).
         int gridWindowIndex = boundArguments < MaxBoundArguments ? boundArguments : -1;
-        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Samplers, translator.Globals, types.Structs, buffers, textures, firstTextureIndex, constants, constantsSize, translator.Helpers, body, builtins, gridWindowIndex);
+        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Samplers, translator.Globals, types.Structs, buffers, textures, firstTextureIndex, constants, constantsSize, translator.Helpers, groupShared, body, builtins, gridWindowIndex);
         string msl = MslSourceBuilder.Build(program);
         string shaderName = TypeName();
 
@@ -423,7 +461,9 @@ internal sealed class ShaderAnalyzer
             constantsIndex: buffers.Count,
             usesInstanceAccess,
             gridWindowIndex,
-            translator.UsesAtomics);
+            translator.UsesAtomics,
+            usesThreadgroupMemory: groupShared.Count > 0 || translator.UsesBarriers,
+            threadgroupMemoryLength: (int)threadgroupMemory);
 
         return translation;
     }
@@ -505,7 +545,7 @@ internal sealed class ShaderAnalyzer
     private CaptureSet CollectCaptures(TypeResolver types, DiagnosticBag diagnostics)
     {
         var captures = new CaptureSet();
-        var bufferNames = new NameAllocator();
+        NameAllocator bufferNames = captures.ResourceNames;
         var constantNames = new NameAllocator();
 
         var fields = _symbol.GetMembers()
@@ -556,6 +596,14 @@ internal sealed class ShaderAnalyzer
 
         foreach (IFieldSymbol field in fields)
         {
+            if (MslTranslator.IsGroupShared(field))
+            {
+                // Not captured state but a misdeclared [GroupShared] array (it must be static), which
+                // the translator reports as such; a second diagnostic about its type would only distract.
+                captures.AddFailed(field);
+                continue;
+            }
+
             SyntaxNode? syntax = field.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax(_cancellationToken);
             Location location = syntax is VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax declaration }
                 ? declaration.Type.GetLocation()
@@ -744,7 +792,9 @@ internal sealed class ShaderAnalyzer
         int constantsIndex = 0,
         bool usesInstanceAccess = false,
         int gridWindowIndex = -1,
-        bool usesAtomics = false)
+        bool usesAtomics = false,
+        bool usesThreadgroupMemory = false,
+        int threadgroupMemoryLength = 0)
     {
         var types = new List<TypeDeclarationInfo>();
 
@@ -781,7 +831,9 @@ internal sealed class ShaderAnalyzer
             ConstantsIndex: constantsIndex,
             UsesInstanceAccess: usesInstanceAccess,
             GridWindowIndex: gridWindowIndex,
-            UsesAtomics: usesAtomics);
+            UsesAtomics: usesAtomics,
+            UsesThreadgroupMemory: usesThreadgroupMemory,
+            ThreadgroupMemoryLength: threadgroupMemoryLength);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -804,6 +856,7 @@ internal sealed class ShaderAnalyzer
             List<ConstantMember> constants,
             int constantsSize,
             IReadOnlyList<HelperFunction> helpers,
+            IReadOnlyList<GroupSharedField> groupShared,
             string body,
             Builtins builtins,
             int gridWindowIndex)
@@ -820,6 +873,7 @@ internal sealed class ShaderAnalyzer
             Constants = constants;
             ConstantsSize = constantsSize;
             Helpers = helpers;
+            GroupShared = groupShared;
             Body = body;
             Builtins = builtins;
             GridWindowIndex = gridWindowIndex;
@@ -851,6 +905,9 @@ internal sealed class ShaderAnalyzer
         public int ConstantsSize { get; }
 
         public IReadOnlyList<HelperFunction> Helpers { get; }
+
+        /// <summary>The <c>[GroupShared]</c> arrays the kernel declares as threadgroup memory, in declaration order.</summary>
+        public IReadOnlyList<GroupSharedField> GroupShared { get; }
 
         public string Body { get; }
 
@@ -904,10 +961,8 @@ internal sealed class ShaderAnalyzer
             // out differently, the pipeline fails to compile instead of silently corrupting data.
             var assertedVectors = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (Capture buffer in buffers)
+            foreach (GpuType element in buffers.Select(static b => b.Type.Element!).Concat(program.GroupShared.Select(static g => g.Element)))
             {
-                GpuType element = buffer.Type.Element!;
-
                 if (element.Kind == GpuTypeKind.Vector && assertedVectors.Add(element.BoundaryName))
                 {
                     if (assertedVectors.Count == 1)
@@ -1050,7 +1105,7 @@ internal sealed class ShaderAnalyzer
 
                 if (!windowed || (builtin & BuiltinInfo.Windowed) == 0)
                 {
-                    parameters.Add($"uint3 {BuiltinInfo.Name(builtin)} [[{BuiltinInfo.Attribute(builtin)}]]");
+                    parameters.Add($"{BuiltinInfo.Type(builtin)} {BuiltinInfo.Name(builtin)} [[{BuiltinInfo.Attribute(builtin)}]]");
                     continue;
                 }
 
@@ -1080,6 +1135,13 @@ internal sealed class ShaderAnalyzer
                 }
 
                 writer.Indent--;
+            }
+
+            // Threadgroup memory must be declared in the kernel function itself; helpers receive pointers
+            // to these arrays. Like the prologue, the declarations precede everything the user wrote.
+            foreach (GroupSharedField field in program.GroupShared)
+            {
+                prologue.Add("    " + field.Declaration);
             }
 
             WriteBody(writer, prologue.Count == 0 ? program.Body : string.Join("\n", prologue) + "\n" + program.Body);

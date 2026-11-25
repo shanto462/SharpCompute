@@ -50,6 +50,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
             _queue = new ObjCHandle(queue);
             Name = NSString.ToManaged(ObjC.SendIntPtr(device, Selectors.Name)) ?? string.Empty;
             MaxBufferLength = ObjC.SendNUInt(device, Selectors.MaxBufferLength);
+            MaxThreadgroupMemoryLength = ObjC.SendNUInt(device, Selectors.MaxThreadgroupMemoryLength);
         }
         catch
         {
@@ -71,6 +72,9 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
     /// <summary>The device's <c>maxBufferLength</c>, in bytes.</summary>
     internal nuint MaxBufferLength { get; }
+
+    /// <summary>The device's <c>maxThreadgroupMemoryLength</c>: the bytes of threadgroup memory one kernel may declare (32,768 on Apple GPUs).</summary>
+    internal nuint MaxThreadgroupMemoryLength { get; }
 
     internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
@@ -728,6 +732,15 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     private ComputePipeline GetPipeline<T>(ConcurrentDictionary<Type, Lazy<ComputePipeline>> cache, bool windowed)
         where T : struct, IComputeShaderDescriptor<T>
     {
+        // Checked before compiling, so that the error names the shader's [GroupShared] total and the
+        // device's limit; Metal itself would only fail the pipeline with a less specific message.
+        if (T.ThreadgroupMemoryLength < 0 || (nuint)T.ThreadgroupMemoryLength > MaxThreadgroupMemoryLength)
+        {
+            throw new NotSupportedException(
+                $"Shader '{typeof(T)}' declares {T.ThreadgroupMemoryLength} bytes of threadgroup ([GroupShared]) memory, " +
+                $"but '{Name}' supports at most {MaxThreadgroupMemoryLength} bytes per kernel.");
+        }
+
         // Lazy makes concurrent first dispatches of a shader compile it once. A compile error is
         // cached, which is right because the source is a constant of the type; any other failure
         // (out of memory, a dispose race) evicts the entry so a later dispatch can retry.

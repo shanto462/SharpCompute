@@ -157,6 +157,97 @@ public static class GroupIds
             return new Int3(thread.GroupX, thread.GroupY, thread.GroupZ);
         }
     }
+
+    /// <summary>
+    /// The flat index of the current thread within its threadgroup (<c>thread_index_in_threadgroup</c>):
+    /// <c>(Z * GroupSize.Y + Y) * GroupSize.X + X</c>, from 0 to <see cref="GroupSize.Count"/> - 1.
+    /// </summary>
+    /// <remarks>
+    /// The index is laid out with the size of the <i>current</i> group (see <see cref="GroupSize"/>), so
+    /// the threads of a partial group at the edge of the grid are still numbered without gaps.
+    /// </remarks>
+    public static int Index => CpuThread.Current.GroupIndex;
+}
+
+/// <summary>The size of the current thread's threadgroup (<c>threads_per_threadgroup</c>).</summary>
+/// <remarks>
+/// This is the size of the group the thread is in, which is the shader's <see cref="ThreadGroupSizeAttribute"/>
+/// size (or the default described for <see cref="GroupIds"/>) except at the far edges of a grid that is
+/// not a multiple of it: there the last group along an axis is cut off at the edge of the grid and
+/// reports the threads it really has (Metal's non-uniform threadgroups). A 1D dispatch of 1000 threads
+/// in groups of 256 has three groups of 256 and one of 232. Shaders that fill a
+/// <see cref="GroupSharedAttribute"/> array from every thread should therefore combine only the first
+/// <see cref="Count"/> elements, or be dispatched over a multiple of the group size and skip the
+/// threads past the end of their data.
+/// </remarks>
+public static class GroupSize
+{
+    public static int X => CpuThread.Current.GroupExtentX;
+
+    public static int Y => CpuThread.Current.GroupExtentY;
+
+    public static int Z => CpuThread.Current.GroupExtentZ;
+
+    public static Int2 XY
+    {
+        get
+        {
+            CpuThread thread = CpuThread.Current;
+            return new Int2(thread.GroupExtentX, thread.GroupExtentY);
+        }
+    }
+
+    public static Int3 XYZ
+    {
+        get
+        {
+            CpuThread thread = CpuThread.Current;
+            return new Int3(thread.GroupExtentX, thread.GroupExtentY, thread.GroupExtentZ);
+        }
+    }
+
+    /// <summary>The number of threads in the current threadgroup: <c>X * Y * Z</c>.</summary>
+    public static int Count
+    {
+        get
+        {
+            CpuThread thread = CpuThread.Current;
+            return thread.GroupExtentX * thread.GroupExtentY * thread.GroupExtentZ;
+        }
+    }
+}
+
+/// <summary>The number of threadgroups in the dispatch grid along each axis (<c>threadgroups_per_grid</c>).</summary>
+/// <remarks>
+/// Counts a partial group at the edge of the grid as a group: <c>ceil(DispatchSize / threadgroup size)</c>.
+/// Like <see cref="DispatchSize"/>, always the count of the whole grid, also for each part of a CPU+GPU
+/// split dispatch.
+/// </remarks>
+public static class ThreadGroupCount
+{
+    public static int X => CpuThread.Current.GroupCountX;
+
+    public static int Y => CpuThread.Current.GroupCountY;
+
+    public static int Z => CpuThread.Current.GroupCountZ;
+
+    public static Int2 XY
+    {
+        get
+        {
+            CpuThread thread = CpuThread.Current;
+            return new Int2(thread.GroupCountX, thread.GroupCountY);
+        }
+    }
+
+    public static Int3 XYZ
+    {
+        get
+        {
+            CpuThread thread = CpuThread.Current;
+            return new Int3(thread.GroupCountX, thread.GroupCountY, thread.GroupCountZ);
+        }
+    }
 }
 
 /// <summary>Position of the current threadgroup in the grid (<c>threadgroup_position_in_grid</c>).</summary>

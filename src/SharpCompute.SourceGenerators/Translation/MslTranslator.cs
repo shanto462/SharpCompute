@@ -19,6 +19,9 @@ internal enum Builtins
     ThreadsPerGrid = 2,
     ThreadPositionInThreadgroup = 4,
     ThreadgroupPositionInGrid = 8,
+    ThreadsPerThreadgroup = 16,
+    ThreadgroupsPerGrid = 32,
+    ThreadIndexInThreadgroup = 64,
 }
 
 internal static class BuiltinInfo
@@ -29,6 +32,9 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerGrid,
         Builtins.ThreadPositionInThreadgroup,
         Builtins.ThreadgroupPositionInGrid,
+        Builtins.ThreadsPerThreadgroup,
+        Builtins.ThreadgroupsPerGrid,
+        Builtins.ThreadIndexInThreadgroup,
     };
 
     public static string Name(Builtins builtin) => builtin switch
@@ -36,24 +42,38 @@ internal static class BuiltinInfo
         Builtins.ThreadPositionInGrid => "__tid",
         Builtins.ThreadsPerGrid => "__grid",
         Builtins.ThreadPositionInThreadgroup => "__gtid",
+        Builtins.ThreadsPerThreadgroup => "__gsize",
+        Builtins.ThreadgroupsPerGrid => "__groups",
+        Builtins.ThreadIndexInThreadgroup => "__gindex",
         _ => "__gid",
     };
 
+    /// <summary>The MSL type of the built-in: a <c>uint3</c>, except for the flat index in the threadgroup.</summary>
+    public static string Type(Builtins builtin) => builtin == Builtins.ThreadIndexInThreadgroup ? "uint" : "uint3";
+
     /// <summary>
     /// The built-ins a partial-grid (windowed) dispatch has to rebase: the thread and threadgroup
-    /// positions get the window's offset, and the grid size is the full grid rather than the part.
-    /// The position within a threadgroup needs nothing, because windows are threadgroup aligned.
+    /// positions get the window's offset, the grid size is the full grid rather than the part, and
+    /// the threadgroup count gets the threadgroups that lie before the window. The position, index
+    /// and group size within a threadgroup need nothing, because windows are threadgroup aligned.
     /// </summary>
-    public const Builtins Windowed = Builtins.ThreadPositionInGrid | Builtins.ThreadsPerGrid | Builtins.ThreadgroupPositionInGrid;
+    public const Builtins Windowed =
+        Builtins.ThreadPositionInGrid | Builtins.ThreadsPerGrid | Builtins.ThreadgroupPositionInGrid | Builtins.ThreadgroupsPerGrid;
 
     /// <summary>The name of the raw Metal argument of a windowed built-in, which the kernel prologue rebases into <see cref="Name"/>.</summary>
     public static string RawName(Builtins builtin) => Name(builtin) + "_in";
 
-    /// <summary>The <c>__GridWindow</c> member added to a windowed built-in, or null for the grid size, which is replaced.</summary>
+    /// <summary>
+    /// The <c>__GridWindow</c> member added to a windowed built-in, or null for the grid size, which is
+    /// replaced. The threadgroup count of the whole grid is the part's count plus the threadgroups
+    /// before it: a window starts on a threadgroup boundary and runs to the end of the grid, so
+    /// <c>ceil(part / size) + offset / size = ceil(grid / size)</c> along the cut axis, and the offset
+    /// is zero along the others.
+    /// </summary>
     public static string? WindowOffset(Builtins builtin) => builtin switch
     {
         Builtins.ThreadPositionInGrid => "offset",
-        Builtins.ThreadgroupPositionInGrid => "groupOffset",
+        Builtins.ThreadgroupPositionInGrid or Builtins.ThreadgroupsPerGrid => "groupOffset",
         _ => null,
     };
 
@@ -62,8 +82,49 @@ internal static class BuiltinInfo
         Builtins.ThreadPositionInGrid => "thread_position_in_grid",
         Builtins.ThreadsPerGrid => "threads_per_grid",
         Builtins.ThreadPositionInThreadgroup => "thread_position_in_threadgroup",
+        Builtins.ThreadsPerThreadgroup => "threads_per_threadgroup",
+        Builtins.ThreadgroupsPerGrid => "threadgroups_per_grid",
+        Builtins.ThreadIndexInThreadgroup => "thread_index_in_threadgroup",
         _ => "threadgroup_position_in_grid",
     };
+}
+
+/// <summary>
+/// A <c>[GroupShared] static readonly T[] name = new T[N];</c> field of the shader struct: threadgroup
+/// memory, declared as <c>threadgroup T name[N];</c> in the kernel.
+/// </summary>
+internal sealed class GroupSharedField
+{
+    public GroupSharedField(IFieldSymbol symbol, GpuType element, int length, string mslName)
+    {
+        Symbol = symbol;
+        Element = element;
+        Length = length;
+        MslName = mslName;
+    }
+
+    public IFieldSymbol Symbol { get; }
+
+    public GpuType Element { get; }
+
+    /// <summary>The number of elements, a compile-time constant.</summary>
+    public int Length { get; }
+
+    /// <summary>The name of the array in the kernel, and of the pointer to it that helpers receive.</summary>
+    public string MslName { get; }
+
+    /// <summary>
+    /// Bytes of threadgroup memory. The element is declared with its boundary (packed) type, as in a
+    /// buffer, so this is the size of the C# array's elements too.
+    /// </summary>
+    public long ByteLength => (long)Length * Element.Size;
+
+    /// <summary>The declaration inside the kernel.</summary>
+    public string Declaration =>
+        "threadgroup " + Element.BoundaryName + " " + MslName + "[" + Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + "];";
+
+    /// <summary>The hidden parameter through which a helper reaches the kernel's array.</summary>
+    public string Parameter => "threadgroup " + Element.BoundaryName + "* " + MslName;
 }
 
 /// <summary>A captured field or primary-constructor parameter of the shader struct.</summary>
@@ -102,8 +163,15 @@ internal sealed class CaptureSet
 
     public List<Capture> All { get; } = new();
 
-    /// <summary>The names of the captured buffers and textures: kernel parameters, which locals must not shadow.</summary>
+    /// <summary>
+    /// The names of the captured buffers and textures (kernel parameters) and of the group-shared
+    /// arrays (locals of the kernel): helpers receive all of them under these names, so locals must
+    /// not shadow them.
+    /// </summary>
     public HashSet<string> BufferNames { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Allocates the names in <see cref="BufferNames"/>, which share one MSL scope.</summary>
+    public NameAllocator ResourceNames { get; } = new();
 
     public IEnumerable<Capture> Buffers => All.Where(static c => c.IsBuffer);
 
@@ -156,14 +224,19 @@ internal sealed class HelperFunction
 
 /// <summary>
 /// The kernel parameters a function reads besides its own parameters: captured buffers and textures
-/// (both in <see cref="Buffers"/>), the constants block, and built-ins. A helper receives them as trailing hidden parameters with the
-/// kernel's names, in this order, so callers forward them unchanged.
+/// (both in <see cref="Buffers"/>), group-shared arrays (which are locals of the kernel), the constants
+/// block, and built-ins. A helper receives them as trailing hidden parameters with the kernel's names,
+/// in this order, so callers forward them unchanged.
 /// </summary>
 internal sealed class HiddenInputs
 {
     private readonly HashSet<Capture> _bufferSet = new();
+    private readonly HashSet<GroupSharedField> _groupSharedSet = new();
 
     public List<Capture> Buffers { get; } = new();
+
+    /// <summary>The group-shared arrays this function (or anything it calls) reads or writes.</summary>
+    public List<GroupSharedField> GroupShared { get; } = new();
 
     public bool UsesConstants { get; set; }
 
@@ -177,11 +250,24 @@ internal sealed class HiddenInputs
         }
     }
 
+    public void AddGroupShared(GroupSharedField field)
+    {
+        if (_groupSharedSet.Add(field))
+        {
+            GroupShared.Add(field);
+        }
+    }
+
     public void Add(HiddenInputs other)
     {
         foreach (Capture buffer in other.Buffers)
         {
             AddBuffer(buffer);
+        }
+
+        foreach (GroupSharedField field in other.GroupShared)
+        {
+            AddGroupShared(field);
         }
 
         UsesConstants |= other.UsesConstants;
@@ -196,6 +282,11 @@ internal sealed class HiddenInputs
             yield return buffer.Type.ParameterTypeName + " " + buffer.MslName;
         }
 
+        foreach (GroupSharedField field in GroupShared)
+        {
+            yield return field.Parameter;
+        }
+
         if (UsesConstants)
         {
             yield return "constant " + MslNames.ConstantsStruct + "& " + MslNames.Constants;
@@ -205,7 +296,7 @@ internal sealed class HiddenInputs
         {
             if ((Builtins & builtin) != 0)
             {
-                yield return "uint3 " + BuiltinInfo.Name(builtin);
+                yield return BuiltinInfo.Type(builtin) + " " + BuiltinInfo.Name(builtin);
             }
         }
     }
@@ -216,6 +307,12 @@ internal sealed class HiddenInputs
         foreach (Capture buffer in Buffers)
         {
             yield return buffer.MslName;
+        }
+
+        foreach (GroupSharedField field in GroupShared)
+        {
+            // The kernel's array decays to the pointer a helper takes; a helper forwards its pointer.
+            yield return field.MslName;
         }
 
         if (UsesConstants)
@@ -353,10 +450,15 @@ internal sealed partial class MslTranslator
 
     private CodeWriter Writer => _function.Writer;
 
-    /// <summary>Translates the body of <c>Execute</c>. Returns null when it has no body in source.</summary>
-    public string? TranslateKernel(IMethodSymbol execute, out Builtins builtins)
+    /// <summary>
+    /// Translates the body of <c>Execute</c>. Returns null when it has no body in source.
+    /// <paramref name="groupShared"/> receives the group-shared arrays the kernel (or a helper it calls)
+    /// uses, in declaration order: the kernel declares exactly these.
+    /// </summary>
+    public string? TranslateKernel(IMethodSymbol execute, out Builtins builtins, out IReadOnlyList<GroupSharedField> groupShared)
     {
         builtins = Builtins.None;
+        groupShared = Array.Empty<GroupSharedField>();
         _function = new FunctionContext(FunctionKind.Kernel);
 
         if (GetBody(execute) is not { } body)
@@ -370,6 +472,8 @@ internal sealed partial class MslTranslator
         }
 
         builtins = _function.Inputs.Builtins;
+        HiddenInputs inputs = _function.Inputs;
+        groupShared = _groupShared.Where(inputs.GroupShared.Contains).ToList();
 
         // Everything the shader runs has been translated, so it is now known which textures are read:
         // settle the fences after the writes, here and in the helpers.

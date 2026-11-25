@@ -9,6 +9,9 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// <see cref="GridWindowIndex"/> is the buffer index of the hidden grid window (the first index after
 /// the buffers and constants), or -1 when every index is taken and the shader cannot run a partial grid.
 /// <see cref="UsesAtomics"/> is true when the kernel or a helper it reaches contains an atomic operation.
+/// <see cref="UsesThreadgroupMemory"/> is true when the kernel uses group-shared memory or a barrier (its
+/// threads then cooperate, which the CPU has to run differently), and <see cref="ThreadgroupMemoryLength"/>
+/// is the bytes of group-shared memory it declares.
 /// </summary>
 internal sealed record ShaderModel(
     string HintName,
@@ -27,7 +30,9 @@ internal sealed record ShaderModel(
     int ConstantsIndex,
     bool UsesInstanceAccess,
     int GridWindowIndex,
-    bool UsesAtomics);
+    bool UsesAtomics,
+    bool UsesThreadgroupMemory,
+    int ThreadgroupMemoryLength);
 
 /// <summary>One level of the type hierarchy to re-open, e.g. <c>partial class Outer</c>.</summary>
 internal sealed record TypeDeclarationInfo(string Keyword, string Name);

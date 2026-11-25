@@ -128,6 +128,21 @@ internal static class DescriptorEmitter
             writer.Line();
         }
 
+        if (model.UsesThreadgroupMemory)
+        {
+            // Without these members the interface's defaults (false, 0) apply.
+            writer.Line("/// <summary>The kernel uses threadgroup memory or barriers: on the CPU its threadgroups run as groups of cooperating threads.</summary>");
+            writer.Line($"static bool {contract}.UsesThreadgroupMemory => true;");
+            writer.Line();
+        }
+
+        if (model.ThreadgroupMemoryLength > 0)
+        {
+            writer.Line("/// <summary>The bytes of threadgroup memory the kernel declares for its [GroupShared] fields.</summary>");
+            writer.Line($"static int {contract}.ThreadgroupMemoryLength => {model.ThreadgroupMemoryLength.ToString(CultureInfo.InvariantCulture)};");
+            writer.Line();
+        }
+
         writer.Line($"static void {contract}.SetArguments(in {model.FullyQualifiedName} shader, ref {Writer} writer)");
         writer.Line("{");
         writer.Indent++;

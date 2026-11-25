@@ -39,4 +39,9 @@ SCG0031 | SharpCompute | Error | Texture element is modified in place
 SCG0032 | SharpCompute | Error | Texture is returned or passed by reference
 SCG0033 | SharpCompute | Error | Read-write texture cannot be sampled
 SCG0034 | SharpCompute | Error | Atomic operation needs a buffer element
+SCG0040 | SharpCompute | Error | Invalid [GroupShared] field
+SCG0041 | SharpCompute | Error | [GroupShared] array length is not a compile-time constant
+SCG0042 | SharpCompute | Error | Unsupported [GroupShared] element type
+SCG0043 | SharpCompute | Error | Too much threadgroup memory
+SCG0044 | SharpCompute | Warning | [GroupShared] array in a shader without [ThreadGroupSize]
 SCG9999 | SharpCompute | Error | Internal generator error

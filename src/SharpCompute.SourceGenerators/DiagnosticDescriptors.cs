@@ -279,6 +279,48 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    // SCG0035 to SCG0039 are left free: the threadgroup diagnostics are a block of their own.
+
+    public static readonly DiagnosticDescriptor InvalidGroupSharedField = new(
+        id: "SCG0040",
+        title: "Invalid [GroupShared] field",
+        messageFormat: "[GroupShared] field '{0}' cannot be threadgroup memory: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor GroupSharedLengthNotConstant = new(
+        id: "SCG0041",
+        title: "[GroupShared] array length is not a compile-time constant",
+        messageFormat: "The length of [GroupShared] field '{0}' must be known at compile time: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor UnsupportedGroupSharedElementType = new(
+        id: "SCG0042",
+        title: "Unsupported [GroupShared] element type",
+        messageFormat: "[GroupShared] field '{0}' cannot have elements of type '{1}': {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor ThreadgroupMemoryTooLarge = new(
+        id: "SCG0043",
+        title: "Too much threadgroup memory",
+        messageFormat: "Shader struct '{0}' uses {1} bytes of [GroupShared] memory ({2}), but a threadgroup has at most {3} bytes on Apple GPUs",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor GroupSharedWithoutThreadGroupSize = new(
+        id: "SCG0044",
+        title: "[GroupShared] array in a shader without [ThreadGroupSize]",
+        messageFormat: "[GroupShared] array '{0}' has {1} elements, but shader '{2}' has no [ThreadGroupSize]: the runtime then picks the threadgroup size by the rank of the dispatch (256, 16 x 16 or 8 x 8 x 4 threads, and the pipeline may clamp it), so an array shorter than the largest group it may pick is indexed out of bounds, silently, on the GPU. Add [ThreadGroupSize] to the shader, or size the array for {3} threads.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",

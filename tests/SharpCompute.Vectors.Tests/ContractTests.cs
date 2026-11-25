@@ -8,6 +8,9 @@ namespace SharpCompute.Vectors.Tests;
 /// <summary>Guards the attribute contract that the source generator relies on.</summary>
 public class ContractTests
 {
+    /// <summary>The threadgroup barriers of <see cref="Gpu"/>, under their HLSL names.</summary>
+    private static readonly string[] Barriers = ["GroupMemoryBarrierWithGroupSync", "DeviceMemoryBarrierWithGroupSync", "AllMemoryBarrierWithGroupSync"];
+
     /// <summary>MSL functions whose C# name is not simply the PascalCase MSL name (.NET or HLSL spelling instead).</summary>
     private static readonly Dictionary<string, string> Renamed = new()
     {
@@ -28,7 +31,9 @@ public class ContractTests
     /// Every public static <see cref="Gpu"/> method maps to MSL in exactly one way: a function call
     /// (<c>[MslIntrinsic]</c>: <c>metal::</c>, a <c>__ms_</c> prelude helper, or the <c>as_type</c>
     /// bit cast), a binary operator (<c>[MslBinaryOperator]</c>, only <c>Mul</c>), or an atomic
-    /// function (<c>[MslAtomic]</c>, exactly the <c>Atomic*</c> methods).
+    /// function (<c>[MslAtomic]</c>, exactly the <c>Atomic*</c> methods). The exception is the three
+    /// threadgroup barriers, which the generator recognizes by name: one MSL function with different
+    /// flags, no arguments.
     /// </summary>
     [Fact]
     public void EveryPublicGpuMethodHasExactlyOneMslMapping()
@@ -41,6 +46,15 @@ public class ContractTests
             MslBinaryOperatorAttribute? op = m.GetCustomAttribute<MslBinaryOperatorAttribute>();
             MslAtomicAttribute? atomic = m.GetCustomAttribute<MslAtomicAttribute>();
             int mappings = (attr is null ? 0 : 1) + (op is null ? 0 : 1) + (atomic is null ? 0 : 1);
+
+            if (Barriers.Contains(m.Name))
+            {
+                Assert.True(mappings == 0, $"{m}: barriers are recognized by name and carry no mapping attribute");
+                Assert.Equal(typeof(void), m.ReturnType);
+                Assert.Empty(m.GetParameters());
+                continue;
+            }
+
             Assert.True(mappings == 1, $"{m} needs exactly one of [MslIntrinsic], [MslBinaryOperator] and [MslAtomic]");
             Assert.True(atomic is not null == m.Name.StartsWith("Atomic", StringComparison.Ordinal), $"{m}: exactly the Atomic* methods are [MslAtomic]");
             if (op is not null)
@@ -162,7 +176,7 @@ public class ContractTests
         string[] expected = [.. componentwise, .. bits, .. other];
         string[] actual = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
             .Select(m => m.Name).Distinct().ToArray();
-        Assert.Equal(expected.Order(), actual.Order());
+        Assert.Equal(expected.Concat(Barriers).Order(), actual.Order());
 
         // Signatures other code already depends on.
         Assert.NotNull(typeof(Gpu).GetMethod("Sqrt", [typeof(float)]));

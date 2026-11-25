@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 namespace SharpCompute;
 
 /// <summary>
-/// The state behind <see cref="ThreadIds"/>, <see cref="DispatchSize"/>, <see cref="GroupIds"/> and
-/// <see cref="ThreadGroupIds"/> while a shader runs on the CPU: one instance per chunk of a CPU
-/// dispatch, published in a thread-static for the worker thread that runs the chunk.
+/// The state behind <see cref="ThreadIds"/>, <see cref="DispatchSize"/>, <see cref="GroupIds"/>,
+/// <see cref="ThreadGroupIds"/>, <see cref="GroupSize"/> and <see cref="ThreadGroupCount"/> while a
+/// shader runs on the CPU: one instance per chunk of a CPU dispatch (or per thread of a threadgroup,
+/// for shaders whose threads cooperate), published in a thread-static for the worker thread that runs it.
 /// </summary>
 /// <remarks>
 /// Not thread-safe by design: an instance is only touched by the worker that owns it. The dispatcher
@@ -66,6 +67,48 @@ internal sealed class CpuThread
     internal int ThreadGroupY => Y / GroupSizeY;
 
     internal int ThreadGroupZ => Z / GroupSizeZ;
+
+    // The size of the group this thread is in: the nominal size, cut off where the grid ends. Metal
+    // reports the same for the partial groups of a non-uniform dispatch (measured on Apple GPUs), and
+    // numbers the threads of such a group with its real size.
+    internal int GroupExtentX => Math.Min(GroupSizeX, GridX - (X - GroupX));
+
+    internal int GroupExtentY => Math.Min(GroupSizeY, GridY - (Y - GroupY));
+
+    internal int GroupExtentZ => Math.Min(GroupSizeZ, GridZ - (Z - GroupZ));
+
+    internal int GroupIndex => (((GroupZ * GroupExtentY) + GroupY) * GroupExtentX) + GroupX;
+
+    // ceil(grid / group size), written so that it cannot overflow for a grid near int.MaxValue.
+    internal int GroupCountX => ((GridX - 1) / GroupSizeX) + 1;
+
+    internal int GroupCountY => ((GridY - 1) / GroupSizeY) + 1;
+
+    internal int GroupCountZ => ((GridZ - 1) / GroupSizeZ) + 1;
+
+    /// <summary>
+    /// The threadgroup this thread runs in when the shader's threads cooperate (see
+    /// <see cref="CpuGroupDispatcher"/>); null in an ordinary dispatch, where threads are independent.
+    /// </summary>
+    internal CpuThreadgroup? Group { get; init; }
+
+    /// <summary>This thread's index among the worker threads of <see cref="Group"/>.</summary>
+    internal int Slot { get; init; }
+
+    /// <summary>The CPU side of the threadgroup barriers on <see cref="Gpu"/>.</summary>
+    internal void Barrier()
+    {
+        if (Group is null)
+        {
+            // Generated descriptors report barriers, so this is a hand-written one that does not.
+            throw new InvalidOperationException(
+                "A threadgroup barrier was called by a shader whose descriptor does not report UsesThreadgroupMemory, so its threads " +
+                "were not run as a threadgroup on the CPU. Let the generator write the descriptor ([GeneratedComputeShaderDescriptor]), " +
+                "or return true from IComputeShaderDescriptor<T>.UsesThreadgroupMemory.");
+        }
+
+        Group.Barrier(Slot);
+    }
 
     /// <summary>Makes <paramref name="thread"/> the current one and returns the one it replaces.</summary>
     internal static CpuThread? Enter(CpuThread thread)

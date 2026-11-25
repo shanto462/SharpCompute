@@ -39,6 +39,12 @@ internal sealed partial class MslTranslator
             return new Expr(_function.Names[hoisted.Local], Expr.Primary);
         }
 
+        // The one array a shader can index: threadgroup memory. Any other array is rejected just below.
+        if (operation is IArrayElementReferenceOperation element && GroupSharedElement(element) is { } groupSharedElement)
+        {
+            return groupSharedElement;
+        }
+
         if (DescribeUnsupported(operation) is { } construct)
         {
             return Unsupported(operation, construct);

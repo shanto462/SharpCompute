@@ -34,8 +34,9 @@ public sealed unsafe partial class GraphicsDevice
     /// <para>
     /// <see cref="IComputeShader.Execute"/> runs as ordinary C# once per thread of the grid, spread over
     /// the thread pool with <c>Parallel.For</c> (in chunks of consecutive threads, x fastest). Inside it,
-    /// <see cref="ThreadIds"/>, <see cref="DispatchSize"/>, <see cref="GroupIds"/> and
-    /// <see cref="ThreadGroupIds"/> return the values the GPU would, buffers and textures are read and
+    /// <see cref="ThreadIds"/>, <see cref="DispatchSize"/>, <see cref="GroupIds"/>,
+    /// <see cref="ThreadGroupIds"/>, <see cref="GroupSize"/> and <see cref="ThreadGroupCount"/> return
+    /// the values the GPU would, buffers and textures are read and
     /// written in place in the shared memory the GPU uses, and the <see cref="Gpu"/> intrinsics use their
     /// CPU implementations. The grid is the same as the GPU's, and so is the order of threads: none.
     /// </para>
@@ -58,9 +59,24 @@ public sealed unsafe partial class GraphicsDevice
     /// is rethrown (the first one, if several threads throw). After an exception the output is
     /// undefined: threads that ran before or alongside the failing one may already have written their
     /// elements, and the rest have not run. On the GPU the same out-of-range access or division is not
-    /// reported, and its result is undefined. The generator supports no
-    /// threadgroup memory, barriers or atomics, so there is nothing a shader can use that the CPU
-    /// cannot run.
+    /// reported, and its result is undefined.
+    /// </para>
+    /// <para>
+    /// <b>Shaders with threadgroup memory or barriers</b> (<see cref="GroupSharedAttribute"/>,
+    /// <see cref="Gpu.GroupMemoryBarrierWithGroupSync"/> and its siblings) run differently, because their
+    /// threads cooperate: the threads of one threadgroup run concurrently, each on a dedicated thread
+    /// of its own (not the thread pool), and meet at every barrier; the threadgroups run one after
+    /// another, in row-major order, with the shader's <see cref="GroupSharedAttribute"/> arrays as the
+    /// memory of the group that is running. Dispatches of one such shader type are serialized
+    /// process-wide for the same reason. A threadgroup can have at most 1024 threads (Metal's limit as
+    /// well; a larger one throws <see cref="NotSupportedException"/>). This is built to be correct, not
+    /// fast: every barrier parks and wakes every thread of the group, so expect microseconds per thread
+    /// per barrier, thousands of times slower than the GPU. It is meant for checking such a shader
+    /// against the GPU and for debugging it, not for bulk work. A thread that returns from
+    /// <c>Execute</c> stops taking part in its group's barriers, so a shader whose threads disagree
+    /// about the barriers they call (undefined on the GPU) still finishes. If a thread throws, the
+    /// threads of its group stop at the next barrier they reach, no further group runs, and the
+    /// exception is rethrown.
     /// </para>
     /// <para>
     /// The shader's buffers and textures must not be disposed during the dispatch (an access then throws
@@ -73,6 +89,7 @@ public sealed unsafe partial class GraphicsDevice
     /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device or a buffer or texture of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The shader's <see cref="ThreadGroupSizeAttribute"/> is invalid.</exception>
+    /// <exception cref="NotSupportedException">The shader uses threadgroup memory or barriers and its threadgroups have more than 1024 threads.</exception>
     public void ForCpu<T>(int x, int y, int z, in T shader)
         where T : struct, IComputeShader, IComputeShaderDescriptor<T> => DispatchCpu(x, y, z, in shader);
 
@@ -103,7 +120,7 @@ public sealed unsafe partial class GraphicsDevice
         LeaseArguments(in shader, leases);
 
         PixelKernel<T> kernel = new(shader, texture.Contents, texture.BytesPerRow);
-        CpuDispatcher.Run(kernel, grid.X, grid.Y, grid.Z, groupSize, default, grid);
+        RunCpu<T, PixelKernel<T>>(kernel, grid, groupSize, grid);
     }
 
     /// <summary>Checks a pixel shader's output texture like <see cref="ForEach{T}"/> does.</summary>
@@ -139,7 +156,26 @@ public sealed unsafe partial class GraphicsDevice
         LeaseArguments(in shader, leases);
 
         Extent3 grid = new(x, y, z);
-        CpuDispatcher.Run(new ComputeKernel<T>(shader), x, y, z, groupSize, default, grid);
+        RunCpu<T, ComputeKernel<T>>(new ComputeKernel<T>(shader), grid, groupSize, grid);
+    }
+
+    /// <summary>
+    /// Runs the leading <paramref name="count"/> threads of <paramref name="grid"/> on the CPU: spread
+    /// over the thread pool when the shader's threads are independent, threadgroup by threadgroup on
+    /// dedicated threads when they cooperate through group-shared memory or barriers.
+    /// </summary>
+    private static void RunCpu<T, TKernel>(TKernel kernel, Extent3 grid, Extent3 groupSize, Extent3 count)
+        where T : struct, IComputeShaderDescriptor<T>
+        where TKernel : struct, ICpuKernel
+    {
+        if (T.UsesThreadgroupMemory)
+        {
+            CpuGroupDispatcher.Run(kernel, grid.X, grid.Y, grid.Z, groupSize, default, count, ThreadgroupGate<T>.Lock, typeof(T));
+        }
+        else
+        {
+            CpuDispatcher.Run(kernel, grid.X, grid.Y, grid.Z, groupSize, default, count);
+        }
     }
 
     /// <summary>

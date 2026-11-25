@@ -22,6 +22,12 @@ internal sealed partial class MslTranslator
         IFieldSymbol field = operation.Field;
         Location location = operation.Syntax.GetLocation();
 
+        if (IsGroupShared(field))
+        {
+            // Element accesses and Length never get here; this is the array itself used as a value.
+            return GroupSharedAsValue(operation);
+        }
+
         if (field.IsConst && !IsShaderOrContainingType(field.ContainingType))
         {
             // Constants of other types (`MathF.PI`, `int.MaxValue`) are inlined.
@@ -107,7 +113,22 @@ internal sealed partial class MslTranslator
             }
 
             UseBuiltin(builtin);
-            return Call(builtinType.MslName, BuiltinInfo.Name(builtin) + "." + swizzle);
+            string name = BuiltinInfo.Name(builtin);
+
+            return swizzle switch
+            {
+                // GroupIds.Index: the built-in is a scalar already.
+                IndexMember => Call(builtinType.MslName, name),
+
+                // GroupSize.Count: at most 1024 on any GPU, so the product cannot overflow.
+                CountMember => Call(builtinType.MslName, $"{name}.x * {name}.y * {name}.z"),
+                _ => Call(builtinType.MslName, name + "." + swizzle),
+            };
+        }
+
+        if (GroupSharedLength(operation) is { } groupSharedLength)
+        {
+            return groupSharedLength;
         }
 
         if (operation.Instance is null)
@@ -259,13 +280,23 @@ internal sealed partial class MslTranslator
         return new Expr($"{type.MslName}({tid}) / {type.MslName}(metal::max({integer}(1), {integer}({grid}) - 1))", Expr.Multiplicative);
     }
 
-    /// <summary>Maps <c>ThreadIds</c>, <c>DispatchSize</c>, <c>GroupIds</c>, and <c>ThreadGroupIds</c> members.</summary>
+    /// <summary>The <c>swizzle</c> <see cref="TryGetBuiltin"/> reports for <c>GroupIds.Index</c>, which is not a component.</summary>
+    private const string IndexMember = "index";
+
+    /// <summary>The <c>swizzle</c> <see cref="TryGetBuiltin"/> reports for <c>GroupSize.Count</c>, the product of the components.</summary>
+    private const string CountMember = "count";
+
+    /// <summary>
+    /// Maps <c>ThreadIds</c>, <c>DispatchSize</c>, <c>GroupIds</c>, <c>ThreadGroupIds</c>, <c>GroupSize</c>
+    /// and <c>ThreadGroupCount</c> members.
+    /// </summary>
     private static bool TryGetBuiltin(IPropertySymbol property, out Builtins builtin, out string swizzle)
     {
         builtin = Builtins.None;
         swizzle = string.Empty;
 
-        if (!property.IsStatic || !TypeResolver.IsSharpComputeType(property.ContainingType, "ThreadIds", "DispatchSize", "GroupIds", "ThreadGroupIds"))
+        if (!property.IsStatic ||
+            !TypeResolver.IsSharpComputeType(property.ContainingType, "ThreadIds", "DispatchSize", "GroupIds", "ThreadGroupIds", "GroupSize", "ThreadGroupCount"))
         {
             return false;
         }
@@ -283,6 +314,20 @@ internal sealed partial class MslTranslator
             case "ThreadGroupIds":
                 builtin = Builtins.ThreadgroupPositionInGrid;
                 break;
+            case "ThreadGroupCount":
+                builtin = Builtins.ThreadgroupsPerGrid;
+                break;
+            case "GroupSize" when name == "Count":
+                builtin = Builtins.ThreadsPerThreadgroup;
+                swizzle = CountMember;
+                return true;
+            case "GroupSize":
+                builtin = Builtins.ThreadsPerThreadgroup;
+                break;
+            case "GroupIds" when name == "Index":
+                builtin = Builtins.ThreadIndexInThreadgroup;
+                swizzle = IndexMember;
+                return true;
             default:
                 // `GroupIds.X` is the position within the threadgroup; `GroupIds.GroupX` is the group's position.
                 if (name.StartsWith("Group", System.StringComparison.Ordinal) && name.Length > 5)
@@ -367,6 +412,12 @@ internal sealed partial class MslTranslator
         if (TypeResolver.IsSharpComputeType(definition.ContainingType, "Texture2D", "ReadOnlyTexture2D", "ReadWriteTexture2D"))
         {
             return TextureCall(operation);
+        }
+
+        // The threadgroup barriers of Gpu, which map to one MSL function with different flags.
+        if (Barrier(operation, definition) is { } barrier)
+        {
+            return barrier;
         }
 
         // 0. [MslBinaryOperator("*", SwapOperands = true)] makes a call an operator: `(a0 op a1)` / `(a1 op a0)`.
