@@ -374,7 +374,15 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// Runs a pixel shader once per pixel of <paramref name="texture"/> and waits for completion.
     /// The runtime binds the texture at <c>[[texture(0)]]</c>; the grid is <c>Width × Height × 1</c>.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="texture"/> was allocated from a different device.</exception>
+    /// <remarks>
+    /// The shader writes every pixel of <paramref name="texture"/>, so it cannot also capture that
+    /// texture, as itself or through <see cref="ReadWriteTexture2D{T}.AsReadOnly"/>: on the GPU its
+    /// reads would not be ordered with the writes. Render into a second texture and swap the two.
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="texture"/> was allocated from a different device, or <paramref name="shader"/>
+    /// captures <paramref name="texture"/> itself (or its read-only view), or overlapping resources it writes.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The device or <paramref name="texture"/> has been disposed.</exception>
     public void ForEach<T>(ReadWriteTexture2D<Rgba32> texture, in T shader)
         where T : struct, IComputeShader<Float4>, IComputeShaderDescriptor<T>
@@ -394,10 +402,19 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     }
 
     /// <summary>Dispatches <paramref name="x"/> threads and waits for completion.</summary>
+    /// <remarks>
+    /// Every buffer and texture the shader captures is bound for the dispatch. Two of them may reach
+    /// the same memory (one buffer captured twice, overlapping views, a texture and its read-only view)
+    /// only if the shader writes neither: a shader that writes one of them would read stale data
+    /// through the other on the GPU, so the dispatch is refused instead, here and on the CPU.
+    /// </remarks>
+    /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>).</exception>
     public void For<T>(int x, in T shader)
         where T : struct, IComputeShader, IComputeShaderDescriptor<T> => Dispatch(x, 1, 1, in shader);
 
     /// <summary>Dispatches an <paramref name="x"/> × <paramref name="y"/> grid and waits for completion.</summary>
+    /// <inheritdoc cref="For{T}(int, in T)" path="/remarks"/>
+    /// <inheritdoc cref="For{T}(int, in T)" path="/exception"/>
     public void For<T>(int x, int y, in T shader)
         where T : struct, IComputeShader, IComputeShaderDescriptor<T> => Dispatch(x, y, 1, in shader);
 
@@ -699,6 +716,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                 threadsPerThreadgroup,
                 queue.Pointer,
                 state.Pointer,
+                output,
                 output is null ? 0 : outputTexture.Pointer,
                 leased,
                 in shader,
@@ -750,6 +768,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         MTLSize threadsPerThreadgroup,
         nint queue,
         nint state,
+        ReadWriteTexture2D<Rgba32>? output,
         nint outputTexture,
         List<ObjCHandle> leased,
         in T shader,
@@ -782,8 +801,16 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                 ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, outputTexture, (nuint)0);
             }
 
-            ShaderArgumentWriter writer = new(encoder, this, leased);
+            BindingTable bindings = BindingTable.Rent();
+            ShaderArgumentWriter writer = new(encoder, this, leased, bindings);
+
+            if (output is not null)
+            {
+                writer.NoteOutput(output);
+            }
+
             T.SetArguments(in shader, ref writer);
+            bindings.Return();
 
             if (window is { } gridWindow)
             {

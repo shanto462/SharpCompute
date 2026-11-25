@@ -156,7 +156,7 @@ public sealed unsafe partial class GraphicsDevice
     /// The shader cannot run a partial grid, or it uses atomics on buffer elements and <paramref name="cpuFraction"/> is strictly between 0 and 1 (see remarks), or the CPU's part has SIMD-group operations in divergent control flow.
     /// </exception>
     /// <exception cref="ArgumentNullException">A buffer of <paramref name="shader"/> is null, e.g. for <c>default(T)</c>.</exception>
-    /// <exception cref="ArgumentException">A buffer of <paramref name="shader"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">A buffer of <paramref name="shader"/> was allocated from a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>).</exception>
     /// <exception cref="ObjectDisposedException">The device or a buffer of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="MetalException">The GPU failed to execute its part.</exception>
     public SplitDispatchInfo ForSplit<T>(int x, int y, int z, in T shader, double cpuFraction)
@@ -191,7 +191,10 @@ public sealed unsafe partial class GraphicsDevice
     /// The shader cannot run a partial grid (a hand-written descriptor), or it uses atomics on buffer elements and <paramref name="cpuFraction"/> is strictly between 0 and 1, or the CPU's part has SIMD-group operations in divergent control flow.
     /// </exception>
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device, or
+    /// <paramref name="shader"/> captures <paramref name="texture"/> itself (or its read-only view), or overlapping resources it writes.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The device, <paramref name="texture"/> or a buffer of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="MetalException">The GPU failed to execute its part.</exception>
     public SplitDispatchInfo ForEachSplit<T>(ReadWriteTexture2D<Rgba32> texture, in T shader, double cpuFraction)
@@ -224,7 +227,7 @@ public sealed unsafe partial class GraphicsDevice
 
         using CpuLeases leases = new();
         leases.Add(texture.BufferHandle, texture);
-        LeaseArguments(in shader, leases);
+        LeaseArguments(in shader, leases, texture);
 
         PixelKernel<T> kernel = new(shader, texture.Contents, texture.BytesPerRow);
         return RunSplit(new Extent3(texture.Width, texture.Height, 1), rank: 2, texture, in shader, kernel, cpuFraction);

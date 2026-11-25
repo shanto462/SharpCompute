@@ -102,7 +102,7 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// <summary>Records a dispatch of an <paramref name="x"/> × <paramref name="y"/> × <paramref name="z"/> grid.</summary>
     /// <remarks>An empty grid records nothing. If this throws, nothing of this dispatch is recorded and earlier ones are unaffected.</remarks>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is negative.</exception>
-    /// <exception cref="ArgumentException">A bound resource belongs to a different device.</exception>
+    /// <exception cref="ArgumentException">A bound resource belongs to a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>).</exception>
     /// <exception cref="ObjectDisposedException">The context, the device or a bound resource has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
     /// <exception cref="ShaderCompilationException">The shader failed to compile.</exception>
@@ -113,7 +113,10 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// Records a pixel shader run once per pixel of <paramref name="texture"/>, bound at
     /// <c>[[texture(0)]]</c> as in <see cref="GraphicsDevice.ForEach{T}"/>.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="texture"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="texture"/> was allocated from a different device, or <paramref name="shader"/>
+    /// captures <paramref name="texture"/> itself (or its read-only view), or overlapping resources it writes.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The context, the device or <paramref name="texture"/> has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
     public void ForEach<T>(ReadWriteTexture2D<Rgba32> texture, in T shader)
@@ -170,7 +173,7 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// <para>If this throws, nothing of this dispatch is recorded and earlier operations are unaffected.</para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentsIndex"/> is not an element of <paramref name="arguments"/>.</exception>
-    /// <exception cref="ArgumentException"><paramref name="arguments"/> or a bound resource belongs to a different device.</exception>
+    /// <exception cref="ArgumentException"><paramref name="arguments"/> or a bound resource belongs to a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>).</exception>
     /// <exception cref="ObjectDisposedException">The context, the device, <paramref name="arguments"/> or a bound resource has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
     /// <exception cref="ShaderCompilationException">The shader failed to compile.</exception>

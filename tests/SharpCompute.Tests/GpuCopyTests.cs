@@ -60,7 +60,7 @@ public class GpuCopyTests
     [MetalFact]
     public void Copy_OfElementsSmallerThanFourBytes_AtOddOffsets()
     {
-        // Byte offsets and sizes that are not multiples of 4, which the blit accepts on Apple silicon.
+        // Byte offsets and sizes that are not multiples of 4 (UnalignedCopyTests covers every alignment).
         GraphicsDevice device = GraphicsDevice.GetDefault();
         byte[] data = Enumerable.Range(0, 64).Select(i => (byte)(i + 1)).ToArray();
         using ReadWriteBuffer<byte> source = device.AllocateReadWriteBuffer<byte>(data);

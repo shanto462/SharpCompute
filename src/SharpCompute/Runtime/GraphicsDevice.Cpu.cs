@@ -116,7 +116,7 @@ public sealed unsafe partial class GraphicsDevice
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is negative.</exception>
     /// <exception cref="ArgumentNullException">A buffer or texture of <paramref name="shader"/> is null, e.g. for <c>default(T)</c>.</exception>
-    /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>): the CPU refuses what the GPU would get wrong.</exception>
     /// <exception cref="ObjectDisposedException">The device or a buffer or texture of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The shader's <see cref="ThreadGroupSizeAttribute"/> is invalid.</exception>
     /// <exception cref="NotSupportedException">
@@ -139,7 +139,10 @@ public sealed unsafe partial class GraphicsDevice
     /// neighbouring byte values.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device, or
+    /// <paramref name="shader"/> captures <paramref name="texture"/> itself (or its read-only view), or overlapping resources it writes.
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The device, <paramref name="texture"/> or a buffer of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="NotSupportedException">
     /// The shader uses SIMD-group operations in divergent control flow (see <see cref="ForCpu{T}(int, int, int, in T)"/>),
@@ -155,7 +158,7 @@ public sealed unsafe partial class GraphicsDevice
 
         using CpuLeases leases = new();
         leases.Add(texture.BufferHandle, texture);
-        LeaseArguments(in shader, leases);
+        LeaseArguments(in shader, leases, texture);
 
         PixelKernel<T> kernel = new(shader, texture.Contents, texture.BytesPerRow);
         RunCpu<T, PixelKernel<T>>(kernel, grid, groupSize, grid);
@@ -237,11 +240,23 @@ public sealed unsafe partial class GraphicsDevice
     /// Runs the shader's <c>SetArguments</c> in CPU mode: the same null, disposed and wrong-device checks
     /// as a GPU dispatch, and a lease on every buffer and texture until <paramref name="leases"/> is disposed.
     /// </summary>
-    private void LeaseArguments<T>(in T shader, CpuLeases leases)
+    /// <remarks>
+    /// <paramref name="output"/> is the texture a pixel shader writes to, when there is one: the CPU
+    /// refuses a capture of it exactly as the GPU does, so a shader is not accepted here and rejected there.
+    /// </remarks>
+    private void LeaseArguments<T>(in T shader, CpuLeases leases, ReadWriteTexture2D<Rgba32>? output = null)
         where T : struct, IComputeShaderDescriptor<T>
     {
-        ShaderArgumentWriter writer = new(this, leases.Handles);
+        BindingTable bindings = BindingTable.Rent();
+        ShaderArgumentWriter writer = new(this, leases.Handles, bindings);
+
+        if (output is not null)
+        {
+            writer.NoteOutput(output);
+        }
+
         T.SetArguments(in shader, ref writer);
+        bindings.Return();
     }
 
     private static Extent3 ResolveCpuThreadGroupSize<T>(int rank)

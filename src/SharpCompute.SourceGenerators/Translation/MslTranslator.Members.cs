@@ -175,6 +175,9 @@ internal sealed partial class MslTranslator
                     return Expr.Error;
                 }
 
+                // Every use of a buffer element is translated here, stores included: note which this is.
+                RecordBufferElement(operation);
+
                 return BoundaryRead(operation, elementType, new Expr(Expression(operation.Instance).Operand(Expr.Primary) + "[" + Expression(operation.Arguments[0].Value).Text + "]", Expr.Primary));
             }
 
@@ -652,6 +655,8 @@ internal sealed partial class MslTranslator
 
         string texture = TextureInstance(pixel.Instance);
         string coordinates = TextureCoordinates(pixel);
+
+        RecordTextureWrite(pixel.Instance);
 
         return new Expr(Call(texture + ".write", Expression(operation.Value).Text, coordinates).Text + FencePlaceholder(pixel.Instance, texture), Expr.Primary);
     }
