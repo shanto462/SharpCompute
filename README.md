@@ -1076,9 +1076,9 @@ device.Prepare<Blur>(PrepareOptions.IncludeSplit);                       // also
 ```
 
 The first time an application runs on a machine, the first frame of a large shader (a raymarched
-scene of about 300 lines) takes 247 ms without `Prepare` and 12 ms with it, the 235 ms having moved
+scene of about 300 lines) takes 249 ms without `Prepare` and 12 ms with it, the 237 ms having moved
 into `Prepare`. On later launches macOS has the compiled shader in its cache and the first frame
-takes about 14 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
+takes about 8 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
 
 ### Precompiled shaders
 
@@ -1110,8 +1110,8 @@ shader's kernel from the library instead of compiling its MSL.
   shader the offline compiler rejects is reported and left to run time.
 - **It is incremental.** Only shaders whose MSL or options changed are compiled, and a build in
   which the assembly did not change does not start the tool. On an M4 Pro the 16 shaders of the
-  benchmark project take 0.3 s to precompile and the 143 of the test project 1.9 s (medians of 3);
-  their libraries are 106 KB and 890 KB.
+  benchmark project take 0.3 s to precompile and the 144 of the test project 2.0 s (medians of 3);
+  their libraries are 106 KB and 897 KB.
 - **`device.GetPipelineOrigin<T>()`** says where a shader's pipeline came from
   (`Precompiled`, `CompiledAtRunTime`, or `None` before its first use), for a status line or a log.
   Setting the `AppContext` switch `SharpCompute.UsePrecompiledShaders` to false before a device is
@@ -1125,15 +1125,15 @@ n-body step):
 
 | | First launch on a machine | Later launches |
 |---|---|---|
-| RaymarchedGarden (about 300 lines), compiled at run time | 247 ms | 14 ms |
-| the same, with `Prepare` first | 235 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 12 ms |
-| RaymarchedGarden, precompiled | 186 ms | 15 ms |
-| the same, with `Prepare` first | 174 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 11 ms |
-| `Prepare` of 13 small kernels, compiled at run time | 146 ms | 7 ms |
-| `Prepare` of 13 small kernels, precompiled | 97 ms | 8 ms |
+| RaymarchedGarden (about 300 lines), compiled at run time | 249 ms | 8 ms |
+| the same, with `Prepare` first | 237 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 12 ms |
+| RaymarchedGarden, precompiled | 191 ms | 10 ms |
+| the same, with `Prepare` first | 184 ms in `Prepare`, then 8 ms | 4 ms in `Prepare`, then 5 ms |
+| `Prepare` of 13 small kernels, compiled at run time | 165 ms | 7 ms |
+| `Prepare` of 13 small kernels, precompiled | 101 ms | 8 ms |
 
-A steady frame of the large shader is 2 ms. Precompiling takes 61 ms off its first frame and a
-third off the wait for the thirteen kernels; what remains is the GPU driver compiling for this
+A steady frame of the large shader is 2 ms. Precompiling takes 57 ms off its first frame and more
+than a third off the wait for the thirteen kernels; what remains is the GPU driver compiling for this
 machine, which macOS does once and caches, and which `Prepare` moves off the first frame. On later
 launches the cache already holds the result, and precompiling makes no difference.
 (`SharpCompute.Benchmarks --first-frames` prints the full table.)
