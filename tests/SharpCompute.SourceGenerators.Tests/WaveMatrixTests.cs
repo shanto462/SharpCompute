@@ -536,6 +536,21 @@ public class WaveMatrixTests
     }
 
     [Theory]
+    // `new T[n]` would be `T acc[n] = {}` in MSL, which leaves the matrices uninitialized.
+    [InlineData("WaveMatrix8x8[] acc = new WaveMatrix8x8[4];\nacc[1].Store(c, 0, 8);", "WaveMatrix8x8")]
+    [InlineData("WaveMatrixHalf8x8[] acc = new WaveMatrixHalf8x8[4];\nacc[1].Store(hc, 0, 8);", "WaveMatrixHalf8x8")]
+    [InlineData("WaveMatrix8x8 m = WaveMatrix8x8.Filled(1f);\nWaveMatrix8x8[] acc = new WaveMatrix8x8[] { m, m };\nacc[1].Store(c, 0, 8);", "WaveMatrix8x8")]
+    [InlineData("WaveMatrix8x8 m = WaveMatrix8x8.Filled(1f);\nSpan<WaveMatrix8x8> acc = [m, m];\nacc[1].Store(c, 0, 8);", "WaveMatrix8x8")]
+    [InlineData("WaveMatrix8x8 m = WaveMatrix8x8.Filled(1f);\nReadOnlySpan<WaveMatrix8x8> acc = [m, m];\nacc[1].Store(c, 0, 8);", "WaveMatrix8x8")]
+    public void AMatrixAsTheElementOfALocalArray_IsReported(string body, string type)
+    {
+        GeneratorRun run = RunBody(body);
+
+        Assert.Contains(run.Diagnostics, d => d.Id == "SCG0048" && d.GetMessage().Contains($"A '{type}' cannot be the element of the local array 'acc'", StringComparison.Ordinal));
+        Assert.All(run.Diagnostics, static d => Assert.Equal("SCG0048", d.Id));
+    }
+
+    [Theory]
     [InlineData("WaveMatrix8x8")]
     [InlineData("WaveMatrixHalf8x8")]
     public void AMatrixAsTheElementOfAGroupSharedArray_IsReported(string type)

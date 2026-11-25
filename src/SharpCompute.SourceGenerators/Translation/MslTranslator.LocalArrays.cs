@@ -395,6 +395,14 @@ internal sealed partial class MslTranslator
             return null;
         }
 
+        if (TypeResolver.WaveMatrixStorage(elementSymbol, $"the element of the local array '{name}'") is { } matrixElement)
+        {
+            // An array is memory, which a matrix has no layout in; and MSL's `{}` would leave the
+            // matrices of `new WaveMatrix8x8[4]` uninitialized where C# has zero matrices.
+            _diagnostics.Report(matrixElement.Descriptor, location, matrixElement.Arguments);
+            return null;
+        }
+
         if (element is null || element.Kind is GpuTypeKind.Void or GpuTypeKind.Buffer or GpuTypeKind.Texture)
         {
             string reason = failure?.Reason ?? "buffers and textures are kernel arguments, not values; capture them in the shader instead";

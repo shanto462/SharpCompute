@@ -217,6 +217,34 @@ public class WaveMatrixCpuTests
         Assert.Equal(WaveMatrixReference.Helpers(a, b), WaveMatrixRuns.Helpers(a, b, cpu: true));
     }
 
+    [MetalFact]
+    public void LoadsAndStoresSplitFromTheAccessesBesideThem_MatchTheGpu()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        float[] start = new float[64];
+        start[0] = 3f;
+        using ReadWriteBuffer<float> gpuData = device.AllocateReadWriteBuffer(start), cpuData = device.AllocateReadWriteBuffer(start);
+        using ReadWriteBuffer<float> gpu = device.AllocateReadWriteBuffer<float>(128), cpu = device.AllocateReadWriteBuffer<float>(128);
+
+        device.For(32, new WaveMatrixSplitOrder(gpuData, gpu));
+        device.ForCpu(32, new WaveMatrixSplitOrder(cpuData, cpu));
+
+        // The index was read (3) before the matrix of sevens was stored over it; the first operand
+        // was loaded (all 7) before element 0 became 5 for the second.
+        float[] expected = new float[128];
+        expected[3] = 1f;
+
+        for (int i = 0; i < 64; i++)
+        {
+            expected[64 + i] = i % 8 == 0 ? 7f * (5f + (7f * 7f)) : 7f * (8f * 7f);
+        }
+
+        Assert.Equal(expected, gpu.ToArray());
+        Assert.Equal(expected, cpu.ToArray());
+        Assert.Equal(gpuData.ToArray(), cpuData.ToArray());
+        Assert.Equal(5f, cpuData.ToArray()[0]);
+    }
+
     [MetalTheory]
     [InlineData(8)]
     [InlineData(24)]

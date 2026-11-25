@@ -797,7 +797,7 @@ pinned by the tests:
   early) loads and stores only the elements its lanes hold, and lanes that disagree each go their own
   way. SCG0051 warns about a `[ThreadGroupSize]` that is not a multiple of 32.
 - **A matrix has no layout in memory.** It is a local, a parameter or a return value of a helper
-  (`ref` and `out` included). It cannot be a buffer or `[GroupShared]` element, a field of a struct
+  (`ref` and `out` included). It cannot be a buffer, `[GroupShared]` or local array element, a field of a struct
   or of the shader (SCG0048), or a `static readonly` field (SCG0050).
 - **Partial tiles are the caller's job.** A matrix is loaded and stored whole. For sizes that are
   not a multiple of 8 (or of the tile a kernel works in), pad the data with zeros, which add nothing
@@ -1872,7 +1872,8 @@ so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); da
   `[GroupShared]` array, a buffer or texture parameter of a helper. Reading any element reads it
   and writing any element writes it, whatever the indices: two elements of one resource are taken
   to be possibly the same one. The location of a `Gpu.Atomic*` call is written, and so is a buffer
-  element that a method modifying its struct is called on (`cells[i].Grow()`). A texture local is
+  element that a method modifying its struct is called on (`cells[i].Grow()`). A wave matrix's
+  `Load` reads its source and `Store` writes its destination. A texture local is
   the texture it was initialized from; one that is assigned again may be any texture of its type.
 - **Helpers count at the call**: what a helper reads and writes, and what the helpers it calls do
   (static helpers of any type, struct methods, properties and operators, instance helpers of the

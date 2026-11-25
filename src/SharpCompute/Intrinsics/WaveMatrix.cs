@@ -51,9 +51,9 @@ namespace SharpCompute;
 /// </para>
 /// <para>
 /// <b>It has no layout in memory.</b> A matrix can be a local, a parameter and a return value of a
-/// helper; it cannot be the element of a buffer or of a <c>[GroupShared]</c> array, a field of a
-/// struct or of the shader, or a <c>static readonly</c> field (SCG0048, SCG0050). <c>default</c> is
-/// the zero matrix.
+/// helper; it cannot be the element of a buffer, of a <c>[GroupShared]</c> array or of a local
+/// array, a field of a struct or of the shader, or a <c>static readonly</c> field (SCG0048,
+/// SCG0050). <c>default</c> is the zero matrix.
 /// </para>
 /// <para>
 /// <b>Speed.</b> Measured on Apple M4 Pro, a matrix product written with these operations reaches the
@@ -242,6 +242,13 @@ public readonly partial struct WaveMatrix8x8
 /// On the CPU a product is computed in <see cref="float"/> and rounded to half once at the end; the
 /// GPU may round at every step, so results that are not exactly representable differ by more than
 /// they do for float.
+/// <para>
+/// The same holds for overflow, and there no tolerance covers the difference. In a half × half → half
+/// product whose intermediate sum leaves the range of a half, the GPU's sum becomes ±infinity and
+/// stays there, while the CPU's float sum goes on exactly and can come back into range: terms of
+/// +65,536 and −65,536 that cancel give +infinity on the GPU and 0 on the CPU. Keep such sums in a
+/// <see cref="WaveMatrix8x8"/>.
+/// </para>
 /// </remarks>
 public readonly partial struct WaveMatrixHalf8x8
 {

@@ -277,6 +277,44 @@ public readonly partial struct WaveMatrixHelpers(ReadOnlyBuffer<float> a, ReadOn
 }
 
 /// <summary>
+/// Loads and stores beside reads and writes of the same buffer, each in a statement of its own (in
+/// one expression they are SCG0021): the index is read before the helper stores the matrix over it,
+/// and the first load is done before the helper writes an element for the second.
+/// </summary>
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WaveMatrixSplitOrder(ReadWriteBuffer<float> data, ReadWriteBuffer<float> result) : IComputeShader
+{
+    private int Save(WaveMatrix8x8 matrix)
+    {
+        matrix.Store(data, 0, 8);
+        return 1;
+    }
+
+    private int Poke()
+    {
+        data[0] = 5f;
+        return 0;
+    }
+
+    public void Execute()
+    {
+        WaveMatrix8x8 sevens = WaveMatrix8x8.Filled(7f);
+
+        // Unsplit, `result[(int)data[0]] = Save(sevens)` would index with the 7 the helper stores.
+        int index = (int)data[0];
+        int saved = Save(sevens);
+        result[index] = saved;
+
+        WaveMatrix8x8 before = WaveMatrix8x8.Load(data, 0, 8);
+        int offset = Poke();
+        WaveMatrix8x8 after = WaveMatrix8x8.Load(data, offset, 8);
+        WaveMatrix8x8 product = WaveMatrix8x8.Multiply(before, after);
+        product.Store(result, 64, 8);
+    }
+}
+
+/// <summary>
 /// The README's example, as it is printed there: one SIMD group per threadgroup computes an 8 × 8
 /// block of <c>c = a × b</c> for n × n row-major matrices.
 /// </summary>

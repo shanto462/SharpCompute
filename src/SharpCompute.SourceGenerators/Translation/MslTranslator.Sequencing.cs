@@ -19,7 +19,8 @@ namespace SharpCompute.SourceGenerators;
 /// of a helper is one variable. Reading an element reads the resource and writing one (an assignment,
 /// <c>++</c>, a <c>ref</c> argument such as the location of a <c>Gpu.Atomic*</c> call, a method that
 /// modifies a struct element) writes it, whatever the indices: any two elements of one resource are
-/// treated as possibly the same element. A texture local stands for the resource its initializer
+/// treated as possibly the same element. A wave matrix's <c>Load(source, …)</c> reads the buffer or
+/// <c>[GroupShared]</c> array it is given and <c>Store(destination, …)</c> writes it, inside the call. A texture local stands for the resource its initializer
 /// names (through chains of locals); one that is assigned again, or initialized from anything else,
 /// stands for every resource of its type. Two different resources are treated as distinct, although
 /// a buffer bound under two names can be the same memory; that is for the bind-time aliasing check
@@ -314,6 +315,13 @@ internal sealed partial class MslTranslator
         {
             // `texture.Sample(sampler, uv)` reads the texture.
             callee.Reads.UnionWith(textures);
+        }
+
+        if (WaveMatrixMemory(invocation, out bool isStore) is { } memory && Resources(memory) is { } elements)
+        {
+            // `WaveMatrix8x8.Load(data, …)` reads the buffer and `m.Store(data, …)` writes it, from
+            // inside Metal's function: after the call's own arguments, like any callee's accesses.
+            (isStore ? callee.CallWrites : callee.CallReads).UnionWith(elements);
         }
 
         return Call(Analyze(invocation.Instance, ref conflict), callee, invocation.Arguments, ref conflict);
@@ -688,6 +696,33 @@ internal sealed partial class MslTranslator
 
     private static bool IsResourceType(ITypeSymbol type) => TypeResolver.IsBufferType(type, out _) || TypeResolver.IsTextureType(type, out _);
 
+    /// <summary>
+    /// The memory a wave matrix's <c>Load</c> reads or its <c>Store</c> writes (the first parameter of
+    /// each: <c>source</c>, <c>destination</c>), or null for any other call. The members have no body
+    /// in source for <see cref="CallEffects"/> to read, so they are recognized by name, as the
+    /// translation recognizes them.
+    /// </summary>
+    private static IOperation? WaveMatrixMemory(IInvocationOperation invocation, out bool isStore)
+    {
+        IMethodSymbol method = invocation.TargetMethod;
+        isStore = method is { Name: "Store", IsStatic: false };
+
+        if (!TypeResolver.IsWaveMatrixType(method.ContainingType) || !(isStore || method is { Name: "Load", IsStatic: true }))
+        {
+            return null;
+        }
+
+        foreach (IArgumentOperation argument in invocation.Arguments)
+        {
+            if (argument.Parameter is { Ordinal: 0 })
+            {
+                return argument.Value;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>The resources whose element <paramref name="target"/> is (<c>data[i].Field</c>, <c>tile[i]</c>), or null.</summary>
     private ISymbol[]? ResourceRoot(IOperation? target)
     {
@@ -878,6 +913,10 @@ internal sealed partial class MslTranslator
 
             case IInvocationOperation { Instance: { } instance } when Resources(instance) is { } textures:
                 use.Reads.UnionWith(textures);
+                break;
+
+            case IInvocationOperation matrixCall when WaveMatrixMemory(matrixCall, out bool isStore) is { } memory && Resources(memory) is { } elements:
+                (isStore ? use.Writes : use.Reads).UnionWith(elements);
                 break;
         }
 
