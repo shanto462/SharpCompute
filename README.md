@@ -1377,6 +1377,18 @@ The integers behave as they do in unchecked C#, on the GPU as on the CPU:
   assignments and `++`/`--`) in the unsigned type of the same width and converts back:
   `a * b + c` on `int`s is `int(uint(a) * uint(b) + uint(c))`. That costs no instructions (signed and
   unsigned arithmetic are the same machine operations), and program-scope constants wrap the same way.
+- **Negating an integer vector** (`-v` on an `IntN`, and the operators that amount to it: `0 - v`,
+  `v * -1`, `v / -1`, `v *= -1`, also on a `UIntN`) is emitted as a prelude helper, `__ms_neg(v)`,
+  which negates each lane on its own. Apple's Metal compiler miscompiles the vector operator: when
+  one lane of the negation is never read and the same vector is subtracted in a chain elsewhere
+  (`t += c; t *= 3; t -= v`), the chain silently loses that lane. A constant that negates only some
+  lanes does the same when the other lanes are the unread ones, so `new Int3(0, 5, 0) - v` is
+  emitted as `C + __ms_neg(v)` and `v * new Int3(1, -1, 1)` as `__ms_mul(v, C)`, a helper that
+  multiplies lane by lane. The compound forms (`v *= -1`, `v /= -1`, `v *= new Int3(1, -1, 1)`)
+  assign the helper's result, which names the target twice: on a target with side effects
+  (`data[Next()] *= -1`) that is an error (`SCG0012`), so put the index in a local first. Vectors
+  of floats and halves, and all scalars, are not affected and keep their operators. See
+  [Limitations](#limitations) for the negations the generator cannot see.
 - **Division by zero** does not trap: where C# throws `DivideByZeroException`, the GPU carries on
   with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit operands).
   `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on either.
@@ -1795,6 +1807,13 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   operators and literals but not call an intrinsic on them.
 - `checked` arithmetic throws `OverflowException` with `ForCpu` but wraps on the GPU, which has no
   exceptions.
+- A Metal compiler bug drops a lane of integer vector arithmetic: when an integer vector is negated,
+  a lane of the negation is never read, and the same vector is subtracted in an add/subtract/multiply
+  chain elsewhere, that chain loses the lane on the GPU (not with `ForCpu`). The generator avoids
+  it for every negation it can see (`-v`, `0 - v`, `v * -1`, `v / -1`, and a constant with some
+  lanes of 0 or -1; see [Overflow wraps](#shader-language-reference) and the bullet after it). A
+  negation it cannot see is still exposed until Apple fixes the compiler: `~v + 1`, `v - 2 * v` and
+  other arithmetic that only amounts to a negation. Write those as `-v`.
 - Half precision: the math functions of `Gpu.*` take half *vectors*; for a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the
   bit casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
