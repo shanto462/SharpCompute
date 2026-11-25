@@ -2,15 +2,22 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using static System.FormattableString;
 using SharpCompute.Presentation;
 using SharpCompute.Samples.ComputeLab;
 using SharpCompute.Samples.ComputeLab.Pages;
+using SharpCompute.Samples.ComputeLab.Pages.SharedMemory;
+using SharpCompute.Samples.ComputeLab.Pages.Simd;
+
+// The atomics topic's compaction; the SIMD-group one is tested in SimdPageTests.
+using CompactionPage = SharpCompute.Samples.ComputeLab.Pages.CompactionPage;
+using Program = SharpCompute.Samples.ComputeLab.Program;
 
 namespace SharpCompute.Tests.ComputeLab;
 
 /// <summary>
 /// The ComputeLab sample without its window: every page renders, is not blank, agrees with the CPU,
-/// and the headless pictures are the same on every run.
+/// keeps its text off the frame's edges, and the headless pictures are the same on every run.
 /// </summary>
 public sealed class ComputeLabTests
 {
@@ -60,8 +67,14 @@ public sealed class ComputeLabTests
         Assert.Equal(12, LabCanvas.CellWidth);
         Assert.Equal(16, LabCanvas.CellHeight);
         Assert.Equal(106, LabCanvas.Columns);
-        Assert.Equal(45, LabCanvas.Rows);
+        Assert.Equal(43, LabCanvas.Rows);
         Assert.True(LabView.FirstPageRow < LabCanvas.Rows - 1);
+
+        // A cell's height of margin above the first row and below the last, and rows on 16-pixel lines.
+        Assert.Equal(LabCanvas.CellHeight, LabCanvas.TextTop);
+        Assert.Equal(LabCanvas.Height, (2 * LabCanvas.TextTop) + (LabCanvas.Rows * LabCanvas.CellHeight));
+        Assert.Equal(16, LabCanvas.RowY(0));
+        Assert.Equal(LabCanvas.Height - LabCanvas.TextTop - LabCanvas.CellHeight, LabCanvas.RowY(LabCanvas.Rows - 1));
     }
 
     [MetalFact]
@@ -71,6 +84,8 @@ public sealed class ComputeLabTests
         using LabCanvas canvas = new(device);
 
         canvas.Pixels.AsSpan().Fill(0xFFFFFFFFu); // a white frame
+        canvas.Text(0, 0, new string('W', LabCanvas.Columns), TextColor.White); // the whole first row
+        canvas.Text(0, 2, "Z", TextColor.Bad); // the cell after the last of row 1 in memory
         canvas.Text(2, 1, "L!", TextColor.White);
         canvas.Text(LabCanvas.Columns - 1, LabCanvas.Rows - 1, "ZZ", TextColor.Good); // the second Z falls off the edge
         canvas.Text(0, LabCanvas.Rows, "off", TextColor.Bad); // below the last row: ignored
@@ -79,13 +94,31 @@ public sealed class ComputeLabTests
         Rgba32[] pixels = canvas.ToArray();
         Rgba32 At(int x, int y) => pixels[(y * LabCanvas.Width) + x];
 
-        // Outside every used cell the frame is untouched.
-        Assert.Equal(new Rgba32(255, 255, 255, 255), At(0, 0));
-        Assert.Equal(new Rgba32(255, 255, 255, 255), At((4 * LabCanvas.CellWidth) + 1, LabCanvas.CellHeight + 1));
+        // Outside every used cell the frame is untouched: the margins above the first row and below the
+        // last (text in both rows), the pixels right of the last column, and the unused cells.
+        for (int x = 0; x < LabCanvas.Width; x++)
+        {
+            for (int y = 0; y < LabCanvas.TextTop; y++)
+            {
+                Assert.Equal(new Rgba32(255, 255, 255, 255), At(x, y));
+                Assert.Equal(new Rgba32(255, 255, 255, 255), At(x, LabCanvas.Height - 1 - y));
+            }
+        }
+
+        for (int y = LabCanvas.RowY(1); y < LabCanvas.RowY(2); y++)
+        {
+            for (int x = LabCanvas.Columns * LabCanvas.CellWidth; x < LabCanvas.Width; x++)
+            {
+                Assert.Equal(new Rgba32(255, 255, 255, 255), At(x, y));
+            }
+        }
+
+        Assert.Equal(new Rgba32(255, 255, 255, 255), At((4 * LabCanvas.CellWidth) + 1, LabCanvas.RowY(1) + 1));
+        Assert.Equal(new Rgba32(56, 56, 56, 255), At(LabCanvas.CellWidth - 1, LabCanvas.TextTop)); // the first row's backing
 
         // Inside: a set font pixel is the text color, anything else is the frame at 22 %.
         ulong mask = PixelFont.Mask(PixelFont.Index('L'));
-        int originX = 2 * LabCanvas.CellWidth, originY = LabCanvas.CellHeight;
+        int originX = 2 * LabCanvas.CellWidth, originY = LabCanvas.RowY(1);
 
         for (int y = 0; y < LabCanvas.CellHeight; y++)
         {
@@ -98,7 +131,7 @@ public sealed class ComputeLabTests
         }
 
         // The green text in the very last cell: its top row is all set for 'Z'.
-        Rgba32 green = At(((LabCanvas.Columns - 1) * LabCanvas.CellWidth) + 2, (LabCanvas.Rows - 1) * LabCanvas.CellHeight);
+        Rgba32 green = At(((LabCanvas.Columns - 1) * LabCanvas.CellWidth) + 2, LabCanvas.RowY(LabCanvas.Rows - 1));
         Assert.True(green.G > green.R && green.G > green.B, green.ToString());
 
         // The texture the window presents holds exactly the buffer's pixels.
@@ -133,6 +166,21 @@ public sealed class ComputeLabTests
         Assert.Equal("other: GPU 0.00 ms", new LabTiming(3, 5) { Baseline = new LabBaseline("other", 0) }.BaselineText);
     }
 
+    [MetalFact]
+    public void Label_PutsTextInTheCellUnderItsPixel_AndNothingInTheMargins()
+    {
+        using LabCanvas canvas = new(GraphicsDevice.GetDefault());
+
+        canvas.Label(30, 100, "a");                // row (100 - 16) / 16 = 5, column 2
+        canvas.Label(30, 5, "margin");              // above the grid: dropped
+        canvas.Label(30, LabCanvas.Height - 5, "z"); // below it: dropped
+        string[] lines = canvas.TextLines();
+
+        Assert.Equal("A", lines[5]);
+        Assert.Equal(96, LabCanvas.RowY(5));
+        Assert.Equal(1, lines.Count(static line => line.Length > 0));
+    }
+
     [Fact]
     public void PageNames_BecomeFileNamesAndCommandLineWords()
     {
@@ -144,36 +192,117 @@ public sealed class ComputeLabTests
 
     // ---- the pages --------------------------------------------------------------------------------
 
+    private static readonly string[] s_names =
+    [
+        "Histogram", "Histogram: privatised", "Compaction",
+        "Reduction", "PrefixSum", "MatMul", "Blur",
+        "LocalArrays",
+        "SIMD reduction", "SIMD compaction", "SIMD shuffle",
+        "Indirect",
+        "Bits", "FastMath",
+    ];
+
+    private static readonly string[] s_pictures =
+    [
+        "1-histogram.png", "2-histogram-privatised.png", "3-compaction.png",
+        "4-reduction.png", "5-prefixsum.png", "6-matmul.png", "7-blur.png",
+        "8-localarrays.png",
+        "9-simd-reduction.png", "10-simd-compaction.png", "11-simd-shuffle.png",
+        "12-indirect.png",
+        "13-bits.png", "14-fastmath.png",
+    ];
+
     [MetalFact]
-    public void Pages_AreTheSevenOfThisLab_EachWithAtLeastOneVariant()
+    public void Pages_AreGroupedByTopic_EachWithAtLeastOneVariant()
     {
         List<ILabPage> pages = LabPages.Create(GraphicsDevice.GetDefault());
 
         try
         {
             // The privatised histogram sits next to the one it is compared with.
-            Assert.Equal(["Histogram", "Histogram: privatised", "Compaction", "Bits", "LocalArrays", "Indirect", "FastMath"], pages.Select(static p => p.Name));
+            Assert.Equal(s_names, pages.Select(static p => p.Name));
             Assert.Equal(
-                ["atomics", "threadgroup atomics", "atomics", "bit and packing intrinsics", "fixed-size local arrays", "indirect dispatch", "per-shader compile options"],
+                [
+                    "atomics", "threadgroup atomics", "atomics",
+                    "tree sum", "Blelloch scan", "tiled product", "tile + apron",
+                    "fixed-size local arrays",
+                    "SIMD-group reductions", "ballots and prefix sums", "lane shuffles",
+                    "indirect dispatch",
+                    "bit and packing intrinsics", "per-shader compile options",
+                ],
                 pages.Select(static p => p.Feature));
+
+            // Topic by topic, in the lab's order, every topic with at least one page.
+            Assert.Equal(
+                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, LabTopics.Math, LabTopics.Math],
+                pages.Select(static p => p.Topic));
+            Assert.Equal(LabTopics.All, pages.Select(static p => p.Topic).Distinct());
+            Assert.Equal(pages.Select(static p => p.Topic), pages.Select(static p => p.Topic).OrderBy(static t => LabTopics.All.ToList().IndexOf(t)));
+
             Assert.All(pages, static p => Assert.NotEmpty(p.Variants));
             Assert.All(pages, static p => Assert.Equal(0, p.Variant));
-            Assert.Equal(
-                ["1-histogram.png", "2-histogram-privatised.png", "3-compaction.png", "4-bits.png", "5-localarrays.png", "6-indirect.png", "7-fastmath.png"],
-                Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
+            Assert.Equal(s_pictures, Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
 
-            // Only the privatised page times a second dispatch.
-            Assert.Equal([false, true, false, false, false, false, false], pages.Select(static p => p.Baseline is not null));
+            // Names, and so the pictures and --page, are unique.
+            Assert.Equal(pages.Count, pages.Select(static p => LabPages.Slug(p.Name)).Distinct().Count());
+
+            // Only the privatised page times a second dispatch, and only the matrix product has a rate.
+            Assert.Equal(pages.Select(static p => p.Name == "Histogram: privatised"), pages.Select(static p => p.Baseline is not null));
+            Assert.Equal(pages.Select(static p => p.Name == "MatMul"), pages.Select(static p => p is IRatedPage));
+
+            // The CPU side runs on all cores unless the page says otherwise, as its check line does too.
+            Assert.Equal(
+                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle"],
+                pages.Where(static p => p.CpuNote != "all cores").Select(static p => p.Name));
+            Assert.All(pages.Where(static p => p.CpuNote != "all cores"), static p => Assert.Equal("one core", p.CpuNote));
 
             // --page takes the name or the file-name form of it, in any case.
             Assert.Equal(1, LabPages.Find(pages, "Histogram: privatised"));
             Assert.Equal(1, LabPages.Find(pages, "histogram-privatised"));
             Assert.Equal(1, LabPages.Find(pages, "HISTOGRAM-PRIVATISED"));
             Assert.Equal(0, LabPages.Find(pages, "histogram"));
-            Assert.Equal(3, LabPages.Find(pages, "Bits"));
-            Assert.Equal(4, LabPages.Find(pages, "localarrays"));
-            Assert.Equal(6, LabPages.Find(pages, "fastmath"));
+            Assert.Equal(3, LabPages.Find(pages, "reduction"));
+            Assert.Equal(7, LabPages.Find(pages, "localarrays"));
+            Assert.Equal(8, LabPages.Find(pages, "simd-reduction"));
+            Assert.Equal(10, LabPages.Find(pages, "SIMD shuffle"));
+            Assert.Equal(12, LabPages.Find(pages, "Bits"));
+            Assert.Equal(13, LabPages.Find(pages, "fastmath"));
             Assert.Equal(-1, LabPages.Find(pages, "privatised"));
+            Assert.Equal(-1, LabPages.Find(pages, "shuffle"));
+        }
+        finally
+        {
+            DisposeAll(pages);
+        }
+    }
+
+    [MetalFact]
+    public void TheTitleAndTheHelpLine_FitTheirRows_ForEveryPageAndVariant()
+    {
+        List<ILabPage> pages = LabPages.Create(GraphicsDevice.GetDefault());
+
+        try
+        {
+            for (int index = 0; index < pages.Count; index++)
+            {
+                ILabPage page = pages[index];
+
+                for (int variant = 0; variant < page.Variants.Count; variant++)
+                {
+                    page.Variant = variant;
+                    (string Lab, string Topic, string Page) title = LabView.Title(pages, index);
+
+                    // One column of margin on the left, where Compose starts, and at least one on the right.
+                    Assert.True(1 + LabView.TitleLength(title) < LabCanvas.Columns, $"{title} is {LabView.TitleLength(title)} columns");
+                    Assert.Equal(page.Topic, title.Topic);
+                    Assert.Contains(page.Variants[variant], title.Page);
+                }
+
+                page.Variant = 0;
+                Assert.True(1 + LabView.HelpLine(page, paused: true).Length < LabCanvas.Columns, LabView.HelpLine(page, paused: true));
+                Assert.EndsWith("(paused)", LabView.HelpLine(page, paused: true));
+                Assert.DoesNotContain("paused", LabView.HelpLine(page));
+            }
         }
         finally
         {
@@ -204,19 +333,33 @@ public sealed class ComputeLabTests
                     Assert.NotEmpty(check.Summary);
                     Assert.True(page.GpuMilliseconds > 0 && check.CpuMilliseconds > 0, $"{page.Name}: timings must be measured");
 
+                    // The check line fits its row: a column of margin, "CHECK PASSED: " and the summary.
+                    Assert.True(1 + "CHECK PASSED: ".Length + check.Summary.Length <= LabCanvas.Columns, $"{page.Name}: the summary is {check.Summary.Length} characters: {check.Summary}");
+
+                    // The page alone, before any text is composed over it...
+                    canvas.ClearText();
+                    page.Draw(canvas, Frame);
+                    Rgba32[] bare = canvas.ToArray();
+
                     LabView.Compose(canvas, pages, index, Frame, check, timing: null);
                     Rgba32[] pixels = canvas.ToArray();
 
-                    // Opaque everywhere, many colors, and a good part of the frame is not background.
+                    // ...is what the picture shows in the margins: no text reaches the top or bottom edge.
+                    int margin = LabCanvas.TextTop * LabCanvas.Width;
+                    Assert.True(bare.AsSpan(0, margin).SequenceEqual(pixels.AsSpan(0, margin)), $"{page.Name}: text in the top margin");
+                    Assert.True(bare.AsSpan(pixels.Length - margin).SequenceEqual(pixels.AsSpan(pixels.Length - margin)), $"{page.Name}: text in the bottom margin");
+
+                    // Opaque everywhere, more than a few colors, and a part of the frame is not background
+                    // (the SIMD-group pages are flat-shaded text, bars and curves: from 13 colors, 5 % lit).
                     Assert.All(pixels, static p => Assert.Equal(255, p.A));
-                    Assert.True(pixels.Distinct().Count() > 100, $"{page.Name}: only {pixels.Distinct().Count()} colors");
+                    Assert.True(pixels.Distinct().Count() > 8, $"{page.Name}: only {pixels.Distinct().Count()} colors");
                     int lit = pixels.Count(static p => p.R + p.G + p.B > 150);
-                    Assert.True(lit > pixels.Length / 10, $"{page.Name}: only {lit} of {pixels.Length} pixels are lit");
+                    Assert.True(lit > pixels.Length / 40, $"{page.Name}: only {lit} of {pixels.Length} pixels are lit");
 
                     // The lab's own text is there: the check line is green where its glyphs are.
                     int greenText = 0;
 
-                    for (int y = LabCanvas.CellHeight; y < 2 * LabCanvas.CellHeight; y++)
+                    for (int y = LabCanvas.RowY(1); y < LabCanvas.RowY(2); y++)
                     {
                         for (int x = 0; x < LabCanvas.Width; x++)
                         {
@@ -264,7 +407,10 @@ public sealed class ComputeLabTests
                 Assert.Equal(summary, log.ToString());
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
-                Assert.Equal(13, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // both histograms, local arrays and fast math twice, indirect three times
+                // Every variant of every page: two histograms, compaction, reduction, prefix sum, product, blur, local arrays,
+                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math.
+                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2;
+                Assert.Equal(variants, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal)));
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
                 Assert.Contains("indirect: compact, dispatch the survivors", summary);
@@ -272,15 +418,22 @@ public sealed class ComputeLabTests
                 Assert.Contains("no compaction: every thread tests itself", summary);
                 Assert.Contains("safe math (the default)", summary);
                 Assert.Contains("[ShaderOptions(FastMath = true)]", summary);
+                Assert.Contains("tile + apron in shared memory", summary);
+                Assert.Contains("serial loop per thread, no shared memory", summary);
+                Assert.Contains("naive: every thread reads its row and column", summary);
+                Assert.Contains("SIMD + per-group partial", summary);
                 Assert.Contains("median 3x3 (sorting network)", summary);
                 Assert.Contains("gaussian 5x5 (weight table)", summary);
-                Assert.Equal(13, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
+                Assert.Equal(variants, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
+                Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains("GFLOP/s   CPU ", StringComparison.Ordinal)));
+                Assert.Equal(1 + 3 + 2 + 2, summary.Split('\n').Count(static line => line.Contains(" ms (one core)", StringComparison.Ordinal))); // the prefix sum, and the SIMD pages' variants
+                Assert.Contains("[9/14] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
 
                 // The privatised histogram is also timed against the global-atomics one, at both bin counts.
-                Assert.Contains("[2/7] Histogram: privatised: threadgroup atomics", summary);
+                Assert.Contains("[2/14] Atomics / Histogram: privatised: threadgroup atomics", summary);
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("global atomics: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
 
-                string[] pictures = ["1-histogram.png", "2-histogram-privatised.png", "3-compaction.png", "4-bits.png", "5-localarrays.png", "6-indirect.png", "7-fastmath.png"];
+                string[] pictures = s_pictures;
                 Assert.Equal(pictures.Append("summary.txt").Order(), Directory.GetFiles(directory).Select(Path.GetFileName).Order());
                 Assert.All(pictures, name => Assert.Contains(name, summary));
                 files.Add(pictures.ToDictionary(static name => name, name => File.ReadAllBytes(Path.Combine(directory, name))));
@@ -431,7 +584,7 @@ public sealed class ComputeLabTests
             LabCheck check = page.Check();
 
             // The rows above the two descriptions hold the times: text only when the frame may vary.
-            int upper = (DrawPrivatisedHistogram.PanelY - 40) / LabCanvas.CellHeight, lower = (DrawPrivatisedHistogram.LowerChartY - 40) / LabCanvas.CellHeight;
+            int upper = (DrawPrivatisedHistogram.PanelY - 40 - LabCanvas.TextTop) / LabCanvas.CellHeight, lower = (DrawPrivatisedHistogram.LowerChartY - 40 - LabCanvas.TextTop) / LabCanvas.CellHeight;
 
             // Over the charts only: the image on the left runs through the lower of these rows.
             int DistinctColors(int row)
@@ -439,7 +592,7 @@ public sealed class ComputeLabTests
                 Rgba32[] pixels = canvas.ToArray();
                 var colors = new HashSet<Rgba32>();
 
-                for (int y = row * LabCanvas.CellHeight; y < (row + 1) * LabCanvas.CellHeight; y++)
+                for (int y = LabCanvas.RowY(row); y < LabCanvas.RowY(row + 1); y++)
                 {
                     for (int x = DrawPrivatisedHistogram.ChartX; x < DrawPrivatisedHistogram.ChartX + DrawPrivatisedHistogram.ChartWidth; x++)
                     {
@@ -753,7 +906,8 @@ public sealed class ComputeLabTests
 
         try
         {
-            LabCheck check = Headless.Measure(pages[3], Frame, out LabTiming timing);
+            int bits = LabPages.Find(pages, "bits");
+            LabCheck check = Headless.Measure(pages[bits], Frame, out LabTiming timing);
             Assert.True(check.Passed);
             Assert.True(timing.GpuMilliseconds > 0 && timing.CpuMilliseconds > 0);
 
@@ -762,7 +916,7 @@ public sealed class ComputeLabTests
                 Rgba32[] pixels = canvas.ToArray();
                 int count = 0;
 
-                for (int y = row * LabCanvas.CellHeight; y < (row + 1) * LabCanvas.CellHeight; y++)
+                for (int y = LabCanvas.RowY(row); y < LabCanvas.RowY(row + 1); y++)
                 {
                     for (int x = 0; x < LabCanvas.Width; x++)
                     {
@@ -773,19 +927,79 @@ public sealed class ComputeLabTests
                 return count;
             }
 
-            LabView.Compose(canvas, pages, 3, Frame, check, timing: null);
+            LabView.Compose(canvas, pages, bits, Frame, check, timing: null);
             Assert.Equal(0, TextPixelsInRow(2));
+            Assert.DoesNotContain("(PAUSED)", canvas.TextLines()[LabCanvas.Rows - 1]);
 
-            LabView.Compose(canvas, pages, 3, Frame, check, timing);
+            LabView.Compose(canvas, pages, bits, Frame, check, timing);
             Assert.True(TextPixelsInRow(2) > 300);
+            Assert.StartsWith("GPU ", canvas.TextLines()[2]);
+            Assert.Contains(" MS (ALL CORES)", canvas.TextLines()[2]);
 
-            // Before the first check there is a placeholder instead of a result.
-            LabView.Compose(canvas, pages, 3, Frame, check: null, timing: null, paused: true);
+            // Before the first check there is a placeholder instead of a result; paused, the help line says so.
+            LabView.Compose(canvas, pages, bits, Frame, check: null, timing: null, paused: true);
             Assert.True(TextPixelsInRow(0) > 300);
+            Assert.Equal("CHECKING AGAINST THE CPU...", canvas.TextLines()[1]);
+            Assert.EndsWith("(PAUSED)", canvas.TextLines()[LabCanvas.Rows - 1]);
+
+            // The title: the lab and the page number, the topic, the page.
+            Assert.Equal(Invariant($"COMPUTELAB [{bits + 1}/{pages.Count}]  MATH  BITS: BIT AND PACKING INTRINSICS  -  1280 X 720 PIXELS"), canvas.TextLines()[0]);
         }
         finally
         {
             DisposeAll(pages);
         }
+    }
+
+    [MetalFact]
+    public void Record_WritesAPagesFramesOverTime_TheSameEveryRun()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        string root = Path.Combine(Path.GetTempPath(), "sharpcompute-computelab-record-" + Guid.NewGuid().ToString("N"));
+        List<ILabPage> pages = LabPages.Create(device);
+
+        try
+        {
+            int histogram = LabPages.Find(pages, "histogram");
+            Assert.Equal(3, Headless.Record(device, pages, histogram, Path.Combine(root, "a"), seconds: 0.5, fps: 6));
+            Assert.Equal(3, Headless.Record(device, pages, histogram, Path.Combine(root, "b"), seconds: 0.5, fps: 6));
+
+            string[] frames = ["histogram-0001.png", "histogram-0002.png", "histogram-0003.png"];
+            Assert.Equal(frames, Directory.GetFiles(Path.Combine(root, "a")).Select(Path.GetFileName).Order());
+
+            byte[][] first = frames.Select(name => File.ReadAllBytes(Path.Combine(root, "a", name))).ToArray();
+            Assert.All(frames, name => Assert.True(File.ReadAllBytes(Path.Combine(root, "a", name)).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(root, "b", name))), $"{name} differs between two runs"));
+
+            // The animation moves from frame to frame, and the first frame is the headless picture's moment.
+            Assert.False(first[0].AsSpan().SequenceEqual(first[1]));
+            Assert.False(first[1].AsSpan().SequenceEqual(first[2]));
+        }
+        finally
+        {
+            DisposeAll(pages);
+
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [MetalTheory]
+    [InlineData(0, "--help")]
+    [InlineData(0, "--list")]
+    [InlineData(1, "--bogus")]
+    [InlineData(1, "--frames", "0")]
+    [InlineData(1, "--page")]
+    [InlineData(1, "--page", "nope", "--headless")]
+    [InlineData(1, "--page", "shuffle", "--headless")]
+    [InlineData(1, "--record", "out")]
+    [InlineData(1, "--headless", "--record", "out")]
+    [InlineData(1, "--page", "histogram", "--record", "out")]
+    [InlineData(1, "--headless", "--page", "histogram", "--record", "out", "--seconds", "0")]
+    [InlineData(1, "--headless", "--page", "histogram", "--record", "out", "--fps", "120")]
+    public void Main_HandlesItsArguments_WithoutOpeningAWindow(int exitCode, params string[] arguments)
+    {
+        Assert.Equal(exitCode, Program.Main(arguments));
     }
 }

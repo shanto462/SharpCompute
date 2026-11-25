@@ -20,7 +20,7 @@ public static class Program
         SharpCompute textures demo
 
           SharpCompute.Samples.Textures [--mode samplers|pingpong] [--format <1-8>] [--frames <n>]
-          SharpCompute.Samples.Textures --headless --out <dir> [--size <W>x<H>]
+          SharpCompute.Samples.Textures --headless --out <dir> [--size <W>x<H>] [--record]
 
         Keys: Tab switches between the sampler explorer and the ping-pong simulation · S saves a PNG · Esc quits
           Both:      the scroll wheel (or a two-finger scroll) zooms around the pointer · + / - zoom
@@ -31,13 +31,14 @@ public static class Program
                      Space pauses · C restarts
         --headless  no window: writes one PNG per format of the sampler explorer and one of the
                     ping-pong simulation to --out (the same pixels every run)
+        --record    with --headless: also writes every frame of the ping-pong run, pingpong-0001.png ...
         --frames    exit after that many frames (for scripted runs)
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
     public static int Main(string[] args)
     {
-        bool headless = false;
+        bool headless = false, record = false;
         string? output = null;
         (int Width, int Height) size = (1280, 720);
         DemoMode mode = DemoMode.Samplers;
@@ -50,6 +51,9 @@ public static class Program
             {
                 case "--headless":
                     headless = true;
+                    break;
+                case "--record":
+                    record = true;
                     break;
                 case "--out" when i + 1 < args.Length:
                     output = args[++i];
@@ -92,7 +96,7 @@ public static class Program
                 return 1;
             }
 
-            return RunHeadless(output, size.Width, size.Height);
+            return RunHeadless(output, size.Width, size.Height, record);
         }
 
         if (!MetalWindow.IsSupported)
@@ -115,10 +119,11 @@ public static class Program
 
     /// <summary>
     /// Writes <c>samplers-&lt;format&gt;.png</c> for each of the eight formats and <c>pingpong.png</c>
-    /// to <paramref name="directory"/>. Nothing depends on time or input, so every run writes the
-    /// same pixels.
+    /// to <paramref name="directory"/>, and with <paramref name="record"/> also every frame of the
+    /// ping-pong run as <c>pingpong-0001.png</c> and on (for a GIF of the simulation). Nothing depends
+    /// on time or input, so every run writes the same pixels.
     /// </summary>
-    public static int RunHeadless(string directory, int width, int height)
+    public static int RunHeadless(string directory, int width, int height, bool record = false)
     {
         Directory.CreateDirectory(directory);
 
@@ -145,12 +150,17 @@ public static class Program
             }
 
             demo.Render(target);
+
+            if (record)
+            {
+                Save(target, Path.Combine(directory, Invariant($"pingpong-{frame + 1:D4}.png")));
+            }
         }
 
         Save(target, Path.Combine(directory, "pingpong.png"));
 
         Console.WriteLine(Invariant(
-            $"Textures: {SourceImage.Formats.Length} sampler frames and 1 ping-pong frame ({demo.Reaction.Steps} steps) at {width}×{height} in {Path.GetFullPath(directory)}"));
+            $"Textures: {SourceImage.Formats.Length} sampler frames and {(record ? Invariant($"{HeadlessPingPongFrames + 1} ping-pong frames") : "1 ping-pong frame")} ({demo.Reaction.Steps} steps) at {width}×{height} in {Path.GetFullPath(directory)}"));
         return 0;
     }
 

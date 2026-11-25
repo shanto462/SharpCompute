@@ -42,6 +42,9 @@ public sealed class BitsPage : ILabPage
 
     public string Feature => "bit and packing intrinsics";
 
+
+    public string Topic => LabTopics.Math;
+
     public string Help => string.Empty;
 
     public IReadOnlyList<string> Variants => s_variants;

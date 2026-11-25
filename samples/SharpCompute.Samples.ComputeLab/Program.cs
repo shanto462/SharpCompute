@@ -23,16 +23,20 @@ public static class Program
 
           SharpCompute.Samples.ComputeLab [--page <name>] [--frames <n>]
           SharpCompute.Samples.ComputeLab --headless [--out <dir>]
+          SharpCompute.Samples.ComputeLab --headless --page <name> --record <dir> [--seconds <s>] [--fps <f>]
           SharpCompute.Samples.ComputeLab --list
 
         Keys: <-/-> switch page, Space pause, S save PNG, Esc quit; each page lists its own keys.
-        --page      start on this page: a name from --list, e.g. histogram-privatised
+        --page      start on this page: a name from --list, e.g. histogram-privatised or simd-reduction
         --frames    close the window after this many frames (for scripted runs)
         --headless  no window: writes <dir>/<n>-<page>.png and <dir>/summary.txt (default dir: computelab),
                     and exits with 2 if a GPU result does not match the CPU
-        --list      the pages: Histogram and Compaction (atomics on buffers), Histogram: privatised
-                    (atomics on threadgroup memory, timed against the global-atomics histogram), Bits,
-                    Indirect and FastMath
+        --record    with --headless and --page: writes that page's frames over --seconds (default 6) at
+                    --fps (default 12) as <dir>/<page>-0001.png, ... (the same pixels every run)
+        --list      the pages, by topic: atomics (Histogram, Histogram: privatised, Compaction), shared
+                    memory (Reduction, PrefixSum, MatMul, Blur), local arrays (LocalArrays), SIMD groups
+                    (SIMD reduction, SIMD compaction, SIMD shuffle), dispatch (Indirect) and math (Bits,
+                    FastMath)
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
@@ -40,8 +44,9 @@ public static class Program
     {
         bool headless = false, list = false;
         string output = "computelab";
-        string? start = null;
+        string? start = null, record = null;
         int frames = 0;
+        double seconds = 6, fps = 12;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -62,6 +67,15 @@ public static class Program
                 case "--frames" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out frames) && frames > 0:
                     i++;
                     break;
+                case "--record" when i + 1 < args.Length:
+                    record = args[++i];
+                    break;
+                case "--seconds" when i + 1 < args.Length && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out seconds) && seconds is > 0 and <= 60:
+                    i++;
+                    break;
+                case "--fps" when i + 1 < args.Length && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out fps) && fps is >= 1 and <= 60:
+                    i++;
+                    break;
                 case "-h" or "--help":
                     Console.WriteLine(Usage);
                     return 0;
@@ -70,6 +84,12 @@ public static class Program
                     Console.Error.WriteLine(Usage);
                     return 1;
             }
+        }
+
+        if (record is not null && (!headless || start is null))
+        {
+            Console.Error.WriteLine("--record needs --headless and --page <name>.");
+            return 1;
         }
 
         if (!GraphicsDevice.IsSupported)
@@ -87,7 +107,7 @@ public static class Program
             {
                 foreach (ILabPage page in pages)
                 {
-                    Console.WriteLine($"{LabPages.Slug(page.Name),-22} {page.Name}: {page.Feature}");
+                    Console.WriteLine($"{LabPages.Slug(page.Name),-22} {page.Topic,-14} {page.Name}: {page.Feature}");
                 }
 
                 return 0;
@@ -99,6 +119,13 @@ public static class Program
             {
                 Console.Error.WriteLine($"Unknown page '{start}'. Use --list to see the names.");
                 return 1;
+            }
+
+            if (record is not null)
+            {
+                int written = Headless.Record(device, pages, index, record, seconds, fps);
+                Console.WriteLine(Invariant($"{pages[index].Name}: {written} frames at {fps:G} fps in {Path.GetFullPath(record)}"));
+                return 0;
             }
 
             if (headless)
@@ -165,13 +192,13 @@ public static class Headless
         bool allPassed = true;
 
         summary.AppendLine(Invariant($"ComputeLab on {device.Name}, {Environment.ProcessorCount} CPU cores"));
-        summary.AppendLine("GPU: the feature kernel's dispatch, commit to completion (median of 7). CPU: the same work on all cores.");
+        summary.AppendLine("GPU: the page's dispatches, commit to completion (median of 7). CPU: the same work, on the cores the CPU note says.");
 
         for (int index = 0; index < pages.Count; index++)
         {
             ILabPage page = pages[index];
             summary.AppendLine();
-            summary.AppendLine(Invariant($"[{index + 1}/{pages.Count}] {page.Name}: {page.Feature}"));
+            summary.AppendLine(Invariant($"[{index + 1}/{pages.Count}] {page.Topic} / {page.Name}: {page.Feature}"));
 
             // Every variant is checked and timed; the picture is of the first one.
             for (int variant = page.Variants.Count - 1; variant >= 0; variant--)
@@ -182,7 +209,7 @@ public static class Headless
 
                 summary.AppendLine(Invariant($"  {page.Variants[variant]}"));
                 summary.AppendLine(Invariant($"    {(check.Passed ? "PASS" : "FAIL")}  {check.Summary}"));
-                summary.AppendLine(Invariant($"    {timing}"));
+                summary.AppendLine(Invariant($"    {LabView.TimingLine(page, timing)}"));
 
                 if (timing.BaselineText is { } baseline)
                 {
@@ -207,7 +234,36 @@ public static class Headless
         return allPassed;
     }
 
-    /// <summary>Computes the page a few times for a stable GPU time, then checks it against the CPU once.</summary>
+    /// <summary>
+    /// Writes <paramref name="pages"/>[<paramref name="index"/>] as <paramref name="seconds"/> of
+    /// animation at <paramref name="fps"/> into <paramref name="directory"/>, one PNG per frame
+    /// (<c>&lt;page&gt;-0001.png</c>, ...), for a GIF of a page whose point is its motion. The frames
+    /// start at <see cref="Time"/> and are reproducible like the headless pictures: the page's first
+    /// variant, no timings, and the check of each frame's own inputs. Returns the number of frames.
+    /// </summary>
+    public static int Record(GraphicsDevice device, IReadOnlyList<ILabPage> pages, int index, string directory, double seconds, double fps)
+    {
+        Directory.CreateDirectory(directory);
+
+        ILabPage page = pages[index];
+        string stem = LabPages.Slug(page.Name);
+        int count = Math.Max(1, (int)Math.Round(seconds * fps));
+        page.Variant = 0;
+
+        using LabCanvas canvas = new(device);
+
+        for (int i = 0; i < count; i++)
+        {
+            LabFrame frame = new(Time + (float)(i / fps), Deterministic: true);
+            page.Compute(frame);
+            LabView.Compose(canvas, pages, index, frame, page.Check(), timing: null);
+            PngEncoder.Write(Path.Combine(directory, Invariant($"{stem}-{i + 1:D4}.png")), canvas.ToArray(), LabCanvas.Width, LabCanvas.Height);
+        }
+
+        return count;
+    }
+
+    /// <summary>Computes the page a few times for a stable GPU time, then checks it against the CPU.</summary>
     public static LabCheck Measure(ILabPage page, LabFrame frame, out LabTiming timing)
     {
         page.Compute(frame);
@@ -229,6 +285,9 @@ public static class Headless
 
         Array.Sort(gpu);
         Array.Sort(baseline);
+
+        // The first check also JIT-compiles the page's C# reference; the second one is the CPU's time.
+        page.Check();
         LabCheck check = page.Check();
         timing = new LabTiming(gpu[gpu.Length / 2], check.CpuMilliseconds)
         {

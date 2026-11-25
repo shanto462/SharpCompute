@@ -15,7 +15,7 @@ same C# shader code can run on macOS, Linux, Android and more:
 | **OpenGL 4.3** | Windows, Linux | 🛠 Planned |
 | DirectX 12 | Windows | Use [ComputeSharp](https://github.com/Sergio0694/ComputeSharp) |
 
-![Shader gallery rendered by SharpCompute](docs/gallery.png)
+![Nine shaders of the gallery rendered by SharpCompute: Octagrams, Protean Clouds, Menger Journey, Terraced Hills, a Mandelbrot spiral, an extruded Truchet pattern, triangle-grid contours, a pyramid pattern and two-tiled Truchet tubes](docs/screenshots/gallery.png)
 
 ```csharp
 using SharpCompute;
@@ -116,26 +116,121 @@ here as an original game built on SharpCompute.
 ## Demos
 
 Each script builds in Release, writes to `demo-output/` and opens the result (`NO_OPEN=1` to skip).
+Every picture here is the demo's own deterministic headless output, made by
+`scripts/make-screenshots.sh` (and `scripts/make-gifs.sh` for the animations); click one for the
+full size.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab's privatised-histogram page: an animated image, its luminance histogram counted with global atomics, and the same histogram counted per threadgroup, bin for bin identical"></a>
+<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits and fast math. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
+<br><code>scripts/demo-computelab.sh [--page &lt;name&gt;] [--headless]</code>
+<br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, Up/Down)</sub>
+</td>
+<td width="50%" valign="top">
+<a href="docs/screenshots/textures-samplers.png"><img src="docs/screenshots/thumbs/textures-samplers.png" width="100%" alt="The Textures demo's sampler explorer: one small picture magnified through the six samplers, point and linear filtering in rows, clamp, repeat and mirror addressing in columns"></a>
+<br><b>Textures</b>: one picture through all six samplers, in any of the eight texture formats (<a href="docs/screenshots/textures-format-rg16.png">Rg16</a>), and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it (<a href="docs/screenshots/textures-pingpong.png">ping-pong</a>).
+<br><code>scripts/demo-textures.sh [--mode pingpong] [--headless]</code>
+<br><sub>Tab switch · F format · wheel or +/- zoom · drag pans or paints · S save PNG · Esc quit</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/screenshots/viewer-nbody.png"><img src="docs/screenshots/thumbs/viewer-nbody.png" width="100%" alt="The Viewer's N-body simulation: two disk galaxies of 16,384 bodies in all, colliding, in blue on black"></a>
+<br><b>Viewer</b>: every gallery shader live in a window, plus Game of Life and a 16k-body N-body simulation.
+<br><code>scripts/demo-viewer.sh</code>
+<br><sub>←/→ switch · Space pause · S save PNG · F toggle size · Esc quit · N-body: drag to orbit, wheel to zoom · Life: drag draws, R random, C clear</sub>
+</td>
+<td width="50%" valign="top">
+<a href="docs/screenshots/paint.png"><img src="docs/screenshots/thumbs/paint.png" width="100%" alt="Paint after its scripted replay: a soft sunset landscape with hills, trees, birds and a sun, the brush preview in the top-left corner"></a>
+<br><b>Paint</b>: a GPU paint app with soft brushes, filters and undo. The wheel sets the brush size, Shift+wheel the hardness.
+<br><code>scripts/demo-paint.sh [--replay]</code>
+<br><sub>drag paint · 1–9 colors · [ ] size · E eraser · B blur · K sharpen · D edges · ⌘Z undo · ⌘S save · C clear</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/screenshots/gallery.png"><img src="docs/screenshots/thumbs/gallery.png" width="100%" alt="Nine gallery shaders in a 3 by 3 mosaic"></a>
+<br><b>Gallery</b>: the shader gallery as PNGs (<code>--video</code> for mp4s, <code>--shader &lt;name&gt;</code> for one) plus a benchmark. <code>scripts/demo-mandelbrot.sh</code> renders its Mandelbrot as a deep-zoom video (perturbation theory, down to about 1e-30).
+<br><code>scripts/demo-gallery.sh</code>
+<br><sub>no window: writes files</sub>
+</td>
+<td width="50%" valign="top">
+<a href="docs/screenshots/imgproc.png"><img src="docs/screenshots/thumbs/imgproc.png" width="100%" alt="ImageProcessing's 4K test image and three filters of it, two by two: the original, a bokeh blur, an edge detection and a color grade"></a>
+<br><b>ImageProcessing</b>: GPU against CPU image filters on a 4K test image or your own photo (JPEG, PNG, HEIC), zero copy from decode to encode. Clockwise from the top left: the input, bokeh 12, grade, edges.
+<br><code>scripts/demo-imgproc.sh [photo] [filter args]</code>
+<br><sub>no window: writes files and timings</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/glowfall.gif"><img src="docs/screenshots/thumbs/glowfall.png" width="100%" alt="Glowfall: a lantern spirit relights a dark cavern"></a>
+<br><b>Glowfall</b>: an original 2D platformer; every pixel, light, shadow and particle is a SharpCompute shader, and the sound is synthesized on the GPU.
+<br><code>scripts/demo-glowfall.sh [--demo] [--headless] [--check-levels]</code>
+<br><sub>arrows or A D move · Z, Space, Up or W jump · Down drop · R restart · M mute · Esc quit</sub>
+</td>
+<td width="50%" valign="top">
+<a href="docs/pulsewake.gif"><img src="docs/screenshots/thumbs/pulsewake.png" width="100%" alt="Pulsewake: a prism ship fighting a wave in a drifting nebula"></a>
+<br><b>Pulsewake</b>: an original neon twin-stick arena shooter: up to 65,536 GPU particles binned without atomics, multi-pass bloom, shockwave distortion, one long-lived <code>ComputeContext</code> a frame.
+<br><code>scripts/demo-pulsewake.sh [--demo] [--headless]</code>
+<br><sub>WASD move · mouse aims, left button fires (or arrows) · Space bomb · P pause · M mute · R restart · Esc quit</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/screenshots/nativeinterop.png"><img src="docs/screenshots/thumbs/nativeinterop.png" width="100%" alt="The native interop demo: a dusk landscape and glowing particle ribbons drawn by a raw Metal host renderer, with SharpCompute's ripple and bloom pass on top"></a>
+<br><b>NativeInterop</b>: SharpCompute inside an app that already renders with Metal. SharpCompute wraps the host's device, buffer and textures and encodes a particle simulation and a post-process (ripples, color split, bloom) into the host's own command buffer, around its render pass. See <a href="#interop-with-existing-metal-code">Interop with existing Metal code</a>.
+<br><code>scripts/demo-nativeinterop.sh [--headless]</code>
+<br><sub>1 toggles the particle simulation · 2 toggles the post-process · click or drag moves the ripples · S save PNG · Esc quit</sub>
+</td>
+<td width="50%" valign="top"></td>
+</tr>
+</table>
+
+Without a picture, because they print timings or play sound:
 
 | Script | What it shows |
 |---|---|
-| `scripts/demo-viewer.sh` | **Live window:** every gallery shader, Game of Life and a 16k-body N-body simulation (drag to orbit, wheel to zoom). ←/→ switch, Space pause, S save PNG, Esc quit |
-| `scripts/demo-paint.sh` | **Live window:** a GPU paint app with brushes, filters and undo. The scroll wheel (or a two-finger scroll) sets the brush size, Shift+wheel the hardness; the title bar shows both. `--replay` paints a scripted scene |
-| `scripts/demo-glowfall.sh` | **Game:** *Glowfall*, an original 2D platformer. A lantern spirit relights three dark caverns; every pixel, per-pixel light with tile shadows and particle is computed by SharpCompute shaders, the music and sound effects are synthesized on the GPU, and the game logic runs at a fixed 120 Hz on the CPU. `--demo` watches a pilot play, `--headless` writes PNG frames, `--check-levels` proves each level can be finished |
-| `scripts/demo-gallery.sh` | The shader gallery as PNGs (`--video` for mp4s, `--shader <name>` for one) plus a benchmark |
-| `scripts/demo-mandelbrot.sh` | A deep-zoom Mandelbrot video (perturbation theory, down to ~1e-30) |
-| `scripts/demo-imgproc.sh [photo] [filter args]` | GPU vs CPU image filters on a 4K test image or your own photo (JPEG/PNG/HEIC) |
 | `scripts/demo-helloworld.sh` | MultiplyByTwo, SAXPY over 1M floats and a 1080p Mandelbrot |
 | `scripts/demo-pipeline.sh` | A double-buffered pipeline: the GPU renders frame N+1 (`ForAsync`) while the CPU post-processes frame N; sync vs async throughput |
-| `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
-| `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
-| `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
-| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Histogram: privatised:** the same histogram counted per threadgroup with atomics on `[GroupShared]` memory and merged with one buffer atomic per bin per group, next to the global-atomics version on the same image, with the GPU time of both. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **LocalArrays:** a 3 × 3 median filter (a nine-element `stackalloc` array and a sorting network) and a 5 × 5 Gaussian (a `ReadOnlySpan<int>` weight table) on the animated image; N toggles salt-and-pepper noise to show what the median removes, F switches the timed filter. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary<br><a href="docs/screenshots/computelab-local-arrays.png"><img src="docs/screenshots/computelab-local-arrays.png" width="320" alt="ComputeLab's LocalArrays page: a noisy image, its 3 by 3 median and its 5 by 5 Gaussian side by side"></a> |
-| `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
-| `scripts/demo-simdgroups.sh` | **Live window:** SIMD-group operations, three pages, each checked against the CPU and timed. A reduction race (the sum of 16M floats three ways), a stream compaction of 32,768 particles built from `WaveActiveBallot` and `WavePrefixSum` with no atomics, and a signal smoothed inside each SIMD group with `WaveShuffleUp`/`Down`, so the group edges show. `--headless` writes a PNG per page and a summary |
-| `scripts/demo-nativeinterop.sh`<br><img src="docs/screenshots/nativeinterop.png" width="240" alt="The native interop demo: a dusk landscape and glowing particle ribbons drawn by a raw Metal host renderer, with SharpCompute's ripple and bloom pass on top"> | **Live window:** SharpCompute inside an app that already renders with Metal. A small host renderer written straight against Metal (its own device, queue, particle buffer, textures and render pipeline) draws a textured quad and an instanced particle field; SharpCompute wraps the host's objects and encodes a particle simulation before the host's scene pass and a post-process (ripples, color split, bloom) after it, into the host's own command buffer. 1 and 2 toggle the two passes, click or drag moves the ripples, S save PNG. The title bar shows fps and the frame's GPU time. `--headless` writes the same frames every run: both passes, each one off, and the host alone |
+| `scripts/demo-audio.sh` | Chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
+
+### ComputeLab pages
+
+`scripts/demo-computelab.sh --page <name>` starts on a page; `--list` shows them all.
+`scripts/demo-groupshared.sh` and `scripts/demo-simdgroups.sh` open the lab on its shared-memory and
+SIMD-group pages.
+
+<table>
+<tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-histogram.png"><img src="docs/screenshots/thumbs/computelab-histogram.png" width="100%" alt="ComputeLab Histogram page: an animated image and its 256-bin luminance histogram counted with Gpu.AtomicAdd"></a><br><b>Atomics</b>: Histogram<br><code>--page histogram</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab Histogram: privatised page: the same histogram counted with global atomics and per threadgroup in group-shared memory"></a><br><b>Atomics</b>: Histogram: privatised<br><code>--page histogram-privatised</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-compaction.png"><img src="docs/screenshots/thumbs/computelab-compaction.png" width="100%" alt="ComputeLab Compaction page: a million values, the ones kept through an atomic counter, and their output slots in scheduling order"></a><br><b>Atomics</b>: Compaction<br><code>--page compaction</code></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-reduction.png"><img src="docs/screenshots/thumbs/computelab-reduction.png" width="100%" alt="ComputeLab Reduction page: 16.7 million floats summed by a tree in threadgroup shared memory, with the kernel and its error against a double sum"></a><br><b>Shared memory</b>: Reduction<br><code>--page reduction</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-prefixsum.png"><img src="docs/screenshots/thumbs/computelab-prefixsum.png" width="100%" alt="ComputeLab PrefixSum page: a work-efficient scan of a million flags and the order-preserving compaction it gives"></a><br><b>Shared memory</b>: PrefixSum<br><code>--page prefixsum</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-matmul.png"><img src="docs/screenshots/thumbs/computelab-matmul.png" width="100%" alt="ComputeLab MatMul page: two 1024 by 1024 matrices and their product computed in 16 by 16 shared-memory tiles"></a><br><b>Shared memory</b>: MatMul<br><code>--page matmul</code></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-blur.png"><img src="docs/screenshots/thumbs/computelab-blur.png" width="100%" alt="ComputeLab Blur page: an image and its separable blur, each group loading a tile plus apron into shared memory"></a><br><b>Shared memory</b>: Blur<br><code>--page blur</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-localarrays.png"><img src="docs/screenshots/thumbs/computelab-localarrays.png" width="100%" alt="ComputeLab LocalArrays page: a noisy image, its 3 by 3 median from a nine-element stackalloc array and its 5 by 5 Gaussian from a weight table, side by side"></a><br><b>Local arrays</b>: LocalArrays<br><code>--page localarrays</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-reduction.png"><img src="docs/screenshots/thumbs/computelab-simd-reduction.png" width="100%" alt="ComputeLab SIMD reduction page: the sum of 16.7 million floats three ways, with each method's threads and rounding error as bars"></a><br><b>SIMD groups</b>: SIMD reduction<br><code>--page simd-reduction</code></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-compaction.png"><img src="docs/screenshots/thumbs/computelab-simd-compaction.png" width="100%" alt="ComputeLab SIMD compaction page: 32,768 particles, the ones in a circle packed in order by ballots and prefix sums, and one SIMD group's ballot lane by lane"></a><br><b>SIMD groups</b>: SIMD compaction<br><code>--page simd-compaction</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-shuffle.png"><img src="docs/screenshots/thumbs/computelab-simd-shuffle.png" width="100%" alt="ComputeLab SIMD shuffle page: a noisy signal smoothed inside each SIMD group by lane shuffles, the group edges showing as steps"></a><br><b>SIMD groups</b>: SIMD shuffle<br><code>--page simd-shuffle</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-indirect.png"><img src="docs/screenshots/thumbs/computelab-indirect.png" width="100%" alt="ComputeLab Indirect page: a compaction pass counts the survivors and the follow-up pass is dispatched over exactly that many"></a><br><b>Dispatch</b>: Indirect<br><code>--page indirect</code></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-bits.png"><img src="docs/screenshots/thumbs/computelab-bits.png" width="100%" alt="ComputeLab Bits page: popcount, bit reversal, leading and trailing zeros, float bits and unorm8 packing drawn as patterns"></a><br><b>Math</b>: Bits<br><code>--page bits</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-fastmath.png"><img src="docs/screenshots/thumbs/computelab-fastmath.png" width="100%" alt="ComputeLab FastMath page: a transcendental-heavy field and its error against the CPU, with and without fast math"></a><br><b>Math</b>: FastMath<br><code>--page fastmath</code></td>
+<td width="33%" valign="top"></td>
+</tr>
+</table>
 
 The gallery includes ports of the Shadertoy shaders from ComputeSharp's samples. Those ports are
 licensed **CC BY-NC-SA 3.0**, not MIT; see [`samples/SharpCompute.Samples.Shaders/NOTICE.md`](samples/SharpCompute.Samples.Shaders/NOTICE.md).
@@ -306,7 +401,9 @@ using (ComputeContext context = device.CreateComputeContext())
 ```
 
 `scripts/demo-textures.sh` shows all of this live: the six samplers side by side on any of the eight
-formats, and a simulation that ping-pongs between two textures while you paint into it.
+formats, and a simulation that ping-pongs between two textures while you paint into it:
+
+![The Textures demo's ping-pong mode: a reaction-diffusion growing from a painted stroke, computed back and forth between two read-write textures and displayed through a linear-repeat sampler](docs/screenshots/textures-pingpong.gif)
 
 Shaders with textures run on the CPU too (`ForCpu`, `ForSplit`), with the same reads, writes and
 address modes. The CPU is exact where the GPU (measured on an M4 Pro) is not quite:
@@ -396,8 +493,11 @@ device.For((count + 255) / 256 * 256, new SumBlocks(input, sums, count)); // who
   thread per barrier: thousands of times slower than the GPU. Shaders without shared memory or
   barriers are not affected.
 
-`scripts/demo-groupshared.sh` runs a reduction, a prefix sum, a tiled matrix product and a tiled blur
-built this way, each checked against plain C#.
+ComputeLab's shared-memory pages run a reduction, a prefix sum, a tiled matrix product and a tiled
+blur built this way, each checked against plain C# (`scripts/demo-groupshared.sh` opens the lab on
+them). The reduction page, with the kernel above:
+
+![ComputeLab's Reduction page: 16.7 million floats summed in two passes of a tree in threadgroup shared memory, the kernel's steps, and the GPU sum's error against a double-precision sum next to a running float total's](docs/screenshots/computelab-reduction.png)
 
 ### SIMD-group operations
 
@@ -497,8 +597,11 @@ checking and debugging a shader, not for bulk work.
   them out). With the operation they are the call site the lanes have to agree on, so keep two calls
   of the same operation on separate lines (SCG0035 warns otherwise).
 
-`scripts/demo-simdgroups.sh` shows three uses live: a reduction race over 16M floats, a stream
-compaction built from ballots and prefix sums, and a signal smoothed with shuffles.
+ComputeLab's SIMD-group pages show three uses live (`scripts/demo-simdgroups.sh` opens the lab on
+them): a reduction race over 16M floats, a stream compaction built from ballots and prefix sums, and a
+signal smoothed with shuffles. The reduction, `WaveActiveSum` as above against a loop per thread:
+
+![ComputeLab's SIMD reduction page: the sum of 16.7 million floats three ways, SIMD only, SIMD after a loop per thread, and loops only, with each method's thread count and rounding error as bars](docs/screenshots/computelab-simd-reduction.png)
 
 ### Local arrays
 
@@ -561,6 +664,8 @@ ReadOnlySpan<int> weights =                                // MSL: const int wei
 int w = weights[((dy + 2) * 5) + dx + 2];
 ```
 
+![ComputeLab's LocalArrays page: the input with salt-and-pepper noise, its 3 by 3 median with the specks gone and its 5 by 5 Gaussian with them smeared, above the C# of both filters next to the MSL the generator makes of it](docs/screenshots/computelab-localarrays.png)
+
 | C# | MSL |
 |---|---|
 | `Span<T> a = stackalloc T[N];`, `T[] a = new T[N];` | `T a[N] = {};`, zeroed as in C# |
@@ -594,10 +699,11 @@ int w = weights[((dy + 2) * 5) + dx + 2];
 - **No bounds checks on the GPU:** an index outside the array reads or writes whatever lies there.
   `ForCpu` runs the C#, where the same index throws `IndexOutOfRangeException`, so running a shader on
   the CPU is the way to find such a bug.
-- **On the CPU**, `new T[N]` allocates on the heap every time a thread runs: correct, but slow.
-  `stackalloc`, `ReadOnlySpan<T>` tables of constants (which C# stores as static data) and inline
-  arrays allocate nothing, so prefer them for `ForCpu`. A `stackalloc` inside a loop is warning
-  CA2014 in C#; declare the array before the loop and reuse it, which compiles to the same MSL.
+- **Prefer `stackalloc`.** Under `ForCpu`, `new T[N]` in a kernel is a heap allocation per shader
+  thread: correct, but slow. `stackalloc`, `ReadOnlySpan<T>` tables of constants (which C# stores as
+  static data) and inline arrays allocate nothing. A `stackalloc` belongs outside loops: inside one it
+  is CA2014, which this repository's analyzers treat as an error; declare the array before the loop
+  and reuse it, which compiles to the same MSL.
 
 ### Batching and async dispatch
 
@@ -730,6 +836,8 @@ The speed-up comes from compaction; indirect dispatch's gain is no CPU read-back
 at their bounds check cost almost nothing, so a full-array dispatch over the compacted list is as
 fast, but it has to be sized for the whole array; the indirect one follows the count the GPU just
 produced.
+
+![ComputeLab's Indirect page: the input with its survivors in gold, the survivors' work written in place, and the threads of the indirect dispatch, all of which worked](docs/screenshots/computelab-indirect.png)
 
 **Compile options.** Every shader is compiled with IEEE-safe math, precise math functions and
 Metal's default contraction. `[ShaderOptions]` changes that for one shader:
@@ -886,6 +994,10 @@ using ReadWriteBuffer<int> counts = device.AllocateReadWriteBuffer<int>(256); //
 device.For(image.Length, new LuminanceHistogram(image, counts));
 ```
 
+ComputeLab's Histogram page runs this shader every frame on an animated image:
+
+![ComputeLab's Histogram page, animated: a moving generated image and its 256-bin luminance histogram, counted with Gpu.AtomicAdd and checked against the CPU every frame](docs/screenshots/computelab-histogram.gif)
+
 | C# (`int` and `uint`) | MSL |
 |---|---|
 | `AtomicAdd`, `AtomicSub`, `AtomicMin`, `AtomicMax`, `AtomicAnd`, `AtomicOr`, `AtomicXor` | `metal::atomic_fetch_*_explicit` |
@@ -1014,6 +1126,15 @@ dotnet test SharpCompute.slnx
 
 The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 (`python3 -I tools/gen_vectors.py --check` verifies they're up to date).
+
+A new or changed demo regenerates its screenshots and their thumbnails with
+`scripts/make-screenshots.sh <demo>` (and its animation, if it has one, with
+`scripts/make-gifs.sh <name>`), and a new one is added to the [Demos](#demos) grid: a new ComputeLab
+page is a cell of [ComputeLab pages](#computelab-pages), a new demo a cell of the grid and a
+`demo_<name>` function in the script. The grids show the thumbnails in `docs/screenshots/thumbs/`,
+each linking to its full image. The tests check that every image the README shows exists, has alt
+text, is opaque and stays within its limit: 400,000 bytes for a screenshot, 100,000 for a thumbnail
+and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 
 ## Limitations
 
