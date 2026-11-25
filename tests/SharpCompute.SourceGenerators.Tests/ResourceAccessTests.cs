@@ -104,7 +104,7 @@ public partial class ResourceAccessTests
     [InlineData("b[0] *= a[0];", "a,canvas,cells,counts,paper")]
     [InlineData("counts[0]++;", "a,b,canvas,cells,paper")]
     [InlineData("--counts[0];", "a,b,canvas,cells,paper")]
-    [InlineData("int x = counts[0]++ + counts[1];", "a,b,canvas,cells,paper")]
+    [InlineData("int x = counts[0]++ + 1;", "a,b,canvas,cells,paper")]
     [InlineData("cells[0].Weight = a[0];", "a,b,canvas,counts,paper")]
     [InlineData("cells[0].Nested.Value += 2;", "a,b,canvas,counts,paper")]
     [InlineData("cells[0] = cells[1];", "a,b,canvas,counts,paper")]

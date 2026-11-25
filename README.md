@@ -298,8 +298,8 @@ bandwidth: both sides use the same memory controller.
 |---|---|---|---|
 | Decode or read straight into GPU memory, convert on the GPU | 4K image pipeline 12.2 → 3.10 ms | Memory-bound kernels (SAXPY) | Same bandwidth; the CPU ties or wins |
 | `MapReadOnlyBuffer` instead of reading a file | 256 MB: 42.0 → 4.06 ms | Tiny one-off dispatches | ~0.1 ms floor per dispatch; the CPU finishes first |
-| Many small dispatches in one `ComputeContext` | ~99 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
-| `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (7 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
+| Many small dispatches in one `ComputeContext` | ~100 µs → ~1.8 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
+| `ForAsync` double-buffering, CPU and GPU in parallel | 1.37× (7.5 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
 | | | Splitting one grid between CPU and GPU (`ForSplit`) | 0.97–1.09× of GPU-only: scalar C# on the CPU, and the GPU slows while the CPU is busy |
 
 The full guide, with how to choose an API and the lifetime rules that come with zero copy, is
@@ -1016,8 +1016,9 @@ rather than run it, on every path (`For`, `ForCpu`, `ForSplit`, `ForAsync`, a `C
 captures `Execute` and its helpers store to, so a `ReadWriteBuffer<T>` that is only read can be
 passed twice (`new Blend(layer, layer, ...)`). A hand-written descriptor says it with
 `writer.SetBuffer(index, buffer, written: false)`; without that, a read-write buffer or texture
-counts as written. The check compares address ranges, a few integer comparisons per binding, and
-allocates nothing once a thread has dispatched before. To update a buffer from its own contents,
+counts as written. The check compares address ranges and allocates nothing in the steady state:
+recording a dispatch with six buffers into a `ComputeContext` takes about 52 ns with it and 43 ns
+without, on an M4 Pro, which a recorded and executed dispatch (about 1.55 µs) does not show. To update a buffer from its own contents,
 capture it once (`data[i] = f(data[i])`), or write to a second buffer and swap the two (or
 `Copy` the result back).
 
