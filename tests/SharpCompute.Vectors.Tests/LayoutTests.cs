@@ -78,13 +78,13 @@ public class LayoutTests
     {
         Assert.Equal(Unsafe.SizeOf<Half4>(), Unsafe.SizeOf<Rgba16Float>());
 
-        var pixel = new Rgba16Float((Half)0.25f, (Half)(-1f), Half.PositiveInfinity, BitConverter.UInt16BitsToHalf(0x7E01));
+        var pixel = new Rgba16Float((Half)0.25f, (Half)(-1f), Half.PositiveInfinity, BitConverter.UInt16BitsToHalf(0x8001));
         Half4 vector = pixel;
         Rgba16Float back = vector;
 
-        // Bit for bit, a NaN payload included: nothing is converted on the way.
-        AssertInMemory<Half4, ushort>(vector, [0x3400, 0xBC00, 0x7C00, 0x7E01]);
-        AssertInMemory<Rgba16Float, ushort>(back, [0x3400, 0xBC00, 0x7C00, 0x7E01]);
+        // Bit for bit, a negative subnormal included: nothing is converted on the way.
+        AssertInMemory<Half4, ushort>(vector, [0x3400, 0xBC00, 0x7C00, 0x8001]);
+        AssertInMemory<Rgba16Float, ushort>(back, [0x3400, 0xBC00, 0x7C00, 0x8001]);
 
         // Whole spans reinterpret in place, in either direction.
         Half4[] colors = [(Half4)new Float4(1, 2, 3, 4), (Half4)new Float4(5, 6, 7, 8)];

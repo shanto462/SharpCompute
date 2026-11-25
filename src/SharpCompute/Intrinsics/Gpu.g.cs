@@ -1747,7 +1747,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1759,7 +1759,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1771,7 +1771,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1783,7 +1783,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1795,7 +1795,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1807,7 +1807,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1819,7 +1819,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1831,7 +1831,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1843,7 +1843,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1855,7 +1855,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1867,7 +1867,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1879,7 +1879,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1891,7 +1891,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1903,7 +1903,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
@@ -1915,7 +1915,7 @@ public static partial class Gpu
     /// <summary>
     /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
     /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
-    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
     /// </summary>
     /// <remarks>
     /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,

@@ -10,7 +10,8 @@ namespace SharpCompute.Tests.Intrinsics;
 /// the comparisons of every numeric vector, <c>Gpu.Equal</c>/<c>NotEqual</c>, the vector
 /// classifications, the logical operators, <c>Any</c>/<c>All</c> and <c>Select</c>. Everything here
 /// is exact, so everything must match bit for bit (as it does on the Apple M4 Pro this was written
-/// on, a NaN's payload through <c>Select</c> included).
+/// on), with one allowance: a NaN is any NaN. Where <c>Select</c> returns a NaN, the test asks for
+/// a NaN, not for its sign or its payload, which no GPU promises.
 /// </summary>
 public class VectorMaskTests
 {
@@ -29,6 +30,39 @@ public class VectorMaskTests
     ];
 
     private static readonly int[] Ints = [0, 1, -1, 2, -2, 5, int.MaxValue, int.MinValue, 0x40000000, unchecked((int)0x80000001), 255, -256];
+
+    /// <summary>The <c>Select</c> outputs that hold the bits of floats (the others hold integers, which are compared as they are).</summary>
+    private static readonly int[] FloatSelects = [0, 3, 4];
+
+    /// <summary>The mask that is the XOR of the bits of two selected floats.</summary>
+    private const int FloatBitsMask = 51;
+
+    private static bool IsNaN(uint bits) => (bits & 0x7F800000) == 0x7F800000 && (bits & 0x007FFFFF) != 0;
+
+    private static bool IsNaN(ushort bits) => (bits & 0x7C00) == 0x7C00 && (bits & 0x03FF) != 0;
+
+    /// <summary>The same float, where every NaN is the same, whatever its sign and payload.</summary>
+    private static bool SameFloat(uint expected, uint actual) => expected == actual || (IsNaN(expected) && IsNaN(actual));
+
+    /// <summary>The same float, where every NaN is the same, whatever its sign and payload.</summary>
+    private static bool SameFloat(float expected, uint actual) => SameFloat(BitConverter.SingleToUInt32Bits(expected), actual);
+
+    /// <summary>The same half, where every NaN is the same, whatever its sign and payload.</summary>
+    private static bool SameHalf(ushort expected, ushort actual) => expected == actual || (IsNaN(expected) && IsNaN(actual));
+
+    /// <summary>The same half, where every NaN is the same, whatever its sign and payload.</summary>
+    private static bool SameHalf(Half expected, Half actual) => SameHalf(BitConverter.HalfToUInt16Bits(expected), BitConverter.HalfToUInt16Bits(actual));
+
+    /// <summary>
+    /// Whether one of the two floats whose bits <see cref="FloatBitsMask"/> combines is a NaN: the
+    /// XOR then holds a sign and a payload nobody promises, and is not compared.
+    /// </summary>
+    private static bool FloatBitsMaskHoldsANaN(Inputs inputs, int thread)
+    {
+        Float4 fa = inputs.FloatA[thread], fb = inputs.FloatB[thread];
+        Half4 ha = inputs.HalfA[thread], hb = inputs.HalfB[thread];
+        return float.IsNaN(ha.X != hb.X ? fa.X : fb.Z) || float.IsNaN(ha.W != hb.W ? fa.Y : fb.W);
+    }
 
     private sealed record Inputs(Float4[] FloatA, Float4[] FloatB, Half4[] HalfA, Half4[] HalfB, Int4[] IntA, Int4[] IntB);
 
@@ -58,7 +92,7 @@ public class VectorMaskTests
             ib[i] = new Int4(NextInt(), NextInt(), NextInt(), NextInt());
         }
 
-        // A NaN with a payload, to follow through Select.
+        // NaNs of either sign, with payloads, to follow through Select: what arrives must be a NaN.
         fa[0] = new Float4(BitConverter.Int32BitsToSingle(unchecked((int)0xFFC12345)), -0f, 1f, BitConverter.Int32BitsToSingle(0x7FC00001));
         fb[0] = new Float4(2f, 0f, BitConverter.Int32BitsToSingle(0x7FCABCDE), 4f);
         return new Inputs(fa, fb, ha, hb, ia, ib);
@@ -87,7 +121,7 @@ public class VectorMaskTests
     }
 
     [MetalFact]
-    public void ComparisonsLogicAndSelect_AreBitExact_GpuVsCpu()
+    public void ComparisonsLogicAndSelect_AreBitExact_GpuVsCpu_AnyNaNForAnyNaN()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         Inputs inputs = CreateInputs();
@@ -95,19 +129,28 @@ public class VectorMaskTests
         Outputs cpu = Run(device, inputs, onGpu: false);
 
         string[] masks = Enumerable.Range(0, cpu.Masks.Length)
-            .Where(i => cpu.Masks[i] != gpu.Masks[i])
+            .Where(i => cpu.Masks[i] != gpu.Masks[i] && !(i % VectorMasks.Stride == FloatBitsMask && FloatBitsMaskHoldsANaN(inputs, i / VectorMasks.Stride)))
             .Select(i => $"thread {i / VectorMasks.Stride}, mask {i % VectorMasks.Stride}: CPU 0x{cpu.Masks[i]:X}, GPU 0x{gpu.Masks[i]:X}")
             .ToArray();
         Assert.True(masks.Length == 0, $"{masks.Length} masks differ:\n" + string.Join("\n", masks.Take(30)));
 
         uint[] cpuBits = MemoryMarshal.Cast<UInt4, uint>(cpu.SelectedBits.AsSpan()).ToArray(), gpuBits = MemoryMarshal.Cast<UInt4, uint>(gpu.SelectedBits.AsSpan()).ToArray();
         string[] selected = Enumerable.Range(0, cpuBits.Length)
-            .Where(i => cpuBits[i] != gpuBits[i])
+            .Where(i => FloatSelects.Contains(i / 4 % VectorMasks.SelectStride) ? !SameFloat(cpuBits[i], gpuBits[i]) : cpuBits[i] != gpuBits[i])
             .Select(i => $"thread {i / 4 / VectorMasks.SelectStride}, select {i / 4 % VectorMasks.SelectStride}, component {i % 4}: CPU 0x{cpuBits[i]:X8}, GPU 0x{gpuBits[i]:X8}")
             .ToArray();
         Assert.True(selected.Length == 0, $"{selected.Length} selected components differ:\n" + string.Join("\n", selected.Take(30)));
 
-        Assert.Equal(MemoryMarshal.Cast<Half4, ushort>(cpu.SelectedHalves.AsSpan()).ToArray(), MemoryMarshal.Cast<Half4, ushort>(gpu.SelectedHalves.AsSpan()).ToArray());
+        ushort[] cpuHalves = MemoryMarshal.Cast<Half4, ushort>(cpu.SelectedHalves.AsSpan()).ToArray(), gpuHalves = MemoryMarshal.Cast<Half4, ushort>(gpu.SelectedHalves.AsSpan()).ToArray();
+        string[] halves = Enumerable.Range(0, cpuHalves.Length)
+            .Where(i => !SameHalf(cpuHalves[i], gpuHalves[i]))
+            .Select(i => $"thread {i / 8}, select {i / 4 % 2}, component {i % 4}: CPU 0x{cpuHalves[i]:X4}, GPU 0x{gpuHalves[i]:X4}")
+            .ToArray();
+        Assert.True(halves.Length == 0, $"{halves.Length} selected halves differ:\n" + string.Join("\n", halves.Take(30)));
+
+        // The allowance is used: NaNs are selected, floats and halves, and arrive as NaNs on both sides.
+        Assert.Contains(Enumerable.Range(0, cpuBits.Length), i => FloatSelects.Contains(i / 4 % VectorMasks.SelectStride) && IsNaN(cpuBits[i]) && IsNaN(gpuBits[i]));
+        Assert.Contains(Enumerable.Range(0, cpuHalves.Length), i => IsNaN(cpuHalves[i]) && IsNaN(gpuHalves[i]));
     }
 
     /// <summary>The CPU side (and with the test above the GPU side) is what the definitions say, restated with scalar C#.</summary>
@@ -202,7 +245,7 @@ public class VectorMaskTests
             Assert.True((Mask(c => c < 3 && (m[c] ? n[c] : n[c + 1])) | (Mask(c => c < 2 && (m[c + 2] ? n[c] : m[c])) << 4)) == o[48], at);
             Assert.True((uint)((n[0] ? ia[0] : ib[0]) ^ (n[1] ? ia[1] : ib[1]) ^ (n[2] ? ia[2] : ib[2])) == o[49], at);
             Assert.True((uint)((m[1] ? ia[2] : ib[0]) ^ (m[2] ? ia[3] : ib[1])) == o[50], at);
-            Assert.True((BitConverter.SingleToUInt32Bits(n[0] ? fa[0] : fb[2]) ^ BitConverter.SingleToUInt32Bits(n[3] ? fa[1] : fb[3])) == o[51], at);
+            Assert.True(FloatBitsMaskHoldsANaN(inputs, t) || (BitConverter.SingleToUInt32Bits(n[0] ? fa[0] : fb[2]) ^ BitConverter.SingleToUInt32Bits(n[3] ? fa[1] : fb[3])) == o[FloatBitsMask], at);
 
             ReadOnlySpan<UInt4> s = gpu.SelectedBits.AsSpan(t * VectorMasks.SelectStride, VectorMasks.SelectStride);
             ReadOnlySpan<Half4> sh = gpu.SelectedHalves.AsSpan(t * 2, 2);
@@ -211,15 +254,15 @@ public class VectorMaskTests
             {
                 static uint Component(UInt4 v, int c) => c switch { 0 => v.X, 1 => v.Y, 2 => v.Z, _ => v.W };
 
-                Assert.True(BitConverter.SingleToUInt32Bits(m[c] ? fa[c] : fb[c]) == Component(s[0], c), $"{at}, component {c}: Select of floats");
+                Assert.True(SameFloat(m[c] ? fa[c] : fb[c], Component(s[0], c)), $"{at}, component {c}: Select of floats");
                 Assert.True((uint)(n[c] ? ia[c] : ib[c]) == Component(s[1], c), $"{at}, component {c}: Select of ints");
                 Assert.True((uint)(m[c] ^ n[c] ? ia[c] : ib[c]) == Component(s[2], c), $"{at}, component {c}: Select of uints");
-                Assert.True(BitConverter.SingleToUInt32Bits(fa[c] > fb[c] ? fa[c] : fb[c]) == Component(s[3], c), $"{at}, component {c}: Select from buffers");
-                Assert.True(BitConverter.SingleToUInt32Bits(float.IsNaN(fa[c]) ? 0f : fa[c]) == Component(s[4], c), $"{at}, component {c}: Select on IsNaN");
+                Assert.True(SameFloat(fa[c] > fb[c] ? fa[c] : fb[c], Component(s[3], c)), $"{at}, component {c}: Select from buffers");
+                Assert.True(SameFloat(float.IsNaN(fa[c]) ? 0f : fa[c], Component(s[4], c)), $"{at}, component {c}: Select on IsNaN");
 
                 Half[] first = H(sh[0]), second = H(sh[1]);
-                Assert.True(BitConverter.HalfToUInt16Bits(m[c] ? ha[c] : hb[c]) == BitConverter.HalfToUInt16Bits(first[c]), $"{at}, component {c}: Select of halves");
-                Assert.True(BitConverter.HalfToUInt16Bits(ha[c] < hb[c] ? ha[c] : hb[c]) == BitConverter.HalfToUInt16Bits(second[c]), $"{at}, component {c}: Select of halves from buffers");
+                Assert.True(SameHalf(m[c] ? ha[c] : hb[c], first[c]), $"{at}, component {c}: Select of halves");
+                Assert.True(SameHalf(ha[c] < hb[c] ? ha[c] : hb[c], second[c]), $"{at}, component {c}: Select of halves from buffers");
             }
         }
 
@@ -228,7 +271,9 @@ public class VectorMaskTests
         Assert.Contains(seen, r => (r & 3) == 1);
         Assert.Contains(seen, r => (r & 3) == 3);
 
-        // A NaN keeps its payload and its sign through Select, on the GPU too.
-        Assert.Equal(inputs.IntA[0].X < inputs.IntB[0].X ? 0xFFC12345u : 0x40000000u, gpu.SelectedBits[0].X);
+        // A NaN that is selected arrives as a NaN on the GPU too (its sign and payload are not asked
+        // for), and the number beside it arrives when the mask says so.
+        uint firstSelected = gpu.SelectedBits[0].X;
+        Assert.True(inputs.IntA[0].X < inputs.IntB[0].X ? IsNaN(firstSelected) : firstSelected == 0x40000000u, $"0x{firstSelected:X8}");
     }
 }

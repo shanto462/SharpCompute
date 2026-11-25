@@ -83,6 +83,41 @@ public class OperatorTests
     }
 
     /// <summary>
+    /// The ordering operators were added to vectors that already existed, and they replace nothing.
+    /// A float, int or uint vector had no ordering, no equality and no implicit conversion before,
+    /// so no expression that compiled can mean one of the new operators now. This pins what those
+    /// vectors had (16, 30 and 29 arithmetic and bitwise operators, each answering with the vector
+    /// itself, and the explicit conversions from the other two kinds) and that the additions are
+    /// the twelve ordering operators and one explicit conversion from the half vector, no more.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    public void TheVectorsThatExistedKeepEveryOperator_AndGainOnlyTheOrderingOnes(Type t)
+    {
+        Type s = VectorTypes.Element(t);
+        int width = VectorTypes.Width(t);
+        MethodInfo[] operators = t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(static m => m.IsSpecialName && m.Name.StartsWith("op_", StringComparison.Ordinal)).ToArray();
+
+        // What was there: the same count, the same return type.
+        MethodInfo[] kept = operators.Where(static m => m.Name != "op_Explicit" && !Comparisons.Contains(m.Name)).ToArray();
+        Assert.Equal(s == typeof(float) ? 16 : s == typeof(int) ? 30 : 29, kept.Length);
+        Assert.All(kept, m => Assert.Equal(t, m.ReturnType));
+
+        Type[] others = new[] { typeof(float), typeof(int), typeof(uint) }.Where(e => e != s).Select(e => VectorTypes.Vector(e, width)).ToArray();
+        Type[] convertsFrom = operators.Where(static m => m.Name == "op_Explicit").Select(static m => m.GetParameters()[0].ParameterType).ToArray();
+        Assert.All(operators.Where(static m => m.Name == "op_Explicit"), m => Assert.Equal(t, m.ReturnType));
+        Assert.Equal(others.Append(VectorTypes.Vector(typeof(Half), width)).OrderBy(static x => x.Name), convertsFrom.OrderBy(static x => x.Name));
+
+        // What is new: three forms of each of the four ordering operators, into the bool vector.
+        MethodInfo[] added = operators.Where(static m => Comparisons.Contains(m.Name)).ToArray();
+        Assert.Equal(12, added.Length);
+        Assert.All(added, m => Assert.Equal(VectorTypes.Vector(typeof(bool), width), m.ReturnType));
+
+        // And what is still not there, so that if (a == b), a switch or a conditional cannot change its meaning.
+        Assert.DoesNotContain(operators, static m => m.Name is "op_Equality" or "op_Inequality" or "op_Implicit" or "op_True" or "op_False" or "op_LogicalNot");
+    }
+
+    /// <summary>
     /// Every operator overload computes the scalar C# operator per component: the arithmetic of the
     /// element type (for a half vector that of <see cref="Half"/>, one correctly rounded half operation
     /// each), and for a comparison the scalar comparison, into a bool vector.

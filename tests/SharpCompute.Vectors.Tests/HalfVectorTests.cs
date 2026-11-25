@@ -482,11 +482,21 @@ public class HalfVectorTests
         HalfAssert.Same(H(0.5), Gpu.AsHalf((short)0x3800));
         Assert.True(Gpu.AsShort(NegativeZero) < 0); // the sign bit is the sign of the short
 
-        // Every bit pattern survives, NaN payloads included, and they are BitConverter's.
+        // Every bit pattern of a number survives, and they are BitConverter's. A NaN comes back as a
+        // NaN: its sign and its payload are not compared, here as in the tests against the GPU.
         for (int bits = 0; bits <= ushort.MaxValue; bits++)
         {
             ushort u = (ushort)bits;
             short s = unchecked((short)u);
+
+            if ((u & 0x7C00) == 0x7C00 && (u & 0x03FF) != 0)
+            {
+                Assert.True(Half.IsNaN(Gpu.AsHalf(u)) && Half.IsNaN(Gpu.AsHalf(s)), $"0x{u:X4}");
+                Assert.True(Half.IsNaN(BitConverter.UInt16BitsToHalf(Gpu.AsUShort(Gpu.AsHalf(u)))), $"0x{u:X4}");
+                Assert.True(Half.IsNaN(BitConverter.Int16BitsToHalf(Gpu.AsShort(Gpu.AsHalf(s)))), $"0x{u:X4}");
+                continue;
+            }
+
             Assert.Equal(u, Gpu.AsUShort(Gpu.AsHalf(u)));
             Assert.Equal(s, Gpu.AsShort(Gpu.AsHalf(s)));
             Assert.Equal(u, BitConverter.HalfToUInt16Bits(Gpu.AsHalf(s)));

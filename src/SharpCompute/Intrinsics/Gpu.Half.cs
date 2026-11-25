@@ -9,9 +9,9 @@ public static partial class Gpu
 {
     /// <summary>Reinterprets the 16 bits of <paramref name="x"/> as a half (MSL <c>as_type&lt;half&gt;</c>).</summary>
     /// <remarks>
-    /// No conversion happens, on the GPU either: every bit pattern survives a round trip through
-    /// <see cref="AsUShort(Half)"/>, NaN payloads, <c>-0</c> and subnormals included (measured on an
-    /// Apple M4 Pro). The same as <see cref="BitConverter.UInt16BitsToHalf(ushort)"/>, which a shader
+    /// No conversion happens, on the GPU either: the bits of every number survive a round trip
+    /// through <see cref="AsUShort(Half)"/>, <c>-0</c> and subnormals included, and a NaN stays a NaN
+    /// (measured on an Apple M4 Pro). The same as <see cref="BitConverter.UInt16BitsToHalf(ushort)"/>, which a shader
     /// can call as well.
     /// </remarks>
     [MslIntrinsic("as_type<half>")]

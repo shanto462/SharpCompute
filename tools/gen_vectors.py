@@ -1126,7 +1126,7 @@ def gen_gpu() -> str:
             out.append("    /// <summary>")
             out.append("    /// Picks each component from <paramref name=\"whenTrue\"/> where <paramref name=\"mask\"/> is true and from")
             out.append("    /// <paramref name=\"whenFalse\"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.")
-            out.append("    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).")
+            out.append("    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).")
             out.append("    /// </summary>")
             out.append("    /// <remarks>")
             out.append("    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,")

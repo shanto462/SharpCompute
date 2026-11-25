@@ -11,7 +11,8 @@ namespace SharpCompute.Tests;
 /// <c>Gpu.Radians</c>, <c>Gpu.Degrees</c> and the bit casts, on the GPU against the CPU
 /// (<c>ForCpu</c> of the same shader) and against plain C#. What is compared bit for bit was measured
 /// on an Apple M4 Pro: the exchanges move bits, minima and maxima pick a lane's value, and a sum or
-/// product whose partial results are all halves is the same in any order. Where the order of the
+/// product whose partial results are all halves is the same in any order. Bit for bit has one
+/// allowance throughout: a NaN is any NaN, whatever its sign and payload. Where the order of the
 /// lanes shows (the GPU's is unspecified, the CPU's is lane order) the two agree within the rounding
 /// of the 32 operations of a SIMD group.
 /// </summary>
@@ -22,6 +23,11 @@ public class SimdGroupHalfTests
     private static ushort Bits(Half value) => BitConverter.HalfToUInt16Bits(value);
 
     private static bool IsNaN(ushort bits) => (bits & 0x7C00) == 0x7C00 && (bits & 0x03FF) != 0;
+
+    /// <summary>The same half, where every NaN is the same, whatever its sign and payload.</summary>
+    private static bool Same(ushort expected, ushort actual) => expected == actual || (IsNaN(expected) && IsNaN(actual));
+
+    private static ushort[] Words(Half4 value) => [Bits(value.X), Bits(value.Y), Bits(value.Z), Bits(value.W)];
 
     private static int Ordinal(ushort bits) => (bits & 0x8000) != 0 ? -(bits & 0x7FFF) : bits;
 
@@ -55,7 +61,7 @@ public class SimdGroupHalfTests
     {
         Assert.Equal(gpu.Length, cpu.Length);
         string[] differences = Enumerable.Range(0, gpu.Length)
-            .Where(i => compared(i / perValue % stride) && gpu[i] != cpu[i] && !(IsNaN(gpu[i]) && IsNaN(cpu[i])))
+            .Where(i => compared(i / perValue % stride) && !Same(cpu[i], gpu[i]))
             .Select(i => $"thread {i / perValue / stride}, output {i / perValue % stride}, component {i % perValue}: GPU 0x{gpu[i]:X4}, CPU 0x{cpu[i]:X4}")
             .ToArray();
 
@@ -126,7 +132,8 @@ public class SimdGroupHalfTests
         const int threads = 512;
         Half[] input = Arbitrary(threads, seed: 31);
 
-        // Bit patterns the exchanges must not touch: a NaN with a payload, -0, a subnormal, infinity.
+        // Values the exchanges must carry as they are: -0, a subnormal and an infinity bit for bit, and a
+        // NaN as a NaN (it has a sign and a payload here, which are not asked for on the other side).
         // Each sits in a SIMD group of its own, so that the sums and products of the others stay finite.
         input[32 + 5] = BitConverter.UInt16BitsToHalf(0xFE55);
         input[96 + 7] = BitConverter.UInt16BitsToHalf(0x8000);
@@ -157,7 +164,7 @@ public class SimdGroupHalfTests
 
                 if (output is 2 or 3 or 21 or 22)
                 {
-                    Assert.True(g == c, $"thread {thread}, output {output}: GPU 0x{g:X4}, CPU 0x{c:X4}");
+                    Assert.True(Same(c, g), $"thread {thread}, output {output}: GPU 0x{g:X4}, CPU 0x{c:X4}");
                 }
                 else if (SimdHalfScalars.Sums.Contains(output))
                 {
@@ -181,9 +188,10 @@ public class SimdGroupHalfTests
             }
         }
 
-        // The special values did travel: lane 5 of the second group read by its neighbour, bit for bit.
-        Assert.Equal(0xFE55, cpu[((32 + 4) * SimdHalfScalars.Stride) + 12]);
-        Assert.Equal(0xFE55, gpu[((32 + 4) * SimdHalfScalars.Stride) + 12]);
+        // The special values did travel: lane 5 of the second group read by its neighbour is a NaN on
+        // both sides, and the others arrive bit for bit.
+        Assert.True(IsNaN(cpu[((32 + 4) * SimdHalfScalars.Stride) + 12]));
+        Assert.True(IsNaN(gpu[((32 + 4) * SimdHalfScalars.Stride) + 12]));
         Assert.Equal(0x8000, gpu[((96 + 6) * SimdHalfScalars.Stride) + 12]);
         Assert.Equal(0x0003, gpu[((160 + 8) * SimdHalfScalars.Stride) + 12]);
         Assert.Equal(0xFC00, gpu[((224 + 10) * SimdHalfScalars.Stride) + 12]);
@@ -274,9 +282,21 @@ public class SimdGroupHalfTests
             MemoryMarshal.Cast<Half4, ushort>(gpuScaled.AsSpan()).ToArray(), MemoryMarshal.Cast<Half4, ushort>(cpuScaled.AsSpan()).ToArray(),
             HalfScalesAndBits.ScaledStride, 4, static _ => true, "half radians and degrees");
 
-        // The bit casts are exact for every pattern, NaN payloads included: compared without the NaN allowance.
-        Assert.Equal(cpuBits.ToArray(), gpuBits.ToArray());
-        Assert.Equal(MemoryMarshal.Cast<Half, ushort>(cpuFromBits.AsSpan()).ToArray(), MemoryMarshal.Cast<Half, ushort>(gpuFromBits.AsSpan()).ToArray());
+        // The bit casts: the bits of every number as they are, and a NaN as a NaN, whatever its sign
+        // and payload. The outputs are the bits of halves, so the allowance reads them as halves; the
+        // last one is the sign of the short alone, which for a NaN is not compared.
+        ushort[] gpuWords = gpuBits.ToArray(), cpuWords = cpuBits.ToArray();
+        AssertSameBits(gpuWords, cpuWords, HalfScalesAndBits.BitsStride, 1, static output => output != HalfScalesAndBits.BitsStride - 1, "the bits of a half");
+
+        for (int i = 0; i < count; i++)
+        {
+            int sign = (i * HalfScalesAndBits.BitsStride) + HalfScalesAndBits.BitsStride - 1;
+            Assert.True(gpuWords[sign] == cpuWords[sign] || IsNaN((ushort)i), $"the sign of the short of 0x{i:X4}: GPU {gpuWords[sign]}, CPU {cpuWords[sign]}");
+        }
+
+        AssertSameBits(
+            MemoryMarshal.Cast<Half, ushort>(gpuFromBits.AsSpan()).ToArray(), MemoryMarshal.Cast<Half, ushort>(cpuFromBits.AsSpan()).ToArray(),
+            4, 1, static _ => true, "halves from bits");
 
         // And they are what the definitions say.
         Half radiansPerDegree = (Half)0.017453292519943295f, degreesPerRadian = (Half)57.29577951308232f;
@@ -289,10 +309,23 @@ public class SimdGroupHalfTests
             Half4 x = input[i];
             ushort u = (ushort)i, y = Bits(x.Y);
 
-            Assert.True(Half.IsNaN(x.X) || (x * radiansPerDegree).Equals(scaled[i * 4]) || Half.IsNaN(x.Y), $"radians of {x}");
-            Assert.True(Half.IsNaN(x.X) || (x * degreesPerRadian).Equals(scaled[(i * 4) + 1]) || Half.IsNaN(x.Y), $"degrees of {x}");
-            Assert.Equal(new[] { u, u, y, y, (ushort)(u ^ 0x8000), (ushort)(u >> 15) }, bits.AsSpan(i * HalfScalesAndBits.BitsStride, HalfScalesAndBits.BitsStride).ToArray());
-            Assert.Equal(new[] { u, u, (ushort)(u | 1), (ushort)(u & 0x7FFF) }, fromBits.AsSpan(i * 4, 4).ToArray());
+            Assert.True(Words(x * radiansPerDegree).Zip(Words(scaled[i * 4]), Same).All(static same => same), $"radians of {x}");
+            Assert.True(Words(x * degreesPerRadian).Zip(Words(scaled[(i * 4) + 1]), Same).All(static same => same), $"degrees of {x}");
+
+            // The same allowance on the CPU side: a NaN's bits are a NaN's bits, and its sign is not looked at.
+            ushort[] expectedBits = [u, u, y, y, (ushort)(u ^ 0x8000), (ushort)(u >> 15)];
+            ushort[] expectedHalves = [u, u, (ushort)(u | 1), (ushort)(u & 0x7FFF)];
+
+            for (int k = 0; k < HalfScalesAndBits.BitsStride; k++)
+            {
+                ushort actual = bits[(i * HalfScalesAndBits.BitsStride) + k];
+                Assert.True(k == HalfScalesAndBits.BitsStride - 1 ? actual == expectedBits[k] || IsNaN(u) : Same(expectedBits[k], actual), $"bits output {k} of 0x{u:X4}: 0x{actual:X4}");
+            }
+
+            for (int k = 0; k < 4; k++)
+            {
+                Assert.True(Same(expectedHalves[k], fromBits[(i * 4) + k]), $"half {k} from the bits 0x{u:X4}: 0x{fromBits[(i * 4) + k]:X4}");
+            }
         }
     }
 }

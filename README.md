@@ -1576,9 +1576,10 @@ convert a whole vector, `(Half3)new Float3(...)`.
 A few functions take a scalar `Half`: `Gpu.Radians`, `Gpu.Degrees`, the SIMD-group operations, and
 the bit casts `Gpu.AsUShort(h)`, `Gpu.AsShort(h)` and `Gpu.AsHalf(bits)` (MSL's `as_type`, also
 written `BitConverter.HalfToUInt16Bits`, `HalfToInt16Bits`, `UInt16BitsToHalf` and
-`Int16BitsToHalf`), which keep every bit pattern, NaN payloads included. Where a float or int
-overload exists as well, that one is preferred, so `Gpu.Radians(90)` and a SIMD-group operation on
-a `byte` mean what they meant before. The other math functions take half vectors only.
+`Int16BitsToHalf`), which keep the bits of every number, `-0` and subnormals included, and keep a
+NaN a NaN. Where a float or int overload exists as well, that one is preferred, so
+`Gpu.Radians(90)` and a SIMD-group operation on a `byte` mean what they meant before. The other
+math functions take half vectors only.
 
 **What it buys** depends on what limits the kernel. Each kernel below was written once on `Float4`
 and once on `Half4` (`SharpCompute.Benchmarks --half-precision`; Apple M4 Pro, GPU time from commit

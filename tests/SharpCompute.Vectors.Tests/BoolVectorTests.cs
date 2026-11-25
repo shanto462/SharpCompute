@@ -218,16 +218,19 @@ public class BoolVectorTests
     }
 
     [Fact]
-    public void SelectCopiesBits_NaNPayloadsAndSignedZerosIncluded()
+    public void SelectCopiesItsOperands_SignedZerosAndSubnormalsIncluded_AndANaNStaysANaN()
     {
-        float payload = BitConverter.Int32BitsToSingle(unchecked((int)0xFFC12345));
-        Float2 picked = Gpu.Select(new Bool2(true, false), new Float2(payload, 1), new Float2(2, -0f));
-        Assert.Equal(unchecked((int)0xFFC12345), BitConverter.SingleToInt32Bits(picked.X));
+        // A NaN is any NaN: its sign and its payload are not compared, here as in the tests against the GPU.
+        float nan = BitConverter.Int32BitsToSingle(unchecked((int)0xFFC12345));
+        Float3 picked = Gpu.Select(new Bool3(true, false, true), new Float3(nan, 1, float.Epsilon), new Float3(2, -0f, 3));
+        Assert.True(float.IsNaN(picked.X));
         Assert.Equal(BitConverter.SingleToInt32Bits(-0f), BitConverter.SingleToInt32Bits(picked.Y));
+        Assert.Equal(1, BitConverter.SingleToInt32Bits(picked.Z));
 
-        Half2 half = Gpu.Select(new Bool2(false, true), new Half2((Half)1f, NegativeZeroHalf), new Half2(BitConverter.UInt16BitsToHalf(0x7E55), (Half)2f));
-        Assert.Equal(0x7E55, BitConverter.HalfToUInt16Bits(half.X));
+        Half3 half = Gpu.Select(new Bool3(false, true, false), new Half3((Half)1f, NegativeZeroHalf, (Half)3f), new Half3(BitConverter.UInt16BitsToHalf(0x7E55), (Half)2f, BitConverter.UInt16BitsToHalf(0x8001)));
+        Assert.True(Half.IsNaN(half.X));
         Assert.Equal(0x8000, BitConverter.HalfToUInt16Bits(half.Y));
+        Assert.Equal(0x8001, BitConverter.HalfToUInt16Bits(half.Z));
     }
 
     /// <summary>Every <c>Select</c> overload, for every mask of its width: component i comes from whenTrue exactly when mask component i is true.</summary>
