@@ -1227,7 +1227,7 @@ public sealed class ComputeLabTests
         Assert.Equal(
             Kernel<TentBlurFloat>().Replace(nameof(TentBlurFloat), "X").Replace("packed_float4", "V").Replace("float4(0.0f)", "V0").Replace("float4", "V").Replace("0.0f", "0").Replace("float", "S"),
             Kernel<TentBlurHalf>().Replace(nameof(TentBlurHalf), "X").Replace("packed_half4", "V").Replace("half4(half(0.0f))", "V0").Replace("half4", "V").Replace("half(0.0f)", "0").Replace("half", "S"));
-        Assert.Contains("sum += image[row + dx] * w;", Kernel<TentBlurHalf>());
+        Assert.Contains("sum += image[int(uint(row) + uint(dx))] * w;", Kernel<TentBlurHalf>());
 
         static ShaderCompileOptions Options<T>()
             where T : struct, IComputeShaderDescriptor<T> => T.CompileOptions;

@@ -242,7 +242,7 @@ public class HalfBoolVectorTests
             half3 packed = metal::simd_product(half3(halves[0])) + metal::simd_shuffle_xor(half3(__c.captured), ushort(16));
             bool same = __ms_wave_all_equal(h);
             same = same && __ms_wave_all_equal(half3(v.xyz));
-            int count = metal::simd_sum(7) + metal::simd_max(int(__c.small));
+            int count = int(uint(metal::simd_sum(7)) + uint(metal::simd_max(int(__c.small))));
             buffer[0] = float(h) + float(v.x) + float(packed.y) + float(count) + (same ? 1.0f : 0.0f);
             """,
             """
@@ -468,7 +468,7 @@ public class HalfBoolVectorTests
             half4 weight = weights[i];
             tile[int(__gtid.x)] = half4(color, ::Luminance(color, __c)) * __c.tint;
             metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-            half4 shared = tile[(int(__gtid.x) + 1) & 15];
+            half4 shared = tile[(int(__gtid.x + 1u)) & 15];
             color = ::Curve(color * weight.xyz + shared.xyz, ::Knee) * half(__c.gain);
             colors[i] = color;
             colors[i].x = shared.w;
@@ -584,7 +584,7 @@ public class HalfBoolVectorTests
             m = f >= __c.threshold;
             m = h < h + half(1);
             m = half(0.5f) <= h;
-            m = i > i - 1;
+            m = i > int3(uint3(i) - 1u);
             m = i >= 2;
             m = u < 3u;
             m = 1u <= u;
@@ -823,14 +823,14 @@ public class HalfBoolVectorTests
         Assert.Equal(
             """
             int i = int(__tid.x);
-            bool3 a = (floats[i] < floats[i + 1]) | (floats[i] >= __c.limit) | (__c.limit > 1.0f);
-            bool4 b = (halves[i] <= halves[i + 1]) & (halves[i] > __c.halfLimit);
-            bool2 c = (ints[i] > ints[i + 1]) ^ (ints[i] <= 3);
-            bool3 d = (uints[i] < uints[i + 1]) | (2u >= uints[i]);
+            bool3 a = (floats[i] < floats[int(uint(i) + 1u)]) | (floats[i] >= __c.limit) | (__c.limit > 1.0f);
+            bool4 b = (halves[i] <= halves[int(uint(i) + 1u)]) & (halves[i] > __c.halfLimit);
+            bool2 c = (ints[i] > ints[int(uint(i) + 1u)]) ^ (ints[i] <= 3);
+            bool3 d = (uints[i] < uints[int(uint(i) + 1u)]) | (2u >= uints[i]);
             bool3 e = (pairs[i].Left < pairs[i].Right) & (float3(pairs[i].Left) == float3(floats[i]));
             floats[i] = metal::select(__c.limit, floats[i], a | d | e);
             halves[i] = metal::select(__c.halfLimit, halves[i], b);
-            ints[i] = metal::select(ints[i + 1], ints[i], c);
+            ints[i] = metal::select(ints[int(uint(i) + 1u)], ints[i], c);
             pairs[i].Left = metal::select(pairs[i].Left, pairs[i].Right, (float3(pairs[i].Right) != 0.0f));
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);

@@ -66,8 +66,8 @@ public class ThreadgroupAtomicTests
             int i = int(__gtid.x);
             int a = metal::atomic_fetch_add_explicit((threadgroup metal::atomic_int*)&(tile[i]), 1, metal::memory_order_relaxed);
             int b = metal::atomic_fetch_sub_explicit((threadgroup metal::atomic_int*)&(tile[i]), a, metal::memory_order_relaxed);
-            int c = metal::atomic_fetch_min_explicit((threadgroup metal::atomic_int*)&(tile[i + 1]), b, metal::memory_order_relaxed);
-            int d = metal::atomic_fetch_max_explicit((threadgroup metal::atomic_int*)&(tile[i + 1]), c, metal::memory_order_relaxed);
+            int c = metal::atomic_fetch_min_explicit((threadgroup metal::atomic_int*)&(tile[int(uint(i) + 1u)]), b, metal::memory_order_relaxed);
+            int d = metal::atomic_fetch_max_explicit((threadgroup metal::atomic_int*)&(tile[int(uint(i) + 1u)]), c, metal::memory_order_relaxed);
             int e = metal::atomic_fetch_and_explicit((threadgroup metal::atomic_int*)&(tile[2]), d, metal::memory_order_relaxed);
             int f = metal::atomic_fetch_or_explicit((threadgroup metal::atomic_int*)&(tile[2]), e, metal::memory_order_relaxed);
             int g = metal::atomic_fetch_xor_explicit((threadgroup metal::atomic_int*)&(tile[2]), f, metal::memory_order_relaxed);
@@ -130,9 +130,9 @@ public class ThreadgroupAtomicTests
 
         Assert.Equal(
             """
-            int seen = __ms_atomic_compare_exchange((threadgroup metal::atomic_int*)&(tile[0]), 0, int(__gtid.x) + 1);
+            int seen = __ms_atomic_compare_exchange((threadgroup metal::atomic_int*)&(tile[0]), 0, int(__gtid.x + 1u));
             uint other = __ms_atomic_compare_exchange((threadgroup metal::atomic_uint*)&(bits[0]), 7u, 9u);
-            output[int(__tid.x)] = seen + int(other);
+            output[int(__tid.x)] = int(uint(seen) + other);
             """.ReplaceLineEndings("\n"),
             Statements(descriptor));
 
@@ -156,7 +156,7 @@ public class ThreadgroupAtomicTests
         AssertKernel(
             """
             int bin = int(__tid.x) & 255;
-            metal::atomic_fetch_add_explicit((threadgroup metal::atomic_int*)&(tile[(bin * 2 + __c.seed) % 64]), bin - 1, metal::memory_order_relaxed);
+            metal::atomic_fetch_add_explicit((threadgroup metal::atomic_int*)&(tile[(int(uint(bin) * 2u + uint(__c.seed))) % 64]), int(uint(bin) - 1u), metal::memory_order_relaxed);
             """,
             """
             int bin = ThreadIds.X & 255;
@@ -252,14 +252,14 @@ public class ThreadgroupAtomicTests
         Assert.Equal(
             """
             int a = metal::atomic_fetch_add_explicit((threadgroup metal::atomic_int*)&(tile[i]), 1, metal::memory_order_relaxed);
-            a += metal::atomic_fetch_sub_explicit((threadgroup metal::atomic_int*)&(tile[i]), a, metal::memory_order_relaxed);
-            a += metal::atomic_fetch_min_explicit((threadgroup metal::atomic_int*)&(tile[i + 1]), a, metal::memory_order_relaxed);
-            a += metal::atomic_fetch_max_explicit((threadgroup metal::atomic_int*)&(tile[i + 1]), a, metal::memory_order_relaxed);
-            a += metal::atomic_fetch_and_explicit((threadgroup metal::atomic_int*)&(tile[2]), a, metal::memory_order_relaxed);
-            a += metal::atomic_fetch_or_explicit((threadgroup metal::atomic_int*)&(tile[2]), a, metal::memory_order_relaxed);
-            a += metal::atomic_fetch_xor_explicit((threadgroup metal::atomic_int*)&(tile[2]), a, metal::memory_order_relaxed);
-            a += metal::atomic_exchange_explicit((threadgroup metal::atomic_int*)&(tile[3]), a, metal::memory_order_relaxed);
-            return a + __ms_atomic_compare_exchange((threadgroup metal::atomic_int*)&(tile[4]), 0, a);
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_fetch_sub_explicit((threadgroup metal::atomic_int*)&(tile[i]), a, metal::memory_order_relaxed));
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_fetch_min_explicit((threadgroup metal::atomic_int*)&(tile[int(uint(i) + 1u)]), a, metal::memory_order_relaxed));
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_fetch_max_explicit((threadgroup metal::atomic_int*)&(tile[int(uint(i) + 1u)]), a, metal::memory_order_relaxed));
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_fetch_and_explicit((threadgroup metal::atomic_int*)&(tile[2]), a, metal::memory_order_relaxed));
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_fetch_or_explicit((threadgroup metal::atomic_int*)&(tile[2]), a, metal::memory_order_relaxed));
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_fetch_xor_explicit((threadgroup metal::atomic_int*)&(tile[2]), a, metal::memory_order_relaxed));
+            reinterpret_cast<thread uint&>(a) += uint(metal::atomic_exchange_explicit((threadgroup metal::atomic_int*)&(tile[3]), a, metal::memory_order_relaxed));
+            return int(uint(a) + uint(__ms_atomic_compare_exchange((threadgroup metal::atomic_int*)&(tile[4]), 0, a)));
             """.ReplaceLineEndings("\n"),
             descriptor.FunctionBody("static int Ints(int i, threadgroup int* tile)"));
 
@@ -285,7 +285,7 @@ public class ThreadgroupAtomicTests
         Assert.Equal(
             """
             int ints = ::Ints(int(__gtid.x), tile);
-            output[int(__tid.x)] = ints + int(::UInts(uint(int(__gtid.x)), bits, __c)) + ::Claim(int(__gtid.x), tile);
+            output[int(__tid.x)] = int(uint(ints) + ::UInts(uint(int(__gtid.x)), bits, __c) + uint(::Claim(int(__gtid.x), tile)));
             """.ReplaceLineEndings("\n").TrimEnd('\n'),
             Statements(descriptor));
     }

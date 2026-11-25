@@ -387,20 +387,20 @@ public class DeclarationTests
 
             static int Flat(uint3 __tid, uint3 __grid)
             {
-                return int(__tid.y) * int(__grid.x) + int(__tid.x);
+                return int(__tid.y * __grid.x + __tid.x);
             }
 
             static int Index(int offset, uint3 __tid, uint3 __grid)
             {
-                return ::Flat(__tid, __grid) + offset;
+                return int(uint(::Flat(__tid, __grid)) + uint(offset));
             }
 
             static float Weight(device float* values, int index, float scale)
             {
                 float sum = 0.0f;
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 3; i = int(uint(i) + 1u))
                 {
-                    sum += values[index + i] * scale;
+                    sum += values[int(uint(index) + uint(i))] * scale;
                 }
                 return sum;
             }
