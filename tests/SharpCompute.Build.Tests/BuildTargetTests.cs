@@ -100,6 +100,20 @@ public class BuildTargetTests
         project.AssertRuns(Precompiled);
     }
 
+    [Fact]
+    public void WithoutTheBuildTool_TheBuildSucceedsWithAMessage()
+    {
+        using FixtureProject project = new();
+        string output = project.Build("-p:SharpComputeBuildToolPath=/nonexistent/SharpCompute.Build.dll");
+
+        Assert.Contains("SharpCompute: Fixture.metallib was not built, because the build tool was not found (/nonexistent/SharpCompute.Build.dll)", output);
+        Assert.Contains("0 Warning(s)", output);
+        Assert.Contains("0 Error(s)", output);
+        Assert.Empty(project.Libraries(project.Output));
+
+        project.AssertRuns(CompiledAtRunTime);
+    }
+
     [ToolchainFact]
     public void TurnedOff_NothingIsPrecompiled_AndTheLibrariesOfAnEarlierBuildAreRemoved()
     {

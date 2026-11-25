@@ -112,6 +112,10 @@ here as an original game built on SharpCompute.
   buffers and textures (private storage included), `NativeHandle` hands SharpCompute's objects to
   other Metal code, and `ComputeContext.EncodeInto` puts compute passes into the app's own command
   buffer, between its render passes. See [Interop with existing Metal code](#interop-with-existing-metal-code).
+- **Precompiled shaders.** With one property in the project, the shaders are compiled at build time
+  into a Metal library next to the assembly, and the first frame no longer waits for the MSL
+  compiler; without the Metal toolchain, or for a shader the library does not hold, the runtime
+  compiles from source as before. See [Precompiled shaders](#precompiled-shaders).
 - **CPU execution and CPU+GPU split.** The same shader also runs as C# on all CPU cores
   (`device.ForCpu`), or split between the CPU and the GPU in one dispatch (`device.ForSplit`).
 - **Correct by default.** Shaders compile with IEEE-safe math and precise functions (a shader opts
@@ -314,6 +318,10 @@ save images):
   <ProjectReference Include="path/to/src/SharpCompute.Imaging/SharpCompute.Imaging.csproj" />
 </ItemGroup>
 ```
+
+To have the shaders compiled when the project is built instead of when they are first used, add
+`<SharpComputePrecompileShaders>true</SharpComputePrecompileShaders>` and import
+`src/SharpCompute.Build/SharpCompute.Build.targets`: see [Precompiled shaders](#precompiled-shaders).
 
 A pixel shader, rendered into a texture:
 
@@ -1066,9 +1074,70 @@ await device.PrepareAsync(ShaderReference.Of<Blur>(), ShaderReference.Of<Sharpen
 device.Prepare<Blur>(PrepareOptions.IncludeSplit);                       // also the pipeline ForSplit runs on the GPU
 ```
 
-For a large shader macOS has not seen before (a raymarched scene of about 300 lines), the compile is
-about 80 ms: the first frame takes 88 ms without `Prepare` and 12 ms with it. Once the system shader
-cache has the shader, the compile is 2 to 3 ms.
+The first time an application runs on a machine, the first frame of a large shader (a raymarched
+scene of about 300 lines) takes 245 ms without `Prepare` and 11 ms with it, the 233 ms having moved
+into `Prepare`. On later launches macOS has the compiled shader in its cache and the first frame
+takes 8 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
+
+### Precompiled shaders
+
+A shader becomes GPU code in two steps: its MSL is compiled to Metal's intermediate code, and the
+GPU driver compiles that to machine code when the pipeline is created. Both happen the first time
+the shader is used. The first step can be done when the project is built:
+
+```xml
+<PropertyGroup>
+  <SharpComputePrecompileShaders>true</SharpComputePrecompileShaders>
+</PropertyGroup>
+<Import Project="path/to/src/SharpCompute.Build/SharpCompute.Build.targets" />
+```
+
+After the C# compiler has run, the build reads the shaders out of the assembly's metadata, compiles
+each one with the Xcode Metal Toolchain (`xcrun metal`, with the options the runtime would use for
+that shader, its `[ShaderOptions]` included) and links them into `<AssemblyName>.metallib`. The file
+is copied to the output folder with the assembly, to the output of every project that references
+it, and into `dotnet publish` (also single-file, self-contained and Native AOT, where it sits next
+to the executable). At run time nothing changes in your code: a dispatch or a `Prepare` takes the
+shader's kernel from the library instead of compiling its MSL.
+
+- **It falls back by itself.** A kernel is stored under a name that includes a hash of its MSL and
+  compile options, and the runtime asks for the name of the shader it has. A library from another
+  build, a shader that is not in it, a missing file, a hand-written descriptor: all of those are
+  compiled from source at run time, as without the property. The results are the same bits either way.
+- **The build does not depend on the toolchain.** Without it (`xcodebuild -downloadComponent
+  MetalToolchain` installs it) the build prints a message, produces no library and succeeds. A
+  shader the offline compiler rejects is reported and left to run time.
+- **It is incremental.** Only shaders whose MSL or options changed are compiled, and a build in
+  which the assembly did not change does not start the tool. On an M4 Pro the 15 shaders of the
+  gallery's assembly take 0.5 s to precompile and the 130 of the test project 2.1 s (medians of 3);
+  their libraries are 142 KB and 805 KB.
+- **`device.GetPipelineOrigin<T>()`** says where a shader's pipeline came from
+  (`Precompiled`, `CompiledAtRunTime`, or `None` before its first use), for a status line or a log.
+  Setting the `AppContext` switch `SharpCompute.UsePrecompiledShaders` to false before a device is
+  created makes that device compile everything from source.
+
+What it saves is the first step, on the first launch. First frames at 320 × 180 on an M4 Pro
+(macOS 27.2, median of 7 fresh processes; a first launch is a run from an application bundle macOS
+has never seen, so with an empty shader cache):
+
+| | First launch on a machine | Later launches |
+|---|---|---|
+| RaymarchedGarden, compiled at run time | 245 ms | 8 ms |
+| RaymarchedGarden, compiled at run time, after `Prepare` (233 ms) | 11 ms | 6 ms |
+| RaymarchedGarden, precompiled | 184 ms | 9 ms |
+| RaymarchedGarden, precompiled, after `Prepare` (177 ms) | 12 ms | 5 ms |
+| The gallery's 13 shaders, compiled at run time | 1380 ms | 44 ms |
+| The gallery's 13 shaders, precompiled | 712 ms | 43 ms |
+
+A steady frame is 2 ms for the one shader and 12 ms for the thirteen. Precompiling takes 60 ms off
+the first frame of the large shader and halves the wait for the gallery; what remains is the GPU
+driver compiling for this machine, which macOS does once and caches, and which `Prepare` moves off
+the first frame. On later launches the cache already holds the result, and precompiling makes no
+difference. (`SharpCompute.Benchmarks --first-frames` prints the full table.)
+
+Every sample in this repository is built this way, and ComputeLab's FastMath page shows it:
+
+![ComputeLab's FastMath page: a field of a million values computed by a kernel of sines, cosines, exponentials and powers on the left, its error against the CPU on the right, and under the field the lines "default: IEEE-safe, precise functions" and "kernel: precompiled"](docs/screenshots/computelab-fastmath.png)
 
 ### On the CPU, or on both
 
@@ -1426,6 +1495,11 @@ dotnet build SharpCompute.slnx
 dotnet test SharpCompute.slnx
 ```
 
+The samples, the tests and the benchmarks precompile their shaders when the Xcode Metal Toolchain
+is installed, and compile them at run time when it is not; the tests that need a precompiled
+library are then skipped. `-p:SharpComputePrecompileShaders=false` builds and tests everything
+without precompiled shaders.
+
 The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 (`python3 -I tools/gen_vectors.py --check` verifies they're up to date).
 
@@ -1473,8 +1547,10 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
   Transcendental functions agree with the CPU to within a few ULP.
 - An indirect dispatch runs whole threadgroups, so `DispatchSize` is a multiple of the threadgroup
-  size and the shader has to check its index against the real count. `Prepare` compiles at run
-  time; shaders are not precompiled into a `.metallib` at build time.
+  size and the shader has to check its index against the real count.
+- A precompiled library holds Metal's intermediate code, not machine code: the GPU driver still
+  compiles each shader the first time it is used on a machine (about three quarters of that first
+  use for a large shader). Building the library needs the Xcode Metal Toolchain on the build machine.
 
 ## Roadmap
 

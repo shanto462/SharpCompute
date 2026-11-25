@@ -1124,6 +1124,45 @@ public sealed class ComputeLabTests
         Assert.Contains(text, line => line.Contains(FormattableString.Invariant($"GPU.ATOMICMAX: PIXEL ({winner % IntegersPage.Size}, {winner / IntegersPage.Size})"), StringComparison.Ordinal));
     }
 
+    [MetalFact]
+    public void FastMathAndIndirect_SayWhereTheirKernelCameFrom()
+    {
+        // The lab's shaders are precompiled when it is built, and its library is copied here with it;
+        // without the Metal toolchain there is none, and the pages say so instead.
+        string library = Path.Combine(Path.GetDirectoryName(typeof(FastMathPage).Assembly.Location)!, "SharpCompute.Samples.ComputeLab.metallib");
+        PipelineOrigin expected = File.Exists(library) ? PipelineOrigin.Precompiled : PipelineOrigin.CompiledAtRunTime;
+        string text = expected == PipelineOrigin.Precompiled ? "kernel: precompiled" : "kernel: compiled at run time";
+
+        using GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
+        using LabCanvas canvas = new(device);
+        using FastMathPage fastMath = new(device);
+        using IndirectPage indirect = new(device);
+
+        foreach (ILabPage page in new ILabPage[] { fastMath, indirect })
+        {
+            for (int variant = 0; variant < page.Variants.Count; variant++)
+            {
+                page.Variant = variant;
+                page.Compute(Frame);
+
+                Assert.Equal(expected, page.KernelOrigin);
+                Assert.Equal(text, LabView.Describe(page.KernelOrigin));
+
+                page.Draw(canvas, Frame);
+                Assert.Contains(canvas.TextLines(), line => line.Contains(text, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        // Fast math is an option of the precompiled kernel too: both variants came out of the library.
+        Assert.Equal(expected, device.GetPipelineOrigin<WaveField>());
+        Assert.Equal(expected, device.GetPipelineOrigin<WaveFieldFast>());
+
+        // A page that does not report an origin shows nothing.
+        using BitsPage bits = new(device);
+        Assert.Equal(PipelineOrigin.None, ((ILabPage)bits).KernelOrigin);
+        Assert.Equal(string.Empty, LabView.Describe(PipelineOrigin.None));
+    }
+
     [Fact]
     public void Indirect_ShadeIsNeverZero_SoZeroMarksAnElementThatWasNotWritten()
     {

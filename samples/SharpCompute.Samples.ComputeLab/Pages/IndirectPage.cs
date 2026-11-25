@@ -131,6 +131,9 @@ public sealed class IndirectPage : ILabPage
     /// <summary>The threadgroup counts the GPU wrote for the indirect follow-up pass in the last <see cref="Compute"/>.</summary>
     public DispatchArguments Arguments { get; private set; }
 
+    /// <summary>The pass that does the survivors' work: the kernel an indirect dispatch runs is precompiled like any other.</summary>
+    public PipelineOrigin KernelOrigin => Variant == 2 ? _device.GetPipelineOrigin<ShadeInPlace>() : _device.GetPipelineOrigin<ShadeSurvivors>();
+
     /// <summary>How many threads the shown variant's pass that does the survivors' work ran in the last <see cref="Compute"/>.</summary>
     public int ThreadsDispatched => Variant == 0 ? (int)Arguments.ThreadGroupsX * ShadeSurvivors.GroupSize : Count;
 
@@ -284,6 +287,7 @@ public sealed class IndirectPage : ILabPage
         canvas.Label(DrawIndirect.PanelX(0), below, Invariant($"gold: survives (value >= {Cutoff * 100 / 65535}%)"), TextColor.Accent);
         canvas.Label(DrawIndirect.PanelX(1), labelY, "2. The survivors' work, in place");
         canvas.Label(DrawIndirect.PanelX(1), below, "written only where gold is", TextColor.Cool);
+        canvas.Label(DrawIndirect.PanelX(1), below + 16, LabView.Describe(KernelOrigin), KernelOrigin == PipelineOrigin.Precompiled ? TextColor.Good : TextColor.Dim);
         canvas.Label(DrawIndirect.PanelX(2), labelY, "3. The threads that did it");
         canvas.Label(DrawIndirect.PanelX(2), below, "cyan: worked   dark: never ran", TextColor.Dim);
         canvas.Label(DrawIndirect.PanelX(2), below + 16, "red: ran, stopped at its check", TextColor.Dim);

@@ -103,7 +103,7 @@ internal static class ShaderPrecompiler
         if (records.Count == 0)
         {
             DeleteDirectory(request.IntermediateDirectory);
-            File.Delete(request.OutputPath);
+            DeleteFile(request.OutputPath);
             WriteState(request, []);
             return new PrecompileResult(PrecompileStatus.NoShaders, 0, 0, 0, 0);
         }
@@ -145,7 +145,7 @@ internal static class ShaderPrecompiler
                 $"SharpCompute: {libraryName} was not built, because the Metal toolchain is not available ({problem}). " +
                 "Shaders will be compiled at run time. Install it with 'xcodebuild -downloadComponent MetalToolchain', " +
                 "or set SharpComputePrecompileShaders to false.");
-            File.Delete(request.OutputPath);
+            DeleteFile(request.OutputPath);
             DeleteState(request);
             return new PrecompileResult(PrecompileStatus.ToolchainUnavailable, records.Count, 0, 0, 0);
         }
@@ -157,7 +157,7 @@ internal static class ShaderPrecompiler
         if (compiled.Length == 0)
         {
             request.Log($"SharpCompute: {libraryName} was not built: none of the assembly's {stems.Length} shaders compiled. They will be compiled at run time.");
-            File.Delete(request.OutputPath);
+            DeleteFile(request.OutputPath);
             WriteState(request, []);
             return new PrecompileResult(PrecompileStatus.Failed, records.Count, 0, 0, rejected);
         }
@@ -172,7 +172,7 @@ internal static class ShaderPrecompiler
         {
             request.Log($"SharpCompute: {libraryName} was not built: the Metal linker failed. Shaders will be compiled at run time.\n{link.Output}");
             File.Delete(temporary);
-            File.Delete(request.OutputPath);
+            DeleteFile(request.OutputPath);
             DeleteState(request);
             return new PrecompileResult(PrecompileStatus.Failed, records.Count, compiledNow, reused.Length, rejected);
         }
@@ -249,6 +249,15 @@ internal static class ShaderPrecompiler
         }
     }
 
+    /// <summary><see cref="File.Delete"/>, which throws when the file's directory is not there, for a file that need not be.</summary>
+    private static void DeleteFile(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
     private static void DeleteDirectory(string directory)
     {
         if (Directory.Exists(directory))
@@ -275,7 +284,7 @@ internal static class ShaderPrecompiler
     {
         if (request.StatePath is { } path)
         {
-            File.Delete(path);
+            DeleteFile(path);
         }
     }
 }

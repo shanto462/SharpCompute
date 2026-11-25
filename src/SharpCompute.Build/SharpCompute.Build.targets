@@ -64,7 +64,12 @@
       <_SharpComputeDotNet Condition="'$(_SharpComputeDotNet)' == ''">dotnet</_SharpComputeDotNet>
       <_SharpComputeIntermediate>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)'))</_SharpComputeIntermediate>
     </PropertyGroup>
-    <Exec Command="&quot;$(_SharpComputeDotNet)&quot; exec &quot;@(SharpComputeBuildTool->'%(FullPath)')&quot; --assembly &quot;@(IntermediateAssembly->'%(FullPath)')&quot; --output &quot;$(_SharpComputeIntermediate)$(AssemblyName).metallib&quot; --intermediate &quot;$(_SharpComputeIntermediate)sharpcompute-shaders&quot; --state &quot;$(_SharpComputeIntermediate)$(AssemblyName).metallib.state&quot; --xcrun &quot;$(SharpComputeXcrunPath)&quot; --parallelism &quot;$(SharpComputePrecompileMaxParallelism)&quot;"
+    <!-- A tool that is not there (its project was not built) is no reason to fail either: the state file is not written, so the next build tries again. -->
+    <Message Importance="high"
+             Condition="!Exists('@(SharpComputeBuildTool->'%(FullPath)')')"
+             Text="SharpCompute: $(AssemblyName).metallib was not built, because the build tool was not found (@(SharpComputeBuildTool->'%(FullPath)')). Shaders will be compiled at run time." />
+    <Exec Condition="Exists('@(SharpComputeBuildTool->'%(FullPath)')')"
+          Command="&quot;$(_SharpComputeDotNet)&quot; exec &quot;@(SharpComputeBuildTool->'%(FullPath)')&quot; --assembly &quot;@(IntermediateAssembly->'%(FullPath)')&quot; --output &quot;$(_SharpComputeIntermediate)$(AssemblyName).metallib&quot; --intermediate &quot;$(_SharpComputeIntermediate)sharpcompute-shaders&quot; --state &quot;$(_SharpComputeIntermediate)$(AssemblyName).metallib.state&quot; --xcrun &quot;$(SharpComputeXcrunPath)&quot; --parallelism &quot;$(SharpComputePrecompileMaxParallelism)&quot;"
           StandardOutputImportance="High"
           IgnoreStandardErrorWarningFormat="true" />
   </Target>
@@ -72,9 +77,10 @@
   <!--
     Adds the library, when there is one, to what the project copies to its output and publish
     directories. Those lists are also what a referencing project asks this one for, so the library
-    follows the assembly wherever the assembly is copied. It hooks the three places a list is read
-    because a publish with no-build, or a referencing project that does not build this one, reads
-    them without ever compiling; a target runs once, at whichever comes first. The intermediate
+    follows the assembly wherever the assembly is copied. It runs after the step above and, because
+    a publish with no-build or a referencing project that does not build this one reads the lists
+    without ever compiling, also ahead of the two targets that produce them; a target runs once, at
+    whichever comes first. The intermediate
     files are recorded here, in a target that runs every time, so that an incremental build (which
     skips the target above) does not take them for leftovers and `dotnet clean` removes them.
   -->
