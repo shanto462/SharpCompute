@@ -35,8 +35,8 @@ public static class Program
                     --fps (default 12) as <dir>/<page>-0001.png, ... (the same pixels every run)
         --list      the pages, by topic: atomics (Histogram, Histogram: privatised, Compaction), shared
                     memory (Reduction, PrefixSum, MatMul, Blur), local arrays (LocalArrays), SIMD groups
-                    (SIMD reduction, SIMD compaction, SIMD shuffle), dispatch (Indirect) and math (Bits,
-                    FastMath, Small and wide integers, Half precision)
+                    (SIMD reduction, SIMD compaction, SIMD shuffle, Matrix units), dispatch (Indirect) and
+                    math (Bits, FastMath, Small and wide integers, Half precision)
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
