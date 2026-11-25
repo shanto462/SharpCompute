@@ -123,7 +123,8 @@ public readonly partial struct Depth(ReadWriteBuffer<float> depth, ReadOnlyBuffe
   from the `readonly` keyword, so structs need no annotations.
 - **The usual rules apply.** Recursion is `SCG0014`, a local function that captures is `SCG0025`, and
   `counter.Next() + counter.Next()` is `SCG0021` (a method that modifies its struct writes it, and MSL
-  does not say which call comes first; see [Evaluation order](shader-language.md#evaluation-order)).
+  does not say which call comes first), as is `data[0] += Bump(0)` when `Bump` writes `data` (what a
+  helper does to buffers counts at its call; see [Evaluation order](shader-language.md#evaluation-order)).
 - **Two more errors.** Assigning a computed property is `SCG0045` (only getters are translated), and
   a generic method called with a type MSL does not have, such as `double`, is `SCG0046` at the call.
 - **Not translated:** property setters with a body, object initializers (`new T { ... }`), `with`

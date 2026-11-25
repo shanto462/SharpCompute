@@ -138,9 +138,10 @@ internal static class SimdGroupInfo
 internal sealed partial class MslTranslator
 {
     /// <summary>
-    /// The SIMD-group call sites translated so far, by method name and the call site the C# compiler
-    /// passes to the CPU implementation (the file and line of the call): two that share all three
-    /// cannot be told apart when the shader runs on the CPU.
+    /// The SIMD-group call sites translated so far, by method (with its type: <c>Gpu.WaveActiveSum</c>,
+    /// <c>WaveMatrix8x8.Load</c>) and the call site the C# compiler passes to the CPU implementation (the
+    /// file and line of the call): two that share all three cannot be told apart when the shader runs
+    /// on the CPU.
     /// </summary>
     private readonly Dictionary<(string Method, string File, int Line), Location> _simdGroupCallSites = new();
 
@@ -192,7 +193,7 @@ internal sealed partial class MslTranslator
             arguments.Add(argument);
         }
 
-        CheckCallSite(operation, definition, callerFile, callerLine);
+        CheckCallSite(operation, definition, callerFile, callerLine, definition.ContainingType.Name + "." + definition.Name);
 
         UsesSimdGroups = true;
 
@@ -288,7 +289,7 @@ internal sealed partial class MslTranslator
     /// Reports SCG0035 when another call of the same operation has the same call site. The file and
     /// line are read from the arguments the C# compiler filled in, so this is exactly what the CPU would see.
     /// </summary>
-    private void CheckCallSite(IInvocationOperation operation, IMethodSymbol definition, IArgumentOperation? callerFile, IArgumentOperation? callerLine)
+    private void CheckCallSite(IInvocationOperation operation, IMethodSymbol definition, IArgumentOperation? callerFile, IArgumentOperation? callerLine, string member)
     {
         if (callerLine?.Value.ConstantValue is not { HasValue: true, Value: int line })
         {
@@ -298,16 +299,16 @@ internal sealed partial class MslTranslator
         string file = callerFile?.Value.ConstantValue is { HasValue: true, Value: string path } ? path : string.Empty;
         Location location = operation.Syntax.GetLocation();
 
-        if (!_simdGroupCallSites.TryGetValue((definition.Name, file, line), out Location? first))
+        if (!_simdGroupCallSites.TryGetValue((member, file, line), out Location? first))
         {
-            _simdGroupCallSites.Add((definition.Name, file, line), location);
+            _simdGroupCallSites.Add((member, file, line), location);
         }
         else if (first != location)
         {
             _diagnostics.Report(
                 DiagnosticDescriptors.SimdGroupCallSitesShareLine,
                 location,
-                definition.ContainingType.Name + "." + definition.Name,
+                member,
                 line.ToString(CultureInfo.InvariantCulture));
         }
     }

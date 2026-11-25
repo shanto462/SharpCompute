@@ -53,6 +53,41 @@ internal static class MslNames
     /// </summary>
     public const string FloatToLong = "__ms_float_to_long";
 
+    /// <summary>
+    /// The prelude's <c>System.Math</c> / <c>MathF</c> <c>Min</c>, <c>Max</c> (floats) and <c>Clamp</c>
+    /// (every scalar type), with .NET's semantics, which <c>ForCpu</c> runs: a NaN operand gives NaN
+    /// (<c>metal::max(NaN, 1)</c> is 1), <c>-0</c> orders below <c>+0</c>, and <c>Clamp</c> is
+    /// <c>x &lt; lo ? lo : x &gt; hi ? hi : x</c>, which is also what it returns for inverted bounds,
+    /// where .NET throws. <c>Gpu.Min</c>, <c>Max</c> and <c>Clamp</c> stay <c>metal::min/max/clamp</c>.
+    /// </summary>
+    public const string MathMin = "__ms_math_min";
+    public const string MathMax = "__ms_math_max";
+    public const string MathClamp = "__ms_math_clamp";
+
+    /// <summary><c>float.Clamp</c>, which .NET defines as <c>Min(Max(x, lo), hi)</c> with its NaN-propagating Min and Max (unlike <c>Math.Clamp</c>).</summary>
+    public const string NumberClamp = "__ms_number_clamp";
+
+    /// <summary>The <c>%</c> of two scalar halves, with .NET's sign for a zero remainder (see <c>FloatRemainder</c>).</summary>
+    public const string HalfRemainder = "__ms_half_rem";
+
+    /// <summary><c>float.Lerp</c>: .NET's <c>MultiplyAddEstimate(a, 1 - t, b * t)</c>, a fused multiply-add on Apple silicon, not <c>metal::mix</c>.</summary>
+    public const string NumberLerp = "__ms_number_lerp";
+
+    /// <summary><c>MathF.ILogB</c>, which is <c>int.MaxValue</c> for NaN in .NET (<c>metal::ilogb</c> returns <c>int.MinValue</c>).</summary>
+    public const string ILogB = "__ms_ilogb";
+
+    /// <summary>
+    /// The prelude's negation of an integer vector, overloaded per type, which stands for <c>-v</c>:
+    /// the Metal compiler miscompiles that operator (see <c>MslTranslator.VectorNegation</c>).
+    /// </summary>
+    public const string Negate = "__ms_neg";
+
+    /// <summary>
+    /// The prelude's lane-by-lane product of two <c>int</c> or <c>uint</c> vectors, which stands for
+    /// <c>a * b</c> where one operand is a constant with a lane of -1 (see <c>MslTranslator.VectorNegation</c>).
+    /// </summary>
+    public const string Multiply = "__ms_mul";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";

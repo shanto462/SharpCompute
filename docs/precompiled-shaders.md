@@ -94,4 +94,4 @@ whether their kernel was precompiled when the lab was built or compiled at run t
 
 ![ComputeLab's FastMath page: a field of a million values computed by a kernel of sines, cosines, exponentials and powers on the left, its error against the CPU on the right, and under the field the lines "default: IEEE-safe, precise functions" and "kernel: precompiled"](screenshots/computelab-fastmath.png)
 
-To build the repository without precompiled shaders, see [Building and testing](building.md).
+To build the repository without precompiled shaders, see [Building from source](building.md).

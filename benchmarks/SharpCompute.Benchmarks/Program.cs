@@ -20,7 +20,12 @@ using SharpCompute.Benchmarks.Shaders;
 //   --first-frame garden|kernels none|prepare source|precompiled
 //                       one such first frame in this fresh process (--first-frames spawns these)
 //   --run [--quick] [--out RESULTS.md] [--filter <glob>] [--merge <run-data.json>]
-//                       verify, measure first dispatch, run BenchmarkDotNet, write the report
+//                       verify, measure first dispatch, run BenchmarkDotNet, measure the native baselines
+//                       (unless filtered), write the report
+//   --native-baselines [--passes N] [--merge <run-data.json> [--out RESULTS.md]]
+//                       verify, then time each generated kernel next to its hand-written MSL twin, MPS and
+//                       a matrix-unit SGEMM by GPU time (LastGpuTime) and wall time, with the machine's FP32
+//                       and bandwidth ceilings (under a minute); with --merge, put them into an earlier run's report
 //   --render <run-data.json> [--out RESULTS.md]
 //                       re-render the report from the data a --run saved
 //   anything else       passed straight to BenchmarkDotNet's switcher (e.g. --filter *Saxpy* --job short)
@@ -65,6 +70,11 @@ if (args.Contains("--half-precision"))
     return HalfPrecision.Run();
 }
 
+if (args.Contains("--native-baselines"))
+{
+    return Runner.RunNative(args);
+}
+
 if (args.Contains("--msl"))
 {
     Console.WriteLine(ShaderInfo.MslSource<SaxpyGenerated>());
@@ -72,11 +82,14 @@ if (args.Contains("--msl"))
     Console.WriteLine(ShaderInfo.MslSource<BlurHorizontal>());
     Console.WriteLine(ShaderInfo.MslSource<BlurVertical>());
     Console.WriteLine(ShaderInfo.MslSource<MatMulNaive>());
+    Console.WriteLine(ShaderInfo.MslSource<MatMulWaveMatrix>());
     Console.WriteLine(ShaderInfo.MslSource<NBodyStep>());
     Console.WriteLine(ShaderInfo.MslSource<BlurRgba8Horizontal>());
     Console.WriteLine(ShaderInfo.MslSource<BlurRgba8Vertical>());
     Console.WriteLine(ShaderInfo.MslSource<StridedPartialSums>());
     Console.WriteLine(ShaderInfo.MslSource<RaymarchedGarden>());
+    Console.WriteLine(ShaderInfo.MslSource<MatMulTiled>());
+    Console.WriteLine(ShaderInfo.MslSource<HashRounds>());
     return 0;
 }
 

@@ -416,6 +416,10 @@ internal sealed partial class MslTranslator
             case GpuTypeKind.Struct when operation.Arguments.Length == 0 && operation.Constructor is null or { IsImplicitlyDeclared: true }:
                 return Zero(type, operation);
 
+            case GpuTypeKind.WaveMatrix when operation.Arguments.Length == 0:
+                // `new WaveMatrix8x8()` is `default`: the zero matrix.
+                return Zero(type, operation);
+
             case GpuTypeKind.Struct when operation.Constructor is { } constructor && UserMethodProblem(constructor) is null:
                 // A constructor declared in source is a function that returns the struct.
                 return UserCall(operation, constructor, receiver: null, operation.Arguments);
@@ -458,6 +462,12 @@ internal sealed partial class MslTranslator
         if (SimdGroupCall(operation, definition) is { } simdGroupCall)
         {
             return simdGroupCall;
+        }
+
+        // The members of the wave matrices, which map to Metal's simdgroup_matrix functions.
+        if (WaveMatrixCall(operation, definition) is { } waveMatrixCall)
+        {
+            return waveMatrixCall;
         }
 
         // Members of textures (Sample) are recognized by name, like the indexers and Width/Height.
@@ -858,6 +868,12 @@ internal sealed partial class MslTranslator
             return UnsupportedCall(operation, "it has no MSL equivalent");
         }
 
+        if (function.StartsWith(MslNames.EscapePrefix, System.StringComparison.Ordinal))
+        {
+            // .NET's Min, Max and Clamp (MslNames.MathMin): the prelude is emitted when used.
+            UsesPrelude = true;
+        }
+
         Expr call = Call(function, Arguments(operation.Arguments, method, out _));
 
         // `MathF.Sign` returns an int and `metal::abs(int)` may return an unsigned type; pin the C# result type.
@@ -867,17 +883,21 @@ internal sealed partial class MslTranslator
 
     private static string? MathFunction(string name, int arity, bool isFloat, bool isSingle)
     {
-        // Available for both integers and floats.
+        // Available for both integers and floats. Abs is metal::abs; for the minimum of a signed type,
+        // where .NET throws OverflowException, it returns the minimum itself (Math.Abs(int.MinValue) is
+        // int.MinValue on the GPU). Min and Max of floats, and Clamp of everything, follow .NET, not
+        // metal::min/max/clamp: see MslNames.MathMin. Gpu.Min/Max/Clamp are the metal:: functions.
         switch (name, arity)
         {
             case ("Abs", 1):
                 return "metal::abs";
             case ("Min", 2):
-                return "metal::min";
+                return isFloat ? MslNames.MathMin : "metal::min";
             case ("Max", 2):
-                return "metal::max";
+                return isFloat ? MslNames.MathMax : "metal::max";
             case ("Clamp", 3):
-                return "metal::clamp";
+                // float.Clamp is Min(Max(x, lo), hi) in .NET, which differs from Math.Clamp for a NaN bound.
+                return isSingle ? MslNames.NumberClamp : MslNames.MathClamp;
         }
 
         if (!isFloat)
@@ -923,7 +943,7 @@ internal sealed partial class MslTranslator
             case ("ScaleB", 2):
                 return "metal::ldexp";
             case ("ILogB", 1):
-                return "metal::ilogb";
+                return MslNames.ILogB;
             case ("ReciprocalSqrtEstimate", 1):
                 return "metal::rsqrt";
         }
@@ -943,7 +963,7 @@ internal sealed partial class MslTranslator
             case ("IsFinite", 1):
                 return "metal::isfinite";
             case ("Lerp", 3):
-                return "metal::mix";
+                return MslNames.NumberLerp;
             case ("Exp2", 1):
                 return "metal::exp2";
             case ("Exp10", 1):

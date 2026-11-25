@@ -59,7 +59,8 @@ device.For(image.Length, new Equalise(image, lut));
 
 ## Integers
 
-The integers behave as they do in unchecked C#, on the GPU as on the CPU.
+The integers behave as they do in unchecked C#, on the GPU as on the CPU (`checked` arithmetic is
+build error `SCG0052`).
 
 - **Promotion.** `byte + byte` is an `int` in C#, and `-uint` and `int + uint` are `long`. The MSL
   carries the conversions the C# expression has (`uchar(int(a) + int(b))` for `(byte)(a + b)`), so a
@@ -77,12 +78,25 @@ The integers behave as they do in unchecked C#, on the GPU as on the CPU.
   assignments and `++`/`--`) in the unsigned type of the same width and converts back: `a * b + c`
   on `int`s is `int(uint(a) * uint(b) + uint(c))`. That costs no instructions, because signed and
   unsigned arithmetic are the same machine operations. Program-scope constants wrap the same way.
+- **Negating an integer vector** (`-v` on an `IntN`, and the operators that amount to it: `0 - v`,
+  `v * -1`, `v / -1`, `v *= -1`, also on a `UIntN`) is emitted as a prelude helper, `__ms_neg(v)`,
+  which negates each lane on its own. Apple's Metal compiler miscompiles the vector operator: when
+  one lane of the negation is never read and the same vector is subtracted in a chain elsewhere
+  (`t += c; t *= 3; t -= v`), the chain silently loses that lane. A constant that negates only some
+  lanes does the same when the other lanes are the unread ones, so `new Int3(0, 5, 0) - v` is
+  emitted as `C + __ms_neg(v)` and `v * new Int3(1, -1, 1)` as `__ms_mul(v, C)`, a helper that
+  multiplies lane by lane. The compound forms (`v *= -1`, `v /= -1`, `v *= new Int3(1, -1, 1)`)
+  assign the helper's result, which names the target twice: on a target with side effects
+  (`data[Next()] *= -1`) that is an error (`SCG0012`), so put the index in a local first. Vectors
+  of floats and halves, and all scalars, are not affected and keep their operators. See
+  [Limitations](limitations.md#shader-language) for the negations the generator cannot see.
 - **Division by zero** does not trap. Where C# throws `DivideByZeroException`, the GPU carries on
   with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit
   operands). `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on
   either.
-- **`checked` arithmetic** throws `OverflowException` under `ForCpu` but wraps on the GPU, which has
-  no exceptions.
+- **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
+  with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
+  and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
 - **Float to integer** conversions truncate, give 0 for NaN and saturate at the bounds of the target
   type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
   `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range
@@ -105,7 +119,9 @@ The integers behave as they do in unchecked C#, on the GPU as on the CPU.
 
 `Gpu.Abs`, `Min`, `Max`, `Clamp`, `CountBits`, `LeadingZeroCount`, `TrailingZeroCount` and
 `ReverseBits` have an overload for each integer type (see [Bits](#bits)), and
-`Math.Min/Max/Clamp/Abs` work on them too. As with `Math.Min`, C# finds `Gpu.Min(b, 5)` ambiguous
+`Math.Min/Max/Clamp/Abs` work on them too (see
+[Semantics and conformance](cpu-execution.md#semantics-and-conformance) for what they return where
+.NET throws). As with `Math.Min`, C# finds `Gpu.Min(b, 5)` ambiguous
 between the `byte` and the `int` overload: write `Gpu.Min(b, (byte)5)`.
 
 `scripts/demo-computelab.sh --page small-and-wide-integers` equalises an 8-bit image in place and
@@ -247,6 +263,39 @@ public readonly partial struct Orbit(...) : IComputeShader { ... }
 
 ## Evaluation order
 
-C# evaluates the operands of an expression left to right. MSL leaves the order undefined. So an
-expression that modifies a value and uses it again, such as `counter.Next() + counter.Next()` where
-`Next` modifies its struct, is build error `SCG0021`. Split it into separate statements.
+C# evaluates an expression left to right. MSL leaves the order of two
+operands that modify and read the same variable undefined, and it evaluates the value of an
+assignment before its target. Where that could change the result, the build fails with `SCG0021`
+rather than run something else on the GPU. Besides locals, parameters and `this`, the check tracks
+the memory of the shader: with `Bump(slot)` an instance helper that does `data[slot] += 1` and
+returns 10,
+
+| Expression | C# (and `ForCpu`) | GPU |
+|---|---|---|
+| `data[0] += Bump(0)`, from 100 | 110 | 111 |
+| `data[data[8]] = Bump(8)`, with `data[8]` = 1 | writes `data[1]` | writes `data[2]` |
+| `data[24] += data[24] = 5`, from 100 | 105 | 10 |
+| `data[data[32]] += Bump(32)`, with `data[32]` = 40 | updates `data[40]` | updates `data[41]` |
+
+so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); data[0] += t;`.
+
+- **Each resource is one variable**: a captured buffer (or buffer view) or texture, a
+  `[GroupShared]` array, a buffer or texture parameter of a helper. Reading any element reads it
+  and writing any element writes it, whatever the indices: two elements of one resource are taken
+  to be possibly the same one. The location of a `Gpu.Atomic*` call is written, and so is a buffer
+  element that a method modifying its struct is called on (`cells[i].Grow()`). A wave matrix's
+  `Load` reads its source and `Store` writes its destination. A texture local is
+  the texture it was initialized from; one that is assigned again may be any texture of its type.
+- **Helpers count at the call**: what a helper reads and writes, and what the helpers it calls do
+  (static helpers of any type, struct methods, properties and operators, instance helpers of the
+  shader), with the buffers and textures passed as arguments in place of its parameters.
+- **Operands and arguments too**: MSL does not say in which order it evaluates the operands of an
+  operator or the arguments of a call, so `data[i] + Bump(i)`, `Bump(0) + Bump(1)` and
+  `Pair(data[i], Bump(i))` are `SCG0021` as well; evaluate the call into a local first.
+- **Still fine**: `data[i] = data[i] + 1`, `data[i] += x`, `a[i] += b[i]` on two resources,
+  `data[0] = Bump(0)` and `data[i] = data[j] = 0` (the store comes last in both languages), a
+  call's own arguments (`Gpu.AtomicAdd(ref data[0], data[1])`: the call runs after them), and the
+  branches of `?:`, `&&` and `||`, which are evaluated in order.
+- **Two resources are never compared.** The same buffer bound under two names (captured twice, or
+  through overlapping views) is the same memory, which this check cannot see: it is a question of
+  how the shader is bound, not of how an expression is written.

@@ -108,6 +108,9 @@ public sealed class Saxpy : IDisposable
         return GpuY[Length - 1];
     }
 
+    /// <summary>Four elements per thread (<see cref="SaxpyFloat4HandWritten"/>); the length must be a multiple of 4.</summary>
+    public void GpuHandWrittenFloat4() => Device.For(Length / 4, new SaxpyFloat4HandWritten(GpuX, GpuY, A));
+
     public void Dispose()
     {
         GpuX.Dispose();

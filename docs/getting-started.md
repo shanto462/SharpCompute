@@ -100,7 +100,7 @@ Textures, samplers and pixel formats are covered in [Resources](resources.md#tex
 | Shared code | Static methods of any class, generic methods, and the methods, properties, operators and constructors of your structs | [Sharing code between shaders](shared-code.md) |
 | Local arrays | `stackalloc`, `new T[N]`, collection expressions and `[InlineArray(N)]` structs | [Local arrays](local-arrays.md) |
 | Resources | Buffers and buffer views, 2D textures in eight pixel formats, six samplers | [Resources](resources.md) |
-| Threads working together | `[GroupShared]` memory and barriers, SIMD-group (wave) operations, atomics | [Shared memory](shared-memory.md), [SIMD groups](simd-groups.md), [Atomics](atomics.md) |
+| Threads working together | `[GroupShared]` memory and barriers, SIMD-group (wave) operations, wave matrices on the matrix units, atomics | [Shared memory](shared-memory.md), [SIMD groups](simd-groups.md), [Matrix units](matrix-units.md), [Atomics](atomics.md) |
 
 The same C# also runs on the CPU, with `device.ForCpu` or split between the CPU and the GPU with
 `device.ForSplit`. See [CPU execution](cpu-execution.md).

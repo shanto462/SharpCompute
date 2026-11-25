@@ -1,11 +1,12 @@
-# Dispatch: batching, async and indirect
+# Dispatch: batching, async, timing and indirect
 
 How work gets to the GPU: one dispatch at a time, many in one `ComputeContext`, asynchronously, or
-with a thread count the GPU computed itself.
+with a thread count the GPU computed itself; and how long the GPU spent on it.
 
 - [One dispatch](#one-dispatch)
 - [Batching with a ComputeContext](#batching-with-a-computecontext)
 - [Async dispatch](#async-dispatch)
+- [GPU time of a dispatch](#gpu-time-of-a-dispatch)
 - [Indirect dispatch](#indirect-dispatch)
 - [Warm-up](#warm-up)
 
@@ -67,6 +68,45 @@ sync and async throughput. Measurements are in the "Batching and async" section 
 [`benchmarks/RESULTS.md`](../benchmarks/RESULTS.md#batching-and-async), and
 [Unified memory](unified-memory.md#4-batch-small-dispatches) explains when batching and overlap pay
 off.
+
+## GPU time of a dispatch
+
+A stopwatch around `device.For` times the whole round trip: encoding, the commit, the GPU's work and
+waking the waiting thread. To compare two kernels, or to show what a kernel costs, ask for the GPU's
+own share:
+
+```csharp
+device.For(width, height, new Blur(source, destination, radius));
+TimeSpan kernel = device.LastGpuTime;          // the GPU's time for that dispatch
+
+using ComputeContext context = device.CreateComputeContext();
+context.For(width, height, new BlurHorizontal(source, temp, weights, width, radius));
+context.For(width, height, new BlurVertical(temp, output, weights, width, height, radius));
+context.Execute();
+TimeSpan both = context.LastGpuTime;           // the GPU's time for the batch
+```
+
+Both are the time between Metal's `GPUStartTime` and `GPUEndTime` of the command buffer that ran the
+work, so there is **one time per command buffer**: a synchronous `For`, `ForEach`, `ForIndirect`,
+`Copy`, `Fill` or `Clear` is a command buffer of its own, and a context's batch is one for all its
+dispatches. (Apple GPUs can take a timestamp between encoders but not between the dispatches of
+one, so a batch is not split further; execute a kernel alone to time it alone.)
+
+- `device.LastGpuTime` belongs to the **calling thread**: it is the time of the last synchronous
+  call that thread made on the device, so threads sharing a device never read each other's
+  dispatches. Read it right after the call, on the same thread. `ForAsync` and `ForEachAsync` do not
+  set it; time asynchronous work through a context.
+- `context.LastGpuTime` is set before `Execute()` returns and before the task of `ExecuteAsync()` or
+  `EncodeInto` completes (for `EncodeInto` it is the time of the caller's whole command buffer), and
+  can be read from any thread, also after the context is disposed.
+- Neither allocates, and a call with nothing to do (an empty grid, a context with nothing pending)
+  leaves the previous time in place.
+
+The interval is elapsed time on the GPU, so other GPU work in between (another process, the window
+server) lengthens it, and the first dispatch after an idle spell includes the GPU's ramp-up: take the
+median of a few. ComputeLab's "GPU ms" readouts and the
+[native baselines](../benchmarks/RESULTS.md#native-baselines-and-roofline) of the benchmarks are measured
+this way.
 
 ## Indirect dispatch
 

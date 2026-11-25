@@ -104,9 +104,8 @@ public sealed class SharedCodePage : ILabPage
             verticalFov: 0.62f,
             aspect: (float)ImageWidth / ImageHeight);
 
-        long start = Stopwatch.GetTimestamp();
         _device.For(ImageWidth, ImageHeight, new TraceScene(_light, _spheres, SceneSpheres, _camera, ImageWidth, ImageHeight, 1, Paths));
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
     }
 
     public LabCheck Check()

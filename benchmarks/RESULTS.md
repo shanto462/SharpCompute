@@ -10,6 +10,8 @@ Re-run on 2026-11-24 22:36 +06:00 (Default job, 5 min): **Batching and async**. 
 
 Re-run on 2026-11-24 23:10 +06:00 (Default job, 6 min): **CPU+GPU split: Gaussian blur, CPU+GPU split: Mandelbrot, CPU+GPU split: N-body**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run.
 
+[Native baselines and roofline](#native-baselines-and-roofline) measured on 2026-11-26 04:58 +06:00 (26 s) by a harness of its own; that section gives the machine's state at the time, and the verification results are from that run.
+
 ## Machine
 
 | | |
@@ -148,7 +150,7 @@ Separable, radius 8 (17 taps, σ = 4), single-channel float, 3840×2160. Horizon
 
 ### Matrix multiply
 
-Naive `C = A·B`, 1024×1024 float, row-major; the GPU runs one thread per output element and reads B column-wise. Baseline: CPU Parallel.For (a scalar single thread is about 1 s per run and adds nothing).
+Naive `C = A·B`, 1024×1024 float, row-major; the GPU runs one thread per output element and reads B column-wise. A wave-matrix row, in a run that has one, is the same product on the GPU's matrix units (`WaveMatrix8x8`): a SIMD group accumulates 8×8 products, 2×4 of them per group; the native baselines time that kernel by GPU time. Baseline: CPU Parallel.For (a scalar single thread is about 1 s per run and adds nothing).
 
 | Size | Variant | Mean | Error | StdDev | Ratio |
 |---|---|---:|---:|---:|---:|
@@ -251,6 +253,96 @@ The same generated shader run by `For` (GPU), `ForCpu` (its C# on all CPU cores)
 | N-body | Hand-written CPU (Parallel.For, scalar) | 46.58 ms | 696.60 µs | 0.086× (GPU alone 11.6× faster) |
 | N-body | Best hand-written CPU (Parallel.For + SIMD) | 13.55 ms | 66.16 µs | 0.296× (GPU alone 3.37× faster) |
 
+## Native baselines and roofline
+
+The tables above compare the GPU with the CPU. This section compares the kernels SharpCompute generates with **native controls on the same GPU**: the same kernel written by hand in MSL, and for single-precision matrix multiply (SGEMM) Apple's `MPSMatrixMultiplication` and a kernel on Metal's matrix units (`simdgroup_matrix`), written by hand and as a C# shader on `WaveMatrix8x8`. A generated kernel that matches its hand-written twin shows the generator costs nothing; what is then left to MPS is the kernel's, not the language's.
+
+Measured by `scripts/run-benchmarks.sh --native-baselines` on 2026-11-26 04:58 +06:00 (26 s) on Mac16,8 (GPU: Apple M4 Pro, 16 cores; 24 GB unified; macOS 27.2.1 (26B131), Arm64).
+
+- **GPU time** is the dispatch's own time on the GPU: `GraphicsDevice.LastGpuTime`, the interval between Metal's `GPUStartTime` and `GPUEndTime` of its command buffer. (For MPS, which SharpCompute does not dispatch, the same two properties of its command buffer.) It is the column to compare kernels by.
+- **Wall time** is a stopwatch around the same synchronous call (`device.For`: encode, commit, wait), which is what a caller waits for. The difference is the submission and wake-up of one command buffer.
+- **Each number** is the median of 5 passes; a pass's value is the median of 25 dispatches after 5 that are thrown away, with the kernels of a workload taking turns (in a new order every round) and newly allocated buffers in every pass. **Passes** is the lowest and the highest pass value of the GPU time: how far the passes were apart.
+- **Inputs** are seeded random numbers, the same buffers for every kernel of a workload, and `--verify` checks every kernel here against the CPU.
+- All hand-written kernels are compiled at run time by the runtime with its own options (MSL 3.2, safe math mode, precise math functions) and dispatched by the same `For` as a generated shader, so a row differs from its twin in the kernel's source alone.
+
+- **Start** (04:58): `4:58  up 13 days, 20:55, 1 user, load averages: 2.84 3.91 4.79`
+- **End** (04:58): `4:58  up 13 days, 20:55, 1 user, load averages: 3.21 3.90 4.76`
+
+### The machine's ceilings
+
+A roofline holds a kernel against the two things that can limit it: how fast the GPU can do arithmetic and how fast it can move memory. Both are measured here by probes, kernels that do nothing else.
+
+| Ceiling | Measured | Passes | How | Published for this chip |
+|---|---:|---:|---|---|
+| FP32 arithmetic | **6.22 TFLOP/s** | 6.22 – 6.22 | 48 fma chains per thread, registers only, 1,048,576 threads × 256 steps | 6.41 TFLOPS ([cpu-monkey](https://www.cpu-monkey.com/en/igpu-apple_m4_pro_16_core)) to 6.82 TFLOPS ([Wikipedia's Apple silicon table, as quoted by Low End Mac](https://lowendmac.com/2025/apple-silicon-m4-pro-chip-specs/)): estimates of ALU count × clock, not Apple's figures |
+| Memory bandwidth | **249 GB/s** | 244 – 255 | y = a·x + y: reads x and y, writes y, float4 arrays of 1 GiB | 273 GB/s ([Apple](https://www.apple.com/newsroom/2024/10/apple-introduces-m4-pro-and-m4-max/)) |
+
+Each ceiling is the best probe's rate (the median of the passes; **Passes** is the slowest and the fastest pass). The FP32 probe counts a fused multiply-add as two operations, as the published estimates do; it reaches its rate only with dozens of independent chains per thread (a thread with few chains waits on its own results), so it is the rate of arithmetic that never waits for memory, not a typical one.
+
+The bandwidth probes are 4 mixes of reading and writing over float4 arrays of 1 GiB, far larger than any cache, so that what they measure is memory: fill 210 GB/s; sums of 16 227 GB/s; copy 223 GB/s; y = a·x + y 249 GB/s. The arrays have to be that large because the GPU's time for a dispatch ends when its work does, and what it wrote last can still be in the caches then, on its way to memory: on an Apple M4 Pro a fill of 64 MB measured above the memory's published bandwidth in some runs.
+
+The fastest mix is "y = a·x + y: reads x and y, writes y", so that is the ceiling. It is 91 % of the published figure. A pass can still come out above that figure, for the reason above (a small part of the last writes is not in memory yet when the time is taken); no pass of this run did. It is also SAXPY's own mix: SAXPY's share of the ceiling below says that SAXPY on its much smaller arrays runs as fast as that mix does on the probes' arrays, which is what being bound by memory means; it is not a second, independent measurement of the ceiling. A row can come out slightly above 100 %: the ceiling is a probe on float4 arrays of 1 GiB, and SAXPY's arrays are 64 MB, which are not held to memory quite as strictly (a little of what a dispatch wrote last can still be in the caches when its time is taken). In this run SAXPY scalar (generated C#) is at 100 %, SAXPY scalar (hand-written MSL) is at 100 %, SAXPY float4 (hand-written MSL) is at 100 %.
+
+### Kernels under the ceilings
+
+| Workload | Size | Kernel | Written as | GPU time | Passes | Wall time | Rate | % of FP32 peak | % of bandwidth peak | × fastest |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| FP32 probe | 1,048,576 threads × 256 steps | 48 fma chains per thread, registers only | probe (hand-written MSL) | 4.144 ms | 4.144 – 4.144 ms | 4.323 ms | 6219 GFLOP/s | 100 % | — | — |
+| Bandwidth probe | float4 arrays of 1 GiB | fill: writes y | probe (hand-written MSL) | 5.118 ms | 4.842 – 5.324 ms | 5.317 ms | 210 GB/s | — | 84 % | — |
+| Bandwidth probe | float4 arrays of 1 GiB | sums of 16: reads x, writes a 16th of y | probe (hand-written MSL) | 5.031 ms | 4.918 – 5.111 ms | 5.218 ms | 227 GB/s | — | 91 % | — |
+| Bandwidth probe | float4 arrays of 1 GiB | copy: reads x, writes y | probe (hand-written MSL) | 9.651 ms | 9.440 – 9.740 ms | 9.833 ms | 223 GB/s | — | 89 % | — |
+| Bandwidth probe | float4 arrays of 1 GiB | y = a·x + y: reads x and y, writes y | probe (hand-written MSL) | 12.917 ms | 12.633 – 13.181 ms | 13.124 ms | 249 GB/s | — | 100 % | — |
+| SGEMM | 1024×1024 | **MPSMatrixMultiplication** | MPS | 403 µs | 403 – 403 µs | 601 µs | 5327 GFLOP/s | 86 % | — | 1.00× |
+| SGEMM | 1024×1024 | simdgroup_matrix, 2×4 accumulators | hand-written MSL | 417 µs | 417 – 417 µs | 560 µs | 5152 GFLOP/s | 83 % | — | 1.03× |
+| SGEMM | 1024×1024 | simdgroup_matrix, 2×4 accumulators | generated C# | 422 µs | 422 – 422 µs | 569 µs | 5084 GFLOP/s | 82 % | — | 1.05× |
+| SGEMM | 1024×1024 | threadgroup-tiled 16×16 | generated C# | 2.012 ms | 2.011 – 2.013 ms | 2.157 ms | 1067 GFLOP/s | 17 % | — | 4.99× |
+| SGEMM | 1024×1024 | naive | generated C# | 4.147 ms | 4.109 – 4.178 ms | 4.297 ms | 518 GFLOP/s | 8.3 % | — | 10.29× |
+| SGEMM | 1024×1024 | naive | hand-written MSL | 4.107 ms | 4.072 – 4.176 ms | 4.260 ms | 523 GFLOP/s | 8.4 % | — | 10.19× |
+| SGEMM | 2048×2048 | **MPSMatrixMultiplication** | MPS | 3.119 ms | 3.117 – 3.120 ms | 3.374 ms | 5509 GFLOP/s | 89 % | — | 1.00× |
+| SGEMM | 2048×2048 | simdgroup_matrix, 2×4 accumulators | hand-written MSL | 3.260 ms | 3.260 – 3.262 ms | 3.455 ms | 5269 GFLOP/s | 85 % | — | 1.05× |
+| SGEMM | 2048×2048 | simdgroup_matrix, 2×4 accumulators | generated C# | 3.308 ms | 3.306 – 3.309 ms | 3.503 ms | 5194 GFLOP/s | 84 % | — | 1.06× |
+| SGEMM | 2048×2048 | threadgroup-tiled 16×16 | generated C# | 15.936 ms | 15.927 – 15.957 ms | 16.154 ms | 1078 GFLOP/s | 17 % | — | 5.11× |
+| SGEMM | 2048×2048 | naive | generated C# | 33.054 ms | 32.968 – 33.215 ms | 33.213 ms | 520 GFLOP/s | 8.4 % | — | 10.60× |
+| SGEMM | 2048×2048 | naive | hand-written MSL | 32.709 ms | 32.661 – 33.162 ms | 32.921 ms | 525 GFLOP/s | 8.4 % | — | 10.49× |
+| N-body | 16,384 bodies | one step | generated C# | 3.756 ms | 3.755 – 3.756 ms | 3.905 ms | 1430 GFLOP/s | 23 % | — | 1.00× |
+| N-body | 16,384 bodies | one step | hand-written MSL | 3.756 ms | 3.755 – 3.756 ms | 3.914 ms | 1430 GFLOP/s | 23 % | — | 1.00× |
+| SAXPY | 16,777,216 floats | scalar | generated C# | 804 µs | 789 – 809 µs | 962 µs | 250 GB/s | 0.7 % | 100 % | 1.00× |
+| SAXPY | 16,777,216 floats | scalar | hand-written MSL | 804 µs | 790 – 816 µs | 956 µs | 250 GB/s | 0.7 % | 100 % | 1.00× |
+| SAXPY | 16,777,216 floats | float4 | hand-written MSL | 806 µs | 792 – 816 µs | 956 µs | 250 GB/s | 0.7 % | 100 % | 1.00× |
+| Integer hash | 4,194,304 × 64 rounds | mix rounds | generated C# | 1.313 ms | 1.313 – 1.313 ms | 1.466 ms | 204 G rounds/s | — | — | 1.00× |
+| Integer hash | 4,194,304 × 64 rounds | mix rounds | hand-written MSL | 1.313 ms | 1.313 – 1.313 ms | 1.466 ms | 204 G rounds/s | — | — | 1.00× |
+
+How the rates are counted: SGEMM is 2n³ operations (n³ multiplies and n³ adds); an N-body step is 20 operations per pair of bodies (each of its square root and divide counted as one); SAXPY is 2 operations and 12 bytes per element (x and y read, y written); a hash round is 13 integer operations. "—" means the ceiling does not apply: the integer kernel does no floating point, and the data of SGEMM and N-body is small enough that how much of it moves through memory depends on the kernel's own blocking, which is what those rows compare.
+
+### Generated against hand-written
+
+The same kernel in C# and by hand in MSL (the two agree bit for bit in `--verify`), by GPU time. The ratio is taken pass by pass, where both kernels ran on the same buffers in turn, and is the median of those, with the lowest and the highest pass next to it:
+
+| Workload | Size | Kernel | Generated C# | Hand-written MSL | Generated / hand-written | Passes |
+|---|---|---|---:|---:|---:|---:|
+| SGEMM | 1024×1024 | simdgroup_matrix, 2×4 accumulators | 422 µs | 417 µs | **1.013** | 1.013 – 1.014 |
+| SGEMM | 1024×1024 | naive | 4.147 ms | 4.107 ms | **1.008** | 1.001 – 1.016 |
+| SGEMM | 2048×2048 | simdgroup_matrix, 2×4 accumulators | 3.308 ms | 3.260 ms | **1.014** | 1.014 – 1.015 |
+| SGEMM | 2048×2048 | naive | 33.054 ms | 32.709 ms | **1.012** | 0.994 – 1.013 |
+| N-body | 16,384 bodies | one step | 3.756 ms | 3.756 ms | **1.000** | 1.000 – 1.000 |
+| SAXPY | 16,777,216 floats | scalar | 804 µs | 804 µs | **1.000** | 0.991 – 1.007 |
+| Integer hash | 4,194,304 × 64 rounds | mix rounds | 1.313 ms | 1.313 ms | **1.000** | 1.000 – 1.000 |
+
+**SGEMM, and what the matrix units are worth.** The generated naive kernel is within 1.5 % of its hand-written twin's GPU time, so the generated MSL is not what is slow. What separates a scalar kernel from MPS is the matrix units: `simdgroup_matrix` multiplies 8 × 8 blocks with a whole SIMD group per operation. A C# shader reaches them as `WaveMatrix8x8`, and the kernel written that way is the twin of the hand-written one in the table above.
+
+- 1024×1024: the fastest generated kernel (simdgroup_matrix, 2×4 accumulators, 5.08 TFLOP/s) takes **1.05×** the GPU time of `MPSMatrixMultiplication` (5.33 TFLOP/s) and 1.01× that of the hand-written simdgroup_matrix, 2×4 accumulators kernel (5.15 TFLOP/s), which itself is within 3 % of MPS. The fastest generated kernel without the matrix units (threadgroup-tiled 16×16, 1.07 TFLOP/s) takes 5.0× the time of MPS.
+- 2048×2048: the fastest generated kernel (simdgroup_matrix, 2×4 accumulators, 5.19 TFLOP/s) takes **1.06×** the GPU time of `MPSMatrixMultiplication` (5.51 TFLOP/s) and 1.01× that of the hand-written simdgroup_matrix, 2×4 accumulators kernel (5.27 TFLOP/s), which itself is within 5 % of MPS. The fastest generated kernel without the matrix units (threadgroup-tiled 16×16, 1.08 TFLOP/s) takes 5.1× the time of MPS.
+
+### Caveats
+
+- **One machine, one OS.** `MPSMatrixMultiplication` is Apple's kernel and changes with macOS. The hand-written matrix-unit kernel was tuned on an Apple M4 Pro: of the accumulator grids tried (2 × 2, 2 × 4 and 4 × 4 blocks per SIMD group, with and without staging in threadgroup memory) 2 × 4 without staging was the fastest, and another GPU may prefer another. The C# kernel on `WaveMatrix8x8` has the same shape.
+- **GPU time is elapsed time on the GPU**, not time that was only this dispatch's: work of other processes that the GPU runs in between lengthens it. The machine was shared; the medians and the Passes column are the guard against that, and a row whose passes are far apart should be read with that in mind.
+- **Wall time has a floor.** Every synchronous dispatch pays for a command buffer's submission and for waking the waiting thread, whatever the kernel: the difference between the two time columns, 144 to 255 µs in this run. A `ComputeContext` shares it among the dispatches of a batch.
+- **The FP32 ceiling is a measurement, not a specification**: 6.22 TFLOP/s is what the probe reached. Percentages are of that, so they are a little higher than they would be against the published estimates.
+- **Operation counts are nominal.** A square root or a divide costs the GPU more than a multiply, so the N-body row sits further below the FP32 ceiling than its arithmetic alone would put it; that is the count's doing, not a sign of slack in the kernel.
+- **MPS and the matrix-unit kernels are free to sum in another order** than the naive kernel (they multiply 8 × 8 blocks), so `--verify` holds them to a relative error of 0.0001 against the CPU rather than to the bit-for-bit match a hand-written twin must reach; the verification table shows how close they came to the naive kernel's product.
+- **Sizes are fixed** (1024 and 2048 for SGEMM, both multiples of 64 as the matrix-unit kernel needs): nothing here says how a kernel scales to small matrices, where the wall-time floor dominates, or to ones too large for MPS's blocking to matter.
+
 ## First dispatch (pipeline compile)
 
 A plain `Stopwatch`, not BenchmarkDotNet. Each sample is a fresh process (`--first-dispatch`) that creates the default device and then dispatches the 1920×1080, 512-iteration Mandelbrot. The first dispatch compiles the generated MSL into a pipeline (`newLibraryWithSource` + `newComputePipelineState`) and then runs it. Compile ≈ first − steady. macOS keeps a system-wide Metal shader cache, so these are typically warm-cache compiles; a never-seen shader on a clean cache takes longer.
@@ -303,6 +395,7 @@ Run before benchmarking; the script stops if any check fails. Bit-exactness is o
 | Blur | 3840x2160 | GPU generated | CPU scalar | max rel | 3.71E-07 | 1E-05 | 61.27 % bit-exact | pass |
 | MatMul | 1024x1024 | CPU Parallel.For + SIMD | CPU Parallel.For | max rel | 2.26E-06 | 1E-05 | 7.78 % bit-exact | pass |
 | MatMul | 1024x1024 | GPU generated | CPU Parallel.For | max rel | 3.56E-07 | 1E-05 | 67.47 % bit-exact | pass |
+| MatMul | 1024x1024 | GPU wave matrices | CPU Parallel.For | max rel | 3.56E-07 | 1E-05 | 67.47 % bit-exact | pass |
 | N-body | 4096 bodies | CPU Parallel.For + SIMD | CPU Parallel.For | max rel ‖Δpositions‖ | 5.99E-08 | 1E-05 | per body, floor = rms ‖positions‖ = 0.996 | pass |
 | N-body | 4096 bodies | CPU Parallel.For + SIMD | CPU Parallel.For | max rel ‖Δvelocities‖ | 3.76E-07 | 1E-05 | per body, floor = rms ‖velocities‖ = 0.0501 | pass |
 | N-body | 4096 bodies | GPU generated | CPU Parallel.For | max rel ‖Δpositions‖ | 2.32E-08 | 1E-05 | per body, floor = rms ‖positions‖ = 0.996 | pass |
@@ -330,3 +423,33 @@ Run before benchmarking; the script stops if any check fails. Bit-exactness is o
 | N-body | 16384 bodies | CPU generated shader (ForCpu) | CPU Parallel.For | max rel ‖Δvelocities‖ | 9.06E-08 | 1E-05 | per body, floor = rms ‖velocities‖ = 0.0502 | pass |
 | N-body | 16384 bodies | CPU+GPU split (ForSplit 0.5) | CPU Parallel.For | max rel ‖Δpositions‖ | 5.97E-08 | 1E-05 | per body, floor = rms ‖positions‖ = 0.999 | pass |
 | N-body | 16384 bodies | CPU+GPU split (ForSplit 0.5) | CPU Parallel.For | max rel ‖Δvelocities‖ | 9.85E-08 | 1E-05 | per body, floor = rms ‖velocities‖ = 0.0502 | pass |
+| SGEMM | 1024x1024 | GPU generated naive | CPU Parallel.For | max rel | 3.62E-07 | 1E-05 | 66.96 % bit-exact | pass |
+| SGEMM | 1024x1024 | GPU hand-written naive | CPU Parallel.For | max rel | 3.62E-07 | 1E-05 | 66.96 % bit-exact | pass |
+| SGEMM | 1024x1024 | GPU hand-written naive | GPU generated naive | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| SGEMM | 1024x1024 | GPU generated tiled | CPU Parallel.For | max rel | 3.62E-07 | 1E-05 | 66.96 % bit-exact | pass |
+| SGEMM | 1024x1024 | GPU hand-written simdgroup | CPU Parallel.For | max rel | 3.62E-07 | 0.0001 | 66.96 % bit-exact; 100.00 % bit-exact vs GPU generated naive | pass |
+| SGEMM | 1024x1024 | GPU MPSMatrixMultiplication | CPU Parallel.For | max rel | 3.62E-07 | 0.0001 | 66.96 % bit-exact; 100.00 % bit-exact vs GPU generated naive | pass |
+| SGEMM | 1024x1024 | GPU generated wave matrices | CPU Parallel.For | max rel | 3.62E-07 | 0.0001 | 66.96 % bit-exact; 100.00 % bit-exact vs GPU generated naive | pass |
+| SGEMM | 1024x1024 | GPU generated wave matrices | GPU hand-written simdgroup | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| SGEMM | 1024x1024 | GPU generated wave matrices | GPU MPSMatrixMultiplication | max rel | 0 | 0.0001 | 100.00 % bit-exact | pass |
+| SGEMM | 2048x2048 | GPU generated naive | CPU Parallel.For | max rel | 3.57E-07 | 1E-05 | 67.27 % bit-exact | pass |
+| SGEMM | 2048x2048 | GPU hand-written naive | CPU Parallel.For | max rel | 3.57E-07 | 1E-05 | 67.27 % bit-exact | pass |
+| SGEMM | 2048x2048 | GPU hand-written naive | GPU generated naive | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| SGEMM | 2048x2048 | GPU generated tiled | CPU Parallel.For | max rel | 3.57E-07 | 1E-05 | 67.27 % bit-exact | pass |
+| SGEMM | 2048x2048 | GPU hand-written simdgroup | CPU Parallel.For | max rel | 3.57E-07 | 0.0001 | 67.27 % bit-exact; 100.00 % bit-exact vs GPU generated naive | pass |
+| SGEMM | 2048x2048 | GPU MPSMatrixMultiplication | CPU Parallel.For | max rel | 3.57E-07 | 0.0001 | 67.27 % bit-exact; 100.00 % bit-exact vs GPU generated naive | pass |
+| SGEMM | 2048x2048 | GPU generated wave matrices | CPU Parallel.For | max rel | 3.57E-07 | 0.0001 | 67.27 % bit-exact; 100.00 % bit-exact vs GPU generated naive | pass |
+| SGEMM | 2048x2048 | GPU generated wave matrices | GPU hand-written simdgroup | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| SGEMM | 2048x2048 | GPU generated wave matrices | GPU MPSMatrixMultiplication | max rel | 0 | 0.0001 | 100.00 % bit-exact | pass |
+| N-body | 16384 bodies | GPU hand-written MSL | CPU Parallel.For | max rel ‖Δpositions‖ | 5.97E-08 | 1E-05 | per body, floor = rms ‖positions‖ = 0.999 | pass |
+| N-body | 16384 bodies | GPU hand-written MSL | CPU Parallel.For | max rel ‖Δvelocities‖ | 9.85E-08 | 1E-05 | per body, floor = rms ‖velocities‖ = 0.0502 | pass |
+| N-body | 16384 bodies | GPU hand-written MSL | GPU generated | max rel ‖Δpositions‖ | 0 | 0 | per body, floor = rms ‖positions‖ = 0.999 | pass |
+| N-body | 16384 bodies | GPU hand-written MSL | GPU generated | max rel ‖Δvelocities‖ | 0 | 0 | per body, floor = rms ‖velocities‖ = 0.0502 | pass |
+| SAXPY | 16,777,216 | GPU hand-written float4 | CPU scalar | max rel | 1.19E-07 | 1E-05 | 85.23 % bit-exact | pass |
+| SAXPY | 16,777,216 | GPU hand-written float4 | GPU hand-written MSL | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| Hash | 4,194,304 x 64 | GPU generated | CPU Parallel.For | share differing | 0 | 0 | 0 of 4194304 elements differ | pass |
+| Hash | 4,194,304 x 64 | GPU hand-written MSL | CPU Parallel.For | share differing | 0 | 0 | 0 of 4194304 elements differ | pass |
+| Probe | 4,096 x 256 | GPU fma chains | CPU fma | max rel | 0 | 1E-05 | 100.00 % bit-exact | pass |
+| Probe | 65,536 | GPU float4 copy | source | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| Probe | 65,536 | GPU float4 fill | thread index | max rel | 0 | 0 | 100.00 % bit-exact | pass |
+| Probe | 65,536 | GPU float4 sums of 16 | CPU sums | max rel | 0 | 1E-05 | 100.00 % bit-exact | pass |

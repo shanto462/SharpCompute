@@ -350,11 +350,9 @@ public sealed class ReductionPage : ILabPage
         return x;
     }
 
-    /// <summary>Runs both dispatches of a method in one command buffer and times them, commit to completion.</summary>
+    /// <summary>Runs both dispatches of a method in one command buffer and takes the GPU time of that command buffer.</summary>
     private void Run(int method)
     {
-        long start = Stopwatch.GetTimestamp();
-
         switch (method)
         {
             case 0:
@@ -374,7 +372,7 @@ public sealed class ReductionPage : ILabPage
         }
 
         _context.Execute();
-        _milliseconds[method] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        _milliseconds[method] = _context.LastGpuTime.TotalMilliseconds;
         _sums[method] = _totals[method];
         _hasRun[method] = true;
     }

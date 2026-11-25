@@ -74,14 +74,12 @@ public sealed class ReductionPage : ILabPage
         // The other variant now and then, for the side-by-side times in the window.
         if (!frame.Deterministic && _computes++ % OtherVariantInterval == 0)
         {
-            long other = Stopwatch.GetTimestamp();
             _sum.Run(_values, Count, shared: Variant != 0);
-            _variantMilliseconds[1 - Variant] = Stopwatch.GetElapsedTime(other).TotalMilliseconds;
+            _variantMilliseconds[1 - Variant] = _sum.LastGpuMilliseconds;
         }
 
-        long start = Stopwatch.GetTimestamp();
         Total = _sum.Run(_values, Count, shared: Variant == 0);
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _sum.LastGpuMilliseconds;
         _variantMilliseconds[Variant] = GpuMilliseconds;
     }
 
@@ -211,6 +209,9 @@ public sealed class GpuSum : IDisposable
     /// <summary>The number of passes a sum of <see cref="Capacity"/> values takes.</summary>
     public int Passes => _levels.Count;
 
+    /// <summary>The GPU time of the last <see cref="Run"/>: the sum over its passes, each a command buffer of its own.</summary>
+    public double LastGpuMilliseconds { get; private set; }
+
     /// <summary>The sums after pass <paramref name="pass"/> (1-based) of the last <see cref="Run"/> over <see cref="Capacity"/> values.</summary>
     public ReadWriteBuffer<float> Level(int pass) => _levels[Math.Clamp(pass, 1, _levels.Count) - 1];
 
@@ -224,6 +225,7 @@ public sealed class GpuSum : IDisposable
     public float Run(ReadWriteBuffer<float> values, int count, bool shared)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(count, Capacity);
+        LastGpuMilliseconds = 0;
 
         if (count <= 0)
         {
@@ -245,6 +247,8 @@ public sealed class GpuSum : IDisposable
             {
                 _device.For(blocks, new SumBlocksSerial(input, output, count));
             }
+
+            LastGpuMilliseconds += _device.LastGpuTime.TotalMilliseconds;
 
             if (blocks == 1)
             {

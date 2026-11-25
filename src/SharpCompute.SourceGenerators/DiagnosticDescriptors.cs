@@ -170,7 +170,9 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor UnsequencedModification = new(
         id: "SCG0021",
         title: "Expression depends on C# evaluation order",
-        messageFormat: "'{0}' is modified and used again within one expression; C# evaluates it left to right, but Metal Shading Language leaves the order undefined. Split the expression into separate statements.",
+        // {1} says what MSL does and how to split the expression: for a buffer, texture or [GroupShared]
+        // array, with an example built from the assignment where the orders differ.
+        messageFormat: "'{0}' is modified and used again within one expression; C# evaluates it left to right, but Metal Shading Language {1}",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -381,6 +383,46 @@ internal static class DiagnosticDescriptors
         id: "SCG0047",
         title: "No atomic operation for this element type",
         messageFormat: "The atomic operation '{0}' is not available for '{1}' elements: {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor WaveMatrixNotStorable = new(
+        id: "SCG0048",
+        title: "Wave matrix cannot be stored",
+        messageFormat: "A '{0}' cannot be {1}: a wave matrix is held by the lanes of a SIMD group, two elements each, and has no layout in memory. Keep it in a local, a parameter or a return value, and write its elements to a buffer or a [GroupShared] array with Store.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InvalidWaveMatrixMemory = new(
+        id: "SCG0049",
+        title: "Wave matrix cannot be loaded from or stored to this memory",
+        messageFormat: "'{0}' cannot use '{1}': {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor WaveMatrixInStaticField = new(
+        id: "SCG0050",
+        title: "Wave matrix in a static field",
+        messageFormat: "Static field '{0}' is a '{1}', which cannot be a program-scope constant: a wave matrix only exists while the lanes of a SIMD group run. Create it in Execute, with Filled, Diagonal or Load.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor WaveMatrixInPartialSimdGroup = new(
+        id: "SCG0051",
+        title: "Wave matrix in a threadgroup that is not a multiple of 32 threads",
+        messageFormat: "Shader '{0}' uses a wave matrix, but its [ThreadGroupSize({1}, {2}, {3})] has {4} threads, which is not a multiple of 32: the last SIMD group of every threadgroup has only {5} lanes, and a wave matrix needs all 32 (each lane holds two of its elements). Use a threadgroup size that is a multiple of 32, or make that SIMD group return before it touches a matrix.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor CheckedArithmetic = new(
+        id: "SCG0052",
+        title: "Checked arithmetic in a shader",
+        messageFormat: "'{0}' is checked arithmetic: in C#, and in ForCpu, it throws OverflowException on overflow, but the GPU cannot throw and would wrap or saturate silently. Write it unchecked, as 'unchecked({0})' or inside 'unchecked {{ }}', which wraps on both, or test the operands before the operation{1}.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

@@ -147,6 +147,10 @@ public sealed class NBody : IDisposable
         return GpuNextPositions[Count / 2].X;
     }
 
+    /// <summary>The same step with <see cref="NBodyStepHandWritten"/>, the kernel written by hand in MSL.</summary>
+    public void GpuHandWritten() =>
+        Device.For(Count, new NBodyStepHandWritten(GpuPositions, GpuVelocities, GpuNextPositions, GpuNextVelocities, Count, Dt, SofteningSquared));
+
     public void Dispose()
     {
         GpuPositions.Dispose();

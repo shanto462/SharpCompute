@@ -16,8 +16,17 @@ to the page that explains it.
   SIMD-group operations take `float`, `int`, `uint` and `Half`, and a `static readonly` initializer
   can use their operators and literals but not call an intrinsic on them.
   ([Integers](shader-language.md#integers))
-- **`checked` arithmetic** throws `OverflowException` with `ForCpu` but wraps on the GPU, which has no
-  exceptions. ([Integers](shader-language.md#integers))
+- **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
+  with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
+  and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
+  ([Integers](shader-language.md#integers))
+- **A Metal compiler bug drops a lane of integer vector arithmetic**: when an integer vector is
+  negated, a lane of the negation is never read, and the same vector is subtracted in an
+  add/subtract/multiply chain elsewhere, that chain loses the lane on the GPU (not with `ForCpu`).
+  The generator avoids it for every negation it can see (`-v`, `0 - v`, `v * -1`, `v / -1`, and a
+  constant with some lanes of 0 or -1). A negation it cannot see is still exposed until Apple fixes
+  the compiler: `~v + 1`, `v - 2 * v` and other arithmetic that only amounts to a negation. Write
+  those as `-v`. ([Integers](shader-language.md#integers))
 - **Half precision.** The math functions of `Gpu.*` take half *vectors*. For a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the bit
   casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
@@ -38,6 +47,15 @@ to the page that explains it.
   `with` expressions, user-defined `++`/`--`, generic structs and interface calls are not. A
   by-reference (`ref`/`out`) argument has to be a local or a parameter, not a buffer element.
   ([Sharing code](shared-code.md#rules))
+
+## Matrix units
+
+- **Wave matrices** are 8 × 8 and `float` or `Half`, the one size and the two element types Metal's
+  matrix units have. A matrix needs all 32 lanes of its SIMD group and the same arguments in each;
+  the GPU does not check that, `ForCpu` refuses anything else. Sizes that are not a multiple of 8
+  (of the kernel's tile) are the caller's to pad. The terms of a load's or store's offset are summed
+  without wrapping on the GPU; where C# would wrap the sum, the CPU reports the offset as out of
+  range. ([Matrix units](matrix-units.md#rules))
 
 ## Resources and dispatch
 

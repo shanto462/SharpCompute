@@ -83,6 +83,9 @@ internal sealed unsafe class CommandBatch
     private nint _currentPipeline;
     private int _released;
     private string? _simulatedError;
+    // Written by the thread that saw the command buffer complete (possibly Metal's) before the batch is
+    // recycled, read by the owner in its recycle callback: the hand-over is what orders the two.
+    private long _gpuTimeTicks = NotRun;
 
     /// <summary>Starts an empty batch on <paramref name="device"/>'s queue. No Metal object is created until it is committed.</summary>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
@@ -121,6 +124,7 @@ internal sealed unsafe class CommandBatch
         _blits.Clear();
         _completion = null;
         _simulatedError = null;
+        _gpuTimeTicks = NotRun;
 
         // Leases the queue before the batch counts as live again, so a disposed device leaves it released.
         _queue = Lease(_device.QueueHandle, _device);
@@ -150,6 +154,17 @@ internal sealed unsafe class CommandBatch
 
     /// <summary>Number of operations recorded so far: dispatches, copies and fills.</summary>
     internal int OperationCount => _dispatches.Count + _blits.Count;
+
+    /// <summary><see cref="GpuTimeTicks"/> of a batch whose command buffer has not completed: still recording, abandoned, or dropped uncommitted.</summary>
+    internal const long NotRun = -1;
+
+    /// <summary>
+    /// How long the GPU executed the command buffer this batch ran in (see
+    /// <see cref="GraphicsDevice.GpuTimeTicks(nint)"/>), in <see cref="TimeSpan"/> ticks, or
+    /// <see cref="NotRun"/>. Valid in the recycle callback and until the batch is <see cref="Reset"/>.
+    /// For <see cref="EncodeInto"/> it is the time of the caller's whole command buffer.
+    /// </summary>
+    internal long GpuTimeTicks => _gpuTimeTicks;
 
     /// <summary>
     /// Tests only: report this error description at completion as if Metal had set the command
@@ -390,6 +405,10 @@ internal sealed unsafe class CommandBatch
             EncodeRecorded();
             ObjC.SendVoid(_commandBuffer, Selectors.Commit);
             ObjC.SendVoid(_commandBuffer, Selectors.WaitUntilCompleted);
+
+            // This thread committed and waited, so the time is also its device.LastGpuTime.
+            _gpuTimeTicks = GraphicsDevice.GpuTimeTicks(_commandBuffer);
+            _device.SetLastGpuTime(_gpuTimeTicks);
             error = GetError(_commandBuffer);
         }
         finally
@@ -551,6 +570,9 @@ internal sealed unsafe class CommandBatch
         try
         {
             using AutoreleasePool pool = AutoreleasePool.Push();
+
+            // Before the release below, which drops the batch's own command buffer.
+            _gpuTimeTicks = GraphicsDevice.GpuTimeTicks(commandBuffer);
             error = GetError(commandBuffer);
         }
         catch (Exception e)

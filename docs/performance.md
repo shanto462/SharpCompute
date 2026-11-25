@@ -6,6 +6,7 @@ measured and the machine load, is [`benchmarks/RESULTS.md`](../benchmarks/RESULT
 
 - [GPU against CPU](#gpu-against-cpu)
 - [How to read this](#how-to-read-this)
+- [Against native Metal](#against-native-metal)
 - [Zero-copy data paths](#zero-copy-data-paths)
 - [Unified memory: when it helps and when it doesn't](#unified-memory-when-it-helps-and-when-it-doesnt)
 - [Numbers on other pages](#numbers-on-other-pages)
@@ -30,6 +31,37 @@ Apple M4 Pro, GPU against the **fastest** CPU variant (multi-threaded, and SIMD 
 - Apple Silicon's CPU and GPU share the same memory.
 - Compute-heavy work wins big; memory-bound work like SAXPY doesn't.
 - The generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01).
+- The matrix product is the naive kernel. Written with [`WaveMatrix8x8`](matrix-units.md) for the
+  GPU's matrix units, the same 1024×1024 product takes 0.42 ms of GPU time instead of 4.15 ms (the table below).
+
+## Against native Metal
+
+SharpCompute against native Metal on the same GPU, by the GPU's own time for one dispatch
+([`LastGpuTime`](dispatch.md#gpu-time-of-a-dispatch); Apple M4 Pro, medians of 5 passes of 25 dispatches):
+
+| Single-precision matrix multiply, 1024×1024 | Written as | GPU time | TFLOP/s |
+|---|---|---:|---:|
+| `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
+| `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.15 |
+| `simdgroup_matrix`, 2×4 accumulators ([`WaveMatrix8x8`](matrix-units.md)) | generated from C# | 0.422 ms | 5.08 |
+| threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
+| naive | generated from C# | 4.15 ms | 0.52 |
+| naive | hand-written MSL | 4.11 ms | 0.52 |
+
+A generated kernel takes the same GPU time as the same kernel written by hand in MSL, to about
+1 %: the ratio is 1.008 to 1.012 for the naive matrix multiply, 1.013 to 1.014 for the one on the
+matrix units, and 1.000 for an N-body step, for SAXPY and for an integer hash.
+
+The scalar kernels'
+5× and 10× to MPS are not the generator's: MPS and the kernels next to it use Metal's matrix units
+(`simdgroup_matrix`), which a C# shader reaches as `WaveMatrix8x8`, and that kernel is within 5 % of
+MPS.
+
+The same section of the report places every kernel under the machine's measured ceilings:
+6.22 TFLOP/s of FP32 arithmetic, of which MPS reaches 86 %, and 249 GB/s of memory bandwidth (244 to
+255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
+the memory-bandwidth ceiling (within 2 %): it is bound by memory, and no kernel will make it faster.
+See [Native baselines and roofline](../benchmarks/RESULTS.md#native-baselines-and-roofline).
 
 ## Zero-copy data paths
 
@@ -71,6 +103,7 @@ Feature pages carry their own measurements (all on an Apple M4 Pro):
 | Local arrays in registers and spilled | [Local arrays: rules](local-arrays.md#rules) |
 | Privatised histograms | [Atomics on threadgroup memory](atomics.md#atomics-on-threadgroup-memory) |
 | SIMD-group emulation on the CPU | [SIMD groups: on the CPU](simd-groups.md#on-the-cpu) |
+| Matrix units against MPS and hand-written MSL | [Matrix units: how fast](matrix-units.md#how-fast) |
 | Indirect dispatch and compaction | [Dispatch: indirect dispatch](dispatch.md#indirect-dispatch) |
 | Span copies against `device.Copy` | [Resources: copy, fill and clear](resources.md#copy-fill-and-clear) |
 | First-frame compile, `Prepare`, precompiled shaders | [Precompiled shaders: what it saves](precompiled-shaders.md#what-it-saves) |

@@ -18,7 +18,9 @@ The half vectors have the surface of the float vectors:
 - `+ - * / %` and the comparisons (which give [bool vectors](shader-language.md#bool-vectors)),
 - conversions to and from the float and integer vectors,
 - every `Gpu.*` function the float vectors have (`Gpu.Sqrt`, `Lerp`, `Dot`, `Normalize`, `Sin`,
-  `Pow`, `Radians` and the rest),
+  `Pow`, `Radians` and the rest) except three: `AsInt` and `AsUInt`, whose 16-bit forms wait for
+  16-bit integer vectors (see [Limitations](limitations.md#shader-language)), and
+  `PackUnorm4x8(Float4)`, which has no half overload (convert with `(Float4)h` first),
 - the [SIMD-group operations](simd-groups.md).
 
 A half has 11 significant bits, about 3 decimal digits, and reaches from 6e-8 to 65504. A half

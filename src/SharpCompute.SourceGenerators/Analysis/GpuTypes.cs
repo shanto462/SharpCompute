@@ -19,6 +19,12 @@ internal enum GpuTypeKind
     Struct,
     Buffer,
     Texture,
+
+    /// <summary>
+    /// <c>WaveMatrix8x8</c> or <c>WaveMatrixHalf8x8</c>: a <c>metal::simdgroup_matrix</c>, which the lanes
+    /// of a SIMD group hold together. A value of locals, parameters and return values only.
+    /// </summary>
+    WaveMatrix,
 }
 
 /// <summary>A field of a user struct (or of a vector type, for layout purposes).</summary>
@@ -115,7 +121,7 @@ internal sealed class GpuType
 
     public IReadOnlyList<GpuField> Fields { get; set; } = Array.Empty<GpuField>();
 
-    /// <summary>For buffers and <c>[InlineArray]</c> structs: the element type.</summary>
+    /// <summary>For buffers, <c>[InlineArray]</c> structs and wave matrices: the element type.</summary>
     public GpuType? Element { get; set; }
 
     /// <summary>
@@ -217,6 +223,12 @@ internal sealed class TypeResolver
 
     /// <summary>Set when an error type was seen: the user's code does not compile, so we stay quiet.</summary>
     public bool SawErrorType { get; private set; }
+
+    /// <summary>
+    /// Set when a wave matrix type was resolved: the shader names one somewhere, so its MSL includes
+    /// <c>&lt;metal_simdgroup_matrix&gt;</c>.
+    /// </summary>
+    public bool UsesWaveMatrices { get; private set; }
 
     /// <summary>
     /// The type arguments of the generic method being translated, by type parameter. While it is set,
@@ -376,6 +388,25 @@ internal sealed class TypeResolver
     private static bool IsHalf(ITypeSymbol type) =>
         type is INamedTypeSymbol { Name: "Half", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
 
+    /// <summary>The two wave matrix types, <c>SharpCompute.WaveMatrix8x8</c> and <c>SharpCompute.WaveMatrixHalf8x8</c>.</summary>
+    public static bool IsWaveMatrixType(ITypeSymbol? type) => IsSharpComputeType(type, "WaveMatrix8x8", "WaveMatrixHalf8x8");
+
+    /// <summary>
+    /// SCG0048 for a wave matrix used <paramref name="where"/> it would need a layout in memory (as
+    /// "the element of a buffer", "a field of the struct 'X'"); null for every other type. A failure of
+    /// its own rather than the general "unsupported type", because the remedy is specific: Store.
+    /// </summary>
+    public static TypeFailure? WaveMatrixStorage(ITypeSymbol? type, string where)
+    {
+        if (!IsWaveMatrixType(type))
+        {
+            return null;
+        }
+
+        string reason = $"a wave matrix cannot be {where}: it is held by the lanes of a SIMD group and has no layout in memory";
+        return new TypeFailure(DiagnosticDescriptors.WaveMatrixNotStorable, reason, Display(type!), where);
+    }
+
     private static bool IsInt128(ITypeSymbol type) =>
         type is INamedTypeSymbol { Name: "Int128" or "UInt128", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
 
@@ -437,6 +468,22 @@ internal sealed class TypeResolver
             return new GpuType(GpuTypeKind.Scalar, "half", "half", csharpName, 2, 2) { IsFloating = true };
         }
 
+        if (IsWaveMatrixType(type))
+        {
+            // Recognized by name, like the textures: the type has no fields the layout rules could
+            // read (its C# storage is the CPU's model of it), and its MSL name is fixed by Metal.
+            bool isHalf = type.Name == "WaveMatrixHalf8x8";
+            UsesWaveMatrices = true;
+
+            return new GpuType(GpuTypeKind.WaveMatrix, isHalf ? "metal::simdgroup_half8x8" : "metal::simdgroup_float8x8", isHalf ? "metal::simdgroup_half8x8" : "metal::simdgroup_float8x8", csharpName, 0, 1)
+            {
+                IsFloating = true,
+                Element = isHalf
+                    ? new GpuType(GpuTypeKind.Scalar, "half", "half", "global::System.Half", 2, 2) { IsFloating = true }
+                    : new GpuType(GpuTypeKind.Scalar, "float", "float", "float", 4, 4) { IsFloating = true },
+            };
+        }
+
         if (IsInt128(type))
         {
             // Int128 and UInt128 are structs of two ulongs, so they would pass as user structs, but
@@ -496,6 +543,12 @@ internal sealed class TypeResolver
             {
                 // Keep the specific struct diagnostic instead of wrapping it in a generic one.
                 failure = elementFailure;
+                return null;
+            }
+
+            if (WaveMatrixStorage(elementSymbol, "the element of a buffer") is { } matrixElement)
+            {
+                failure = matrixElement;
                 return null;
             }
 
@@ -651,6 +704,12 @@ internal sealed class TypeResolver
                 return null;
             }
 
+            if (WaveMatrixStorage(field.Type, $"the field '{fieldName}' of the struct '{Display(type)}'") is { } matrixField)
+            {
+                failure = matrixField;
+                return null;
+            }
+
             if (fieldType is null || !fieldType.CanCrossBoundary)
             {
                 string reason = fieldFailure?.Reason ?? BoundaryReason(field.Type);
@@ -735,6 +794,14 @@ internal sealed class TypeResolver
             return null;
         }
 
+        if (WaveMatrixStorage(field.Type, $"the element of the inline array '{Display(type)}'") is { } matrixElement)
+        {
+            // MSL would take an array of matrices, but `default` of the struct is `{}` there, which
+            // leaves them uninitialized where C# has zero matrices.
+            failure = matrixElement;
+            return null;
+        }
+
         if (element is null || element.Kind is GpuTypeKind.Void or GpuTypeKind.Buffer or GpuTypeKind.Texture)
         {
             string reason = elementFailure?.Reason ?? "buffers and textures are kernel arguments, not values";
@@ -775,12 +842,17 @@ internal sealed class TypeResolver
             ? field.Name.Substring(1, field.Name.Length - 3)
             : null;
 
-    /// <summary>True for failures that describe a problem with a user struct (SCG0009, SCG0010, SCG0027).</summary>
+    /// <summary>
+    /// True for failures that describe a problem with a user struct (SCG0009, SCG0010, SCG0027), or a
+    /// wave matrix where it would have to be stored (SCG0048): each is reported as itself wherever the
+    /// type that has the problem is used.
+    /// </summary>
     public static bool IsStructFailure(TypeFailure? failure) =>
         failure is not null &&
         (ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.InvalidStruct) ||
          ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.BufferInsideStruct) ||
-         ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.TextureInsideStruct));
+         ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.TextureInsideStruct) ||
+         ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.WaveMatrixNotStorable));
 
     private static GpuType? Fail(out TypeFailure? failure, INamedTypeSymbol type, string reason)
     {
@@ -838,6 +910,11 @@ internal sealed class TypeResolver
         if (resolved is { IsInlineArray: true, IsLocalOnly: true } && resolved.Fields[0].Symbol.Type is { } element)
         {
             return $"its elements of type '{Display(element)}' cannot cross the CPU/GPU boundary ({BoundaryReason(element)}), so the inline array can only be used for locals, parameters, and return values";
+        }
+
+        if (resolved is { Kind: GpuTypeKind.WaveMatrix })
+        {
+            return "a wave matrix is held by the lanes of a SIMD group and has no layout in memory; it can only be used for locals, parameters, and return values";
         }
 
         if (resolved is { Kind: GpuTypeKind.Vector, HasPackedForm: false })

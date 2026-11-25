@@ -35,7 +35,7 @@ public static class Report
 
     public static string Build(RunData data)
     {
-        (Machine machine, Machine.Snapshot before, Machine.Snapshot after, IReadOnlyList<Check> checks, IReadOnlyList<FirstDispatch> firstDispatches, IReadOnlyList<BenchmarkRow> allRows, bool quick, double elapsedMinutes, IReadOnlyList<Rerun>? reruns) = data;
+        (Machine machine, Machine.Snapshot before, Machine.Snapshot after, IReadOnlyList<Check> checks, IReadOnlyList<FirstDispatch> firstDispatches, IReadOnlyList<BenchmarkRow> allRows, bool quick, double elapsedMinutes, IReadOnlyList<Rerun>? reruns, NativeBaselineData? native) = data;
         reruns ??= [];
         // The CPU+GPU split benchmarks compare dispatch paths, not GPU against CPU; they get their own section.
         List<Row> splitRows = allRows.Where(static r => r.Workload.StartsWith(SplitCategory.Prefix, StringComparison.Ordinal)).ToList();
@@ -57,6 +57,12 @@ public static class Report
         {
             md.AppendLine();
             md.AppendLine(Invariant($"Re-run on {rerun.Before.Time:yyyy-MM-dd HH:mm zzz} ({(rerun.Quick ? "ShortRun" : "Default")} job, {rerun.ElapsedMinutes:F0} min): **{string.Join(", ", rerun.Workloads)}**. Those rows replace the earlier ones; everything else is from the first run. Verification and first-dispatch results are from the re-run."));
+        }
+
+        if (native is not null)
+        {
+            md.AppendLine();
+            md.AppendLine(Invariant($"[Native baselines and roofline](#native-baselines-and-roofline) measured on {native.Before.Time:yyyy-MM-dd HH:mm zzz} ({native.ElapsedSeconds:F0} s) by a harness of its own; that section gives the machine's state at the time, and the verification results are from that run."));
         }
 
         md.AppendLine();
@@ -156,6 +162,12 @@ public static class Report
         }
 
         AppendSplit(md, splitRows);
+
+        if (native is not null)
+        {
+            NativeBaselinesReport.Append(md, native);
+        }
+
         AppendFirstDispatch(md, firstDispatches);
 
         md.AppendLine("## Verification (`--verify`)");
@@ -352,6 +364,8 @@ public static class Report
         "Gaussian blur" => "Separable, radius 8 (17 taps, σ = 4), single-channel float, 3840×2160. Horizontal pass into a temp buffer, then vertical, "
             + "clamped edges. Baseline: CPU scalar (1 thread).",
         "Matrix multiply" => "Naive `C = A·B`, 1024×1024 float, row-major; the GPU runs one thread per output element and reads B column-wise. "
+            + "A wave-matrix row, in a run that has one, is the same product on the GPU's matrix units (`WaveMatrix8x8`): a SIMD group accumulates "
+            + "8×8 products, 2×4 of them per group; the native baselines time that kernel by GPU time. "
             + "Baseline: CPU Parallel.For (a scalar single thread is about 1 s per run and adds nothing).",
         "N-body" => "One O(n²) step with softening (ε² = 0.01), positions `Float4` (xyz + mass) and velocities `Float4`; reads the current "
             + "state and writes the next into separate buffers. Baseline: CPU Parallel.For (scalar single thread is too slow at 16K bodies).",

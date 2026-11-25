@@ -695,12 +695,55 @@ PRELUDE_ATOMIC_FLOAT_ADD = "__ms_atomic_fetch_add_float"
 # what `long(NaN)` gives. 9223372036854775808.0f is 2^63, exactly representable as a float.
 PRELUDE_FLOAT_TO_LONG = "__ms_float_to_long"
 
+# The .NET semantics of System.Math / MathF Min, Max and Clamp, which ForCpu runs. metal::min, max and
+# clamp are fmin/fmax: a NaN operand yields the other one (max(NaN, 1) is 1, clamp(NaN, 0, 0.5) is 0),
+# where .NET returns NaN, and they leave the zero of min(-0, +0) open. These are .NET's definitions
+# written out: Min and Max propagate NaN (the first operand when it is the NaN) and order -0 below +0
+# (IEEE 754-2019 minimum and maximum); Clamp is `x < lo ? lo : x > hi ? hi : x`, so a NaN x stays NaN
+# and inverted bounds, where .NET throws ArgumentException, give lo below lo and hi otherwise.
+# Gpu.Min, Max and Clamp keep the fmin/fmax semantics, which cost no selects.
+PRELUDE_MATH_MIN = "__ms_math_min"
+PRELUDE_MATH_MAX = "__ms_math_max"
+PRELUDE_MATH_CLAMP = "__ms_math_clamp"
+# float.Clamp is Min(Max(x, lo), hi) with those NaN-propagating Min and Max in .NET, so a NaN bound
+# gives NaN, where Math.Clamp's comparisons ignore it.
+PRELUDE_NUMBER_CLAMP = "__ms_number_clamp"
+# The % of two scalar halves. .NET's operator gives a zero remainder the sign of the dividend, as
+# IEEE fmod does; an Apple GPU's half fmod gives +0. A nonzero remainder already has that sign.
+PRELUDE_HALF_REM = "__ms_half_rem"
+# float.Lerp is .NET's MultiplyAddEstimate(a, 1 - t, b * t), one fused multiply-add on Apple silicon;
+# metal::mix is a + (b - a) * t, which rounds differently and overflows for other operands.
+PRELUDE_NUMBER_LERP = "__ms_number_lerp"
+# MathF.ILogB: .NET returns int.MaxValue for NaN, metal::ilogb returns int.MinValue.
+PRELUDE_ILOGB = "__ms_ilogb"
+PRELUDE_MATH_CLAMP_TYPES = ("float", "uchar", "char", "short", "ushort", "int", "uint", "long", "ulong")
+
 # Rotates behind Gpu.RotateLeft / Gpu.RotateRight. C# takes the count as an int and reduces it modulo
 # the width; metal::rotate takes it in the type of the value. The mask makes the reduction explicit,
 # and a right rotate is a left rotate by the negated count (negated as unsigned: -int.MinValue
 # overflows, which is undefined in MSL).
 PRELUDE_ROTATE_LEFT = "__ms_rotate_left"
 PRELUDE_ROTATE_RIGHT = "__ms_rotate_right"
+
+# The negation of an integer vector, which the generator emits instead of `-v`. Apple's Metal
+# compiler miscompiles `-v` on an integer vector (silently, at -O1 and above, in every math mode)
+# when one lane of the result is never read and the same `v` is subtracted in an add/sub/mul chain
+# elsewhere, as in `t += C; t *= 3; t -= v`: the optimizer marks the unread lane of the negation as
+# poison, then reuses that instruction as "-v" for the chain, and the chain's result loses the lane
+# (its store is deleted). Negating each lane as a scalar and building the vector from the results
+# leaves no vector negation for the optimizer to reuse. Floats and halves are not affected.
+#
+# Each lane is negated in the unsigned type of its width, so that the negation of MinValue wraps as
+# it does in C# instead of being undefined (for the 8- and 16-bit lanes, which MSL promotes to int,
+# the negation cannot overflow at all and the conversion back truncates).
+PRELUDE_NEGATE = "__ms_neg"
+
+# The lane-by-lane product of two int or uint vectors, which the generator emits instead of `a * b`
+# when one operand is a constant with a lane of -1, as in `v * new Int3(1, -1, 1)`. Where the other
+# lanes of the product are never read, the optimizer reduces the multiplication to the negation it
+# miscompiles (see PRELUDE_NEGATE); multiplying each lane as a scalar leaves it none. The lanes are
+# multiplied as uint, so the product wraps as it does in C#.
+PRELUDE_MULTIPLY = "__ms_mul"
 
 
 @dataclass(frozen=True)
@@ -713,6 +756,10 @@ class IntegerType:
     @property
     def unsigned_scalar(self) -> str:
         return {"sbyte": "byte", "short": "ushort", "int": "uint", "long": "ulong"}.get(self.scalar, self.scalar)
+
+    @property
+    def unsigned_msl(self) -> str:
+        return {"char": "uchar", "short": "ushort", "int": "uint", "long": "ulong"}.get(self.msl, self.msl)
 
 
 BYTE = IntegerType("byte", "uchar", 8, False)
@@ -728,6 +775,39 @@ SMALL_AND_WIDE = (BYTE, SBYTE, SHORT, USHORT, LONG, ULONG)
 
 # Rotates are new for every integer type, int and uint included.
 ROTATE_TYPES = (BYTE, SBYTE, SHORT, USHORT, IntegerType("int", "int", 32, True), IntegerType("uint", "uint", 32, False), LONG, ULONG)
+
+# Every integer type MSL has vectors of. SharpCompute's own vectors are int and uint; a vector of
+# another integer type is one a user declares with [MslType].
+NEGATE_TYPES = (SBYTE, BYTE, SHORT, USHORT, IntegerType("int", "int", 32, True), IntegerType("uint", "uint", 32, False), LONG, ULONG)
+
+
+def negate_msl() -> list[str]:
+    """The prelude's integer vector negations (see PRELUDE_NEGATE): one overload per type and width."""
+    lines = []
+    for t in NEGATE_TYPES:
+        for n in (2, 3, 4):
+            v = f"{t.msl}{n}"
+            if t.signed:
+                lanes = [f"{t.msl}(-{t.unsigned_msl}(x.{c}))" for c in COMPONENTS[:n]]
+            elif t.bits < 32:
+                # `-x.x` on a uchar or ushort is an int: convert it back explicitly.
+                lanes = [f"{t.msl}(-x.{c})" for c in COMPONENTS[:n]]
+            else:
+                lanes = [f"-x.{c}" for c in COMPONENTS[:n]]
+            lines.append(f"inline {v} {PRELUDE_NEGATE}({v} x) {{ return {v}({', '.join(lanes)}); }}")
+    return lines
+
+
+def multiply_msl() -> list[str]:
+    """The prelude's lane-by-lane products (see PRELUDE_MULTIPLY), for the vectors SharpCompute has."""
+    lines = []
+    for t in ("int", "uint"):
+        for n in (2, 3, 4):
+            v = f"{t}{n}"
+            lanes = [f"int(uint(a.{c}) * uint(b.{c}))" if t == "int" else f"a.{c} * b.{c}" for c in COMPONENTS[:n]]
+            lines.append(f"inline {v} {PRELUDE_MULTIPLY}({v} a, {v} b) {{ return {v}({', '.join(lanes)}); }}")
+    return lines
+
 
 PRELUDE_ATOMICS = tuple(
     (space, t, atomic)
@@ -755,10 +835,24 @@ def prelude_msl() -> list[str]:
     lines.append(
         f"inline long {PRELUDE_FLOAT_TO_LONG}(float x) "
         "{ return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }")
+    lines.append(
+        f"inline float {PRELUDE_MATH_MIN}(float x, float y) "
+        "{ return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }")
+    lines.append(
+        f"inline float {PRELUDE_MATH_MAX}(float x, float y) "
+        "{ return x != y ? (metal::isnan(x) ? x : (y < x ? x : y)) : (metal::signbit(y) ? x : y); }")
+    for t in PRELUDE_MATH_CLAMP_TYPES:
+        lines.append(f"inline {t} {PRELUDE_MATH_CLAMP}({t} x, {t} lo, {t} hi) {{ return x < lo ? lo : (x > hi ? hi : x); }}")
+    lines.append(f"inline float {PRELUDE_NUMBER_CLAMP}(float x, float lo, float hi) {{ return {PRELUDE_MATH_MIN}({PRELUDE_MATH_MAX}(x, lo), hi); }}")
+    lines.append(f"inline half {PRELUDE_HALF_REM}(half x, half y) {{ return metal::copysign(metal::fmod(x, y), x); }}")
+    lines.append(f"inline float {PRELUDE_NUMBER_LERP}(float a, float b, float t) {{ return metal::fma(a, 1.0f - t, b * t); }}")
+    lines.append(f"inline int {PRELUDE_ILOGB}(float x) {{ return metal::isnan(x) ? 2147483647 : metal::ilogb(x); }}")
     for t in ROTATE_TYPES:
         mask = f"{t.bits - 1}u"
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_RIGHT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}((0u - uint(count)) & {mask})); }}")
+    lines.extend(negate_msl())
+    lines.extend(multiply_msl())
     for n, packed in PACKED_MATRICES.items():
         msl, column = f"float{n}x{n}", f"float{n}"
         # The boundary form of a matrix: its columns as packed vectors, so the struct has the
@@ -772,6 +866,7 @@ def prelude_msl() -> list[str]:
         columns = ", ".join(f"m[{c}]" for c in range(n))
         lines.append(f"inline {packed} {PRELUDE_PACK}({msl} m) {{ return {packed}{{{{{columns}}}}}; }}")
     lines.extend(wave_all_equal_msl())
+    lines.extend(wave_matrix_msl())
     return lines
 
 
@@ -783,8 +878,9 @@ def gen_prelude() -> str:
     out.append("/// MSL helpers and types that have no <c>metal::</c> equivalent. The generator emits")
     out.append("/// <see cref=\"Source\"/> after <c>using namespace metal;</c> when a shader uses one of them. They")
     out.append("/// are named <c>__ms_*</c> and are referenced by <c>[MslIntrinsic(\"__ms_...\")]</c> and")
-    out.append("/// <c>[MslAtomic(\"__ms_...\")]</c> on the matching <see cref=\"Gpu\"/> methods, and by")
-    out.append("/// <c>[MslType(..., Packed = \"__ms_...\")]</c> on <see cref=\"Float4x4\"/>.")
+    out.append("/// <c>[MslAtomic(\"__ms_...\")]</c> on the matching <see cref=\"Gpu\"/> methods, by")
+    out.append("/// <c>[MslType(..., Packed = \"__ms_...\")]</c> on <see cref=\"Float4x4\"/>, and by the generator for the")
+    out.append("/// loads and products of <see cref=\"WaveMatrix8x8\"/> and <see cref=\"WaveMatrixHalf8x8\"/>.")
     out.append("/// </summary>")
     out.append("public static class MslPrelude")
     out.append("{")
@@ -1356,6 +1452,29 @@ def wave_all_equal_msl() -> list[str]:
     return lines
 
 
+def wave_matrix_msl() -> list[str]:
+    """The prelude's wave-matrix helpers. Metal's simdgroup_load, simdgroup_multiply and
+    simdgroup_multiply_accumulate return their result through a reference parameter; these return it,
+    so that WaveMatrix8x8.Load(...) and the products are expressions, as they are in C#. They inline to
+    the plain calls (measured: the same GFLOP/s). A load is overloaded on the address space of its
+    source, a buffer (device) or a [GroupShared] array (threadgroup), and takes its element type from
+    it; a product takes the result's element type as R and those of its operands from the arguments,
+    which is every mix of half and float that Metal allows."""
+    m = "metal::simdgroup_matrix"
+    lines = []
+    for space in ("device", "threadgroup"):
+        lines.append(
+            f"template <typename T> inline {m}<T, 8, 8> __ms_wave_matrix_load(const {space} T* source, ulong stride, bool transpose) "
+            f"{{ {m}<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }}")
+    lines.append(
+        f"template <typename R, typename T, typename U> inline {m}<R, 8, 8> __ms_wave_matrix_multiply({m}<T, 8, 8> a, {m}<U, 8, 8> b) "
+        f"{{ {m}<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }}")
+    lines.append(
+        f"template <typename R, typename T, typename U, typename V> inline {m}<R, 8, 8> __ms_wave_matrix_multiply_accumulate({m}<T, 8, 8> a, {m}<U, 8, 8> b, {m}<V, 8, 8> c) "
+        f"{{ {m}<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }}")
+    return lines
+
+
 def gen_gpu_wave() -> str:
     out: list[str] = [HEADER]
     out.append("using System;")
@@ -1623,6 +1742,18 @@ def gen_msl_probe() -> str:
             lines.append(f"    acc += float({f.msl}(s{kind.msl}));")
             for n in WIDTHS:
                 lines.append(f"    acc += float({f.msl}(v{kind.msl_vec(n)}).x);")
+    # The negation the generator emits for an integer vector (`-v`), from the native and from the
+    # packed type: one overload per integer type and width must be the best match for both.
+    for t in NEGATE_TYPES:
+        for n in (2, 3, 4):
+            v = f"{t.msl}{n}"
+            lines.append(f"    {v} neg{v} = {v}({t.msl}(tid)); packed_{v} pneg{v} = neg{v};")
+            lines.append(f"    neg{v} = {PRELUDE_NEGATE}(neg{v}); pneg{v} = {PRELUDE_NEGATE}(pneg{v}); acc += float(neg{v}.x) + float(pneg{v}.y);")
+    # The lane-by-lane product the generator emits for a constant with a lane of -1.
+    for t in ("int", "uint"):
+        for n in (2, 3, 4):
+            v = f"{t}{n}"
+            lines.append(f"    acc += float({PRELUDE_MULTIPLY}(neg{v}, {v}({t}(1))).x) + float({PRELUDE_MULTIPLY}(pneg{v}, pneg{v}).y);")
     # The bits of a half (Gpu.AsUShort, AsShort, AsHalf and the BitConverter methods they stand for).
     lines.append("    ushort hbits = as_type<ushort>(shalf); short hsigned = as_type<short>(shalf);")
     lines.append("    acc += float(as_type<half>(hbits)) + float(as_type<half>(hsigned));")

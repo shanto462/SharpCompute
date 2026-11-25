@@ -73,7 +73,8 @@ public class SignedArithmeticTests
     [InlineData("ints[2] = ThreadIds.X + 1;", "ints[2] = int(__tid.x + 1u);")]
     [InlineData("ints[2] = (int)uints[0] + a;", "ints[2] = int(uints[0] + uint(a));")]
     [InlineData("vectors[0] = vectors[1] * 3 + new Int3(a);", "vectors[0] = int3(uint3(vectors[1]) * 3u + uint3(int3(a)));")]
-    [InlineData("vectors[0] = -vectors[1];", "vectors[0] = int3(-uint3(vectors[1]));")]
+    // The negation of a vector goes through the prelude instead (see VectorNegationTests).
+    [InlineData("vectors[0] = -vectors[1];", "vectors[0] = __ms_neg(vectors[1]);")]
     public void SignedArithmetic_IsComputedUnsigned_AndConvertedBack(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
 
@@ -140,14 +141,16 @@ public class SignedArithmeticTests
     [Fact]
     public void CompoundAssignments_WithSideEffects_KeepTheNativeOperatorAndItsOrder()
     {
-        // The cases where the order of evaluation shows: each keeps the shape it had before, the
-        // native operator with the target named once, so the parts are evaluated as they were.
+        // The shapes where the order of evaluation could show: each keeps the shape it had before, the
+        // native operator with the target named once, so the parts are evaluated as they were. (With
+        // the value writing the target's own buffer, `ints[0] += Bump(0)` and the like, they are
+        // SCG0021; here the value writes another resource.)
         string kernel = Translate(
             """
-            ints[0] += Bump(0);
-            ints[ints[8]] = Bump(8);
-            ints[24] += ints[24] = 5;
-            ints[ints[32]] += Bump(32);
+            ints[0] += BumpOther(0);
+            ints[ints[8]] = BumpOther(8);
+            ints[24] += Tile[0] = 5;
+            ints[ints[32]] += BumpOther(32);
             ints[Next(40)] *= b;
             longs[Next(0)] -= a;
             vectors[Next(1)] += new Int3(b);
@@ -156,12 +159,13 @@ public class SignedArithmeticTests
             Tile[Next(i)] += b;
             int x = a;
             x += Bump(4);
-            """).KernelBody;
+            """,
+            "private int BumpOther(int slot) { uints[slot] += 1u; return 10; }").KernelBody;
 
-        Assert.Contains("reinterpret_cast<device uint&>(ints[0]) += uint(::Bump(0, ints));", kernel);
-        Assert.Contains("ints[ints[8]] = ::Bump(8, ints);", kernel);
-        Assert.Contains("reinterpret_cast<device uint&>(ints[24]) += uint(ints[24] = 5);", kernel);
-        Assert.Contains("reinterpret_cast<device uint&>(ints[ints[32]]) += uint(::Bump(32, ints));", kernel);
+        Assert.Contains("reinterpret_cast<device uint&>(ints[0]) += uint(::BumpOther(0, uints));", kernel);
+        Assert.Contains("ints[ints[8]] = ::BumpOther(8, uints);", kernel);
+        Assert.Contains("reinterpret_cast<device uint&>(ints[24]) += uint(Tile[0] = 5);", kernel);
+        Assert.Contains("reinterpret_cast<device uint&>(ints[ints[32]]) += uint(::BumpOther(32, uints));", kernel);
         Assert.Contains("reinterpret_cast<device uint&>(ints[::Next(40)]) *= uint(b);", kernel);
         Assert.Contains("reinterpret_cast<device ulong&>(longs[::Next(0)]) -= ulong(a);", kernel);
         Assert.Contains("reinterpret_cast<device packed_uint3&>(vectors[::Next(1)]) += uint3(int3(b));", kernel);

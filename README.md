@@ -89,9 +89,11 @@ contain. All documentation is indexed in [`docs/`](docs/README.md).
 | Images in and out | `SharpCompute.Imaging` loads PNG, JPEG and HEIC straight into a texture's memory and saves textures | [Imaging](docs/imaging.md) | [Loaded image](docs/screenshots/textures-image.png) |
 | Shared memory and barriers | `[GroupShared]` arrays, `Gpu.GroupMemoryBarrierWithGroupSync()`, `GroupSize`, `GroupIds`, `ThreadGroupCount` | [Shared memory](docs/shared-memory.md) | [Reduction](docs/screenshots/computelab-reduction.png) |
 | SIMD-group operations | HLSL's wave and quad intrinsics (`Gpu.WaveActiveSum`, `WaveActiveBallot`, `WavePrefixSum`, `WaveShuffleUp`, ...) across the 32 lanes of a SIMD group | [SIMD groups](docs/simd-groups.md) | [SIMD reduction](docs/screenshots/computelab-simd-reduction.png) |
+| Matrix units | `WaveMatrix8x8` and `WaveMatrixHalf8x8`: 8 × 8 matrices a SIMD group holds together, multiplied on the GPU's matrix units. A matrix product written in C# runs at 5 TFLOP/s on an M4 Pro, within 2 % of hand-written MSL | [Matrix units](docs/matrix-units.md) | [Matrix units](docs/screenshots/computelab-matrix-units.png) |
 | Atomics | `Gpu.AtomicAdd(ref counts[bin], 1)` and friends on buffer and `[GroupShared]` elements, atomic on the CPU too | [Atomics](docs/atomics.md) | [Histogram](docs/screenshots/computelab-histogram.gif), [privatised](docs/screenshots/computelab-histogram-privatised.png) |
 | Batched, async and indirect dispatch | `ComputeContext` runs many dispatches with one commit; `ForAsync` returns a `Task`; `ForIndirect` takes its size from a buffer the GPU wrote | [Dispatch](docs/dispatch.md) | [Indirect](docs/screenshots/computelab-indirect.png) |
-| CPU execution and CPU+GPU split | `device.ForCpu` runs the shader as C# on all cores; `device.ForSplit` divides one dispatch between the CPU and the GPU | [CPU execution](docs/cpu-execution.md) | |
+| GPU time of a dispatch | `device.LastGpuTime` and `context.LastGpuTime`: the GPU's own time for the last dispatch or batch, without the submission and wait a stopwatch adds | [Dispatch](docs/dispatch.md#gpu-time-of-a-dispatch) | |
+| CPU execution and CPU+GPU split | `device.ForCpu` runs the shader as C# on all cores; `device.ForSplit` divides one dispatch between the CPU and the GPU | [CPU execution](docs/cpu-execution.md); [Semantics and conformance](docs/cpu-execution.md#semantics-and-conformance) | |
 | Interop with existing Metal code | `GraphicsDevice.FromNative`, wrapped native buffers and textures, `NativeHandle`, and `ComputeContext.EncodeInto` the app's own command buffer | [Interop](docs/interop.md) | [NativeInterop](docs/screenshots/nativeinterop.png) |
 | Precompiled shaders | One project property compiles the shaders into a `.metallib` at build time, with run-time compilation as the fallback; `Prepare` warms up the rest | [Precompiled shaders](docs/precompiled-shaders.md) | [FastMath](docs/screenshots/computelab-fastmath.png) |
 | Correct by default | IEEE-safe math and precise functions unless a shader opts out with `[ShaderOptions]`; `static_assert` layout guards; CPU `Gpu.*` measured bit-for-bit against the GPU for arithmetic | [Getting started](docs/getting-started.md#accuracy-by-default) | |
@@ -111,7 +113,10 @@ one synchronous dispatch without uploads or read-back:
 | Gaussian blur, radius 8 | 3840×2160 | 2.25 ms | 1.68 ms | **1.3×** |
 | SAXPY `y = a·x + y` | 16M floats | 0.85 ms | 1.01 ms | 0.84× (CPU wins) |
 
-Compute-heavy work wins big; memory-bound work like SAXPY doesn't. Where data has to move, skipping
+Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The matrix product is the naive
+kernel: written with [`WaveMatrix8x8`](docs/matrix-units.md), the same product takes 0.42 ms of GPU
+time, within 5 % of Apple's `MPSMatrixMultiplication`, and generated kernels match the same kernels
+hand-written in MSL to about 1 %. Where data has to move, skipping
 the copies through unified memory matters more: a 4K image pipeline goes from 12.2 ms to 3.10 ms,
 and summing a 256 MB file from 42.0 ms to 4.06 ms. [Performance](docs/performance.md) has the rest of the numbers and how to read
 them, [Unified memory](docs/unified-memory.md) explains when sharing memory pays off, and
@@ -128,7 +133,7 @@ full size.
 <tr>
 <td width="50%" valign="top">
 <a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab's privatised-histogram page: an animated image, its luminance histogram counted with global atomics, and the same histogram counted per threadgroup, bin for bin identical"></a>
-<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math, the 8-, 16- and 64-bit integers and half precision, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
+<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations and matrix units, indirect dispatch, bits, fast math, the 8-, 16- and 64-bit integers and half precision, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
 <br><code>scripts/demo-computelab.sh [--page &lt;name&gt;] [--headless]</code>
 <br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, R, Up/Down)</sub>
 </td>
@@ -222,9 +227,10 @@ Without a picture, because they print timings or play sound:
 ### ComputeLab pages
 
 `scripts/demo-computelab.sh --page <name>` starts on a page; `--list` shows them all.
-`scripts/demo-groupshared.sh` and `scripts/demo-simdgroups.sh` open the lab on its shared-memory and
-SIMD-group pages. The Indirect and FastMath pages also say whether their kernel was
-[precompiled](docs/precompiled-shaders.md) when the lab was built or compiled at run time.
+`scripts/demo-groupshared.sh`, `scripts/demo-simdgroups.sh` and `scripts/demo-matrixunits.sh` open
+the lab on its shared-memory, SIMD-group and matrix-unit pages. The Indirect and FastMath pages also
+say whether their kernel was [precompiled](docs/precompiled-shaders.md) when the lab was built or compiled
+at run time.
 
 <table>
 <tr>
@@ -245,17 +251,17 @@ SIMD-group pages. The Indirect and FastMath pages also say whether their kernel 
 <tr>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-compaction.png"><img src="docs/screenshots/thumbs/computelab-simd-compaction.png" width="100%" alt="ComputeLab SIMD compaction page: 32,768 particles, the ones in a circle packed in order by ballots and prefix sums, and one SIMD group's ballot lane by lane"></a><br><b>SIMD groups</b>: SIMD compaction<br><code>--page simd-compaction</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-shuffle.png"><img src="docs/screenshots/thumbs/computelab-simd-shuffle.png" width="100%" alt="ComputeLab SIMD shuffle page: a noisy signal smoothed inside each SIMD group by lane shuffles, the group edges showing as steps"></a><br><b>SIMD groups</b>: SIMD shuffle<br><code>--page simd-shuffle</code></td>
-<td width="33%" valign="top"><a href="docs/screenshots/computelab-indirect.png"><img src="docs/screenshots/thumbs/computelab-indirect.png" width="100%" alt="ComputeLab Indirect page: a compaction pass counts the survivors and the follow-up pass is dispatched over exactly that many"></a><br><b>Dispatch</b>: Indirect<br><code>--page indirect</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-matrix-units.png"><img src="docs/screenshots/thumbs/computelab-matrix-units.png" width="100%" alt="ComputeLab Matrix units page: a corner of a 1024 by 1024 matrix product under the grid of the 8 by 8 wave matrices that computed it, and GFLOP/s bars for the wave-matrix, shared-memory and naive kernels"></a><br><b>SIMD groups</b>: Matrix units<br><code>--page matrix-units</code><br><sub>V kernel · N size</sub></td>
 </tr>
 <tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-indirect.png"><img src="docs/screenshots/thumbs/computelab-indirect.png" width="100%" alt="ComputeLab Indirect page: a compaction pass counts the survivors and the follow-up pass is dispatched over exactly that many"></a><br><b>Dispatch</b>: Indirect<br><code>--page indirect</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-bits.png"><img src="docs/screenshots/thumbs/computelab-bits.png" width="100%" alt="ComputeLab Bits page: popcount, bit reversal, leading and trailing zeros, float bits and unorm8 packing drawn as patterns"></a><br><b>Math</b>: Bits<br><code>--page bits</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-fastmath.png"><img src="docs/screenshots/thumbs/computelab-fastmath.png" width="100%" alt="ComputeLab FastMath page: a transcendental-heavy field and its error against the CPU, with and without fast math, and whether the kernel was precompiled"></a><br><b>Math</b>: FastMath<br><code>--page fastmath</code></td>
-<td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 </tr>
 <tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-half-precision.png"><img src="docs/screenshots/thumbs/computelab-half-precision.png" width="100%" alt="ComputeLab Half precision page: an image, its 289-tap blur in Half4 arithmetic, the error of that blur against the blur in double, and a mask made with Gpu.Select from a componentwise comparison"></a><br><b>Math</b>: Half precision<br><code>--page half-precision</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-shared-code.png"><img src="docs/screenshots/thumbs/computelab-shared-code.png" width="100%" alt="ComputeLab Shared code page: a path-traced scene of spheres on a checkerboard, the static class and structs its shaders are built from, and the same scene traced by ForCpu at every 8th pixel"></a><br><b>Code reuse</b>: Shared code<br><code>--page shared-code</code></td>
-<td width="33%" valign="top"></td>
 </tr>
 </table>
 
@@ -275,8 +281,11 @@ the details.
 - Local arrays have a compile-time length and cannot be sliced, copied or returned. Shared shader
   code must be C# source in the shader's own project.
 - Textures are 2D with one mip level, and samplers are six fixed ones.
-- GPU math flushes subnormal floats to zero and fuses multiply-adds by default; `checked` arithmetic
-  wraps on the GPU.
+- GPU math flushes subnormal floats to zero and fuses multiply-adds by default. `checked` arithmetic
+  is a build error (`SCG0052`).
+- Wave matrices are 8 × 8, `float` or `Half`, and need all 32 lanes of a SIMD group.
+- A Metal compiler bug can drop a lane of integer vector arithmetic. The generator works around
+  every negation it can see; write the others as `-v`.
 - On the CPU, SIMD-group operations need uniform control flow, and shared memory and SIMD groups are
   far slower than on the GPU: use them for checking, not bulk work.
 
@@ -287,15 +296,13 @@ the details.
   API stays the same; each backend adds its own shading-language emitter and runtime.
 - NuGet packages.
 
-## Contributing
+## Contributing and security
 
-[Building and testing](docs/building.md) covers the build, the tests, the generated sources and how
-demo pictures are kept up to date:
-
-```sh
-dotnet build SharpCompute.slnx
-dotnet test SharpCompute.slnx
-```
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for the build, test and pull
+request workflow, and [SUPPORT.md](SUPPORT.md) for where to ask questions. Everyone taking part
+follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately, as described
+in [SECURITY.md](SECURITY.md), not in public issues. [Building from source](docs/building.md) covers
+building and running the demos without changing anything.
 
 ## License
 

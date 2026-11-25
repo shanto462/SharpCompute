@@ -63,6 +63,7 @@ public static partial class Verify
         }
 
         VerifyCpuAndSplit(device, Add);
+        VerifyNativeBaselines(device, Add);
 
         return checks;
     }
@@ -273,6 +274,10 @@ public static partial class Verify
 
         matmul.Gpu();
         add(Compare("MatMul", size, "GPU generated", "CPU Parallel.For", matmul.GpuC.AsSpan(), reference));
+
+        matmul.GpuC.AsSpan().Clear();
+        matmul.GpuWaveMatrix();
+        add(Compare("MatMul", size, "GPU wave matrices", "CPU Parallel.For", matmul.GpuC.AsSpan(), reference));
     }
 
     private static void VerifyNBody(GraphicsDevice device, int n, Action<Check> add)

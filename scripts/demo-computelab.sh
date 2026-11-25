@@ -17,6 +17,8 @@
 #     SIMD reduction: 16.7M floats summed three ways (WaveActiveSum, after a loop, loops only); V method
 #     SIMD compaction: 32,768 particles packed in order by ballots and prefix sums, no atomics; V circle size
 #     SIMD shuffle: a signal smoothed inside each SIMD group by WaveShuffleUp/Down; V 3 or 5 taps
+#     Matrix units: 1024 and 2048 matrix products on WaveMatrix8x8 (the GPU's matrix units) vs the
+#       shared-memory tiles and the naive kernel, in GFLOP/s; V kernel, N size
 #   Dispatch
 #     Indirect: compact, then dispatch exactly the survivors; D steps through the full-array alternatives
 #   Math

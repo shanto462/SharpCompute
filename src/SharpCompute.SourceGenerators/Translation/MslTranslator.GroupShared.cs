@@ -99,6 +99,12 @@ internal sealed partial class MslTranslator
             return null;
         }
 
+        if (TypeResolver.WaveMatrixStorage(array.ElementType, $"the element of the [GroupShared] array '{field.Name}'") is { } matrixElement)
+        {
+            _diagnostics.Report(matrixElement.Descriptor, typeLocation, matrixElement.Arguments);
+            return null;
+        }
+
         if (element is null || !element.CanCrossBoundary)
         {
             _diagnostics.Report(

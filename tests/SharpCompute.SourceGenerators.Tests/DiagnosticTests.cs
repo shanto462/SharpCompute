@@ -985,7 +985,7 @@ public class DiagnosticTests
             .Select(static f => (DiagnosticDescriptor)f.GetValue(null)!)
             .ToArray();
 
-        Assert.Equal(48, descriptors.Length);
+        Assert.Equal(53, descriptors.Length);
         Assert.Equal(descriptors.Length, descriptors.Select(static d => d.Id).Distinct().Count());
         Assert.All(descriptors, static d =>
         {
@@ -997,6 +997,7 @@ public class DiagnosticTests
         Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.GroupSharedWithoutThreadGroupSize.DefaultSeverity);
         Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.SimdGroupCallSitesShareLine.DefaultSeverity);
         Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.LocalArrayTooLarge.DefaultSeverity);
-        Assert.All(descriptors.Where(static d => d.Id is not ("SCG0004" or "SCG0035" or "SCG0038" or "SCG0044")), static d => Assert.Equal(DiagnosticSeverity.Error, d.DefaultSeverity));
+        Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.WaveMatrixInPartialSimdGroup.DefaultSeverity);
+        Assert.All(descriptors.Where(static d => d.Id is not ("SCG0004" or "SCG0035" or "SCG0038" or "SCG0044" or "SCG0051")), static d => Assert.Equal(DiagnosticSeverity.Error, d.DefaultSeverity));
     }
 }

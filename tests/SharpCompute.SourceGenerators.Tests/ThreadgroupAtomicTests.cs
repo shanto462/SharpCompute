@@ -209,7 +209,8 @@ public class ThreadgroupAtomicTests
     {
         ShaderDescriptor descriptor = Run(
             """
-            output[ThreadIds.X] = Ints(GroupIds.X) + (int)UInts((uint)GroupIds.X) + Claim(GroupIds.X);
+            int ints = Ints(GroupIds.X);
+            output[ThreadIds.X] = ints + (int)UInts((uint)GroupIds.X) + Claim(GroupIds.X);
             """,
             """
             private static int Ints(int i)
@@ -280,8 +281,12 @@ public class ThreadgroupAtomicTests
         Assert.Contains("static int Claim_Local(int slot, threadgroup int* tile);", descriptor.MslSource);
         Assert.Contains("return metal::atomic_exchange_explicit((threadgroup metal::atomic_int*)&(tile[slot]), slot, metal::memory_order_relaxed);", descriptor.MslSource);
 
+        // Two calls that both make atomics on `tile` are split: their order is unspecified in MSL (SCG0021).
         Assert.Equal(
-            "output[int(__tid.x)] = int(uint(::Ints(int(__gtid.x), tile)) + ::UInts(uint(int(__gtid.x)), bits, __c) + uint(::Claim(int(__gtid.x), tile)));",
+            """
+            int ints = ::Ints(int(__gtid.x), tile);
+            output[int(__tid.x)] = int(uint(ints) + ::UInts(uint(int(__gtid.x)), bits, __c) + uint(::Claim(int(__gtid.x), tile)));
+            """.ReplaceLineEndings("\n").TrimEnd('\n'),
             Statements(descriptor));
     }
 
@@ -362,7 +367,8 @@ public class ThreadgroupAtomicTests
             """
             private static float Total(float step)
             {
-                return Local(step) + Gpu.AtomicAdd(value: step, location: ref sums[1]);
+                float local = Local(step);
+                return local + Gpu.AtomicAdd(value: step, location: ref sums[1]);
 
                 static float Local(float by) => Gpu.AtomicAdd(ref sums[2], -by);
             }
@@ -378,7 +384,10 @@ public class ThreadgroupAtomicTests
 
         // In a helper and in its local function, on the `threadgroup float*` they receive.
         Assert.Equal(
-            "return ::Total_Local(step, sums) + __ms_atomic_fetch_add_float((threadgroup metal::atomic_uint*)&(sums[1]), step);",
+            """
+            float local = ::Total_Local(step, sums);
+            return local + __ms_atomic_fetch_add_float((threadgroup metal::atomic_uint*)&(sums[1]), step);
+            """.ReplaceLineEndings("\n").TrimEnd('\n'),
             descriptor.FunctionBody("static float Total(float step, threadgroup float* sums)"));
         Assert.Equal(
             "return __ms_atomic_fetch_add_float((threadgroup metal::atomic_uint*)&(sums[2]), -by);",

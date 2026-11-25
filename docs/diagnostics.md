@@ -18,7 +18,7 @@ there is one, what to write instead. The source of truth is
 | SCG0009 | Error | Struct cannot be used in a shader (for example, packed below the alignment of its fields) | [Integers](shader-language.md#integers) |
 | SCG0010 | Error | Buffer nested inside a struct | |
 | SCG0011 | Error | Too many bound arguments | |
-| SCG0012 | Error | Unsupported construct in shader code | |
+| SCG0012 | Error | Unsupported construct in shader code (for example, a compound negation of an integer vector whose target has side effects) | [Integers](shader-language.md#integers) |
 | SCG0013 | Error | Instance method called on another instance | |
 | SCG0014 | Error | Recursive helper method | [Shared code](shared-code.md#rules) |
 | SCG0015 | Error | Invalid thread group size | |
@@ -27,7 +27,7 @@ there is one, what to write instead. The source of truth is
 | SCG0018 | Error | Captured shader state is read-only | |
 | SCG0019 | Error | Buffer length is unavailable | |
 | SCG0020 | Error | Execute method is missing | |
-| SCG0021 | Error | Expression depends on C# evaluation order | [Evaluation order](shader-language.md#evaluation-order) |
+| SCG0021 | Error | Expression depends on C# evaluation order (through locals, buffers, `[GroupShared]` arrays, textures and helper calls) | [Evaluation order](shader-language.md#evaluation-order) |
 | SCG0022 | Error | Shader implements both shader interfaces | |
 | SCG0023 | Error | Unsupported pixel type (pixel shaders return `Float4`) | [Getting started](getting-started.md#a-pixel-shader) |
 | SCG0024 | Error | Static field cannot be lowered to an MSL constant | [Half precision](half-precision.md#writing-half-constants) |
@@ -54,4 +54,9 @@ there is one, what to write instead. The source of truth is
 | SCG0045 | Error | Computed property is assigned in a shader | [Shared code](shared-code.md#rules) |
 | SCG0046 | Error | Generic method cannot be specialized (for example, for `double`) | [Shared code](shared-code.md#rules) |
 | SCG0047 | Error | No atomic operation for this element type | [Atomics](atomics.md#rules) |
+| SCG0048 | Error | Wave matrix cannot be stored (in a buffer, array, field or struct) | [Matrix units](matrix-units.md#rules) |
+| SCG0049 | Error | Wave matrix cannot be loaded from or stored to this memory | [Matrix units](matrix-units.md#rules) |
+| SCG0050 | Error | Wave matrix in a static field | [Matrix units](matrix-units.md#rules) |
+| SCG0051 | Warning | Wave matrix in a threadgroup that is not a multiple of 32 threads | [Matrix units](matrix-units.md#rules) |
+| SCG0052 | Error | Checked arithmetic in a shader | [Integers](shader-language.md#integers) |
 | SCG9999 | Error | Internal generator error | |

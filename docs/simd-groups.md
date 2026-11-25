@@ -4,7 +4,8 @@ An Apple GPU executes a threadgroup 32 threads at a time, in *SIMD groups* whose
 run together. The `Gpu.Wave*` methods let the lanes of one group combine or exchange values in a
 single step, without threadgroup memory, barriers or atomics. The `Gpu.Quad*` methods do the same
 among the four lanes of a quad. The names and meanings are those of HLSL's wave and quad intrinsics;
-they map to Metal's `simd_*` and `quad_*` functions.
+they map to Metal's `simd_*` and `quad_*` functions. A SIMD group can also multiply 8 × 8 matrices
+on the GPU's matrix units: see [Matrix units](matrix-units.md).
 
 - [Example: a sum per SIMD group](#example-a-sum-per-simd-group)
 - [The methods](#the-methods)

@@ -23,7 +23,7 @@ public readonly record struct LabCheck(bool Passed, string Summary, double CpuMi
 
 /// <summary>A second GPU dispatch a page times next to its feature kernel: the same work done another way.</summary>
 /// <param name="Name">What it is, e.g. "global atomics".</param>
-/// <param name="GpuMilliseconds">How long its dispatch of the last <see cref="ILabPage.Compute"/> took (commit to completion).</param>
+/// <param name="GpuMilliseconds">How long the GPU spent on its dispatch of the last <see cref="ILabPage.Compute"/> (<see cref="GraphicsDevice.LastGpuTime"/>).</param>
 public readonly record struct LabBaseline(string Name, double GpuMilliseconds);
 
 /// <summary>
@@ -56,7 +56,12 @@ public interface ILabPage : IDisposable
     /// <summary>The index of the active entry of <see cref="Variants"/>.</summary>
     int Variant { get; set; }
 
-    /// <summary>How long the feature kernel's GPU dispatch of the last <see cref="Compute"/> took (commit to completion).</summary>
+    /// <summary>
+    /// How long the GPU spent executing the feature kernel's dispatches of the last <see cref="Compute"/>:
+    /// <see cref="GraphicsDevice.LastGpuTime"/> after a <c>For</c> (summed when there are several), or
+    /// <see cref="ComputeContext.LastGpuTime"/> after a context's execution. The kernel's own time,
+    /// without the submission and the wait a stopwatch around the call would add.
+    /// </summary>
     double GpuMilliseconds { get; }
 
     /// <summary>
@@ -137,6 +142,7 @@ public static class LabPages
         new Simd.ReductionPage(device),
         new Simd.CompactionPage(device),
         new ShufflePage(device),
+        new MatrixUnitsPage(device),
 
         // Dispatch.
         new IndirectPage(device),

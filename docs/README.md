@@ -19,7 +19,7 @@ demos and the headline numbers.
 | Page | What it covers |
 |---|---|
 | [Resources](resources.md) | Buffers, zero-copy paths, views, copy/fill/clear, textures, pixel formats, samplers |
-| [Dispatch](dispatch.md) | `ComputeContext` batching, `ForAsync`, indirect dispatch |
+| [Dispatch](dispatch.md) | `ComputeContext` batching, `ForAsync`, the GPU time of a dispatch (`LastGpuTime`), indirect dispatch |
 | [Loading and saving images](imaging.md) | `SharpCompute.Imaging`: PNG, JPEG and HEIC to and from textures |
 | [Unified memory](unified-memory.md) | When sharing memory between the CPU and the GPU saves time, and when it doesn't |
 
@@ -29,15 +29,16 @@ demos and the headline numbers.
 |---|---|
 | [Shared memory and barriers](shared-memory.md) | `[GroupShared]` arrays, barriers, the group built-ins |
 | [SIMD-group operations](simd-groups.md) | `Gpu.Wave*` and `Gpu.Quad*`: votes, reductions, scans, shuffles |
+| [Matrix units](matrix-units.md) | `WaveMatrix8x8` and `WaveMatrixHalf8x8` on the GPU's matrix units, and a C# SGEMM at their speed |
 | [Atomics](atomics.md) | `Gpu.Atomic*` on buffer and threadgroup elements |
 
 ## Running and shipping
 
 | Page | What it covers |
 |---|---|
-| [CPU execution](cpu-execution.md) | `ForCpu` and `ForSplit`, and how each feature behaves on the CPU |
+| [CPU execution](cpu-execution.md) | `ForCpu` and `ForSplit`, the conformance suite that holds the GPU to `ForCpu`, and how each feature behaves on the CPU |
 | [Interop with existing Metal code](interop.md) | `FromNative`, wrapping native buffers and textures, `EncodeInto`, native handles |
 | [Warm-up and precompiled shaders](precompiled-shaders.md) | `Prepare`, and `.metallib` libraries built with the project |
-| [Performance](performance.md) | Benchmarks against the CPU, zero-copy paths, where the other numbers are |
+| [Performance](performance.md) | Benchmarks against the CPU and against native Metal, zero-copy paths, where the other numbers are |
 | [Limitations](limitations.md) | The full list |
-| [Building and testing](building.md) | Building the repository, generated sources, demo pictures |
+| [Building from source](building.md) | Requirements, building, running the demos. To contribute, see [CONTRIBUTING.md](../CONTRIBUTING.md) |

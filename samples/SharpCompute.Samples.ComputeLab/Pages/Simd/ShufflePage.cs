@@ -140,8 +140,6 @@ public sealed class ShufflePage : ILabPage
         ReadWriteBuffer<float> source = _a;
         ReadWriteBuffer<float> target = _b;
 
-        long start = Stopwatch.GetTimestamp();
-
         // All the passes go into one command buffer; each reads what the one before wrote.
         for (int pass = 0; pass < Passes; pass++)
         {
@@ -158,7 +156,7 @@ public sealed class ShufflePage : ILabPage
         }
 
         _context.Execute();
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _context.LastGpuTime.TotalMilliseconds;
         _result = source;
 
         // For the picture: the same passes with no group edges.
