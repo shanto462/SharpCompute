@@ -193,6 +193,226 @@ public class ComputeContextTests
     }
 
     [MetalFact]
+    public void LongLivedContext_RecordsAndExecutesWithoutAllocating()
+    {
+        // A renderer's pattern: one context, the same passes every frame. After the first frames have
+        // grown the batch's lists, recording and executing a frame reuses them.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> a = device.AllocateReadWriteBuffer<int>(Length);
+        using ReadWriteBuffer<int> b = device.AllocateReadWriteBuffer<int>(Length);
+        using ComputeContext context = device.CreateComputeContext();
+
+        void Frame()
+        {
+            for (int pass = 0; pass < 20; pass++)
+            {
+                context.For(Length, new IncrementAll(a));
+                context.For(Length, pass % 2 == 0 ? new ReverseAddOne(a, b) : new ReverseAddOne(b, a));
+            }
+
+            context.Execute();
+        }
+
+        for (int frame = 0; frame < 5; frame++)
+        {
+            Frame();
+        }
+
+        const int frames = 50;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int frame = 0; frame < frames; frame++)
+        {
+            Frame();
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // A new batch per frame allocated about 37 KB per frame here (40 dispatches, ~100 commands of 72 bytes).
+        Assert.True(allocated == 0, $"Recording and executing {frames} frames allocated {allocated} bytes.");
+    }
+
+    [MetalFact]
+    public void OversizedBatch_IsDroppedAfterItRuns_AndASmallOneIsKept()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> a = device.AllocateReadWriteBuffer<int>(Length);
+        using ReadWriteBuffer<int> b = device.AllocateReadWriteBuffer<int>(Length);
+        using ComputeContext context = device.CreateComputeContext();
+
+        // Each ReverseAddOne records two buffers, its constants and the dispatch: 1500 of them is
+        // about 6000 commands, past the 4096 a context keeps between executions.
+        for (int pass = 0; pass < 1500; pass++)
+        {
+            context.For(Length, pass % 2 == 0 ? new ReverseAddOne(a, b) : new ReverseAddOne(b, a));
+        }
+
+        context.Execute();
+        Assert.False(context.HasSpareBatch);
+
+        context.For(Length, new IncrementAll(a));
+        context.Execute();
+        Assert.True(context.HasSpareBatch);
+    }
+
+    [MetalFact]
+    public async Task ReusedBatches_AfterExecuteAsync_StillRunEverything()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        using ComputeContext context = device.CreateComputeContext();
+
+        // Alternate sync and async executions so that batches are recycled from Metal's completion
+        // thread while the next one records.
+        for (int round = 0; round < 50; round++)
+        {
+            context.For(Length, new IncrementAll(buffer));
+            context.For(Length, new IncrementAll(buffer));
+
+            if (round % 2 == 0)
+            {
+                await context.ExecuteAsync();
+            }
+            else
+            {
+                context.Execute();
+            }
+        }
+
+        Assert.All(buffer.ToArray(), value => Assert.Equal(100, value));
+    }
+
+    [MetalFact]
+    public async Task OverlappingAsyncExecutions_AndImmediateRecording_RunEverything()
+    {
+        // Several batches in flight at once: only one can become the spare, the others are dropped.
+        // Recording right after each submission races Reset() against the tail of OnCompleted.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        using ComputeContext context = device.CreateComputeContext();
+        Task[] tasks = new Task[200];
+
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            context.For(Length, new IncrementAll(buffer));
+            tasks[i] = context.ExecuteAsync();
+
+            if (i % 3 == 0)
+            {
+                await tasks[i];
+            }
+        }
+
+        await Task.WhenAll(tasks);
+        Assert.All(buffer.ToArray(), value => Assert.Equal(tasks.Length, value));
+    }
+
+    [MetalFact]
+    public void ReusedBatch_AfterAGpuError_ReportsOnlyItsOwnDispatches()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        using ReadOnlyBuffer<int> source = device.AllocateReadOnlyBuffer<int>(new int[Length]);
+        using ComputeContext context = device.CreateComputeContext();
+
+        context.For(Length, new IncrementAll(buffer));
+        context.For(Length, new AddAmount(source, buffer, 5));
+        context.SimulateGpuError("First fault");
+        Assert.Throws<MetalException>(context.Execute);
+
+        // The recycled batch starts clean: it runs normally, and a later failure names only its own work.
+        context.For(Length, new IncrementAll(buffer));
+        context.Execute();
+
+        context.For(Length, new IncrementAll(buffer));
+        context.SimulateGpuError("Second fault");
+        MetalException error = Assert.Throws<MetalException>(context.Execute);
+
+        Assert.Contains($"shader '{typeof(IncrementAll).FullName}'", error.Message);
+        Assert.DoesNotContain(typeof(AddAmount).FullName!, error.Message);
+        Assert.DoesNotContain("First fault", error.Message);
+    }
+
+    [MetalFact]
+    public void LeakedContext_WhoseBatchWasReused_StillReleasesItsLeases()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        nint mtlBuffer = ObjC.Retain(buffer.Handle.DangerousGetHandle());
+
+        try
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                ExecuteThenRecordAndLeak(device, buffer);
+            }
+
+            // The reused batch was re-registered for finalization when it was reset.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.All(buffer.ToArray(), value => Assert.Equal(8, value));
+
+            buffer.Dispose();
+            WaitForRetainCount(mtlBuffer, 1);
+        }
+        finally
+        {
+            ObjC.Release(mtlBuffer);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ExecuteThenRecordAndLeak(GraphicsDevice device, ReadWriteBuffer<int> buffer)
+    {
+        ComputeContext context = device.CreateComputeContext();
+        context.For(Length, new IncrementAll(buffer));
+        context.Execute();
+
+        // Recorded into the recycled batch, then the context is dropped without executing it.
+        context.For(Length, new IncrementAll(buffer));
+    }
+
+    [MetalFact]
+    public void ReusedBatch_AfterAFailedFirstDispatch_RecordsCleanly()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        ReadWriteBuffer<int> disposed = device.AllocateReadWriteBuffer<int>(Length);
+        disposed.Dispose();
+        using ComputeContext context = device.CreateComputeContext();
+
+        // The empty batch is dropped and recycled; the next recording resets and reuses it.
+        Assert.Throws<ObjectDisposedException>(() => context.For(Length, new IncrementAll(disposed)));
+        Assert.Equal(0, context.PendingCount);
+
+        context.For(Length, new IncrementAll(buffer));
+        Assert.Equal(1, context.PendingCount);
+        context.Execute();
+
+        Assert.All(buffer.ToArray(), value => Assert.Equal(1, value));
+    }
+
+    [MetalFact]
+    public void ReusedBatch_OnADisposedDevice_Throws()
+    {
+        GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+        using ComputeContext context = device.CreateComputeContext();
+
+        context.For(Length, new IncrementAll(buffer));
+        context.Execute();
+        device.Dispose();
+
+        // The spare batch cannot lease the disposed device's queue, so recording fails as it would
+        // with a new batch, and keeps failing.
+        Assert.Throws<ObjectDisposedException>(() => context.For(Length, new IncrementAll(buffer)));
+        Assert.Throws<ObjectDisposedException>(() => context.For(Length, new IncrementAll(buffer)));
+        Assert.Equal(0, context.PendingCount);
+    }
+
+    [MetalFact]
     public void EmptyGrids_RecordNothing()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();

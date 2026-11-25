@@ -42,7 +42,12 @@ namespace SharpCompute;
 /// <b>Reuse.</b> A context can execute any number of times: each execution submits what was recorded
 /// since the previous one, and the next <c>For</c> starts recording a new batch. Disposing executes
 /// what is still pending (and rethrows a GPU error); a context that is never disposed and never
-/// executed drops its recorded work without running it.
+/// executed drops its recorded work without running it. Once a batch has run, the context keeps its
+/// command lists and constants storage for the next one, so a renderer that holds one context and
+/// executes it every frame records without allocating after the first few frames. (A batch submitted
+/// with <see cref="ExecuteAsync"/> is reused once the GPU has finished it; until then the next
+/// recording uses a new one.) The kept storage stays at the size of the largest batch so far, up to
+/// a few hundred dispatches; a larger batch is dropped after it runs instead of kept.
 /// </para>
 /// <para>
 /// <b>Threading.</b> A context is not thread-safe: use it from one thread at a time (concurrent calls
@@ -54,11 +59,19 @@ namespace SharpCompute;
 /// </remarks>
 public sealed class ComputeContext : IDisposable, IAsyncDisposable
 {
+    private readonly Action<CommandBatch> _recycle;
     private CommandBatch? _batch;
+    // A batch that has run and released everything, kept for the next recording. Written by the
+    // completing thread (possibly Metal's), taken by the recording thread.
+    private CommandBatch? _spare;
     private int _busy;
     private bool _disposed;
 
-    internal ComputeContext(GraphicsDevice device) => Device = device;
+    internal ComputeContext(GraphicsDevice device)
+    {
+        Device = device;
+        _recycle = Recycle;
+    }
 
     /// <summary>The device this context dispatches on.</summary>
     public GraphicsDevice Device { get; }
@@ -213,11 +226,47 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Tests only: true when a completed batch is kept for the next recording.</summary>
+    internal bool HasSpareBatch => Volatile.Read(ref _spare) is not null;
+
     /// <summary>Tests only: the pending batch completes as if the GPU had failed it (see <see cref="CommandBatch.SimulateGpuError"/>).</summary>
     internal void SimulateGpuError(string description) =>
         (_batch ?? throw new InvalidOperationException("Nothing is pending.")).SimulateGpuError(description);
 
-    private CommandBatch GetOrBeginBatch() => _batch ??= new CommandBatch(Device);
+    private CommandBatch GetOrBeginBatch()
+    {
+        if (_batch is { } batch)
+        {
+            return batch;
+        }
+
+        if (Interlocked.Exchange(ref _spare, null) is { } spare)
+        {
+            // Throws ObjectDisposedException for a disposed device, like the constructor; the spare is dropped.
+            spare.Reset();
+            return _batch = spare;
+        }
+
+        return _batch = new CommandBatch(Device, recycle: _recycle);
+    }
+
+    /// <summary>
+    /// The recycle callback of this context's batches; may run on a Metal thread. Keeps at most one
+    /// spare, never an oversized one, and none once the context is disposed.
+    /// </summary>
+    private void Recycle(CommandBatch batch)
+    {
+        if (batch.IsOversized || Volatile.Read(ref _disposed))
+        {
+            return;
+        }
+
+        // Dispose may have run between the check and the store; take the spare back out if so.
+        if (Interlocked.CompareExchange(ref _spare, batch, null) is null && Volatile.Read(ref _disposed))
+        {
+            Interlocked.CompareExchange(ref _spare, null, batch);
+        }
+    }
 
     private CommandBatch? TakeBatch()
     {
@@ -233,7 +282,7 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         if (_batch is { DispatchCount: 0 } empty)
         {
             _batch = null;
-            empty.Abandon();
+            empty.AbandonAndRecycle();
         }
     }
 
@@ -264,7 +313,8 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
             return false;
         }
 
-        _disposed = true;
+        Volatile.Write(ref _disposed, true);
+        Volatile.Write(ref _spare, null);
         return true;
     }
 
