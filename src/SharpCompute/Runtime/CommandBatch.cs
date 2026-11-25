@@ -74,6 +74,7 @@ internal sealed unsafe class CommandBatch
     private readonly Action<CommandBatch>? _recycle;
     private byte[] _constants = [];
     private int _constantsLength;
+    private BindingTable? _bindings;
     private List<nint>? _temporaries;
     private TaskCompletionSource? _completion;
     private nint _queue;
@@ -221,7 +222,11 @@ internal sealed unsafe class CommandBatch
                 _commands.Add(new Command(CommandKind.Texture, texture, 0));
             }
 
-            BindingTable bindings = BindingTable.Rent();
+            // What this dispatch binds, to refuse bindings that overlap (see BindingTable). The batch
+            // records one dispatch at a time, so one table of its own serves them all.
+            BindingTable bindings = _bindings ??= new BindingTable();
+            bindings.Clear();
+
             ShaderArgumentWriter writer = new(0, _device, this, bindings);
 
             if (output is not null)
@@ -230,7 +235,6 @@ internal sealed unsafe class CommandBatch
             }
 
             T.SetArguments(in shader, ref writer);
-            bindings.Return();
 
             if (indirect is null)
             {

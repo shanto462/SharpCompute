@@ -18,6 +18,21 @@ public readonly partial struct AddReadWrite(ReadWriteBuffer<float> a, ReadWriteB
     }
 }
 
+/// <summary><c>if (i &lt; extra.Length) extra[i] = data[i] + 1</c>: writes a buffer that may be empty, and then writes nothing.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct CopyIntoMaybeEmpty(ReadWriteBuffer<float> data, ReadWriteBuffer<float> extra) : IComputeShader
+{
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+
+        if (i < extra.Length)
+        {
+            extra[i] = data[i] + 1f;
+        }
+    }
+}
+
 /// <summary><c>floats[i] = ints[i]</c>: two element types, for two wrappers of one native buffer.</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct IntsToFloats(ReadWriteBuffer<int> ints, ReadWriteBuffer<float> floats) : IComputeShader

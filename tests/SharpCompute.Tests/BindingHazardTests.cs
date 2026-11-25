@@ -120,9 +120,14 @@ public unsafe class BindingHazardTests
     [InlineData(20, 4, 0, 64, true)]
     [InlineData(10, 20, 10, 20, true)] // the same range, as two views
     [InlineData(63, 1, 63, 1, true)]
-    [InlineData(10, 0, 0, 64, false)] // an empty view covers nothing
+    [InlineData(10, 0, 0, 64, false)] // an empty view covers nothing, wherever it starts
     [InlineData(0, 64, 30, 0, false)]
+    [InlineData(0, 64, 5, 0, false)]
     [InlineData(64, 0, 0, 64, false)]
+    [InlineData(0, 64, 0, 0, false)]
+    [InlineData(0, 64, 64, 0, false)]
+    [InlineData(4, 20, 10, 0, false)] // inside another view
+    [InlineData(20, 0, 20, 0, false)] // two empty views at one place
     public void OverlappingViews_AreRefusedWhenOneIsWritten_AndDisjointOnesAreNot(int readStart, int readLength, int writtenStart, int writtenLength, bool overlaps)
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
@@ -148,6 +153,25 @@ public unsafe class BindingHazardTests
             return;
         }
 
+        if (count == 0)
+        {
+            // An empty view has no element a shader may touch, so there is nothing to dispatch over it
+            // with a shader that indexes it. Bound next to the other view, with every binding taken as
+            // written (the two-argument SetBuffer of a hand-written descriptor), it is accepted.
+            device.For(1, new BindBuffers([read, other, written]));
+            device.ForCpu(1, new BindBuffers([written, read]));
+            device.ForAsync(1, new BindBuffers([other, written, read])).GetAwaiter().GetResult();
+
+            using (ComputeContext context = device.CreateComputeContext())
+            {
+                context.For(1, new BindBuffers([read, written, read.Slice(0, 0), written.Slice(0, 0)]));
+                Assert.Equal(1, context.PendingCount);
+            }
+
+            Assert.Equal(Ramp(), buffer.ToArray());
+            return;
+        }
+
         float[] expected = Ramp();
 
         for (int i = 0; i < count; i++)
@@ -157,6 +181,46 @@ public unsafe class BindingHazardTests
 
         device.For(count, new AddReadWrite(read, other, written));
         Assert.Equal(expected, buffer.ToArray());
+    }
+
+    [MetalTheory]
+    [InlineData(0)]
+    [InlineData(5)]
+    [InlineData(31)]
+    [InlineData(63)]
+    [InlineData(64)]
+    public void AnEmptyView_InsideABufferThatIsBoundToo_IsAllowed_EvenWhenTheShaderWritesIt(int start)
+    {
+        // The shader stores to `extra` under a condition an empty view never meets; the generator
+        // still binds it as written. Where the empty view starts in the other binding does not matter.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<float> data = device.AllocateReadWriteBuffer<float>(Ramp());
+        ReadWriteBuffer<float> extra = data.Slice(start, 0);
+        CopyIntoMaybeEmpty shader = new(data, extra);
+
+        device.For(Length, shader);
+        device.ForCpu(Length, shader);
+        device.ForSplit(Length, shader, 0.5);
+        device.ForAsync(Length, shader).GetAwaiter().GetResult();
+
+        using (ComputeContext context = device.CreateComputeContext())
+        {
+            context.For(Length, shader);
+            context.For(Length, new CopyIntoMaybeEmpty(data, data.Slice(start, 0).Slice(0, 0)));
+        }
+
+        Assert.Equal(Ramp(), data.ToArray());
+
+        // One element there is an overlap again, and so is the same view written through `extra`.
+        if (start < Length)
+        {
+            Assert.Throws<ArgumentException>(() => device.For(1, new CopyIntoMaybeEmpty(data, data.Slice(start, 1))));
+            Assert.Throws<ArgumentException>(() => device.ForCpu(1, new CopyIntoMaybeEmpty(data, data.Slice(start, 1))));
+        }
+
+        // The empty view bound first, and every binding taken as written.
+        device.For(1, new BindBuffers([data.Slice(start, 0), data]));
+        device.ForCpu(1, new BindBuffers([data.Slice(start, 0), data, data.Slice(start, 0)]));
     }
 
     [MetalFact]
@@ -238,6 +302,18 @@ public unsafe class BindingHazardTests
             Assert.Throws<ArgumentException>(() => device.For(Length, new AddReadWrite(first, shared, second)));
             Assert.Throws<ArgumentException>(() => device.For(Length, new AddReadWrite(first, shared, first)));
             Assert.Throws<ArgumentException>(() => device.For(16, new AddReadWrite(first.Slice(0, 16), shared, second.Slice(15, 16))));
+
+            // An empty view in the middle of a private buffer covers no byte of it: the same rule,
+            // on byte offsets instead of addresses. One element there is an overlap.
+            foreach (int start in new[] { 0, 5, 33, Length })
+            {
+                device.For(Length, new CopyIntoMaybeEmpty(first, first.Slice(start, 0)));
+                device.For(Length, new CopyIntoMaybeEmpty(first, second.Slice(start, 0)));
+                device.For(1, new BindBuffers([first, shared, second.Slice(start, 0)]));
+            }
+
+            Assert.Throws<ArgumentException>(() => device.For(1, new CopyIntoMaybeEmpty(first, second.Slice(5, 1))));
+            Assert.Throws<ArgumentException>(() => device.For(1, new BindBuffers([first, shared, second.Slice(33, 1)])));
 
             // Two private buffers, disjoint ranges of one, and a private one next to shared ones.
             device.Copy(shared, first);

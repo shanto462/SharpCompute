@@ -41,13 +41,17 @@ namespace SharpCompute;
 /// texture over a private buffer), and the buffer an indirect dispatch takes its threadgroup counts from.
 /// </para>
 /// <para>
-/// <b>Cost.</b> One entry per binding, compared with the entries before it: a handful of integer
-/// comparisons for a typical shader. The table is taken from, and handed back to, a per-thread slot,
-/// so a dispatch allocates nothing for it once a thread has dispatched before.
+/// <b>Cost.</b> One entry per binding, written in place. Bindings are only compared from the first
+/// written one on: until then no two can be in conflict, so the read-only bindings of a shader that
+/// are bound first (and all of them, for a shader that writes nothing) cost a store each. A
+/// <see cref="CommandBatch"/> keeps a table for the dispatches it records; the synchronous and CPU
+/// paths take one from, and hand it back to, a per-thread slot. Either way a dispatch allocates
+/// nothing for it in the steady state.
 /// </para>
 /// <para>
-/// <b>Threading.</b> Not thread-safe; a table belongs to the one dispatch being recorded on the
-/// calling thread between <see cref="Rent"/> and <see cref="Return"/>.
+/// <b>Threading.</b> Not thread-safe; a table belongs to the one dispatch being recorded: on the
+/// calling thread between <see cref="Rent"/> and <see cref="Return"/>, or under its batch, which
+/// records one dispatch at a time.
 /// </para>
 /// </remarks>
 internal sealed unsafe class BindingTable
@@ -61,7 +65,12 @@ internal sealed unsafe class BindingTable
     private Entry[] _entries = new Entry[InitialCapacity];
     private int _count;
 
-    private BindingTable()
+    // True once a binding of this dispatch is written. Until then no two bindings can be in
+    // conflict, so a shader's read-only bindings are recorded without being compared at all.
+    private bool _anyWritten;
+
+    /// <summary>A table a <see cref="CommandBatch"/> keeps for the dispatches it records; everything else rents one.</summary>
+    internal BindingTable()
     {
     }
 
@@ -73,7 +82,7 @@ internal sealed unsafe class BindingTable
     {
         BindingTable table = t_spare ?? new BindingTable();
         t_spare = null;
-        table._count = 0;
+        table.Clear();
         return table;
     }
 
@@ -83,27 +92,48 @@ internal sealed unsafe class BindingTable
     /// </summary>
     internal void Return() => t_spare = this;
 
+    /// <summary>Empties the table for the next dispatch of its owner.</summary>
+    internal void Clear()
+    {
+        _count = 0;
+        _anyWritten = false;
+    }
+
     /// <summary>Records the buffer bound at <paramref name="index"/>, or throws when it overlaps an earlier binding and either is written.</summary>
     /// <exception cref="ArgumentException">The buffer overlaps another binding of the dispatch that the shader writes, or is written and overlaps one.</exception>
     internal void AddBuffer<T>(int index, Buffer<T> buffer, bool written)
         where T : unmanaged
     {
         nuint length = (nuint)buffer.Length * (nuint)sizeof(T);
-        Entry entry;
+
+        if (length == 0)
+        {
+            // An empty buffer or view has no element a shader may touch, wherever it starts: it
+            // cannot be in conflict with anything, and is not recorded.
+            return;
+        }
+
+        ref Entry entry = ref Next();
 
         if (buffer.IsCpuAccessible)
         {
-            nuint start = buffer.ContentsAddress;
-            entry = new Entry(space: 0, start, start + length, texture: 0, index, BindingKind.Buffer, written);
+            entry.Space = 0;
+            entry.Start = buffer.ContentsAddress;
         }
         else
         {
             // GPU-only memory has no address: the MTLBuffer and the byte range in it stand in for one.
-            nuint start = buffer.ByteOffset;
-            entry = new Entry(buffer.Handle.DangerousGetHandle(), start, start + length, texture: 0, index, BindingKind.Buffer, written);
+            entry.Space = buffer.Handle.DangerousGetHandle();
+            entry.Start = buffer.ByteOffset;
         }
 
-        Add(in entry);
+        entry.End = entry.Start + length;
+        entry.Texture = 0;
+        entry.Index = index;
+        entry.Kind = BindingKind.Buffer;
+        entry.Written = written;
+
+        Commit(written);
     }
 
     /// <summary>
@@ -115,22 +145,64 @@ internal sealed unsafe class BindingTable
     internal void AddTexture<T>(int index, Texture2D<T> texture, bool written, bool isOutput = false)
         where T : unmanaged
     {
-        nuint start = 0, end = 0;
+        ref Entry entry = ref Next();
+
+        entry.Space = 0;
 
         if (texture.IsCpuAccessible)
         {
             // A linear view of a shared buffer: the bytes from the first pixel to the last one. The
             // padding after the last row is not the texture's.
-            start = (nuint)texture.Contents;
-            end = start + ((nuint)(texture.Height - 1) * texture.BytesPerRow) + ((nuint)texture.Width * (nuint)sizeof(T));
+            entry.Start = (nuint)texture.Contents;
+            entry.End = entry.Start + ((nuint)(texture.Height - 1) * texture.BytesPerRow) + ((nuint)texture.Width * (nuint)sizeof(T));
+        }
+        else
+        {
+            // No memory that can be compared: an empty range, which overlaps nothing.
+            entry.Start = 0;
+            entry.End = 0;
         }
 
-        Add(new Entry(space: 0, start, end, texture.Handle.DangerousGetHandle(), index, isOutput ? BindingKind.Output : BindingKind.Texture, written));
+        entry.Texture = texture.Handle.DangerousGetHandle();
+        entry.Index = index;
+        entry.Kind = isOutput ? BindingKind.Output : BindingKind.Texture;
+        entry.Written = written;
+
+        Commit(written);
     }
 
-    private void Add(in Entry entry)
+    /// <summary>The slot of the binding being added. It only counts once <see cref="Commit"/> has accepted it.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ref Entry Next()
+    {
+        if (_count == _entries.Length)
+        {
+            Array.Resize(ref _entries, _entries.Length * 2);
+        }
+
+        return ref _entries[_count];
+    }
+
+    /// <summary>
+    /// Accepts the binding <see cref="Next"/> handed out, after comparing it with the ones before it
+    /// when this one is written or one of those is.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Commit(bool written)
+    {
+        if (written | _anyWritten)
+        {
+            Compare();
+            _anyWritten = true;
+        }
+
+        _count++;
+    }
+
+    private void Compare()
     {
         Entry[] entries = _entries;
+        ref readonly Entry entry = ref entries[_count];
 
         for (int i = 0; i < _count; i++)
         {
@@ -141,19 +213,17 @@ internal sealed unsafe class BindingTable
                 throw Conflict(in entry, in other);
             }
         }
-
-        if (_count == entries.Length)
-        {
-            Array.Resize(ref _entries, entries.Length * 2);
-        }
-
-        _entries[_count++] = entry;
     }
 
+    /// <summary>
+    /// True when the two are the same texture, or cover a byte in common. A range that covers no byte
+    /// (a texture whose memory cannot be compared) overlaps nothing, wherever it starts: the test of
+    /// two intervals alone would put an empty one inside any range around its start.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Overlaps(in Entry a, in Entry b) =>
         (a.Texture != 0 && a.Texture == b.Texture) ||
-        (a.Space == b.Space && a.Start < b.End && b.Start < a.End);
+        (a.Space == b.Space && a.Start < a.End && b.Start < b.End && a.Start < b.End && b.Start < a.End);
 
     private static ArgumentException Conflict(in Entry entry, in Entry other)
     {
@@ -220,14 +290,14 @@ internal sealed unsafe class BindingTable
     /// addresses and the <c>MTLBuffer</c> for byte offsets into GPU-only memory, and for a texture
     /// its <c>MTLTexture</c>.
     /// </summary>
-    private readonly struct Entry(nint space, nuint start, nuint end, nint texture, int index, BindingKind kind, bool written)
+    private struct Entry
     {
-        public readonly nint Space = space;
-        public readonly nuint Start = start;
-        public readonly nuint End = end;
-        public readonly nint Texture = texture;
-        public readonly int Index = index;
-        public readonly BindingKind Kind = kind;
-        public readonly bool Written = written;
+        public nint Space;
+        public nuint Start;
+        public nuint End;
+        public nint Texture;
+        public int Index;
+        public BindingKind Kind;
+        public bool Written;
     }
 }
