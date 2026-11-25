@@ -23,11 +23,14 @@ internal static class SampleAssembly
 
     /// <summary>
     /// Why a sample's tests are skipped. A normal build of this project builds the samples, so the
-    /// output is missing only when the build left project references out or the output was deleted.
+    /// output is missing only when the build left project references out, the output was deleted, or
+    /// a Release solution build ran from a path that goes through a symlink (e.g. under /tmp or /var
+    /// on macOS): MSBuild then builds the project references in Debug, where the tests don't look.
     /// </summary>
     internal static string NotBuilt(string name) =>
-        $"{name}'s build output is missing for this configuration. Building SharpCompute.Tests builds it " +
-        "(a build-only project reference), so build or test without --no-build or --no-dependencies.";
+        $"{name}'s build output is missing for this configuration. Building SharpCompute.Tests normally builds it " +
+        "(a build-only project reference). It is missing when project references weren't built (--no-dependencies), " +
+        "or when a Release solution build ran through a symlinked path, where the references build in Debug.";
 
     internal static string? PathOf(string name) => s_paths.GetOrAdd(name, Locate);
 
