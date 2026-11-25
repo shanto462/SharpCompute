@@ -647,6 +647,10 @@ pinned by the tests:
   returned earlier, a lane in the other branch of an `if`, and the lanes a partial group does not
   have (a grid or threadgroup that is not a multiple of 32) contribute nothing. A scan numbers the
   active lanes without gaps, and `WaveIsFirstLane` is the lowest active lane.
+- **What an exclusive scan gives the first active lane.** 1 for a product and 0 for a sum; for
+  floats and halves that 0 is `-0`, the identity of IEEE addition (`-0 + x` is `x` for every `x`),
+  on the GPU and on the CPU. It compares equal to 0; the sign shows in `1 / x`, `Gpu.CopySign`
+  and the bits.
 - **Shuffles at the edges.** `WaveShuffleUp(v, delta)` gives lane *i* the value of lane *i − delta*;
   the lowest `delta` lanes get their own value back. `WaveShuffleDown` mirrors that at the top of a
   full group. The `...AndFill` forms hand those lanes a fill instead, the `fill` argument of the lane
@@ -1571,7 +1575,7 @@ convert a whole vector, `(Half3)new Float3(...)`.
   minima and maxima are bit for bit; a sum or a product is too when its partial results are all
   halves, and otherwise shows the order of the lanes, which is the GPU's own (the CPU's is lane
   order): sums of 32 values of magnitude up to 4 came out up to 3/64 apart, products up to 4 half
-  ULP. An exclusive scan of sums starts from `-0`.
+  ULP. An exclusive scan of sums starts from `-0`, as it does for floats.
 
 A few functions take a scalar `Half`: `Gpu.Radians`, `Gpu.Degrees`, the SIMD-group operations, and
 the bit casts `Gpu.AsUShort(h)`, `Gpu.AsShort(h)` and `Gpu.AsHalf(bits)` (MSL's `as_type`, also
@@ -1704,9 +1708,10 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 - Half precision: the math functions of `Gpu.*` take half *vectors*; for a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the
   bit casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
-  scalars, so there is no vector form of that. A `static readonly` half or bool value can be
-  initialized with constructors, casts and operators, but not with a function call (`SCG0024`):
-  the compile-time evaluation only does 32-bit arithmetic.
+  scalars: a vector form of the bit casts waits for 16-bit integer vectors (`Short2..4`,
+  `UShort2..4`). A `static readonly` half or bool value can be initialized with constructors, casts
+  and operators, but not with a function call (`SCG0024`): the compile-time evaluation only does
+  32-bit arithmetic.
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero and fuses
   multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
   Transcendental functions agree with the CPU to within a few ULP.

@@ -710,14 +710,19 @@ internal sealed class CpuSimdGroups
 
         /// <summary>
         /// What an exclusive scan gives its first lane: 0 for a sum, 1 for a product. Scans exist for those
-        /// two only. For a sum of halves it is <c>-0</c>, which is what an Apple GPU returns (measured on an
-        /// M4 Pro) and the identity of IEEE addition: <c>-0 + x</c> is <c>x</c> for every <c>x</c>, <c>-0</c> included.
+        /// two only. For a sum of floats or of halves the 0 is <c>-0</c>, which is what an Apple GPU returns
+        /// (measured on an M4 Pro) and the identity of IEEE addition: <c>-0 + x</c> is <c>x</c> for every
+        /// <c>x</c>, <c>-0</c> included, where <c>+0 + -0</c> would be <c>+0</c>.
         /// </summary>
-        private static uint Identity(SimdOp fold, SimdScalar scalar) =>
-            scalar == SimdScalar.Half ? SimdHalf.Widen(fold == SimdOp.Product ? (Half)1f : -(Half)0f)
-            : fold != SimdOp.Product ? 0u
-            : scalar == SimdScalar.Float ? BitConverter.SingleToUInt32Bits(1f)
-            : 1u;
+        private static uint Identity(SimdOp fold, SimdScalar scalar) => (fold, scalar) switch
+        {
+            (SimdOp.Product, SimdScalar.Float) => BitConverter.SingleToUInt32Bits(1f),
+            (SimdOp.Product, SimdScalar.Half) => SimdHalf.Widen((Half)1f),
+            (SimdOp.Product, _) => 1u,
+            (SimdOp.Sum, SimdScalar.Float) => BitConverter.SingleToUInt32Bits(-0f),
+            (SimdOp.Sum, SimdScalar.Half) => SimdHalf.Widen(-(Half)0f),
+            _ => 0u,
+        };
 
         private static uint Combine(SimdOp fold, SimdScalar scalar, uint a, uint b)
         {

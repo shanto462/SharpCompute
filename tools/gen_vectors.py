@@ -1201,7 +1201,7 @@ WAVE_EQUAL = (
 WAVE_SCANS = (
     Wave("WavePrefixSum", "simd_prefix_exclusive_sum", "PrefixSum",
          "The sum of <paramref name=\"value\"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): "
-         "an exclusive scan, as in HLSL, so the first active lane gets 0.",
+         "an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).",
          remarks=f"Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. {_FLOAT_ORDER}"),
     Wave("WavePrefixProduct", "simd_prefix_exclusive_product", "PrefixProduct",
          "The product of <paramref name=\"value\"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_product</c>): "
@@ -1299,7 +1299,7 @@ QUAD_REDUCTIONS = (
          integer_only=True, remarks=_QUAD),
     Wave("QuadPrefixSum", "quad_prefix_exclusive_sum", "QuadPrefixSum",
          "The sum of <paramref name=\"value\"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): "
-         "an exclusive scan, so the quad's first active lane gets 0.",
+         "an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).",
          remarks=f"{_QUAD} Integers wrap. {_FLOAT_ORDER}"),
     Wave("QuadPrefixProduct", "quad_prefix_exclusive_product", "QuadPrefixProduct",
          "The product of <paramref name=\"value\"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_product</c>): "

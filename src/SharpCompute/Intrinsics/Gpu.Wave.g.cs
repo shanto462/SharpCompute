@@ -809,7 +809,7 @@ public static partial class Gpu
 
     // WavePrefixSum -> metal::simd_prefix_exclusive_sum
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -817,7 +817,7 @@ public static partial class Gpu
     public static float WavePrefixSum(float value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -825,7 +825,7 @@ public static partial class Gpu
     public static Float2 WavePrefixSum(Float2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -833,7 +833,7 @@ public static partial class Gpu
     public static Float3 WavePrefixSum(Float3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -841,7 +841,7 @@ public static partial class Gpu
     public static Float4 WavePrefixSum(Float4 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -849,7 +849,7 @@ public static partial class Gpu
     public static int WavePrefixSum(int value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -857,7 +857,7 @@ public static partial class Gpu
     public static Int2 WavePrefixSum(Int2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -865,7 +865,7 @@ public static partial class Gpu
     public static Int3 WavePrefixSum(Int3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -873,7 +873,7 @@ public static partial class Gpu
     public static Int4 WavePrefixSum(Int4 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -881,7 +881,7 @@ public static partial class Gpu
     public static uint WavePrefixSum(uint value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -889,7 +889,7 @@ public static partial class Gpu
     public static UInt2 WavePrefixSum(UInt2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -897,7 +897,7 @@ public static partial class Gpu
     public static UInt3 WavePrefixSum(UInt3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -905,7 +905,7 @@ public static partial class Gpu
     public static UInt4 WavePrefixSum(UInt4 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -914,7 +914,7 @@ public static partial class Gpu
     public static Half WavePrefixSum(Half value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         SimdHalf.Narrow(CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Half, SimdHalf.Widen(value), callerFile, callerLine));
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -922,7 +922,7 @@ public static partial class Gpu
     public static Half2 WavePrefixSum(Half2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         SimdHalf.Narrow(CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Half, SimdHalf.Widen(value), callerFile, callerLine));
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -930,7 +930,7 @@ public static partial class Gpu
     public static Half3 WavePrefixSum(Half3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         SimdHalf.Narrow(CpuSimdGroup.Reduce(SimdOp.PrefixSum, SimdScalar.Half, SimdHalf.Widen(value), callerFile, callerLine));
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): an exclusive scan, as in HLSL, so the first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3378,7 +3378,7 @@ public static partial class Gpu
 
     // QuadPrefixSum -> metal::quad_prefix_exclusive_sum
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3386,7 +3386,7 @@ public static partial class Gpu
     public static float QuadPrefixSum(float value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3394,7 +3394,7 @@ public static partial class Gpu
     public static Float2 QuadPrefixSum(Float2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3402,7 +3402,7 @@ public static partial class Gpu
     public static Float3 QuadPrefixSum(Float3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3410,7 +3410,7 @@ public static partial class Gpu
     public static Float4 QuadPrefixSum(Float4 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Float, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3418,7 +3418,7 @@ public static partial class Gpu
     public static int QuadPrefixSum(int value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3426,7 +3426,7 @@ public static partial class Gpu
     public static Int2 QuadPrefixSum(Int2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3434,7 +3434,7 @@ public static partial class Gpu
     public static Int3 QuadPrefixSum(Int3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3442,7 +3442,7 @@ public static partial class Gpu
     public static Int4 QuadPrefixSum(Int4 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Int, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3450,7 +3450,7 @@ public static partial class Gpu
     public static uint QuadPrefixSum(uint value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3458,7 +3458,7 @@ public static partial class Gpu
     public static UInt2 QuadPrefixSum(UInt2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3466,7 +3466,7 @@ public static partial class Gpu
     public static UInt3 QuadPrefixSum(UInt3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3474,7 +3474,7 @@ public static partial class Gpu
     public static UInt4 QuadPrefixSum(UInt4 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.UInt, value, callerFile, callerLine);
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3483,7 +3483,7 @@ public static partial class Gpu
     public static Half QuadPrefixSum(Half value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         SimdHalf.Narrow(CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Half, SimdHalf.Widen(value), callerFile, callerLine));
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3491,7 +3491,7 @@ public static partial class Gpu
     public static Half2 QuadPrefixSum(Half2 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         SimdHalf.Narrow(CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Half, SimdHalf.Widen(value), callerFile, callerLine));
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
@@ -3499,7 +3499,7 @@ public static partial class Gpu
     public static Half3 QuadPrefixSum(Half3 value, [CallerFilePath] string callerFile = "", [CallerLineNumber] int callerLine = 0) =>
         SimdHalf.Narrow(CpuSimdGroup.Reduce(SimdOp.QuadPrefixSum, SimdScalar.Half, SimdHalf.Widen(value), callerFile, callerLine));
 
-    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0.</summary>
+    /// <summary>The sum of <paramref name="value"/> over the active lanes of this lane's quad <i>below</i> this one (<c>quad_prefix_exclusive_sum</c>): an exclusive scan, so the quad's first active lane gets 0 (for floats and halves <c>-0</c>, the identity of IEEE addition, on the GPU and on the CPU).</summary>
     /// <remarks>A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 blocks of the grid; in any other they are four threads in a row. Integers wrap. For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), so compare the result with a tolerance.</remarks>
     /// <param name="value">This lane's value.</param>
     /// <param name="callerFile">Filled in by the compiler; leave it out.</param>
