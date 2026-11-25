@@ -120,8 +120,9 @@ public class HalfBoolVectorTests
     }
 
     /// <summary>
-    /// Every public <c>Gpu</c> method that takes a half vector, called once: Metal accepts the MSL of
-    /// each of them, so each maps to a function MSL defines for <c>half</c> operands.
+    /// Every public <c>Gpu</c> method that takes a half or a half vector, called once, the SIMD-group
+    /// operations included: Metal accepts the MSL of each of them, so each maps to a function MSL
+    /// defines for <c>half</c> operands (or to a prelude helper that does).
     /// </summary>
     [Fact]
     public void HalfVectors_EveryGpuOverloadCompilesWithMetal()
@@ -129,12 +130,14 @@ public class HalfBoolVectorTests
         Type[] halves = [typeof(Half2), typeof(Half3), typeof(Half4)];
         Type[] masks = [typeof(Bool2), typeof(Bool3), typeof(Bool4)];
         MethodInfo[] methods = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.GetParameters().Any(p => halves.Contains(p.ParameterType)))
+            .Where(m => m.GetParameters().Any(p => p.ParameterType == typeof(Half) || halves.Contains(p.ParameterType)))
             .ToArray();
 
         // 36 componentwise functions (7 with a scalar form), 5 geometric ones and 3 classifications at
-        // three widths, cross, equality with a vector and with a scalar, and select.
-        Assert.Equal(((36 + 7 + 5 + 3) * 3) + 1 + (4 * 3) + 3, methods.Length);
+        // three widths, cross, equality with a vector and with a scalar, and select; radians and degrees
+        // of a half and of the three vectors; the two bit casts from a half; and the 30 typed SIMD-group
+        // operations that are not integer-only, each for a half and the three vectors.
+        Assert.Equal(((36 + 7 + 5 + 3) * 3) + 1 + (4 * 3) + 3 + (2 * 4) + 2 + (30 * 4), methods.Length);
 
         var body = new StringBuilder();
         body.AppendLine("Half sc = (Half)buffer[0];");
@@ -144,10 +147,12 @@ public class HalfBoolVectorTests
 
         foreach (MethodInfo m in methods)
         {
-            string arguments = string.Join(", ", m.GetParameters().Select(p =>
+            // The call site of a SIMD-group operation (file and line) is filled in by the compiler.
+            string arguments = string.Join(", ", m.GetParameters().Where(static p => !p.HasDefaultValue).Select(p =>
                 p.ParameterType == typeof(Half) ? "sc"
                 : halves.Contains(p.ParameterType) ? "h" + p.ParameterType.Name[^1]
                 : masks.Contains(p.ParameterType) ? "b" + p.ParameterType.Name[^1]
+                : p.ParameterType == typeof(int) ? "1" // a lane, a delta or a mask
                 : throw new InvalidOperationException($"{m}: unexpected parameter {p.ParameterType}")));
             string call = $"Gpu.{m.Name}({arguments})";
 
@@ -155,9 +160,12 @@ public class HalfBoolVectorTests
                 m.ReturnType == typeof(Half) ? $"acc += (float){call};"
                 : halves.Contains(m.ReturnType) ? $"acc += (float){call}.X;"
                 : masks.Contains(m.ReturnType) ? $"acc += {call}.X ? 1f : 0f;"
+                : m.ReturnType == typeof(bool) ? $"acc += {call} ? 1f : 0f;"
+                : m.ReturnType == typeof(ushort) || m.ReturnType == typeof(short) ? $"acc += {call};"
                 : throw new InvalidOperationException($"{m}: unexpected return type {m.ReturnType}"));
         }
 
+        body.AppendLine("acc += (float)Gpu.AsHalf((ushort)15360) + (float)Gpu.AsHalf((short)-17408);");
         body.AppendLine("buffer[0] = acc;");
 
         ShaderDescriptor descriptor = GeneratorHarness.Run(TestSources.Vectors, TestSources.Body(body.ToString())).Verify(Shader);
@@ -166,7 +174,91 @@ public class HalfBoolVectorTests
         Assert.Contains("metal::copysign(h2, h2)", descriptor.KernelBody);
         Assert.Contains("metal::isfinite(h3)", descriptor.KernelBody);
         Assert.Contains("metal::select(h4, h4, b4)", descriptor.KernelBody);
-        Assert.DoesNotContain("__ms_", descriptor.MslSource);
+        Assert.Contains("__ms_radians(sc)", descriptor.KernelBody);
+        Assert.Contains("__ms_degrees(h3)", descriptor.KernelBody);
+        Assert.Contains("as_type<ushort>(sc)", descriptor.KernelBody);
+        Assert.Contains("metal::simd_sum(h4)", descriptor.KernelBody);
+        Assert.Contains("metal::simd_shuffle_and_fill_up(sc, sc, ushort(1))", descriptor.KernelBody);
+        Assert.Contains("metal::quad_prefix_inclusive_product(h2)", descriptor.KernelBody);
+        Assert.Contains("__ms_wave_all_equal(h3)", descriptor.KernelBody);
+        Assert.Contains("inline half3 __ms_radians(half3 x) { return x * half(0.017453292519943295f); }", descriptor.MslSource);
+        Assert.Contains("inline bool __ms_wave_all_equal(half v) { return metal::simd_all(v == metal::simd_broadcast_first(v)); }", descriptor.MslSource);
+    }
+
+    [Fact]
+    public void HalfRadiansDegreesAndBits_AreThePreludeHelpersAndAsType()
+    {
+        AssertKernel(
+            """
+            half h = half(buffer[0]);
+            half3 v = half3(h);
+            half r = __ms_radians(h) + __ms_degrees(h);
+            v = __ms_radians(v) + __ms_degrees(v.zyx);
+            float f = __ms_radians(90.0f) + __ms_degrees(float(__c.small));
+            ushort u = as_type<ushort>(h);
+            short s = as_type<short>(v.y);
+            half a = as_type<half>(ushort(int(u) ^ 32768));
+            half b = as_type<half>(s);
+            u = as_type<ushort>(a);
+            s = as_type<short>(b);
+            a = as_type<half>(u);
+            b = as_type<half>(s);
+            buffer[0] = float(r) + float(v.x) + f + float(a) + float(b);
+            """,
+            """
+            Half h = (Half)buffer[0];
+            Half3 v = new Half3(h);
+            Half r = Gpu.Radians(h) + Gpu.Degrees(h);
+            v = Gpu.Radians(v) + Gpu.Degrees(v.ZYX);
+            float f = Gpu.Radians(90) + Gpu.Degrees(small);
+            ushort u = Gpu.AsUShort(h);
+            short s = Gpu.AsShort(v.Y);
+            Half a = Gpu.AsHalf((ushort)(u ^ 0x8000));
+            Half b = Gpu.AsHalf(s);
+            u = BitConverter.HalfToUInt16Bits(a);
+            s = BitConverter.HalfToInt16Bits(b);
+            a = BitConverter.UInt16BitsToHalf(u);
+            b = BitConverter.Int16BitsToHalf(s);
+            buffer[0] = (float)r + (float)v.X + f + (float)a + (float)b;
+            """,
+            "public readonly byte small;");
+    }
+
+    [Fact]
+    public void HalfSimdGroupOperations_MapToTheSameMetalFunctionsAsFloat()
+    {
+        // Metal's functions are templates, so anything that is not plainly a native vector (a swizzle,
+        // an expression, packed storage) is converted first, as for the float vectors. The scalar Half
+        // overloads have the lower overload priority: an int constant and a byte keep going to the int
+        // overload, as before there was a Half one.
+        AssertKernel(
+            """
+            half h = half(buffer[0]);
+            half4 v = half4(h);
+            h = metal::simd_sum(h) + metal::simd_prefix_exclusive_product(h) + metal::simd_broadcast_first(h);
+            h = metal::simd_shuffle(h, ushort(2)) + metal::simd_shuffle_rotate_down(h, ushort(3)) + metal::quad_shuffle_xor(h, ushort(1));
+            v = metal::simd_max(v) + metal::simd_shuffle_up(v, ushort(1)) + metal::simd_shuffle_and_fill_down(v, half4(-v), ushort(4));
+            v.xy = metal::quad_min(half2(v.xy)) + metal::quad_prefix_inclusive_sum(half2(v.zw));
+            half3 packed = metal::simd_product(half3(halves[0])) + metal::simd_shuffle_xor(half3(__c.captured), ushort(16));
+            bool same = __ms_wave_all_equal(h);
+            same = same && __ms_wave_all_equal(half3(v.xyz));
+            int count = metal::simd_sum(7) + metal::simd_max(int(__c.small));
+            buffer[0] = float(h) + float(v.x) + float(packed.y) + float(count) + (same ? 1.0f : 0.0f);
+            """,
+            """
+            Half h = (Half)buffer[0];
+            Half4 v = new Half4(h);
+            h = Gpu.WaveActiveSum(h) + Gpu.WavePrefixProduct(h) + Gpu.WaveReadLaneFirst(h);
+            h = Gpu.WaveReadLaneAt(h, 2) + Gpu.WaveRotateDown(h, 3) + Gpu.QuadReadAcrossX(h);
+            v = Gpu.WaveActiveMax(v) + Gpu.WaveShuffleUp(v, 1) + Gpu.WaveShuffleDownAndFill(v, -v, 4);
+            v.XY = Gpu.QuadActiveMin(v.XY) + Gpu.QuadInclusivePrefixSum(v.ZW);
+            Half3 packed = Gpu.WaveActiveProduct(halves[0]) + Gpu.WaveShuffleXor(captured, 16);
+            bool same = Gpu.WaveActiveAllEqual(h);
+            same = same && Gpu.WaveActiveAllEqual(v.XYZ);
+            int count = Gpu.WaveActiveSum(7) + Gpu.WaveActiveMax(small);
+            buffer[0] = (float)h + (float)v.X + (float)packed.Y + count + (same ? 1f : 0f);
+            """,
+            "public readonly ReadOnlyBuffer<Half3> halves; public readonly Half3 captured; public readonly byte small;");
     }
 
     /// <summary>The example of the README's "Half precision" section, as it is printed there.</summary>

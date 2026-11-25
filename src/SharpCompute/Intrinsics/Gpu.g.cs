@@ -2,6 +2,7 @@
 // change the script and run: python3 -I tools/gen_vectors.py
 
 using System;
+using System.Runtime.CompilerServices;
 
 namespace SharpCompute;
 
@@ -1115,6 +1116,28 @@ public static partial class Gpu
     [MslIntrinsic("__ms_radians")]
     public static Float4 Radians(Float4 x) => new Float4(Radians(x.X), Radians(x.Y), Radians(x.Z), Radians(x.W));
 
+    /// <summary>
+    /// Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product.
+    /// </summary>
+    /// <remarks>
+    /// The float overload is preferred when both apply: <c>Gpu.Radians(90)</c> is the <c>float</c> it always was.
+    /// </remarks>
+    [MslIntrinsic("__ms_radians")]
+    [OverloadResolutionPriority(-1)]
+    public static Half Radians(Half x) => x * HalfMath.RadiansPerDegree;
+
+    /// <summary>Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_radians")]
+    public static Half2 Radians(Half2 x) => x * HalfMath.RadiansPerDegree;
+
+    /// <summary>Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_radians")]
+    public static Half3 Radians(Half3 x) => x * HalfMath.RadiansPerDegree;
+
+    /// <summary>Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_radians")]
+    public static Half4 Radians(Half4 x) => x * HalfMath.RadiansPerDegree;
+
     /// <summary>Converts radians to degrees: <c>x * 57.29577951308232f</c>.</summary>
     [MslIntrinsic("__ms_degrees")]
     public static float Degrees(float x) => x * 57.29577951308232f;
@@ -1130,6 +1153,28 @@ public static partial class Gpu
     /// <summary>Converts radians to degrees: <c>x * 57.29577951308232f</c>, componentwise.</summary>
     [MslIntrinsic("__ms_degrees")]
     public static Float4 Degrees(Float4 x) => new Float4(Degrees(x.X), Degrees(x.Y), Degrees(x.Z), Degrees(x.W));
+
+    /// <summary>
+    /// Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product.
+    /// </summary>
+    /// <remarks>
+    /// The float overload is preferred when both apply: <c>Gpu.Degrees(90)</c> is the <c>float</c> it always was.
+    /// </remarks>
+    [MslIntrinsic("__ms_degrees")]
+    [OverloadResolutionPriority(-1)]
+    public static Half Degrees(Half x) => x * HalfMath.DegreesPerRadian;
+
+    /// <summary>Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_degrees")]
+    public static Half2 Degrees(Half2 x) => x * HalfMath.DegreesPerRadian;
+
+    /// <summary>Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_degrees")]
+    public static Half3 Degrees(Half3 x) => x * HalfMath.DegreesPerRadian;
+
+    /// <summary>Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_degrees")]
+    public static Half4 Degrees(Half4 x) => x * HalfMath.DegreesPerRadian;
 
     // Geometric functions of float vectors (MSL has no scalar overloads). Evaluated the way
     // Apple GPUs evaluate them under precise math (bit-exact except for subnormal flushing):

@@ -367,6 +367,7 @@ public class HalfVectorTests
     private static MethodInfo[] ComponentwiseHalfOverloads() =>
         typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Where(m => !NotComponentwise.Contains(m.Name) && VectorTypes.HalfVectors.Contains(m.ReturnType))
+            .Where(m => !m.Name.StartsWith("Wave", StringComparison.Ordinal) && !m.Name.StartsWith("Quad", StringComparison.Ordinal)) // those need the lanes of a dispatch
             .ToArray();
 
     /// <summary>
@@ -377,7 +378,7 @@ public class HalfVectorTests
     public void ComponentwiseOverloadsTreatEveryComponentAlike()
     {
         MethodInfo[] methods = ComponentwiseHalfOverloads();
-        Assert.Equal((36 * 3) + (7 * 3), methods.Length); // 36 functions, 7 of them with a scalar form, three widths
+        Assert.Equal((38 * 3) + (7 * 3), methods.Length); // 38 functions, 7 of them with a scalar form, three widths
 
         foreach (MethodInfo m in methods)
         {
@@ -442,6 +443,55 @@ public class HalfVectorTests
         }
 
         return Math.Abs(Ordinal(a) - Ordinal(b));
+    }
+
+    [Fact]
+    public void RadiansAndDegrees_AreOneHalfMultiplicationByTheRoundedConstant()
+    {
+        // pi / 180 and 180 / pi rounded to half: 0.017456055 and 57.28125.
+        Half radiansPerDegree = Bits(0x2478), degreesPerRadian = Bits(0x5329);
+        HalfAssert.Same(radiansPerDegree, (Half)0.017453292519943295f);
+        HalfAssert.Same(degreesPerRadian, (Half)57.29577951308232f);
+        HalfAssert.Same(radiansPerDegree, Gpu.Radians(H(1)));
+        HalfAssert.Same(degreesPerRadian, Gpu.Degrees(H(1)));
+
+        foreach (double x in new[] { 0, -0.0, 1, -45, 90, 180, 0.3333, 1000, 3000, double.PositiveInfinity, double.NaN })
+        {
+            Half h = H(x);
+            HalfAssert.Same(h * radiansPerDegree, Gpu.Radians(h));
+            HalfAssert.Same(h * degreesPerRadian, Gpu.Degrees(h));
+        }
+
+        // 180 degrees: pi to the 11 bits of a half, and back within a degree's worth of the constant's error.
+        HalfAssert.Same(Bits(0x4249), Gpu.Radians(H(180))); // 3.1425781; pi rounded to half is 0x4248
+        HalfAssert.Same(NegativeZero, Gpu.Radians(NegativeZero));
+        HalfAssert.Same(Half.PositiveInfinity, Gpu.Degrees(H(2000))); // 114,562 does not fit in a half
+
+        // The vector overloads are the scalar one per component.
+        Same(new Half3(Gpu.Radians(H(30)), Gpu.Radians(H(60)), Gpu.Radians(H(-90))), Gpu.Radians(V(30, 60, -90)));
+        Same(new Half2(Gpu.Degrees(H(1)), Gpu.Degrees(H(-2))), Gpu.Degrees(V(1, -2)));
+        Same(new Half4(Gpu.Degrees(H(0.5)), Gpu.Degrees(H(0)), Gpu.Degrees(H(3)), Gpu.Degrees(H(-1))), Gpu.Degrees(V(0.5, 0, 3, -1)));
+    }
+
+    [Fact]
+    public void TheBitsOfAHalf_ReinterpretWithoutConversion()
+    {
+        Assert.Equal(0x3C00, Gpu.AsUShort(H(1)));
+        Assert.Equal(unchecked((short)0xBC00), Gpu.AsShort(H(-1)));
+        HalfAssert.Same(H(-2), Gpu.AsHalf((ushort)0xC000));
+        HalfAssert.Same(H(0.5), Gpu.AsHalf((short)0x3800));
+        Assert.True(Gpu.AsShort(NegativeZero) < 0); // the sign bit is the sign of the short
+
+        // Every bit pattern survives, NaN payloads included, and they are BitConverter's.
+        for (int bits = 0; bits <= ushort.MaxValue; bits++)
+        {
+            ushort u = (ushort)bits;
+            short s = unchecked((short)u);
+            Assert.Equal(u, Gpu.AsUShort(Gpu.AsHalf(u)));
+            Assert.Equal(s, Gpu.AsShort(Gpu.AsHalf(s)));
+            Assert.Equal(u, BitConverter.HalfToUInt16Bits(Gpu.AsHalf(s)));
+            Assert.Equal(s, BitConverter.HalfToInt16Bits(Gpu.AsHalf(u)));
+        }
     }
 
     [Fact]

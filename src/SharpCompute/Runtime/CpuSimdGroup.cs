@@ -64,12 +64,42 @@ internal enum SimdScalar : byte
     Float,
     Int,
     UInt,
+
+    /// <summary>A <see cref="System.Half"/>: its 16 bits in the low half of the 32-bit component (see <see cref="SimdHalf"/>).</summary>
+    Half,
+}
+
+/// <summary>
+/// How a half and a half vector travel through a meeting: every component as its 16 bits,
+/// zero-extended to the 32-bit component a <see cref="SimdValue"/> is made of. A half vector then
+/// has as many components as a float vector of its width, and the exchanges, which only move
+/// components, need to know nothing about halves; the folds do their arithmetic on
+/// <see cref="SimdScalar.Half"/> components as <see cref="System.Half"/> does it.
+/// </summary>
+internal static class SimdHalf
+{
+    internal static uint Widen(Half value) => BitConverter.HalfToUInt16Bits(value);
+
+    internal static UInt2 Widen(Half2 value) => new(Widen(value.X), Widen(value.Y));
+
+    internal static UInt3 Widen(Half3 value) => new(Widen(value.X), Widen(value.Y), Widen(value.Z));
+
+    internal static UInt4 Widen(Half4 value) => new(Widen(value.X), Widen(value.Y), Widen(value.Z), Widen(value.W));
+
+    internal static Half Narrow(uint bits) => BitConverter.UInt16BitsToHalf((ushort)bits);
+
+    internal static Half2 Narrow(UInt2 bits) => new(Narrow(bits.X), Narrow(bits.Y));
+
+    internal static Half3 Narrow(UInt3 bits) => new(Narrow(bits.X), Narrow(bits.Y), Narrow(bits.Z));
+
+    internal static Half4 Narrow(UInt4 bits) => new(Narrow(bits.X), Narrow(bits.Y), Narrow(bits.Z), Narrow(bits.W));
 }
 
 /// <summary>
 /// What a lane brings to an operation and what it gets back: up to four 32-bit components, whatever
-/// their type. Every value type of the operations (float, int, uint and their vectors) is 1 to 4 of
-/// them, which lets one meeting hold the values of all its lanes without a type parameter.
+/// their type. Every value type of the operations (float, int, uint and their vectors, and half and
+/// its vectors widened by <see cref="SimdHalf"/>) is 1 to 4 of them, which lets one meeting hold the
+/// values of all its lanes without a type parameter.
 /// </summary>
 internal struct SimdValue
 {
@@ -678,9 +708,16 @@ internal sealed class CpuSimdGroups
             }
         }
 
-        /// <summary>What an exclusive scan gives its first lane: 0 for a sum, 1 for a product. Scans exist for those two only.</summary>
+        /// <summary>
+        /// What an exclusive scan gives its first lane: 0 for a sum, 1 for a product. Scans exist for those
+        /// two only. For a sum of halves it is <c>-0</c>, which is what an Apple GPU returns (measured on an
+        /// M4 Pro) and the identity of IEEE addition: <c>-0 + x</c> is <c>x</c> for every <c>x</c>, <c>-0</c> included.
+        /// </summary>
         private static uint Identity(SimdOp fold, SimdScalar scalar) =>
-            fold != SimdOp.Product ? 0u : scalar == SimdScalar.Float ? BitConverter.SingleToUInt32Bits(1f) : 1u;
+            scalar == SimdScalar.Half ? SimdHalf.Widen(fold == SimdOp.Product ? (Half)1f : -(Half)0f)
+            : fold != SimdOp.Product ? 0u
+            : scalar == SimdScalar.Float ? BitConverter.SingleToUInt32Bits(1f)
+            : 1u;
 
         private static uint Combine(SimdOp fold, SimdScalar scalar, uint a, uint b)
         {
@@ -694,6 +731,20 @@ internal sealed class CpuSimdGroups
                     SimdOp.Product => x * y,
                     SimdOp.Min => Gpu.Min(x, y),
                     _ => Gpu.Max(x, y),
+                });
+            }
+
+            if (scalar == SimdScalar.Half)
+            {
+                // One correctly rounded half operation per lane, in lane order, as System.Half does it.
+                Half x = SimdHalf.Narrow(a), y = SimdHalf.Narrow(b);
+
+                return SimdHalf.Widen(fold switch
+                {
+                    SimdOp.Sum => x + y,
+                    SimdOp.Product => x * y,
+                    SimdOp.Min => HalfMath.Min(x, y),
+                    _ => HalfMath.Max(x, y),
                 });
             }
 
@@ -760,7 +811,12 @@ internal sealed class CpuSimdGroups
                     uint a = Values[lane][component], b = first[component];
 
                     // As `==` in the kernel: a NaN equals nothing (itself included), and -0 equals +0.
-                    equal &= Call.Scalar == SimdScalar.Float ? BitConverter.UInt32BitsToSingle(a) == BitConverter.UInt32BitsToSingle(b) : a == b;
+                    equal &= Call.Scalar switch
+                    {
+                        SimdScalar.Float => BitConverter.UInt32BitsToSingle(a) == BitConverter.UInt32BitsToSingle(b),
+                        SimdScalar.Half => SimdHalf.Narrow(a) == SimdHalf.Narrow(b),
+                        _ => a == b,
+                    };
                 }
             }
 

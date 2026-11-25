@@ -98,7 +98,7 @@ public class ContractTests
                 string target = MslName(m.ReturnType);
                 Assert.Equal($"as_type<{target}>", attr.Name);
                 string scalar = target.TrimEnd('2', '3', '4');
-                Assert.Equal("As" + (scalar == "uint" ? "UInt" : char.ToUpperInvariant(scalar[0]) + scalar[1..]), m.Name);
+                Assert.Equal("As" + (scalar is "uint" or "ushort" ? "U" + char.ToUpperInvariant(scalar[1]) + scalar[2..] : char.ToUpperInvariant(scalar[0]) + scalar[1..]), m.Name);
                 continue;
             }
 
@@ -223,7 +223,7 @@ public class ContractTests
         string[] other =
         [
             "Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul", "Transpose", "Determinant",
-            "AsFloat", "AsInt", "AsUInt", "IsNaN", "IsInfinity", "IsFinite", "PackUnorm4x8", "UnpackUnorm4x8",
+            "AsFloat", "AsInt", "AsUInt", "AsHalf", "AsUShort", "AsShort", "IsNaN", "IsInfinity", "IsFinite", "PackUnorm4x8", "UnpackUnorm4x8",
             "Equal", "NotEqual", "Any", "All", "Select",
             "AtomicAdd", "AtomicSub", "AtomicMin", "AtomicMax", "AtomicAnd", "AtomicOr", "AtomicXor", "AtomicExchange", "AtomicCompareExchange",
         ];
@@ -354,15 +354,20 @@ public class ContractTests
                 }
             }
 
-            // Half2..4 for every function MSL defines for half: all of them but the prelude's
-            // Radians and Degrees, which are float helpers.
+            // Half2..4 for every one of them, the prelude's Radians and Degrees included.
             for (int n = 2; n <= 4; n++)
             {
                 Type v = VectorTypes.Vector(typeof(Half), n);
-                bool definedForHalf = name is not ("Radians" or "Degrees");
-                Assert.True(typeof(Gpu).GetMethod(name, Enumerable.Repeat(v, arity).ToArray()) is not null == definedForHalf, $"{name}({v.Name})");
+                Assert.True(typeof(Gpu).GetMethod(name, Enumerable.Repeat(v, arity).ToArray()) is not null, $"{name}({v.Name})");
             }
         }
+
+        // The bits of a half, through the 16-bit integers (scalars: there are no vectors of those).
+        Assert.Equal(typeof(Half), typeof(Gpu).GetMethod("AsHalf", [typeof(ushort)])?.ReturnType);
+        Assert.Equal(typeof(Half), typeof(Gpu).GetMethod("AsHalf", [typeof(short)])?.ReturnType);
+        Assert.Equal(typeof(ushort), typeof(Gpu).GetMethod("AsUShort", [typeof(Half)])?.ReturnType);
+        Assert.Equal(typeof(short), typeof(Gpu).GetMethod("AsShort", [typeof(Half)])?.ReturnType);
+        Assert.Equal(4, typeof(Gpu).GetMethods().Count(m => m.Name is "AsHalf" or "AsUShort" or "AsShort"));
 
         // The geometric functions of half vectors return halves.
         for (int n = 2; n <= 4; n++)
@@ -379,28 +384,51 @@ public class ContractTests
     }
 
     /// <summary>
-    /// No method of <see cref="Gpu"/> takes only scalar <see cref="Half"/> parameters: next to its float
-    /// overload it would make a call with small integer constants ambiguous (<c>Gpu.Sqrt(2)</c>,
-    /// <c>Gpu.Pow(2, 3)</c>), because <see cref="Half"/> converts implicitly from <c>byte</c> and
-    /// <c>sbyte</c>. A scalar <see cref="Half"/> parameter only appears beside a half vector.
+    /// The math functions of <see cref="Gpu"/> take half vectors, not scalar halves: <see cref="Half"/>
+    /// converts implicitly from <c>byte</c> and <c>sbyte</c>, so a <c>Gpu.Sqrt(Half)</c> next to
+    /// <c>Gpu.Sqrt(float)</c> would make <c>Gpu.Sqrt(2)</c> an ambiguous call. The scalar overloads
+    /// there are (<c>Radians</c>, <c>Degrees</c>, the SIMD-group operations) have a lower overload
+    /// priority than their float, int and uint siblings, so a call that both accept still means the
+    /// sibling; the bit casts have no sibling to be confused with.
     /// </summary>
     [Fact]
-    public void NoGpuMethodTakesOnlyScalarHalves()
+    public void ScalarHalfOverloads_AreFew_AndNeverChangeWhatACallWithIntegersMeans()
     {
-        foreach (MethodInfo m in MathMethods())
-        {
-            Type[] parameters = m.GetParameters().Select(p => p.ParameterType).ToArray();
+        static bool OnlyScalarHalves(MethodInfo m) =>
+            m.GetParameters().Any(p => p.ParameterType == typeof(Half)) && !m.GetParameters().Any(p => VectorTypes.HalfVectors.Contains(p.ParameterType));
 
-            if (parameters.Contains(typeof(Half)))
-            {
-                Assert.True(parameters.Any(p => VectorTypes.HalfVectors.Contains(p)), $"{m} would be ambiguous with its float overload for integer constants");
-            }
-        }
+        static int Priority(MethodInfo m) => m.GetCustomAttribute<System.Runtime.CompilerServices.OverloadResolutionPriorityAttribute>()?.Priority ?? 0;
 
-        // The calls that must keep compiling, and keep meaning float.
+        MethodInfo[] scalar = MathMethods().Where(OnlyScalarHalves).ToArray();
+        Assert.Equal(["AsShort", "AsUShort", "Degrees", "Radians"], scalar.Select(m => m.Name).Order());
+        Assert.All(scalar, m => Assert.Equal(m.Name is "Radians" or "Degrees" ? -1 : 0, Priority(m)));
+
+        // Every typed SIMD-group operation that is not integer-only has one scalar Half overload, with the lower priority.
+        MethodInfo[] lanes = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Where(m => IsSimdGroupOperation(m) && OnlyScalarHalves(m)).ToArray();
+        Assert.Equal(30, lanes.Length); // the 36 typed operations without the six that are integer-only
+        Assert.All(lanes, m => Assert.Equal(-1, Priority(m)));
+
+        // Nothing else is reprioritized: the half vectors have no sibling an argument could also convert to.
+        Assert.All(
+            typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Where(m => !OnlyScalarHalves(m)),
+            m => Assert.Equal(0, Priority(m)));
+
+        // The calls that must keep compiling, and keep meaning float. `var` shows what the compiler picked.
         Assert.Equal(MathF.Sqrt(2f), Gpu.Sqrt(2));
         Assert.Equal(8f, Gpu.Pow(2, 3));
         Assert.Equal(1f, Gpu.Clamp(5, 0, 1));
+
+        byte small = 90;
+        sbyte negative = -90;
+        var fromConstant = Gpu.Radians(90);
+        var fromByte = Gpu.Degrees(small);
+        var fromSByte = Gpu.Radians(negative);
+        var fromHalf = Gpu.Radians((Half)90f);
+        Assert.IsType<float>(fromConstant);
+        Assert.IsType<float>(fromByte);
+        Assert.IsType<float>(fromSByte);
+        Assert.IsType<Half>(fromHalf);
+        Assert.Equal(90f * 0.017453292519943295f, fromConstant);
     }
 
     /// <summary>
@@ -437,12 +465,12 @@ public class ContractTests
             $"{m} is mapped by name; an attribute would map it a second time"));
         Assert.All(untyped, name => Assert.Single(methods, m => m.Name == name));
 
-        // 12 value types (float, int, uint and their vectors) for the typed operations, 8 for the bit
-        // operations. The value comes back as it went in, except from the all-equal comparison (a bool).
+        // 16 value types (float, int, uint, half and their vectors) for the typed operations, 8 for the
+        // bit operations. The value comes back as it went in, except from the all-equal comparison (a bool).
         foreach (string name in typed)
         {
             Type[] types = methods.Where(m => m.Name == name).Select(m => m.GetParameters()[0].ParameterType).ToArray();
-            Type[] elements = name.Contains("Bit", StringComparison.Ordinal) ? [typeof(int), typeof(uint)] : [typeof(float), typeof(int), typeof(uint)];
+            Type[] elements = name.Contains("Bit", StringComparison.Ordinal) ? [typeof(int), typeof(uint)] : [typeof(float), typeof(int), typeof(uint), typeof(Half)];
             Type[] all = elements.SelectMany(e => new[] { e, VectorTypes.Vector(e, 2), VectorTypes.Vector(e, 3), VectorTypes.Vector(e, 4) }).ToArray();
 
             Assert.Equal(all.OrderBy(t => t.Name), types.OrderBy(t => t.Name));

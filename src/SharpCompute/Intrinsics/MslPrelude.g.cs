@@ -19,10 +19,18 @@ public static class MslPrelude
         inline float2 __ms_radians(float2 x) { return x * 0.017453292519943295f; }
         inline float3 __ms_radians(float3 x) { return x * 0.017453292519943295f; }
         inline float4 __ms_radians(float4 x) { return x * 0.017453292519943295f; }
+        inline half __ms_radians(half x) { return x * half(0.017453292519943295f); }
+        inline half2 __ms_radians(half2 x) { return x * half(0.017453292519943295f); }
+        inline half3 __ms_radians(half3 x) { return x * half(0.017453292519943295f); }
+        inline half4 __ms_radians(half4 x) { return x * half(0.017453292519943295f); }
         inline float __ms_degrees(float x) { return x * 57.29577951308232f; }
         inline float2 __ms_degrees(float2 x) { return x * 57.29577951308232f; }
         inline float3 __ms_degrees(float3 x) { return x * 57.29577951308232f; }
         inline float4 __ms_degrees(float4 x) { return x * 57.29577951308232f; }
+        inline half __ms_degrees(half x) { return x * half(57.29577951308232f); }
+        inline half2 __ms_degrees(half2 x) { return x * half(57.29577951308232f); }
+        inline half3 __ms_degrees(half3 x) { return x * half(57.29577951308232f); }
+        inline half4 __ms_degrees(half4 x) { return x * half(57.29577951308232f); }
         inline int __ms_atomic_compare_exchange(device metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
         inline uint __ms_atomic_compare_exchange(device metal::atomic_uint* location, uint comparand, uint value) { uint expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
         inline int __ms_atomic_compare_exchange(threadgroup metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
@@ -61,5 +69,9 @@ public static class MslPrelude
         inline bool __ms_wave_all_equal(uint2 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
         inline bool __ms_wave_all_equal(uint3 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
         inline bool __ms_wave_all_equal(uint4 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
+        inline bool __ms_wave_all_equal(half v) { return metal::simd_all(v == metal::simd_broadcast_first(v)); }
+        inline bool __ms_wave_all_equal(half2 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
+        inline bool __ms_wave_all_equal(half3 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
+        inline bool __ms_wave_all_equal(half4 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
         """;
 }

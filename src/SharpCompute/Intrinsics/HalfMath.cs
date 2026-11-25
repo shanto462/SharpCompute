@@ -42,6 +42,18 @@ internal static class HalfMath
     /// <summary>-2, for <c>reflect</c>.</summary>
     public static readonly Half MinusTwo = (Half)(-2f);
 
+    /// <summary>
+    /// π / 180 rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in the MSL prelude): what
+    /// <see cref="Gpu.Radians(Half)"/> multiplies by. It is 1.6e-4 from π / 180, a third of a half ULP.
+    /// </summary>
+    public static readonly Half RadiansPerDegree = (Half)0.017453292519943295f;
+
+    /// <summary>
+    /// 180 / π rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in the MSL prelude): what
+    /// <see cref="Gpu.Degrees(Half)"/> multiplies by. It is 2.5e-4 from 180 / π, half a half ULP.
+    /// </summary>
+    public static readonly Half DegreesPerRadian = (Half)57.29577951308232f;
+
     private static readonly Half Zero = (Half)0f;
     private static readonly Half One = (Half)1f;
     private static readonly Half MinusOne = (Half)(-1f);

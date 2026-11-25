@@ -33,7 +33,9 @@ Scalar intrinsics for float, int and uint (and Gpu.Cross, the unorm8 packing and
 hand-written in src/SharpCompute/Intrinsics/Gpu.cs and Gpu.Atomics.cs; the vector overloads
 generated here are componentwise calls to those scalar implementations. The half vectors call the
 scalar implementations of src/SharpCompute/Intrinsics/HalfMath.cs instead, which are internal: a
-public Gpu.Sqrt(Half) next to Gpu.Sqrt(float) would make Gpu.Sqrt(2) ambiguous.
+public Gpu.Sqrt(Half) next to Gpu.Sqrt(float) would make Gpu.Sqrt(2) ambiguous. The few scalar Half
+overloads there are (Radians, Degrees, the SIMD-group operations) carry
+[OverloadResolutionPriority(-1)], so that a call both overloads accept keeps meaning the other one.
 
 Requires only the Python 3 standard library.
 """
@@ -649,12 +651,24 @@ class PreludeScale:
     msl: str  # prelude helper name
     constant: str  # float literal, identical in MSL and C#
     doc: str
+    half_constant: str  # the HalfMath field that holds the constant rounded to half
+    half_value: str  # that half, for the doc comment
+    half_doc: str
 
 
+# For halves the helper is one half multiplication by the constant rounded to half, `half(constant)`
+# in MSL and (Half)constant in C#: the same half on both sides, and one rounding.
 PRELUDE_SCALES = (
-    PreludeScale("Radians", "__ms_radians", "0.017453292519943295f", "Converts degrees to radians: <c>x * 0.017453292519943295f</c>"),
-    PreludeScale("Degrees", "__ms_degrees", "57.29577951308232f", "Converts radians to degrees: <c>x * 57.29577951308232f</c>"),
+    PreludeScale("Radians", "__ms_radians", "0.017453292519943295f", "Converts degrees to radians: <c>x * 0.017453292519943295f</c>",
+                 "RadiansPerDegree", "0.017456055", "Converts degrees to radians in half precision"),
+    PreludeScale("Degrees", "__ms_degrees", "57.29577951308232f", "Converts radians to degrees: <c>x * 57.29577951308232f</c>",
+                 "DegreesPerRadian", "57.28125", "Converts radians to degrees in half precision"),
 )
+
+# Lowers a scalar Half overload below the float (and int, uint) overload of the same name. Half converts
+# implicitly from byte and sbyte, so without it Gpu.Radians(90), and a SIMD-group operation on a byte,
+# would be ambiguous calls; with it they keep meaning what they meant before the Half overload existed.
+HALF_PRIORITY = "    [OverloadResolutionPriority(-1)]"
 
 
 # The strong compare-and-swap behind Gpu.AtomicCompareExchange. MSL only has the weak form, which
@@ -725,6 +739,8 @@ def prelude_msl() -> list[str]:
     for f in PRELUDE_SCALES:
         for t in ("float", "float2", "float3", "float4"):
             lines.append(f"inline {t} {f.msl}({t} x) {{ return x * {f.constant}; }}")
+        for t in ("half", "half2", "half3", "half4"):
+            lines.append(f"inline {t} {f.msl}({t} x) {{ return x * half({f.constant}); }}")
     for space, t, atomic in PRELUDE_ATOMICS:
         lines.append(
             f"inline {t} {PRELUDE_ATOMIC_CAS}({space} {atomic}* location, {t} comparand, {t} value) "
@@ -863,6 +879,7 @@ REINTERPRETS = (("AsFloat", (INT, UINT), FLOAT), ("AsInt", (FLOAT,), INT), ("AsU
 def gen_gpu() -> str:
     out: list[str] = [HEADER]
     out.append("using System;")
+    out.append("using System.Runtime.CompilerServices;")
     out.append("")
     out.append("namespace SharpCompute;")
     out.append("")
@@ -912,6 +929,25 @@ def gen_gpu() -> str:
             out.append(f"    /// <summary>{f.doc}, componentwise.</summary>")
             out.append(f"    [MslIntrinsic(\"{f.msl}\")]")
             out.append(f"    public static {t} {f.name}({t} x) => new {t}({', '.join(f'{f.name}(x.{prop(i)})' for i in range(n))});")
+            out.append("")
+        half_doc = (f"{f.half_doc}: one half multiplication by the constant rounded to half, {f.half_value} "
+                    f"(<c>half({f.constant})</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP "
+                    "of the exact product")
+        out.append("    /// <summary>")
+        out.append(f"    /// {half_doc}.")
+        out.append("    /// </summary>")
+        out.append("    /// <remarks>")
+        out.append(f"    /// The float overload is preferred when both apply: <c>Gpu.{f.name}(90)</c> is the <c>float</c> it always was.")
+        out.append("    /// </remarks>")
+        out.append(f"    [MslIntrinsic(\"{f.msl}\")]")
+        out.append(HALF_PRIORITY)
+        out.append(f"    public static Half {f.name}(Half x) => x * HalfMath.{f.half_constant};")
+        out.append("")
+        for n in WIDTHS:
+            t = HALF.vec(n)
+            out.append(f"    /// <summary>{half_doc}, componentwise.</summary>")
+            out.append(f"    [MslIntrinsic(\"{f.msl}\")]")
+            out.append(f"    public static {t} {f.name}({t} x) => x * HalfMath.{f.half_constant};")
             out.append("")
 
     out.append("    // Geometric functions of float vectors (MSL has no scalar overloads). Evaluated the way")
@@ -1128,7 +1164,7 @@ _QUAD_ACTIVE = "over the active lanes of this lane's quad, componentwise for vec
 _SAME = "The same value in every active lane."
 _QUAD_SAME = "The same value in every active lane of the quad."
 _FLOAT_ORDER = (
-    "For floats the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), "
+    "For floats and halves the order in which the lanes are combined is the GPU's and unspecified (the CPU adds in lane order), "
     "so compare the result with a tolerance."
 )
 _UNDEFINED_SOURCE = (
@@ -1304,14 +1340,14 @@ CALL_SITE_PARAMS = ("[CallerFilePath] string callerFile = \"\"", "[CallerLineNum
 
 def wave_types(w: Wave) -> list[tuple[Kind, int]]:
     """Every (kind, width) the operation has an overload for; width 1 is the scalar."""
-    kinds = (INT, UINT) if w.integer_only else KINDS
+    kinds = (INT, UINT) if w.integer_only else KINDS + (HALF,)
     return [(kind, n) for kind in kinds for n in (1,) + WIDTHS]
 
 
 def wave_all_equal_msl() -> list[str]:
     """The prelude's all-equal helpers: Metal has no SIMD-group function that compares the lanes."""
     lines = []
-    for kind in KINDS:
+    for kind in KINDS + (HALF,):
         for n in (1,) + WIDTHS:
             t = kind.msl if n == 1 else kind.msl_vec(n)
             same = "v == metal::simd_broadcast_first(v)"
@@ -1321,6 +1357,7 @@ def wave_all_equal_msl() -> list[str]:
 
 def gen_gpu_wave() -> str:
     out: list[str] = [HEADER]
+    out.append("using System;")
     out.append("using System.Runtime.CompilerServices;")
     out.append("")
     out.append("namespace SharpCompute;")
@@ -1350,14 +1387,21 @@ def gen_gpu_wave() -> str:
             out.extend(CALL_SITE_DOCS)
             params.extend(CALL_SITE_PARAMS)
             site = "callerFile, callerLine"
+            # A half travels through the lane executor as its 16 bits in a 32-bit component, like
+            # every other value: SimdHalf.Widen on the way in, SimdHalf.Narrow on the way out.
+            value, fill = ("SimdHalf.Widen(value)", "SimdHalf.Widen(fill)") if kind.is_half else ("value", "fill")
             if w.kind == "reduce":
-                ret, body = t, f"CpuSimdGroup.Reduce(SimdOp.{w.op}, SimdScalar.{kind.prefix}, value, {site})"
+                ret, body = t, f"CpuSimdGroup.Reduce(SimdOp.{w.op}, SimdScalar.{kind.prefix}, {value}, {site})"
             elif w.kind == "equal":
-                ret, body = "bool", f"CpuSimdGroup.AllEqual(SimdScalar.{kind.prefix}, value, {site})"
+                ret, body = "bool", f"CpuSimdGroup.AllEqual(SimdScalar.{kind.prefix}, {value}, {site})"
             elif w.kind == "fill":
-                ret, body = t, f"CpuSimdGroup.Exchange(SimdOp.{w.op}, value, fill, {w.extra}, {site})"
+                ret, body = t, f"CpuSimdGroup.Exchange(SimdOp.{w.op}, {value}, {fill}, {w.extra}, {site})"
             else:
-                ret, body = t, f"CpuSimdGroup.Exchange(SimdOp.{w.op}, value, value, {w.extra or '0'}, {site})"
+                ret, body = t, f"CpuSimdGroup.Exchange(SimdOp.{w.op}, {value}, {value}, {w.extra or '0'}, {site})"
+            if kind.is_half and w.kind != "equal":
+                body = f"SimdHalf.Narrow({body})"
+            if kind.is_half and n == 1:
+                out.append(HALF_PRIORITY)
             out.append(f"    public static {ret} {w.name}({', '.join(params)}) =>")
             out.append(f"        {body};")
             out.append("")
@@ -1574,9 +1618,13 @@ def gen_msl_probe() -> str:
         lines.append(f"    acc += float(metal::cross(v{kind.msl_vec(3)}, v{kind.msl_vec(3)}).x);")
     # Prelude helpers.
     for f in PRELUDE_SCALES:
-        lines.append(f"    acc += {f.msl}(sfloat);")
-        for n in WIDTHS:
-            lines.append(f"    acc += {f.msl}(vfloat{n}).x;")
+        for kind in (FLOAT, HALF):
+            lines.append(f"    acc += float({f.msl}(s{kind.msl}));")
+            for n in WIDTHS:
+                lines.append(f"    acc += float({f.msl}(v{kind.msl_vec(n)}).x);")
+    # The bits of a half (Gpu.AsUShort, AsShort, AsHalf and the BitConverter methods they stand for).
+    lines.append("    ushort hbits = as_type<ushort>(shalf); short hsigned = as_type<short>(shalf);")
+    lines.append("    acc += float(as_type<half>(hbits)) + float(as_type<half>(hsigned));")
 
     # Matrices: constructors take the C# arguments unchanged (C# rows become MSL columns), and
     # Gpu.Mul ([MslBinaryOperator("*", SwapOperands = true)]) emits mul(a0, a1) as (a1 * a0).
