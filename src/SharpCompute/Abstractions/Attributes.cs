@@ -152,6 +152,14 @@ public sealed class MslBinaryOperatorAttribute(string op) : Attribute
 public sealed class MslIntrinsicAttribute(string name) : Attribute
 {
     public string Name { get; } = name;
+
+    /// <summary>
+    /// True when the MSL function takes the arguments in the opposite order, last parameter first:
+    /// <c>Gpu.Select(mask, whenTrue, whenFalse)</c> keeps HLSL's order and maps to
+    /// <c>metal::select(whenFalse, whenTrue, mask)</c>. The arguments are still evaluated once each;
+    /// MSL does not define the order in which a call evaluates them either way. Default false.
+    /// </summary>
+    public bool ReverseArguments { get; init; }
 }
 
 /// <summary>

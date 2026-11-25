@@ -9,8 +9,12 @@ namespace SharpCompute;
 /// <summary>MSL <c>uint4</c>. Tightly packed (4-byte alignment) to match <c>packed_uint4</c>.</summary>
 /// <remarks>
 /// Members map 1:1 to MSL: constructors to <c>uint4(...)</c>, properties to swizzles,
-/// operators to native operators. There is deliberately no <c>==</c>/<c>!=</c>: in MSL they
-/// return a <c>bool4</c>, not a <c>bool</c>.
+/// operators to native operators. The ordering operators <c>&lt; &lt;= &gt; &gt;=</c> compare component by
+/// component, as in MSL, and return a <see cref="Bool4"/>. There is deliberately no <c>==</c>/<c>!=</c>:
+/// in MSL they return a <c>bool4</c>, not a <c>bool</c>, and a C# <c>==</c> that does not answer
+/// with a <c>bool</c> breaks what C# builds on it (<c>if (a == b)</c>, <c>Equals</c>, pattern matching).
+/// Use <see cref="Gpu.Equal(UInt4, UInt4)"/> and <see cref="Gpu.NotEqual(UInt4, UInt4)"/>, which return the
+/// <see cref="Bool4"/>, and <see cref="Gpu.All(Bool4)"/> or <see cref="Gpu.Any(Bool4)"/> for one answer.
 /// </remarks>
 [MslType("uint4", Packed = "packed_uint4")]
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -192,11 +196,50 @@ public partial struct UInt4
     /// <summary>Componentwise logical right shift. Like C#, the shift count is masked to 0..31 (out-of-range counts are UB in MSL).</summary>
     public static UInt4 operator >>(UInt4 value, int count) => unchecked(new UInt4(value._x >> count, value._y >> count, value._z >> count, value._w >> count));
 
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator <(UInt4 left, UInt4 right) => new Bool4(left._x < right._x, left._y < right._y, left._z < right._z, left._w < right._w);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator <(UInt4 left, uint right) => new Bool4(left._x < right, left._y < right, left._z < right, left._w < right);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator <(uint left, UInt4 right) => new Bool4(left < right._x, left < right._y, left < right._z, left < right._w);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator <=(UInt4 left, UInt4 right) => new Bool4(left._x <= right._x, left._y <= right._y, left._z <= right._z, left._w <= right._w);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator <=(UInt4 left, uint right) => new Bool4(left._x <= right, left._y <= right, left._z <= right, left._w <= right);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator <=(uint left, UInt4 right) => new Bool4(left <= right._x, left <= right._y, left <= right._z, left <= right._w);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator >(UInt4 left, UInt4 right) => new Bool4(left._x > right._x, left._y > right._y, left._z > right._z, left._w > right._w);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator >(UInt4 left, uint right) => new Bool4(left._x > right, left._y > right, left._z > right, left._w > right);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator >(uint left, UInt4 right) => new Bool4(left > right._x, left > right._y, left > right._z, left > right._w);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator >=(UInt4 left, UInt4 right) => new Bool4(left._x >= right._x, left._y >= right._y, left._z >= right._z, left._w >= right._w);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator >=(UInt4 left, uint right) => new Bool4(left._x >= right, left._y >= right, left._z >= right, left._w >= right);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool4</c>).</summary>
+    public static Bool4 operator >=(uint left, UInt4 right) => new Bool4(left >= right._x, left >= right._y, left >= right._z, left >= right._w);
+
     /// <summary>Converts each component to <c>uint</c>, rounding toward zero and saturating out-of-range values; NaN becomes 0 (MSL <c>uint4(v)</c>).</summary>
     public static explicit operator UInt4(Float4 value) => unchecked(new UInt4((uint)value.X, (uint)value.Y, (uint)value.Z, (uint)value.W));
 
     /// <summary>Reinterprets each component's bits as <c>uint</c> (MSL <c>uint4(v)</c>).</summary>
     public static explicit operator UInt4(Int4 value) => unchecked(new UInt4((uint)value.X, (uint)value.Y, (uint)value.Z, (uint)value.W));
+
+    /// <summary>Converts each component to <c>uint</c>, rounding toward zero and saturating out-of-range values; NaN becomes 0 (MSL <c>uint4(v)</c>).</summary>
+    public static explicit operator UInt4(Half4 value) => unchecked(new UInt4((uint)(float)value.X, (uint)(float)value.Y, (uint)(float)value.Z, (uint)(float)value.W));
 
     /// <summary>Formats the vector as <c>&lt;x, y, ...&gt;</c> using the invariant culture.</summary>
     public readonly override string ToString() => string.Create(CultureInfo.InvariantCulture, $"<{_x}, {_y}, {_z}, {_w}>");

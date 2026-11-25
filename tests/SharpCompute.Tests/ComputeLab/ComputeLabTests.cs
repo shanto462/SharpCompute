@@ -200,7 +200,7 @@ public sealed class ComputeLabTests
         "LocalArrays",
         "SIMD reduction", "SIMD compaction", "SIMD shuffle",
         "Indirect",
-        "Bits", "FastMath", "Small and wide integers",
+        "Bits", "FastMath", "Small and wide integers", "Half precision",
         "Shared code",
     ];
 
@@ -211,8 +211,8 @@ public sealed class ComputeLabTests
         "8-localarrays.png",
         "9-simd-reduction.png", "10-simd-compaction.png", "11-simd-shuffle.png",
         "12-indirect.png",
-        "13-bits.png", "14-fastmath.png", "15-small-and-wide-integers.png",
-        "16-shared-code.png",
+        "13-bits.png", "14-fastmath.png", "15-small-and-wide-integers.png", "16-half-precision.png",
+        "17-shared-code.png",
     ];
 
     [MetalFact]
@@ -231,14 +231,14 @@ public sealed class ComputeLabTests
                     "fixed-size local arrays",
                     "SIMD-group reductions", "ballots and prefix sums", "lane shuffles",
                     "indirect dispatch",
-                    "bit and packing intrinsics", "per-shader compile options", "8-bit and 64-bit integers",
+                    "bit and packing intrinsics", "per-shader compile options", "8-bit and 64-bit integers", "Half4 and bool vectors",
                     "static helpers and struct methods",
                 ],
                 pages.Select(static p => p.Feature));
 
             // Topic by topic, in the lab's order, every topic with at least one page.
             Assert.Equal(
-                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, LabTopics.Math, LabTopics.Math, LabTopics.Math, LabTopics.CodeReuse],
+                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, .. Enumerable.Repeat(LabTopics.Math, 4), LabTopics.CodeReuse],
                 pages.Select(static p => p.Topic));
             Assert.Equal(LabTopics.All, pages.Select(static p => p.Topic).Distinct());
             Assert.Equal(pages.Select(static p => p.Topic), pages.Select(static p => p.Topic).OrderBy(static t => LabTopics.All.ToList().IndexOf(t)));
@@ -251,17 +251,20 @@ public sealed class ComputeLabTests
             Assert.Equal(pages.Count, pages.Select(static p => LabPages.Slug(p.Name)).Distinct().Count());
 
             // Only the privatised page times a second dispatch, and only the matrix product has a rate.
-            Assert.Equal(pages.Select(static p => p.Name == "Histogram: privatised"), pages.Select(static p => p.Baseline is not null));
+            Assert.Equal(pages.Select(static p => p.Name is "Histogram: privatised" or "Half precision"), pages.Select(static p => p.Baseline is not null));
             Assert.Equal(pages.Select(static p => p.Name == "MatMul"), pages.Select(static p => p is IRatedPage));
 
             // The CPU side runs on all cores unless the page says otherwise, as its check line does too.
             Assert.Equal(
-                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle", "Shared code"],
+                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle", "Half precision", "Shared code"],
                 pages.Where(static p => p.CpuNote != "all cores").Select(static p => p.Name));
-            Assert.All(pages.Where(static p => p.CpuNote != "all cores" && p.Name != "Shared code"), static p => Assert.Equal("one core", p.CpuNote));
+            Assert.All(pages.Where(static p => p.CpuNote != "all cores" && p.Name is not ("Shared code" or "Half precision")), static p => Assert.Equal("one core", p.CpuNote));
 
             // A CPU time that is extrapolated from a sample says so.
             Assert.Equal("all cores, scaled from every 8th pixel", pages.Single(static p => p.Name == "Shared code").CpuNote);
+
+            // And so does one that is not of the page's own kernel: the half-precision page times the float blur on the CPU.
+            Assert.Equal("all cores, the float blur", pages.Single(static p => p.Name == "Half precision").CpuNote);
 
             // --page takes the name or the file-name form of it, in any case.
             Assert.Equal(1, LabPages.Find(pages, "Histogram: privatised"));
@@ -276,6 +279,9 @@ public sealed class ComputeLabTests
             Assert.Equal(13, LabPages.Find(pages, "fastmath"));
             Assert.Equal(14, LabPages.Find(pages, "small-and-wide-integers"));
             Assert.Equal(14, LabPages.Find(pages, "Small and wide integers"));
+            Assert.Equal(15, LabPages.Find(pages, "half-precision"));
+            Assert.Equal(15, LabPages.Find(pages, "Half precision"));
+            Assert.Equal(16, LabPages.Find(pages, "shared-code"));
             Assert.Equal(-1, LabPages.Find(pages, "privatised"));
             Assert.Equal(-1, LabPages.Find(pages, "shuffle"));
         }
@@ -417,8 +423,8 @@ public sealed class ComputeLabTests
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
                 // Every variant of every page: two histograms, compaction, reduction, prefix sum, product, blur, local arrays,
-                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math, small and wide integers, shared code.
-                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2 + 1 + 1;
+                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math, small and wide integers, half precision, shared code.
+                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2 + 1 + 2 + 1;
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal)));
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
@@ -436,14 +442,22 @@ public sealed class ComputeLabTests
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains("GFLOP/s   CPU ", StringComparison.Ordinal)));
                 Assert.Equal(1 + 3 + 2 + 2, summary.Split('\n').Count(static line => line.Contains(" ms (one core)", StringComparison.Ordinal))); // the prefix sum, and the SIMD pages' variants
-                Assert.Contains("[9/16] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
+                Assert.Contains("[9/17] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
 
-                Assert.Contains("[15/16] Math / Small and wide integers: 8-bit and 64-bit integers", summary);
+                Assert.Contains("[15/17] Math / Small and wide integers: 8-bit and 64-bit integers", summary);
                 Assert.Contains("1,048,576 bytes equalised in place, 1,048,576 64-bit hashes: GPU, ForCpu and plain C# agree", summary);
 
                 // The privatised histogram is also timed against the global-atomics one, at both bin counts.
-                Assert.Contains("[2/16] Atomics / Histogram: privatised: threadgroup atomics", summary);
+                Assert.Contains("[2/17] Atomics / Histogram: privatised: threadgroup atomics", summary);
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("global atomics: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
+
+                // And the half blur against the float blur, at both radii; its CPU time is the float blur's.
+                Assert.Contains("[16/17] Math / Half precision: Half4 and bool vectors", summary);
+                Assert.Contains("289 taps (radius 8)", summary);
+                Assert.Contains("81 taps (radius 4)", summary);
+                Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("the same blur in float: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
+                Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains("bit for bit: float, half (96x96 tile), mask.", StringComparison.Ordinal)));
+                Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains(" ms (all cores, the float blur)", StringComparison.Ordinal)));
 
                 string[] pictures = s_pictures;
                 Assert.Equal(pictures.Append("summary.txt").Order(), Directory.GetFiles(directory).Select(Path.GetFileName).Order());
@@ -1161,6 +1175,122 @@ public sealed class ComputeLabTests
         using BitsPage bits = new(device);
         Assert.Equal(PipelineOrigin.None, ((ILabPage)bits).KernelOrigin);
         Assert.Equal(string.Empty, LabView.Describe(PipelineOrigin.None));
+    }
+
+    [MetalFact]
+    public void HalfPrecision_BothBlursMatchForCpuBitForBit_AndTheHalfErrorIsWhatElevenBitsGive()
+    {
+        using HalfPrecisionPage page = new(GraphicsDevice.GetDefault());
+
+        page.Compute(Frame);
+        LabCheck wide = page.Check();
+        Assert.True(wide.Passed, wide.Summary);
+        Assert.Equal((8, 289), (page.Radius, page.Taps));
+        Assert.StartsWith("bit for bit: float, half (96x96 tile), mask.", wide.Summary);
+        Assert.NotNull(page.Baseline);
+        Assert.Equal("the same blur in float", page.Baseline!.Value.Name);
+        Assert.True(page.GpuMilliseconds > 0 && page.FloatGpuMilliseconds > 0);
+
+        // The float blur is exact up to its one division; the half blur rounds every tap to 11 bits,
+        // which is five orders of magnitude more and still under 1 % of the range.
+        Assert.InRange(page.FloatMaxError, 0, HalfPrecisionPage.FloatErrorBound);
+        Assert.InRange(page.HalfMaxError, 1e-4, HalfPrecisionPage.HalfErrorBound);
+        Assert.InRange(page.HalfMeanError, 1e-5, page.HalfMaxError);
+        Assert.True(page.HalfMaxError > 1000 * page.FloatMaxError);
+        double wideError = page.HalfMaxError;
+
+        // The alpha channel is the sum of the weights divided by the same sum, in the same order: exactly 1.
+        Assert.All(new[] { 0, 12345, HalfPrecisionPage.Size * HalfPrecisionPage.Size - 1 }, i => Assert.Equal((Half)1f, page.HalfResult[i].W));
+        Assert.Equal(1f, page.FloatResult[777].W);
+
+        // A blur of values in 0..1 stays in 0..1, and the half result is the float result within the error.
+        Half4 half = page.HalfResult[(500 * HalfPrecisionPage.Size) + 300];
+        Float4 single = page.FloatResult[(500 * HalfPrecisionPage.Size) + 300];
+        Assert.InRange((float)half.X, 0f, 1f);
+        Assert.InRange(MathF.Abs((float)half.X - single.X), 0f, (float)page.HalfMaxError + 1e-6f);
+
+        // Fewer taps, a smaller sum, a smaller error.
+        Assert.True(page.OnKeyDown(Key.R));
+        Assert.Equal(1, page.Variant);
+        page.Compute(Frame);
+        LabCheck narrow = page.Check();
+        Assert.True(narrow.Passed, narrow.Summary);
+        Assert.Equal((4, 81), (page.Radius, page.Taps));
+        Assert.True(page.HalfMaxError < wideError, $"{page.HalfMaxError} with 81 taps, {wideError} with 289");
+        Assert.False(page.OnKeyDown(Key.F));
+
+        // Both blurs are compiled without contraction (which is what makes the half one bit-exact on the
+        // CPU), and differ in their types and in nothing else.
+        Assert.Equal(ShaderCompileOptions.NoFpContract, Options<TentBlurFloat>());
+        Assert.Equal(ShaderCompileOptions.NoFpContract, Options<TentBlurHalf>());
+        Assert.Equal(ShaderCompileOptions.None, Options<HighlightMask>());
+        Assert.Equal(
+            Kernel<TentBlurFloat>().Replace(nameof(TentBlurFloat), "X").Replace("packed_float4", "V").Replace("float4(0.0f)", "V0").Replace("float4", "V").Replace("0.0f", "0").Replace("float", "S"),
+            Kernel<TentBlurHalf>().Replace(nameof(TentBlurHalf), "X").Replace("packed_half4", "V").Replace("half4(half(0.0f))", "V0").Replace("half4", "V").Replace("half(0.0f)", "0").Replace("half", "S"));
+        Assert.Contains("sum += image[int(uint(row) + uint(dx))] * w;", Kernel<TentBlurHalf>());
+
+        static ShaderCompileOptions Options<T>()
+            where T : struct, IComputeShaderDescriptor<T> => T.CompileOptions;
+
+        // The kernel function: what comes before it is the layout guard of the element type, which does differ.
+        static string Kernel<T>()
+            where T : struct, IComputeShaderDescriptor<T> => T.MslSource[T.MslSource.IndexOf("kernel void", StringComparison.Ordinal)..];
+    }
+
+    [MetalFact]
+    public void HalfPrecision_MaskIsAComponentwiseComparison_AndFollowsTheThreshold()
+    {
+        using HalfPrecisionPage page = new(GraphicsDevice.GetDefault());
+
+        page.Compute(Frame);
+        Half3 threshold = page.Threshold;
+        ReadOnlySpan<Half4> blurred = page.HalfResult;
+        ReadOnlySpan<uint> highlights = page.Highlights;
+        int none = 0, some = 0, all = 0;
+
+        for (int i = 0; i < blurred.Length; i += 37)
+        {
+            // Restated with scalar C#: a channel is kept where it is above its threshold.
+            Half4 color = blurred[i];
+            bool r = color.X > threshold.X, g = color.Y > threshold.Y, b = color.Z > threshold.Z;
+            Float4 expected = r && g && b
+                ? new Float4(1f, 1f, 1f, 1f)
+                : new Float4(r ? (float)color.X : 0f, g ? (float)color.Y : 0f, b ? (float)color.Z : 0f, r || g || b ? 1f : 0f);
+
+            Assert.Equal(Gpu.PackUnorm4x8(expected), highlights[i]);
+            (none, some, all) = (none + (!r && !g && !b ? 1 : 0), some + ((r || g || b) && !(r && g && b) ? 1 : 0), all + (r && g && b ? 1 : 0));
+        }
+
+        // The picture has all three kinds of pixel.
+        Assert.True(none > 100 && some > 100 && all > 100, $"{none} with no channel, {some} with some, {all} with all");
+
+        // Another time, another threshold, another mask.
+        uint[] before = highlights.ToArray();
+        page.Compute(new LabFrame(Headless.Time + 2f, Deterministic: true));
+        Assert.NotEqual(threshold, page.Threshold);
+        Assert.False(before.AsSpan().SequenceEqual(page.Highlights));
+        Assert.True(page.Check().Passed);
+    }
+
+    [Fact]
+    public void HalfPrecision_SourceIsExactInAHalf()
+    {
+        Float4[] source = HalfPrecisionPage.CreateSource();
+        Assert.Equal(HalfPrecisionPage.Padded * HalfPrecisionPage.Padded, source.Length);
+
+        for (int i = 0; i < source.Length; i += 7)
+        {
+            Float4 pixel = source[i];
+            Assert.Equal(pixel.X, (float)(Half)pixel.X);
+            Assert.Equal(pixel.Y, (float)(Half)pixel.Y);
+            Assert.Equal(pixel.Z, (float)(Half)pixel.Z);
+            Assert.Equal(1f, pixel.W);
+            Assert.InRange(pixel.X, 0f, 1f);
+            Assert.Equal(MathF.Round(pixel.Y * 256f), pixel.Y * 256f);
+        }
+
+        // Not a flat picture: there is something to blur.
+        Assert.True(source.Select(static p => p.X).Distinct().Count() > 100);
     }
 
     [Fact]

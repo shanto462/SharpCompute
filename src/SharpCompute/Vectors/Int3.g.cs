@@ -9,8 +9,12 @@ namespace SharpCompute;
 /// <summary>MSL <c>int3</c>. Tightly packed (4-byte alignment) to match <c>packed_int3</c>.</summary>
 /// <remarks>
 /// Members map 1:1 to MSL: constructors to <c>int3(...)</c>, properties to swizzles,
-/// operators to native operators. There is deliberately no <c>==</c>/<c>!=</c>: in MSL they
-/// return a <c>bool3</c>, not a <c>bool</c>.
+/// operators to native operators. The ordering operators <c>&lt; &lt;= &gt; &gt;=</c> compare component by
+/// component, as in MSL, and return a <see cref="Bool3"/>. There is deliberately no <c>==</c>/<c>!=</c>:
+/// in MSL they return a <c>bool3</c>, not a <c>bool</c>, and a C# <c>==</c> that does not answer
+/// with a <c>bool</c> breaks what C# builds on it (<c>if (a == b)</c>, <c>Equals</c>, pattern matching).
+/// Use <see cref="Gpu.Equal(Int3, Int3)"/> and <see cref="Gpu.NotEqual(Int3, Int3)"/>, which return the
+/// <see cref="Bool3"/>, and <see cref="Gpu.All(Bool3)"/> or <see cref="Gpu.Any(Bool3)"/> for one answer.
 /// </remarks>
 [MslType("int3", Packed = "packed_int3")]
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -151,11 +155,50 @@ public partial struct Int3
     /// <summary>Componentwise arithmetic right shift. Like C#, the shift count is masked to 0..31 (out-of-range counts are UB in MSL).</summary>
     public static Int3 operator >>(Int3 value, int count) => unchecked(new Int3(value._x >> count, value._y >> count, value._z >> count));
 
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator <(Int3 left, Int3 right) => new Bool3(left._x < right._x, left._y < right._y, left._z < right._z);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator <(Int3 left, int right) => new Bool3(left._x < right, left._y < right, left._z < right);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator <(int left, Int3 right) => new Bool3(left < right._x, left < right._y, left < right._z);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator <=(Int3 left, Int3 right) => new Bool3(left._x <= right._x, left._y <= right._y, left._z <= right._z);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator <=(Int3 left, int right) => new Bool3(left._x <= right, left._y <= right, left._z <= right);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator <=(int left, Int3 right) => new Bool3(left <= right._x, left <= right._y, left <= right._z);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator >(Int3 left, Int3 right) => new Bool3(left._x > right._x, left._y > right._y, left._z > right._z);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator >(Int3 left, int right) => new Bool3(left._x > right, left._y > right, left._z > right);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator >(int left, Int3 right) => new Bool3(left > right._x, left > right._y, left > right._z);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator >=(Int3 left, Int3 right) => new Bool3(left._x >= right._x, left._y >= right._y, left._z >= right._z);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator >=(Int3 left, int right) => new Bool3(left._x >= right, left._y >= right, left._z >= right);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool3</c>).</summary>
+    public static Bool3 operator >=(int left, Int3 right) => new Bool3(left >= right._x, left >= right._y, left >= right._z);
+
     /// <summary>Converts each component to <c>int</c>, rounding toward zero and saturating out-of-range values; NaN becomes 0 (MSL <c>int3(v)</c>).</summary>
     public static explicit operator Int3(Float3 value) => unchecked(new Int3((int)value.X, (int)value.Y, (int)value.Z));
 
     /// <summary>Reinterprets each component's bits as <c>int</c> (MSL <c>int3(v)</c>).</summary>
     public static explicit operator Int3(UInt3 value) => unchecked(new Int3((int)value.X, (int)value.Y, (int)value.Z));
+
+    /// <summary>Converts each component to <c>int</c>, rounding toward zero and saturating out-of-range values; NaN becomes 0 (MSL <c>int3(v)</c>).</summary>
+    public static explicit operator Int3(Half3 value) => unchecked(new Int3((int)(float)value.X, (int)(float)value.Y, (int)(float)value.Z));
 
     /// <summary>Formats the vector as <c>&lt;x, y, ...&gt;</c> using the invariant culture.</summary>
     public readonly override string ToString() => string.Create(CultureInfo.InvariantCulture, $"<{_x}, {_y}, {_z}>");

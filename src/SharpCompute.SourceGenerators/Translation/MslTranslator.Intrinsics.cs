@@ -404,7 +404,7 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// The members of <c>BitConverter</c> and <c>BitOperations</c> whose semantics MSL matches: the
-    /// 32-bit bit casts are <c>as_type</c>; the counts return the argument's type in MSL and
+    /// 32-bit bit casts, and the 16-bit ones of a half, are <c>as_type</c>; the counts return the argument's type in MSL and
     /// <c>int</c> in C# (and agree on 32, or 64 for a <c>ulong</c>, for a zero argument); a rotate count
     /// is taken modulo the width in C#, which is made explicit, and a right rotate is a left rotate by
     /// the negated count.
@@ -451,6 +451,10 @@ internal sealed partial class MslTranslator
             case ("BitConverter", "SingleToUInt32Bits(float)"):
             case ("BitConverter", "Int32BitsToSingle(int)"):
             case ("BitConverter", "UInt32BitsToSingle(uint)"):
+            case ("BitConverter", "HalfToUInt16Bits(half)"):
+            case ("BitConverter", "HalfToInt16Bits(half)"):
+            case ("BitConverter", "UInt16BitsToHalf(ushort)"):
+            case ("BitConverter", "Int16BitsToHalf(short)"):
                 return Call("as_type<" + returnType.MslName + ">", arguments);
 
             case ("BitOperations", "PopCount(uint)"):

@@ -29,6 +29,12 @@ public class PreludeTests
             Assert.Contains($"inline {t} {helper}({t} x) {{ return x * {literal}f; }}", MslPrelude.Source, StringComparison.Ordinal);
         }
 
+        // For halves: one multiplication by the same constant rounded to half.
+        foreach (string t in new[] { "half", "half2", "half3", "half4" })
+        {
+            Assert.Contains($"inline {t} {helper}({t} x) {{ return x * half({literal}f); }}", MslPrelude.Source, StringComparison.Ordinal);
+        }
+
         float constant = float.Parse(literal, CultureInfo.InvariantCulture);
         Func<float, float> cpu = helper == "__ms_radians" ? Gpu.Radians : Gpu.Degrees;
         Assert.Equal(constant, cpu(1f));
@@ -36,6 +42,10 @@ public class PreludeTests
         {
             FloatAssert.Same(x * constant, cpu(x));
         }
+
+        Func<Half, Half> halfCpu = helper == "__ms_radians" ? Gpu.Radians : Gpu.Degrees;
+        Assert.Equal((Half)constant, halfCpu((Half)1f));
+        Assert.Equal((Half)(-45f) * (Half)constant, halfCpu((Half)(-45f)));
     }
 
     [Fact]

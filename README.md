@@ -81,7 +81,8 @@ here as an original game built on SharpCompute.
   locals, buffer elements (`ReadWriteBuffer<byte>` is one byte per element), captured constants,
   struct fields, local arrays and `[GroupShared]` arrays, with C#'s promotion and shift rules;
   arithmetic wraps as in C#, signed and unsigned. See [Scalar types](#shader-language-reference).
-- **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
+- **HLSL-like shader library.** `Float2..4`, `Half2..4`, `Int2..4`, `UInt2..4` with every swizzle,
+  componentwise comparisons that give `Bool2..4` (`Gpu.Any`, `Gpu.All`, `Gpu.Select`),
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
   methods, local functions, `ref`/`out` parameters, all loops and branches, and compile-time-folded
@@ -122,6 +123,7 @@ here as an original game built on SharpCompute.
   shader that passes structs or constants carries `static_assert` layout guards. The CPU
   implementations of `Gpu.*` were measured against Apple GPU results: bit-for-bit for arithmetic,
   rounding functions, `sqrt` and `fmod`, and within a few ULP for transcendentals.
+  [Half precision](#half-precision) is bit-for-bit as well, down to the subnormals.
 - **Live presentation.** `MetalWindow` shows GPU output in a native macOS window at display refresh
   rate, with keyboard and mouse input: `KeyDown`/`KeyUp` events, plus `IsKeyDown(key)` and
   `HeldModifiers` to poll what is held each frame (released automatically when the window loses focus).
@@ -140,9 +142,9 @@ full size.
 <tr>
 <td width="50%" valign="top">
 <a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab's privatised-histogram page: an animated image, its luminance histogram counted with global atomics, and the same histogram counted per threadgroup, bin for bin identical"></a>
-<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math and the 8-, 16- and 64-bit integers, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
+<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math, the 8-, 16- and 64-bit integers and half precision, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
 <br><code>scripts/demo-computelab.sh [--page &lt;name&gt;] [--headless]</code>
-<br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, Up/Down)</sub>
+<br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, R, Up/Down)</sub>
 </td>
 <td width="50%" valign="top">
 <a href="docs/screenshots/textures-samplers.png"><img src="docs/screenshots/thumbs/textures-samplers.png" width="100%" alt="The Textures demo's sampler explorer: one small picture magnified through the six samplers, point and linear filtering in rows, clamp, repeat and mirror addressing in columns"></a>
@@ -248,8 +250,8 @@ SIMD-group pages. The Indirect and FastMath pages also say whether their kernel 
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 </tr>
 <tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-half-precision.png"><img src="docs/screenshots/thumbs/computelab-half-precision.png" width="100%" alt="ComputeLab Half precision page: an image, its 289-tap blur in Half4 arithmetic, the error of that blur against the blur in double, and a mask made with Gpu.Select from a componentwise comparison"></a><br><b>Math</b>: Half precision<br><code>--page half-precision</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-shared-code.png"><img src="docs/screenshots/thumbs/computelab-shared-code.png" width="100%" alt="ComputeLab Shared code page: a path-traced scene of spheres on a checkerboard, the static class and structs its shaders are built from, and the same scene traced by ForCpu at every 8th pixel"></a><br><b>Code reuse</b>: Shared code<br><code>--page shared-code</code></td>
-<td width="33%" valign="top"></td>
 <td width="33%" valign="top"></td>
 </tr>
 </table>
@@ -376,6 +378,12 @@ generator emits the `fence()` Metal needs for that). Textures are zero-copy like
 | `Rgba16Float` | `RGBA16Float` | `(r, g, b, a)` | yes |
 | `float` | `R32Float` | `(r, 0, 0, 1)` | yes |
 | `Float4` | `RGBA32Float` | `(r, g, b, a)` | yes |
+
+An `Rgba16Float` pixel is four halves in the layout of a `Half4`, and converts to and from one
+implicitly. Whole arrays reinterpret for free (`MemoryMarshal.Cast<Half4, Rgba16Float>(colors)` for
+`CopyFrom`, and back after `ToArray`), and in a shader `(Half4)texture[x, y]` and
+`texture[x, y] = (Float4)color` are exact for that format, so a `Half4` goes through such a texture
+bit for bit.
 
 Samplers are the six static properties of `Sampler`, passed directly to `Sample`: `PointClamp`,
 `PointRepeat`, `PointMirror`, `LinearClamp`, `LinearRepeat` and `LinearMirror`. Coordinates are
@@ -624,8 +632,9 @@ device.For(count, new SumGroups(input, partials)); // 32 elements become one; re
 | Exchange | `WaveReadLaneAt(v, lane)`, `WaveReadLaneFirst(v)`, `WaveShuffleUp(v, delta)`, `WaveShuffleDown(v, delta)`, `WaveShuffleXor(v, mask)`, `WaveRotateUp(v, delta)`, `WaveRotateDown(v, delta)`, `WaveShuffleUpAndFill(v, fill, delta)`, `WaveShuffleDownAndFill(v, fill, delta)` | `simd_shuffle`, `simd_broadcast_first`, `simd_shuffle_up`/`_down`/`_xor`, `simd_shuffle_rotate_up`/`_down`, `simd_shuffle_and_fill_up`/`_down` |
 | Quads | `QuadActiveAnyTrue(b)`, `QuadActiveAllTrue(b)`, `QuadActiveBallot(b)`; `QuadActiveSum`, `Product`, `Min`, `Max`, `BitAnd`, `BitOr`, `BitXor`; `QuadPrefixSum`, `QuadPrefixProduct`, `QuadInclusivePrefixSum`, `QuadInclusivePrefixProduct`; `QuadReadAcrossX(v)`, `QuadReadAcrossY(v)`, `QuadReadAcrossDiagonal(v)`, `QuadReadLaneAt(v, lane)` | `quad_any`, `quad_all`, `quad_ballot`; `quad_sum` … `quad_xor`; `quad_prefix_*`; `quad_shuffle_xor` with 1, 2, 3; `quad_shuffle` |
 
-Values are `float`, `int`, `uint` and their 2- to 4-component vectors (componentwise). They work in
-compute and pixel shaders and in helper methods. What they mean, measured on an Apple M4 Pro and
+Values are `float`, `int`, `uint`, `Half` and their 2- to 4-component vectors (componentwise; the
+bitwise reductions take the integers only). They work in compute and pixel shaders and in helper
+methods. What they mean, measured on an Apple M4 Pro and
 pinned by the tests:
 
 - **How groups are formed.** The threads of a threadgroup are numbered row by row (`GroupIds.Index`:
@@ -637,6 +646,10 @@ pinned by the tests:
   returned earlier, a lane in the other branch of an `if`, and the lanes a partial group does not
   have (a grid or threadgroup that is not a multiple of 32) contribute nothing. A scan numbers the
   active lanes without gaps, and `WaveIsFirstLane` is the lowest active lane.
+- **What an exclusive scan gives the first active lane.** 1 for a product and 0 for a sum; for
+  floats and halves that 0 is `-0`, the identity of IEEE addition (`-0 + x` is `x` for every `x`),
+  on the GPU and on the CPU. It compares equal to 0; the sign shows in `1 / x`, `Gpu.CopySign`
+  and the bits.
 - **Shuffles at the edges.** `WaveShuffleUp(v, delta)` gives lane *i* the value of lane *i − delta*;
   the lowest `delta` lanes get their own value back. `WaveShuffleDown` mirrors that at the top of a
   full group. The `...AndFill` forms hand those lanes a fill instead, the `fill` argument of the lane
@@ -1256,8 +1269,8 @@ arrays, except `bool`, which has no stable layout and stays inside the shader.
 
 | C# | MSL | Bytes | Notes |
 |---|---|---|---|
-| `float` | `float` | 4 | |
-| `Half` | `half` | 2 | |
+| `float` | `float` | 4 | Vectors: `Float2..4` |
+| `Half` | `half` | 2 | Vectors: `Half2..4` |
 | `int`, `uint` | `int`, `uint` | 4 | Vectors: `Int2..4`, `UInt2..4` |
 | `byte`, `sbyte` | `uchar`, `char` | 1 | MSL's `char` is signed |
 | `short`, `ushort` | `short`, `ushort` | 2 | |
@@ -1325,6 +1338,25 @@ between the `byte` and the `int` overload: write `Gpu.Min(b, (byte)5)`.
 hashes every pixel in 64 bits, checked against the CPU:
 
 ![ComputeLab's "Small and wide integers" page: a washed-out 8-bit grayscale image from a ReadWriteBuffer of bytes, the same image after histogram equalisation in place with its levels stretched over the whole range, and a 64-bit hash per pixel as colored noise with the pixel that won the 64-bit atomic maximum marked; below them the histogram before with the lookup table's curve, the histogram after, and the 64 bits of the top row's hashes](docs/screenshots/computelab-small-and-wide-integers.png)
+
+**Vector and matrix types.** Locals, parameters and return values use the native MSL type. The
+*boundary* type is the one in buffers, captured fields, struct fields and `[GroupShared]` arrays,
+where the layout has to be the C# one; every shader that uses one asserts its size and offsets
+(`static_assert`), so a layout that drifted is a compile error, not corrupt data.
+
+| C# | MSL | At the boundary | Bytes (alignment) |
+|---|---|---|---|
+| `Float2`, `Float3`, `Float4` | `float2`, `float3`, `float4` | `packed_float2/3/4` | 8, 12, 16 (4) |
+| `Half2`, `Half3`, `Half4` | `half2`, `half3`, `half4` | `packed_half2/3/4` | 4, 6, 8 (2) |
+| `Int2..4`, `UInt2..4` | `int2/3/4`, `uint2/3/4` | `packed_int2/3/4`, `packed_uint2/3/4` | 8, 12, 16 (4) |
+| `Bool2`, `Bool3`, `Bool4` | `bool2`, `bool3`, `bool4` | not allowed: locals only | |
+| `Float2x2`, `Float3x3` | `float2x2`, `float3x3` | not allowed: locals only | |
+| `Float4x4` | `float4x4` | four `packed_float4` columns | 64 (4) |
+
+Vectors convert to each other explicitly, `(Int3)v`, as MSL's `int3(v)` does: float and half to
+integer truncate and saturate (NaN gives 0), float to half rounds to the nearest half. Comparing
+two vectors gives a [bool vector](#bool-vectors); the half vectors are described under
+[Half precision](#half-precision).
 
 **Atomics.** When many threads write the same buffer element, a plain `counts[bin] += 1` loses
 updates. The `Gpu.Atomic*` methods take the element by `ref` and return the value it had *before*
@@ -1441,12 +1473,138 @@ device.For(image.Length / 256 * 256, new PrivatisedHistogram(image, counts)); //
 
 ![ComputeLab's "Histogram: privatised" page: the generated image on the left, and on the right the luminance histogram counted with global atomics above the same histogram counted per threadgroup in group-shared memory, bin for bin identical](docs/screenshots/computelab-histogram-privatised.png)
 
+#### Bool vectors
+
+Comparing two vectors compares their components, and the answer is a `Bool2`, `Bool3` or `Bool4`
+(`bool2/3/4`), as in MSL and HLSL:
+
+```csharp
+Bool3 bright = color > threshold;                          // <, <=, >, >=; with a vector or with a scalar
+Float3 kept = Gpu.Select(bright, color, new Float3(0f));   // per component: bright ? color : 0
+Bool3 usable = bright & !Gpu.IsNaN(color);                 // &, |, ^ and ! are componentwise too
+if (Gpu.Any(usable)) { ... }                               // Any and All reduce to one bool
+Bool3 same = Gpu.Equal(a, b);                              // and Gpu.NotEqual
+```
+
+| C# | MSL | Notes |
+|---|---|---|
+| `a < b`, `a <= b`, `a > b`, `a >= b` on `Float2..4`, `Half2..4`, `Int2..4`, `UInt2..4` | the same operators | Either side may be a scalar. False for a component where either side is NaN |
+| `Gpu.Equal(a, b)`, `Gpu.NotEqual(a, b)` | `(a == b)`, `(a != b)` | Methods, not operators: a C# `==` has to return `bool` for `if (a == b)`, `Equals` and pattern matching to keep working, and MSL's returns a bool vector. `b` may be a scalar |
+| `mask & mask`, `\|`, `^`, `!mask` | the same operators | There is no `&&` or `\|\|`: every component is always evaluated, so there is nothing to short-circuit |
+| `Gpu.Any(mask)`, `Gpu.All(mask)` | `metal::any`, `metal::all` | One `bool`. `if (a < b)` on vectors does not compile: say which of the two is meant |
+| `Gpu.Select(mask, whenTrue, whenFalse)` | `metal::select(whenFalse, whenTrue, mask)` | A componentwise `mask ? whenTrue : whenFalse`, for every vector type. The argument order is HLSL's; MSL's is the reverse, which the generator emits. Both values are evaluated, and the chosen components are copied bit for bit |
+| `Gpu.IsNaN(v)`, `Gpu.IsInfinity(v)`, `Gpu.IsFinite(v)` | `metal::isnan`, `metal::isinf`, `metal::isfinite` | `Float2..4` and `Half2..4`; a bool vector |
+
+A bool vector lives in locals, parameters and return values only, like `bool` itself: MSL has no
+packed bool vector, so in a buffer, a captured field, a struct field or a `[GroupShared]` array it
+is a build error. Store a mask as integers, `Gpu.Select(mask, new Int3(1), new Int3(0))`. Everything
+in the table is exact, and identical on the GPU and the CPU.
+
+#### Half precision
+
+`Half2`, `Half3` and `Half4` are MSL's `half2`, `half3` and `half4`, with the surface of the float
+vectors: constructors, every swizzle, `+ - * / %`, the comparisons, conversions to and from the
+float and integer vectors, every `Gpu.*` function the float vectors have (`Gpu.Sqrt`, `Lerp`,
+`Dot`, `Normalize`, `Sin`, `Pow`, `Radians` and the rest), and the
+[SIMD-group operations](#simd-group-operations). A half has 11 significant bits, about 3 decimal
+digits, and reaches from 6e-8 to 65504. A half vector is half the bytes of a float vector wherever
+it is stored: a `Half3` in a buffer, a constant, a struct field or a `[GroupShared]` array is the
+6 bytes of a `packed_half3`, aligned to 2.
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Tone(ReadWriteBuffer<Half4> pixels, Half3 gain) : IComputeShader
+{
+    private static readonly Half3 Luma = (Half3)new Float3(0.299f, 0.587f, 0.114f);
+
+    public void Execute()
+    {
+        Half4 pixel = pixels[ThreadIds.X];
+        Half3 color = pixel.XYZ * gain;
+        Half level = Gpu.Dot(color, Luma);
+
+        pixels[ThreadIds.X] = new Half4(Gpu.Select(color > (Half)1f, new Half3(level), color), pixel.W);
+    }
+}
+```
+
+C# has no half literal, and neither a `float` nor an integer constant converts to `System.Half`
+implicitly: write `(Half)0.5f` and `(Half)2`, keep constants in `static readonly` fields, or
+convert a whole vector, `(Half3)new Float3(...)`.
+
+**What it computes** was measured on an Apple M4 Pro (every function of one argument over all
+65,536 halves, the others over 262,144 operand sets) and is what `ForCpu` reproduces:
+
+- `+ - * /`, negation and every conversion are IEEE half operations, rounded once to the nearest
+  half (ties to even), and identical on the GPU and the CPU bit for bit. That includes subnormals:
+  the GPU flushes float subnormals to zero, but not half ones.
+- The GPU fuses `a * b + c` into one half fused multiply-add, as it does for floats. With
+  `[ShaderOptions(FpContract = false)]` it does not, and half arithmetic then gives the same bits
+  on both sides throughout.
+- Bit for bit as well: `Abs`, `Min`, `Max`, `Clamp`, `Saturate`, `Sign`, `Floor`, `Ceil`, `Round`,
+  `Trunc`, `Fract`, `Fmod`, `Sqrt`, `Rsqrt`, `Fma`, `Lerp`, `Step`, `Smoothstep`, `CopySign`, `Dot`,
+  `Cross`, `Length`, `Distance`, `Normalize` and `Reflect` (except which zero `Min`, `Max` and
+  `Clamp` return for zeros of both signs).
+- The transcendental functions (`Pow`, `Exp*`, `Log*`, trigonometric and hyperbolic) agree within
+  one half ULP. The GPU's `tan` and `atan` are that one ULP off for 3.5 % and 5.7 % of all halves,
+  the others for at most 7 of the 65,536.
+- Three things differ from the float overloads, because the GPU treats halves differently:
+  `Length`, `Distance` and `Normalize` are not rescaled, so they overflow to infinity for a length
+  above about 255.9 (its square does not fit) and `Normalize` of a zero vector is NaN; a zero
+  remainder from `%` and `Fmod` is `+0` also for a negative dividend; and `Sin`, `Tan` and `Asin`
+  of `-0` are `+0`.
+- `Gpu.Radians` and `Gpu.Degrees` of a half are one half multiplication by the constant rounded
+  to half (0.017456055 and 57.28125), bit for bit on both sides and within about one half ULP of
+  the exact product.
+- The SIMD-group operations take a `Half` and half vectors like they take floats
+  (`Gpu.WaveActiveSum`, the scans, the shuffles, the quad operations and the rest). The exchanges,
+  minima and maxima are bit for bit; a sum or a product is too when its partial results are all
+  halves, and otherwise shows the order of the lanes, which is the GPU's own (the CPU's is lane
+  order): sums of 32 values of magnitude up to 4 came out up to 3/64 apart, products up to 4 half
+  ULP. An exclusive scan of sums starts from `-0`, as it does for floats.
+
+A few functions take a scalar `Half`: `Gpu.Radians`, `Gpu.Degrees`, the SIMD-group operations, and
+the bit casts `Gpu.AsUShort(h)`, `Gpu.AsShort(h)` and `Gpu.AsHalf(bits)` (MSL's `as_type`, also
+written `BitConverter.HalfToUInt16Bits`, `HalfToInt16Bits`, `UInt16BitsToHalf` and
+`Int16BitsToHalf`), which keep the bits of every number, `-0` and subnormals included, and keep a
+NaN a NaN. Where a float or int overload exists as well, that one is preferred, so
+`Gpu.Radians(90)` and a SIMD-group operation on a `byte` mean what they meant before. The other
+math functions take half vectors only.
+
+**What it buys** depends on what limits the kernel. Each kernel below was written once on `Float4`
+and once on `Half4` (`SharpCompute.Benchmarks --half-precision`; Apple M4 Pro, GPU time from commit
+to completion, the median of 31 dispatches with the kernels taking turns, the middle of three runs):
+
+| Kernel | `Float4` | `Half4` | `Half4` is |
+|---|---:|---:|---:|
+| Streaming pass, `y = x * 0.5 + y` over 16M elements (memory-bound: 512 MB against 256 MB) | 4.01 ms | 2.29 ms | 1.75× as fast |
+| Blur of 289 taps per pixel, 1024 × 1024 | 2.74 ms | 1.92 ms | 1.4× as fast |
+| The same blur, reading halves and summing in `float` | | 2.07 ms | 1.3× as fast |
+| Arithmetic only: 64 rounds of a folding map per thread, 2048 × 2048 | 3.33 ms | 3.06 ms | 1.09× as fast |
+
+Half the bytes is where the time goes: a pass that is bound by memory bandwidth is close to twice
+as fast, and one that is all arithmetic gains under 10 %. The blur is in between, and less steady:
+its `Float4` time was 2.1 ms, 2.7 ms and 3.0 ms in the three runs where the `Half4` time stayed at
+1.9 ms, so its gain was between 1.1× and 1.6×. Reading halves and computing in floats
+(`(Float4)image[i]`) keeps most of that gain and gives up none of the accuracy until the result is
+stored.
+
+What it costs is the 11 bits. ComputeLab's *Half precision* page runs that blur both ways on the
+same image, whose 8-bit channels a half holds exactly, and compares each with the blur in `double`:
+with 289 taps the largest error of the half blur is 8.3e-3 of the range and the mean 8.9e-4 (4.0e-3
+with 81 taps), against 3.0e-8 for the float blur. The running sum is what does it: it grows to
+several thousand, where halves are 4 apart. The page's kernels are compiled with contraction off,
+and the check is that both match `ForCpu` bit for bit:
+
+![ComputeLab's "Half precision" page: the source image, the same image blurred with 289 taps in Half4 arithmetic, the error of that blur against the blur in double as a heat map, and a mask of the blurred image made with Gpu.Select(color > threshold, color, 0)](docs/screenshots/computelab-half-precision.png)
+
 **Bits.** All bit-exact between the GPU and the CPU, including NaN payloads, signed zeros and
 subnormals.
 
 | C# | MSL | Notes |
 |---|---|---|
 | `Gpu.AsFloat(int/uint)`, `Gpu.AsInt(float)`, `Gpu.AsUInt(float)`, and `Float2..4`/`Int2..4`/`UInt2..4` overloads | `as_type<T>` | Reinterprets the 32 bits. Also `BitConverter.SingleToInt32Bits`, `Int32BitsToSingle`, `SingleToUInt32Bits`, `UInt32BitsToSingle` |
+| `Gpu.AsHalf(ushort/short)`, `Gpu.AsUShort(Half)`, `Gpu.AsShort(Half)` | `as_type<T>` | Reinterprets the 16 bits of a half. Also `BitConverter.UInt16BitsToHalf`, `Int16BitsToHalf`, `HalfToUInt16Bits`, `HalfToInt16Bits` |
 | `Gpu.CountBits` | `metal::popcount` | Every integer type, and the `int` and `uint` vectors; the result has the argument's type |
 | `Gpu.LeadingZeroCount`, `Gpu.TrailingZeroCount` | `metal::clz`, `metal::ctz` | The width of the type for a zero argument: 32 for an `int`, 8 for a `byte`, 64 for a `long`. `LeadingZeroCount((byte)1)` is 7 |
 | `Gpu.ReverseBits` | `metal::reverse_bits` | Within the width of the type: bit 0 becomes bit 31, 7, 15 or 63 |
@@ -1455,7 +1613,8 @@ subnormals.
 | `BitOperations.RotateLeft`, `RotateRight` | `metal::rotate` | `uint` and `ulong`; the count is taken modulo 32 or 64, as in C# |
 
 **Float helpers.** `Gpu.Fma` (also `MathF.FusedMultiplyAdd`) and `Gpu.CopySign` are bit-exact;
-`Gpu.IsNaN`, `Gpu.IsInfinity` and `Gpu.IsFinite` take a `float` and return a `bool`; `Gpu.Log10` and
+`Gpu.IsNaN`, `Gpu.IsInfinity` and `Gpu.IsFinite` take a `float` and return a `bool`, or a float or
+half vector and return a [bool vector](#bool-vectors); `Gpu.Log10` and
 `Gpu.Exp10` agree within a few ULP, like the other transcendentals. `Fma`, `CopySign`, `Log10` and
 `Exp10` have `Float2..4` overloads.
 
@@ -1527,11 +1686,18 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 - Wrapped Metal resources must use tracked hazard tracking, and `EncodeInto` cannot detect an
   encoder the app left open on its command buffer.
 - The 8-, 16- and 64-bit integers are scalars only: there are no vectors of them, the SIMD-group
-  operations take `float`, `int` and `uint`, and a `static readonly` initializer can use their
+  operations take `float`, `int`, `uint` and `Half`, and a `static readonly` initializer can use their
   operators and literals but not call an intrinsic on them.
 - `checked` arithmetic throws `OverflowException` with `ForCpu` but wraps on the GPU, which has no
   exceptions.
-- GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses
+- Half precision: the math functions of `Gpu.*` take half *vectors*; for a scalar `Half`, convert
+  to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the
+  bit casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
+  scalars: a vector form of the bit casts waits for 16-bit integer vectors (`Short2..4`,
+  `UShort2..4`). A `static readonly` half or bool value can be initialized with constructors, casts
+  and operators, but not with a function call (`SCG0024`): the compile-time evaluation only does
+  32-bit arithmetic.
+- GPU math follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero and fuses
   multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
   Transcendental functions agree with the CPU to within a few ULP.
 - An indirect dispatch runs whole threadgroups, so `DispatchSize` is a multiple of the threadgroup

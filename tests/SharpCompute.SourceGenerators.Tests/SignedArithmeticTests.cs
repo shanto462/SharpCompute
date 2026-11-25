@@ -14,6 +14,7 @@ public class SignedArithmeticTests
 
     private static ShaderDescriptor Translate(string body, string members = "") =>
         GeneratorHarness.Run($$"""
+            using System;
             using SharpCompute;
 
             namespace Tests;
@@ -84,6 +85,24 @@ public class SignedArithmeticTests
     [InlineData("ints[2] = (a & b) | (a ^ ~b) >> 3;", "ints[2] = (a & b) | ((a ^ ~b) >> 3);")]
     public void UnsignedArithmetic_DivisionShiftsAndBitwiseOperators_AreUnchanged(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
+
+    [Fact]
+    public void HalfAndBoolVectors_AndIntVectorComparisons_AreUnchanged()
+    {
+        string[] lines = Translate(
+            """
+            Half2 h = new Half2((Half)1.5f, (Half)2);
+            h = (h * h) + h - h;
+            h += h;
+            Bool2 less = new Int2(a, b) < new Int2(b, a) + 1;
+            ints[2] = Gpu.Any(less) ? (int)(float)h.X : 0;
+            """).KernelBody.Split('\n');
+
+        Assert.Contains("h = (h * h) + h - h;", lines);
+        Assert.Contains("h += h;", lines);
+        // The comparison stays a comparison; only the signed sum it compares is computed unsigned.
+        Assert.Contains("bool2 less = int2(a, b) < int2(uint2(int2(b, a)) + 1u);", lines);
+    }
 
     [Theory]
     [InlineData("int x = a; x += b;", "x = int(uint(x) + uint(b));")]

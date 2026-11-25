@@ -19,7 +19,13 @@ public class OperatorTests
         ["op_ExclusiveOr"] = (a, b) => a ^ b,
         ["op_LeftShift"] = (a, b) => a << b,
         ["op_RightShift"] = (a, b) => a >> b,
+        ["op_LessThan"] = (a, b) => a < b,
+        ["op_LessThanOrEqual"] = (a, b) => a <= b,
+        ["op_GreaterThan"] = (a, b) => a > b,
+        ["op_GreaterThanOrEqual"] = (a, b) => a >= b,
     };
+
+    private static readonly string[] Comparisons = ["op_LessThan", "op_LessThanOrEqual", "op_GreaterThan", "op_GreaterThanOrEqual"];
 
     private static readonly Dictionary<string, Func<dynamic, object>> Unary = new()
     {
@@ -27,16 +33,20 @@ public class OperatorTests
         ["op_OnesComplement"] = a => ~a,
     };
 
-    /// <summary>The exact operator set per element kind (vector∘vector, vector∘scalar, scalar∘vector).</summary>
+    /// <summary>
+    /// The exact operator set per element kind (vector∘vector, vector∘scalar, scalar∘vector). The
+    /// ordering operators are there for every numeric vector and return the bool vector of the same
+    /// width; equality is not an operator (<c>Gpu.Equal</c>, <c>Gpu.NotEqual</c>).
+    /// </summary>
     [Theory]
-    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    [MemberData(nameof(VectorTypes.NumericData), MemberType = typeof(VectorTypes))]
     public void OperatorSetMatchesMsl(Type t)
     {
         Type s = VectorTypes.Element(t);
         var expected = new HashSet<string>();
         string[] arithmetic = ["op_Addition", "op_Subtraction", "op_Multiply", "op_Division", "op_Modulus"];
-        string[] bitwise = s == typeof(float) ? [] : ["op_BitwiseAnd", "op_BitwiseOr", "op_ExclusiveOr"];
-        foreach (string op in arithmetic.Concat(bitwise))
+        string[] bitwise = VectorTypes.IsFloating(s) ? [] : ["op_BitwiseAnd", "op_BitwiseOr", "op_ExclusiveOr"];
+        foreach (string op in arithmetic.Concat(bitwise).Concat(Comparisons))
         {
             expected.Add($"{op}({t.Name},{t.Name})");
             expected.Add($"{op}({t.Name},{s.Name})");
@@ -48,7 +58,7 @@ public class OperatorTests
             expected.Add($"op_UnaryNegation({t.Name})");
         }
 
-        if (s != typeof(float))
+        if (!VectorTypes.IsFloating(s))
         {
             expected.Add($"op_OnesComplement({t.Name})");
             foreach (string op in new[] { "op_LeftShift", "op_RightShift" })
@@ -64,14 +74,60 @@ public class OperatorTests
             .ToHashSet();
 
         Assert.Equal(expected.Order(), actual.Order());
+
+        // Every comparison answers with the bool vector of the same width; everything else with the vector itself.
+        Type mask = VectorTypes.Vector(typeof(bool), VectorTypes.Width(t));
+        Assert.All(
+            t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.IsSpecialName && m.Name.StartsWith("op_", StringComparison.Ordinal) && m.Name != "op_Explicit"),
+            m => Assert.Equal(Comparisons.Contains(m.Name) ? mask : t, m.ReturnType));
     }
 
-    /// <summary>Every operator overload computes the scalar C# operator per component.</summary>
+    /// <summary>
+    /// The ordering operators were added to vectors that already existed, and they replace nothing.
+    /// A float, int or uint vector had no ordering, no equality and no implicit conversion before,
+    /// so no expression that compiled can mean one of the new operators now. This pins what those
+    /// vectors had (16, 30 and 29 arithmetic and bitwise operators, each answering with the vector
+    /// itself, and the explicit conversions from the other two kinds) and that the additions are
+    /// the twelve ordering operators and one explicit conversion from the half vector, no more.
+    /// </summary>
     [Theory]
     [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    public void TheVectorsThatExistedKeepEveryOperator_AndGainOnlyTheOrderingOnes(Type t)
+    {
+        Type s = VectorTypes.Element(t);
+        int width = VectorTypes.Width(t);
+        MethodInfo[] operators = t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(static m => m.IsSpecialName && m.Name.StartsWith("op_", StringComparison.Ordinal)).ToArray();
+
+        // What was there: the same count, the same return type.
+        MethodInfo[] kept = operators.Where(static m => m.Name != "op_Explicit" && !Comparisons.Contains(m.Name)).ToArray();
+        Assert.Equal(s == typeof(float) ? 16 : s == typeof(int) ? 30 : 29, kept.Length);
+        Assert.All(kept, m => Assert.Equal(t, m.ReturnType));
+
+        Type[] others = new[] { typeof(float), typeof(int), typeof(uint) }.Where(e => e != s).Select(e => VectorTypes.Vector(e, width)).ToArray();
+        Type[] convertsFrom = operators.Where(static m => m.Name == "op_Explicit").Select(static m => m.GetParameters()[0].ParameterType).ToArray();
+        Assert.All(operators.Where(static m => m.Name == "op_Explicit"), m => Assert.Equal(t, m.ReturnType));
+        Assert.Equal(others.Append(VectorTypes.Vector(typeof(Half), width)).OrderBy(static x => x.Name), convertsFrom.OrderBy(static x => x.Name));
+
+        // What is new: three forms of each of the four ordering operators, into the bool vector.
+        MethodInfo[] added = operators.Where(static m => Comparisons.Contains(m.Name)).ToArray();
+        Assert.Equal(12, added.Length);
+        Assert.All(added, m => Assert.Equal(VectorTypes.Vector(typeof(bool), width), m.ReturnType));
+
+        // And what is still not there, so that if (a == b), a switch or a conditional cannot change its meaning.
+        Assert.DoesNotContain(operators, static m => m.Name is "op_Equality" or "op_Inequality" or "op_Implicit" or "op_True" or "op_False" or "op_LogicalNot");
+    }
+
+    /// <summary>
+    /// Every operator overload computes the scalar C# operator per component: the arithmetic of the
+    /// element type (for a half vector that of <see cref="Half"/>, one correctly rounded half operation
+    /// each), and for a comparison the scalar comparison, into a bool vector.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(VectorTypes.NumericData), MemberType = typeof(VectorTypes))]
     public void OperatorsAreComponentwise(Type t)
     {
         int n = VectorTypes.Width(t);
+        Type mask = VectorTypes.Vector(typeof(bool), n);
         foreach (MethodInfo m in t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.IsSpecialName && m.Name != "op_Explicit"))
         {
             ParameterInfo[] ps = m.GetParameters();
@@ -80,7 +136,8 @@ public class OperatorTests
                 : p.ParameterType == typeof(int) && m.Name.Contains("Shift", StringComparison.Ordinal) ? 3
                 : VectorTypes.Sample(p.ParameterType, i, 0)).ToArray();
             object result = m.Invoke(null, args)!;
-            Assert.Equal(t, result.GetType());
+            bool comparison = Comparisons.Contains(m.Name);
+            Assert.Equal(comparison ? mask : t, result.GetType());
 
             for (int c = 0; c < n; c++)
             {
@@ -89,8 +146,16 @@ public class OperatorTests
                     ? Unary[m.Name](Component(args[0]))
                     : Binary[m.Name](Component(args[0]), ShiftCount(m.Name, Component(args[1])));
                 object actual = VectorTypes.Get(result, c);
+                if (m.Name == "op_Modulus" && expected is Half remainder && remainder == (Half)0f && (Half)Component(args[0]) != (Half)0f)
+                {
+                    // Where C#'s % gives -0 for a negative dividend, a half vector gives +0, as the GPU does.
+                    expected = (Half)0f;
+                }
+
+                // A comparison is a bool and Half arithmetic a Half already (Half is not IConvertible).
+                object typed = comparison || expected is Half ? expected : Convert.ChangeType(expected, VectorTypes.Element(t), null);
                 Assert.True(
-                    VectorTypes.SameValue(Convert.ChangeType(expected, VectorTypes.Element(t), null), actual),
+                    VectorTypes.SameValue(typed, actual),
                     $"{m} component {c}: expected {VectorTypes.Format(expected)}, got {VectorTypes.Format(actual)}");
             }
         }

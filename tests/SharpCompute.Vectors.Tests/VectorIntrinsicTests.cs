@@ -6,9 +6,14 @@ namespace SharpCompute.Vectors.Tests;
 
 public class VectorIntrinsicTests
 {
-    // Not "the same function per component": geometric functions, and those that change the element
-    // type (bit reinterpretation, unorm8 packing; see BitIntrinsicTests).
-    private static readonly string[] Geometric = ["Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul", "AsFloat", "AsInt", "AsUInt", "PackUnorm4x8"];
+    // Not "the same function per component": geometric functions, those that change the element
+    // type (bit reinterpretation, unorm8 packing; see BitIntrinsicTests), and those that produce or
+    // consume a bool vector (see BoolVectorTests).
+    private static readonly string[] Geometric =
+    [
+        "Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul", "AsFloat", "AsInt", "AsUInt", "PackUnorm4x8",
+        "IsNaN", "IsInfinity", "IsFinite", "Equal", "NotEqual", "Any", "All", "Select",
+    ];
 
     /// <summary>
     /// Every vector overload of a componentwise intrinsic equals the scalar overload applied per
@@ -22,7 +27,7 @@ public class VectorIntrinsicTests
         // comes from the other lanes, and their vector overloads cannot run outside a shader.
         MethodInfo[] vectorMethods = methods
             .Where(m => !Geometric.Contains(m.Name) && !m.Name.StartsWith("Wave", StringComparison.Ordinal) && !m.Name.StartsWith("Quad", StringComparison.Ordinal))
-            .Where(m => m.GetParameters().Any(p => VectorTypes.IsVector(p.ParameterType)))
+            .Where(m => m.GetParameters().Any(p => VectorTypes.All.Contains(p.ParameterType)))
             .ToArray();
         Assert.NotEmpty(vectorMethods);
 
