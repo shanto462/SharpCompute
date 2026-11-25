@@ -114,7 +114,7 @@ public class TextureTests
                 float4 previous = target.read(uint2(xy));
                 target.write(color + previous + source.read(uint2(xy)), uint2(xy.x, xy.y));
                 target.fence();
-                luma[xy.y * int(target.get_width()) + xy.x] = color.x;
+                luma[int(uint(xy.y) * uint(int(target.get_width())) + uint(xy.x))] = color.x;
             }
             """),
             Normalize(descriptor.MslSource));
@@ -329,7 +329,7 @@ public class TextureTests
 
     [Theory]
     [InlineData("output[0] = source[1, 2];", "output[0] = source.read(uint2(1, 2));")]
-    [InlineData("output[0] = source[ThreadIds.X, ThreadIds.Y + 1];", "output[0] = source.read(uint2(int(__tid.x), int(__tid.y) + 1));")]
+    [InlineData("output[0] = source[ThreadIds.X, ThreadIds.Y + 1];", "output[0] = source.read(uint2(int(__tid.x), int(__tid.y + 1u)));")]
     [InlineData("output[0] = source[y: 2, x: 1];", "output[0] = source.read(uint2(1, 2));")]
     [InlineData("output[0] = source[ThreadIds.XY];", "output[0] = source.read(uint2(int2(__tid.xy)));")]
     [InlineData("Int2 p = new Int2(3, 4); output[0] = source[p] + target[p];", "int2 p = int2(3, 4);\noutput[0] = source.read(uint2(p)) + target.read(uint2(p));")]
@@ -339,9 +339,9 @@ public class TextureTests
     [InlineData("target[ThreadIds.XY] = source[ThreadIds.XY] * 2;", "target.write(source.read(uint2(int2(__tid.xy))) * 2.0f, uint2(int2(__tid.xy)));")]
     [InlineData("target[y: 2, x: 1] = output[0];", "target.write(output[0], uint2(1, 2));")]
     [InlineData("Float4 c = target[0, 0]; c.X += 1; target[0, 0] = c;", "float4 c = target.read(uint2(0, 0));\nc.x += 1.0f;\ntarget.write(c, uint2(0, 0));\ntarget.fence();")]
-    [InlineData("for (int i = 0; i < 4; target[i, 0] = output[i], i++) { }", "for (int i = 0; i < 4; target.write(output[i], uint2(i, 0)), i++)\n{\n}")]
-    [InlineData("int w = source.Width; int h = source.Height; output[w + h] = default;", "int w = int(source.get_width());\nint h = int(source.get_height());\noutput[w + h] = float4(0);")]
-    [InlineData("output[target.Width * target.Height - 1] = default;", "output[int(target.get_width()) * int(target.get_height()) - 1] = float4(0);")]
+    [InlineData("for (int i = 0; i < 4; target[i, 0] = output[i], i++) { }", "for (int i = 0; i < 4; target.write(output[i], uint2(i, 0)), i = int(uint(i) + 1u))\n{\n}")]
+    [InlineData("int w = source.Width; int h = source.Height; output[w + h] = default;", "int w = int(source.get_width());\nint h = int(source.get_height());\noutput[int(uint(w) + uint(h))] = float4(0);")]
+    [InlineData("output[target.Width * target.Height - 1] = default;", "output[int(uint(int(target.get_width())) * uint(int(target.get_height())) - 1u)] = float4(0);")]
     [InlineData("if (ThreadIds.X < source.Width) { output[0] = default; }", "if (int(__tid.x) < int(source.get_width()))\n{\n    output[0] = float4(0);\n}")]
     public void ReadsWritesAndSizes(string body, string expected)
     {
@@ -501,15 +501,15 @@ public class TextureTests
     // The read comes first in the source, but follows the write on the next turn of the loop.
     [InlineData(
         "for (int i = 0; i < 3; i++) { Float4 c = target[0, 0]; target[0, 0] = c + 1; }",
-        "for (int i = 0; i < 3; i++)\n{\n    float4 c = target.read(uint2(0, 0));\n    target.write(c + 1.0f, uint2(0, 0));\n    target.fence();\n}")]
+        "for (int i = 0; i < 3; i = int(uint(i) + 1u))\n{\n    float4 c = target.read(uint2(0, 0));\n    target.write(c + 1.0f, uint2(0, 0));\n    target.fence();\n}")]
 
     // The header of a for has no statements: the fence follows the write as one more expression.
     [InlineData(
         "for (int i = 0; i < 4; target[i, 0] = target[i + 1, 0], i++) { }",
-        "for (int i = 0; i < 4; target.write(target.read(uint2(i + 1, 0)), uint2(i, 0)), target.fence(), i++)\n{\n}")]
+        "for (int i = 0; i < 4; target.write(target.read(uint2(int(uint(i) + 1u), 0)), uint2(i, 0)), target.fence(), i = int(uint(i) + 1u))\n{\n}")]
     [InlineData(
         "int i = 0; for (target[0, 0] = default; i < 4; i++) { output[i] = target[i, 0]; }",
-        "int i = 0;\nfor (target.write(float4(0), uint2(0, 0)), target.fence(); i < 4; i++)\n{\n    output[i] = target.read(uint2(i, 0));\n}")]
+        "int i = 0;\nfor (target.write(float4(0), uint2(0, 0)), target.fence(); i < 4; i = int(uint(i) + 1u))\n{\n    output[i] = target.read(uint2(i, 0));\n}")]
 
     // Each texture on its own: only the one that is read is fenced.
     [InlineData(
@@ -695,7 +695,7 @@ public class TextureTests
 
         // Each helper gets the textures it (or what it calls) uses, under the kernel's parameter names.
         // Store's write is fenced, because Outer reads the texture after calling it.
-        Assert.Contains("static float4 Average(int x, texture2d<float, access::sample> source)\n{\n    return (source.read(uint2(x, 0)) + source.read(uint2(x + 1, 0))) * 0.5f;\n}", descriptor.MslSource);
+        Assert.Contains("static float4 Average(int x, texture2d<float, access::sample> source)\n{\n    return (source.read(uint2(x, 0)) + source.read(uint2(int(uint(x) + 1u), 0))) * 0.5f;\n}", descriptor.MslSource);
         Assert.Contains("static void Store(int x, float4 value, texture2d<float, access::read_write> target)\n{\n    target.write(value, uint2(x, 0));\n    target.fence();\n}", descriptor.MslSource);
         Assert.Contains("static float4 Outer(int x, texture2d<float, access::sample> source, texture2d<float, access::read_write> target)\n{\n    ::Store(x, ::Average(x, source), target);\n    return target.read(uint2(x, 0));\n}", descriptor.MslSource);
         Assert.Equal("output[int(__tid.x)] = ::Average(int(__tid.x), source) + ::Outer(1, source, target);", descriptor.KernelBody);
@@ -722,7 +722,7 @@ public class TextureTests
 
         Assert.Contains("static float4 Execute_Bilinear(texture2d<float, access::sample> image, float2 at)\n{\n    return image.sample(__ms_sampler_linear_clamp, at, metal::level(0));\n}", descriptor.MslSource);
         Assert.Contains("static float4 Texel(texture2d<float, access::sample> image, int x, int y)\n{\n    return image.read(uint2(x, y));\n}", descriptor.MslSource);
-        Assert.Contains("static float Size(texture2d<float, access::read_write> canvas)\n{\n    return float(int(canvas.get_width()) * int(canvas.get_height()));\n}", descriptor.MslSource);
+        Assert.Contains("static float Size(texture2d<float, access::read_write> canvas)\n{\n    return float(int(uint(int(canvas.get_width())) * uint(int(canvas.get_height()))));\n}", descriptor.MslSource);
         Assert.Contains("static void Execute_Fill(texture2d<float, access::read_write> canvas, float4 color)\n{\n    canvas.write(color + canvas.read(uint2(1, 1)), uint2(0, 0));\n    canvas.fence();\n    return;\n}", descriptor.MslSource);
         Assert.Equal(
             "float2 uv = float2(0.5f);\n" +

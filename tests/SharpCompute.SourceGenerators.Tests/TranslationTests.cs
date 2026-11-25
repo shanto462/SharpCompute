@@ -33,7 +33,7 @@ public class TranslationTests
             int k = 255;
             int l = -5;
             bool m = true;
-            buffer[0] = a + b + c + d + e + f + g + float(h + i + j) + float(k + l) + float(m ? 1 : 0);
+            buffer[0] = a + b + c + d + e + f + g + float(h + i + j) + float(int(uint(k) + uint(l))) + float(m ? 1 : 0);
             """,
             """
             float a = 1f;
@@ -81,7 +81,7 @@ public class TranslationTests
             float a = 3.1415927f + ::Quarter * Local;
             float b = 3.4028235E+38f + -3.4028235E+38f;
             float c = INFINITY + -INFINITY + NAN;
-            int d = 2147483647 + (-2147483647 - 1) + ::Sixteen;
+            int d = int(uint(2147483647) + uint(-2147483647 - 1) + uint(::Sixteen));
             float e = a / 16.0f + float(d) * ::Quarter;
             buffer[0] = a + b + c + float(d) + e;
             """,
@@ -141,7 +141,7 @@ public class TranslationTests
             int i = int(f);
             uint u = uint(i);
             float g = float(u) + float(i);
-            int j = int(f * 2.0f) + int(u);
+            int j = int(uint(int(f * 2.0f)) + u);
             half h = half(f);
             float k = float(h) + f;
             buffer[0] = g + float(j) + k;
@@ -168,15 +168,15 @@ public class TranslationTests
             bool a = (i & 1) == 0;
             bool b = !a || (f > 0.0f && f <= 1.0f);
             int c = (i << 3) | (((i >> 1) & 255) ^ ~i);
-            int d = i + 2 * 3 - (i - 1) / 2;
-            int e = i - -i;
-            int g = -(-i);
+            int d = int(uint(i) + 2u * 3u - uint((int(uint(i) - 1u)) / 2));
+            int e = int(uint(i) - -uint(i));
+            int g = int(-(-uint(i)));
             int h = int(uint(i) >> 2);
             uint u = 16u;
             u = u >> 1;
             bool k = a != b && i >= 2 && i < 100;
             f = (f + 1.0f) * (f - 1.0f);
-            buffer[i] = a | (b ^ k) ? f : float(c + d + e + g + h + int(u));
+            buffer[i] = a | (b ^ k) ? f : float(int(uint(c) + uint(d) + uint(e) + uint(g) + uint(h) + u));
             """,
             """
             int i = ThreadIds.X;
@@ -214,12 +214,12 @@ public class TranslationTests
             i |= 4;
             i &= 255;
             i ^= 3;
-            i++;
-            ++i;
-            i--;
-            --i;
-            int j = i++;
-            j = --i + j;
+            i = int(uint(i) + 1u);
+            i = int(uint(i) + 1u);
+            i = int(uint(i) - 1u);
+            i = int(uint(i) - 1u);
+            int j = int(reinterpret_cast<thread uint&>(i)++);
+            j = int(uint(int(--reinterpret_cast<thread uint&>(i))) + uint(j));
             buffer[j] += f;
             buffer[i]++;
             """,
@@ -259,7 +259,7 @@ public class TranslationTests
             {
                 return;
             }
-            for (int j = 0, k = 10; j < k; j++, k -= 2)
+            for (int j = 0, k = 10; j < k; j = int(uint(j) + 1u), k = int(uint(k) - 2u))
             {
                 if (j == 3)
                 {
@@ -438,13 +438,13 @@ public class TranslationTests
 
         Assert.Equal(
             """
-            int a = int(__tid.x) + int(__tid.y) + int(__tid.z);
+            int a = int(__tid.x + __tid.y + __tid.z);
             int2 b = int2(__tid.xy);
             int3 c = int3(__tid.xyz);
-            int d = int(__grid.x) + int2(__grid.xy).y + int3(__grid.xyz).z;
-            int e = int(__gtid.x) + int2(__gtid.xy).y;
-            int f = int(__gid.z) + int3(__gid.xyz).x;
-            buffer[a] = float(b.x + c.z + d + e + f);
+            int d = int(__grid.x + uint(int2(__grid.xy).y) + uint(int3(__grid.xyz).z));
+            int e = int(__gtid.x + uint(int2(__gtid.xy).y));
+            int f = int(__gid.z + uint(int3(__gid.xyz).x));
+            buffer[a] = float(int(uint(b.x) + uint(c.z) + uint(d) + uint(e) + uint(f)));
             """.ReplaceLineEndings("\n"),
             all.KernelBody);
         // The grid-position built-ins arrive raw and are rebased by the prologue for split dispatches;
@@ -496,7 +496,7 @@ public class TranslationTests
             float a = metal::sqrt(x) + metal::abs(x) + metal::sin(x) + metal::cos(x) + metal::tan(x) + metal::exp(x) + metal::log(x) + metal::log2(x) + metal::log10(x);
             float b = metal::pow(x, 2.0f) + metal::atan2(x, 1.0f) + metal::floor(x) + metal::ceil(x) + metal::trunc(x) + metal::rint(x);
             float c = metal::min(x, 1.0f) + metal::max(x, 0.0f) + metal::clamp(x, 0.0f, 1.0f) + metal::fma(x, x, x) + metal::copysign(x, -1.0f);
-            int d = int(metal::sign(x)) + int(metal::abs(i)) + metal::min(i, 3) + metal::max(i, 0) + metal::clamp(i, 0, 9);
+            int d = int(uint(int(metal::sign(x))) + uint(int(metal::abs(i))) + uint(metal::min(i, 3)) + uint(metal::max(i, 0)) + uint(metal::clamp(i, 0, 9)));
             bool e = metal::isnan(x) || metal::isinf(x) || !metal::isfinite(x);
             buffer[0] = a + b + c + float(d) + float(e ? 1 : 0) + metal::mix(x, 1.0f, 0.5f);
             """,
@@ -554,7 +554,7 @@ public class TranslationTests
             float2 g = metal::fmod(e, b);
             float2 h = float2(1.5f);
             int2 i = int2(e);
-            int2 j = ((i + i) * 2) & (i >> 1);
+            int2 j = int2((uint2(i) + uint2(i)) * 2u) & (i >> 1);
             int2 k = ~j % i;
             float2 l = float2(k);
             d.xy = l;
@@ -670,7 +670,7 @@ public class TranslationTests
             int i = 0;
             while ((more = i < 4))
             {
-                i++;
+                i = int(uint(i) + 1u);
             }
             if ((more = i > 2))
             {

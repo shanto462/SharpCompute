@@ -77,7 +77,7 @@ public class NamingTests
             float __ms_int = __c.__ms_class;
             float __ms_thread = __c.__ms_device + __c.__ms___c;
             Template __ms_typedef = __ms_kernel[0];
-            for (int __ms_register = 0; __ms_register < 2; __ms_register++)
+            for (int __ms_register = 0; __ms_register < 2; __ms_register = int(uint(__ms_register) + 1u))
             {
                 __ms_int += float(__ms_register);
             }

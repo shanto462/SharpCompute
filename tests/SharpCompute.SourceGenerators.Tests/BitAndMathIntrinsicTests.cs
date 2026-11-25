@@ -37,7 +37,7 @@ public class BitAndMathIntrinsicTests
         AssertKernel(
             """
             f[0] = as_type<float>(i[0]) + as_type<float>(u[0]) + as_type<float>(i[1]) + as_type<float>(u[1]);
-            i[0] = as_type<int>(f[0]) + as_type<int>(f[1]);
+            i[0] = int(uint(as_type<int>(f[0])) + uint(as_type<int>(f[1])));
             u[0] = as_type<uint>(f[0]) + as_type<uint>(f[1]);
             """,
             """
@@ -61,7 +61,7 @@ public class BitAndMathIntrinsicTests
             int4 d = as_type<int4>(b);
             uint2 e = as_type<uint2>(a);
             uint3 g = as_type<uint3>(bits);
-            v[1] = b + float4(float(c.x + d.x), float(e.x + g.x), a);
+            v[1] = b + float4(float(int(uint(c.x) + uint(d.x))), float(e.x + g.x), a);
             """,
             """
             Float3 bits = Gpu.AsFloat(new Int3(1, 2, 3)) + Gpu.AsFloat(new UInt3(1u, 2u, 3u));
@@ -82,12 +82,12 @@ public class BitAndMathIntrinsicTests
     {
         AssertKernel(
             """
-            i[1] = metal::popcount(i[0]) + metal::clz(i[0]) + metal::ctz(i[0]) + metal::reverse_bits(i[0]);
+            i[1] = int(uint(metal::popcount(i[0])) + uint(metal::clz(i[0])) + uint(metal::ctz(i[0])) + uint(metal::reverse_bits(i[0])));
             u[1] = metal::popcount(u[0]) + metal::clz(u[0]) + metal::ctz(u[0]) + metal::reverse_bits(u[0]);
             uint4 raw = uint4(u[0], 1u, 2u, 3u);
             uint4 counted = metal::popcount(raw) + metal::clz(raw) + metal::ctz(raw) + metal::reverse_bits(raw);
             int2 pair = int2(i[0], -1);
-            int2 signedCounts = metal::popcount(pair) + metal::clz(pair) + metal::ctz(pair) + metal::reverse_bits(pair);
+            int2 signedCounts = int2(uint2(metal::popcount(pair)) + uint2(metal::clz(pair)) + uint2(metal::ctz(pair)) + uint2(metal::reverse_bits(pair)));
             uint3 three = metal::popcount(raw.xyz) + metal::reverse_bits(raw.zyx);
             u[2] = counted.x + uint(signedCounts.y) + three.z;
             """,
@@ -112,8 +112,8 @@ public class BitAndMathIntrinsicTests
         AssertKernel(
             """
             int t = int(__tid.x);
-            i[2] = int(metal::popcount(u[t])) + int(metal::clz(u[t])) + int(metal::ctz(u[t])) + int(metal::ctz(i[t]));
-            u[2] = metal::rotate(u[t], uint(t) & 31u) + metal::rotate(u[t], (0u - uint(t + 1)) & 31u);
+            i[2] = int(uint(int(metal::popcount(u[t]))) + uint(int(metal::clz(u[t]))) + uint(int(metal::ctz(u[t]))) + uint(int(metal::ctz(i[t]))));
+            u[2] = metal::rotate(u[t], uint(t) & 31u) + metal::rotate(u[t], (0u - uint(int(uint(t) + 1u))) & 31u);
             """,
             """
             int t = ThreadIds.X;

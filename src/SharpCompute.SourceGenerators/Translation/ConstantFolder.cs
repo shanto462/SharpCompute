@@ -185,12 +185,14 @@ internal sealed class ConstantFolder
     {
         GpuType gpuType = Resolve(type, operation);
 
+        // Every arm is a double: with a float arm, the switch would have the type float and round an
+        // int or uint above 2^24 to the nearest float (int.MaxValue to 2^31, which then wraps).
         double component = value switch
         {
-            float f => f,
-            int i => i,
-            uint u => u,
-            bool b => b ? 1 : 0,
+            float f => (double)f,
+            int i => (double)i,
+            uint u => (double)u,
+            bool b => b ? 1.0 : 0.0,
             _ => throw Fail(operation, "the constant"),
         };
 
@@ -239,12 +241,14 @@ internal sealed class ConstantFolder
         return to == ScalarKind.Int ? unchecked((int)(uint)(long)value) : unchecked((uint)(int)(long)value);
     }
 
+    // The arms are doubles for the same reason as in FromConstant: a float arm would make every
+    // integer go through float.
     private static double Round(ScalarKind kind, double value, IOperation operation) => kind switch
     {
-        ScalarKind.Float => (float)value,
-        ScalarKind.Int => unchecked((int)(long)value),
-        ScalarKind.UInt => unchecked((uint)(long)value),
-        _ => value != 0 ? 1 : 0,
+        ScalarKind.Float => (double)(float)value,
+        ScalarKind.Int => (double)unchecked((int)(long)value),
+        ScalarKind.UInt => (double)unchecked((uint)(long)value),
+        _ => value != 0 ? 1.0 : 0.0,
     };
 
     private FoldedValue Construct(IObjectCreationOperation operation)

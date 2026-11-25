@@ -80,8 +80,7 @@ here as an original game built on SharpCompute.
 - **Every integer width.** `byte`, `sbyte`, `short`, `ushort`, `int`, `uint`, `long` and `ulong` as
   locals, buffer elements (`ReadWriteBuffer<byte>` is one byte per element), captured constants,
   struct fields, local arrays and `[GroupShared]` arrays, with C#'s promotion and shift rules;
-  unsigned arithmetic wraps as in C# (signed overflow is undefined on the GPU for now). See
-  [Scalar types](#shader-language-reference).
+  arithmetic wraps as in C#, signed and unsigned. See [Scalar types](#shader-language-reference).
 - **HLSL-like shader library.** `Float2..4`, `Half2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   componentwise comparisons that give `Bool2..4` (`Gpu.Any`, `Gpu.All`, `Gpu.Select`),
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
@@ -1171,10 +1170,8 @@ device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shad
 
 Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
 the GPU up to floating-point rounding; integer results are identical (conversions from float
-saturate, shift counts are masked and unsigned arithmetic wraps on both), except that signed integer
-overflow, which wraps in C#, is undefined on the GPU for now: do arithmetic that may overflow in the
-unsigned type, `(int)((uint)a * (uint)b)` (see [Scalar types](#shader-language-reference)). Only
-split shaders whose threads write their own elements;
+saturate, shift counts are masked and arithmetic wraps on both, signed and unsigned). Only split
+shaders whose threads write their own elements;
 a shader that uses `Gpu.Atomic*` on buffer elements is never divided, while atomics on `[GroupShared]`
 elements stay within one threadgroup and do not prevent a split (see [Atomics](#shader-language-reference)).
 Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
@@ -1294,8 +1291,7 @@ using ReadWriteBuffer<byte> image = device.AllocateReadWriteBuffer(grayscalePixe
 device.For(image.Length, new Equalise(image, lut));
 ```
 
-The integers behave as they do in unchecked C#, on the GPU as on the CPU, with one exception,
-signed overflow:
+The integers behave as they do in unchecked C#, on the GPU as on the CPU:
 
 - **Promotion.** `byte + byte` is an `int` in C#, and `-uint` and `int + uint` are `long`. The MSL
   carries the conversions the C# expression has (`uchar(int(a) + int(b))` for `(byte)(a + b)`), so
@@ -1304,24 +1300,14 @@ signed overflow:
 - **Shifts.** The count is masked with 31 for `int` and the smaller integers (which are `int`s by
   the time they are shifted) and with 63 for `long` and `ulong`: `1L << 65` is 2. `>>>` works on `int`
   and `long`.
-- **Unsigned overflow wraps** at the width of the type, on the GPU as in C#: `byte`, `ushort`, `uint`
-  and `ulong` arithmetic is exact modulo 2^n.
-- **Signed overflow is undefined on the GPU**, for now. C# wraps a signed `+`, `-` or `*` that
-  overflows; in MSL it is undefined, and the Metal compiler assumes it does not happen. Measured
-  on an Apple M4 Pro with `int` operands:
-
-  | Expression | C# (and `ForCpu`) | GPU |
-  |---|---|---|
-  | `(a * b) / b` with `a * b` overflowing | the wrapped product divided by `b` | `a` |
-  | `a * 2 / 2` for `int.MaxValue` | -1 | `a` |
-  | `a + 1 > a` for `int.MaxValue` | false | true |
-  | `b > 0 && (a + b) < a` when `a + b` overflows | true | false |
-  | `(long)(a * b)` with `a * b` overflowing | the wrapped `int`, widened | the exact 64-bit product |
-
-  An overflowed result that is only stored comes out wrapped in practice, but nothing guarantees
-  it. Until the generated MSL makes signed arithmetic wrap, do arithmetic that may overflow in the
-  unsigned type, where it wraps on both sides, and convert back: `(int)((uint)a * (uint)b)`, and
-  `(long)(int)((uint)a * (uint)b)` for the widened case. The same holds for `long` through `ulong`.
+- **Overflow wraps** at the width of the type, on the GPU as in C#, signed and unsigned: `int`,
+  `long` and `IntN` arithmetic is exact modulo 2^n, so `int.MaxValue + 1` is `int.MinValue`,
+  `a + 1 > a` is false for `int.MaxValue` and `(a * b) / b` divides the wrapped product. Signed
+  overflow is undefined in MSL, and the Metal compiler optimizes on the assumption that it does not
+  happen, so the generator computes a signed `+`, `-`, `*` or negation (and their compound
+  assignments and `++`/`--`) in the unsigned type of the same width and converts back:
+  `a * b + c` on `int`s is `int(uint(a) * uint(b) + uint(c))`. That costs no instructions (signed and
+  unsigned arithmetic are the same machine operations), and program-scope constants wrap the same way.
 - **Division by zero** does not trap: where C# throws `DivideByZeroException`, the GPU carries on
   with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit operands).
   `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on either.
@@ -1702,9 +1688,8 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 - The 8-, 16- and 64-bit integers are scalars only: there are no vectors of them, the SIMD-group
   operations take `float`, `int`, `uint` and `Half`, and a `static readonly` initializer can use their
   operators and literals but not call an intrinsic on them.
-- Signed integer overflow is undefined on the GPU for now, where C# wraps: an expression that
-  depends on the wrap (`a + 1 > a`, `(a * b) / b`, `(long)(a * b)`) can give another result than on
-  the CPU. Unsigned arithmetic wraps on both; use `(int)((uint)a * (uint)b)` (see **Scalar types**).
+- `checked` arithmetic throws `OverflowException` with `ForCpu` but wraps on the GPU, which has no
+  exceptions.
 - Half precision: the math functions of `Gpu.*` take half *vectors*; for a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the
   bit casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are

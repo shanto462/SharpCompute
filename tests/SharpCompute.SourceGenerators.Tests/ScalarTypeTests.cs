@@ -110,9 +110,10 @@ public class ScalarTypeTests
         Assert.Contains($"threadgroup {msl} shared[8];", source);
         Assert.Equal(8 * size, descriptor.ThreadgroupMemoryLength);
 
-        // C# adds two small integers as ints and the cast truncates the sum: the MSL says the same.
-        // (`Limit` widened to int is a C# constant, so it is inlined as the int it is there.)
-        Assert.Equal($"return {msl}(int(x) + int(x));", descriptor.FunctionBody($"static {msl} Twice"));
+        // C# adds two small integers as ints and the cast truncates the sum: the MSL says the same,
+        // with the int sum computed as a uint so that it wraps as C#'s does. (`Limit` widened to int
+        // is a C# constant, so it is inlined as the literal it is there.)
+        Assert.Equal($"return {msl}(int(uint(x) + uint(x)));", descriptor.FunctionBody($"static {msl} Twice"));
         Assert.Equal(
             $"""
             threadgroup {msl} shared[8];
@@ -120,10 +121,10 @@ public class ScalarTypeTests
             {msl} local = source[i];
             shared[int(__gindex)] = local;
             metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-            {msl} sum = {msl}(int(local) + int(__c.bias));
+            {msl} sum = {msl}(int(uint(local) + uint(__c.bias)));
             items[i].Value = ::Twice(sum);
             items[i].Index = int(::Twice(::Limit)) > int(::Start) ? 1 : 0;
-            values[i] = {msl}(int(shared[0]) + 100 + int(::Start));
+            values[i] = {msl}(int(uint(shared[0]) + 100u + uint(::Start)));
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
 
@@ -150,8 +151,12 @@ public class ScalarTypeTests
         Assert.Contains($"threadgroup {msl} shared[8];", source);
         Assert.Equal(64, descriptor.ThreadgroupMemoryLength);
 
-        // 64-bit arithmetic is 64-bit in C# as well: no conversion appears.
-        Assert.Equal("return x + x;", descriptor.FunctionBody($"static {msl} Twice"));
+        // 64-bit arithmetic is 64-bit in C# as well: no conversion appears, except that a signed sum
+        // is computed as a ulong, where it wraps as C#'s does.
+        bool signed = type == "long";
+        Assert.Equal(signed ? "return long(ulong(x) + ulong(x));" : "return x + x;", descriptor.FunctionBody($"static {msl} Twice"));
+        string sum = signed ? "long(ulong(local) + ulong(__c.bias))" : "local + __c.bias";
+        string total = signed ? "long(ulong(shared[0]) + ulong(::Limit) + ulong(::Start))" : "shared[0] + ::Limit + ::Start";
         Assert.Equal(
             $"""
             threadgroup {msl} shared[8];
@@ -159,10 +164,10 @@ public class ScalarTypeTests
             {msl} local = source[i];
             shared[int(__gindex)] = local;
             metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-            {msl} sum = local + __c.bias;
+            {msl} sum = {sum};
             items[i].Value = ::Twice(sum);
             items[i].Index = ::Twice(::Limit) > ::Start ? 1 : 0;
-            values[i] = (shared[0] + ::Limit + ::Start);
+            values[i] = ({total});
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
 
@@ -182,22 +187,22 @@ public class ScalarTypeTests
             """
             int i = int(__tid.x);
             uchar a = bytes[i];
-            uchar b = bytes[i + 1];
+            uchar b = bytes[int(uint(i) + 1u)];
             short s = shorts[i];
             uint u = uints[i];
-            int sum = int(a) + int(b);
-            uchar wrapped = uchar(int(a) + int(b));
+            int sum = int(uint(a) + uint(b));
+            uchar wrapped = uchar(int(uint(a) + uint(b)));
             short shifted = short(int(a) << 9);
-            long wide = long(a) * 1000L;
-            long negated = -long(u);
-            long mixed = long(i) + long(u);
+            long wide = long(ulong(a) * 1000UL);
+            long negated = long(-ulong(u));
+            long mixed = long(ulong(i) + ulong(u));
             bool less = int(a) < int(s);
             int inverted = ~int(a);
             a += int(b);
             a++;
             s -= 1;
-            ints[i] = sum + int(wrapped) + int(shifted) + inverted + (less ? 1 : 0) + int(a) + int(s);
-            longs[i] = wide + negated + mixed;
+            ints[i] = int(uint(sum) + uint(wrapped) + uint(shifted) + uint(inverted) + uint(less ? 1 : 0) + uint(a) + uint(s));
+            longs[i] = long(ulong(wide) + ulong(negated) + ulong(mixed));
             """,
             """
             int i = ThreadIds.X;
@@ -242,11 +247,11 @@ public class ScalarTypeTests
             short q = short(-32768);
             uchar zero = uchar(0);
             long none = long(0);
-            bytes[0] = uchar(int(a) + int(n) + int(zero));
-            sbytes[0] = char(int(b) + int(p));
-            shorts[0] = short(int(c) + int(q));
+            bytes[0] = uchar(int(uint(a) + uint(n) + uint(zero)));
+            sbytes[0] = char(int(uint(b) + uint(p)));
+            shorts[0] = short(int(uint(c) + uint(q)));
             ushorts[0] = d;
-            longs[0] = e + f + g + h + none + 4294967296L;
+            longs[0] = long(ulong(e) + ulong(f) + ulong(g) + ulong(h) + ulong(none) + 4294967296UL);
             ulongs[0] = k + m + (1UL << 40);
             """,
             """
@@ -288,12 +293,12 @@ public class ScalarTypeTests
             longs[1] = a << n;
             longs[2] = a >> n;
             longs[3] = long(ulong(a) >> n);
-            ulongs[1] = (u << n) | (u >> (64 - n));
+            ulongs[1] = (u << n) | (u >> (int(64u - uint(n))));
             ints[0] = int(uint(int(sb)) >> n);
             ints[1] = int(sb) << n;
             a <<= 3;
             u >>= n;
-            longs[4] = a + long(u);
+            longs[4] = long(ulong(a) + u);
             """,
             """
             int n = ThreadIds.X;
@@ -359,12 +364,12 @@ public class ScalarTypeTests
             {
                 case uchar(1):
                 {
-                    picked += 1L;
+                    picked = long(ulong(picked) + 1UL);
                     break;
                 }
                 case uchar(255):
                 {
-                    picked -= 1L;
+                    picked = long(ulong(picked) - 1UL);
                     break;
                 }
             }
@@ -386,7 +391,7 @@ public class ScalarTypeTests
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
         Assert.Contains("static void Bump(thread long& total, uchar step)", descriptor.MslSource);
-        Assert.Equal("total += long(step);", descriptor.FunctionBody("static void Bump"));
+        Assert.Equal("total = long(ulong(total) + ulong(step));", descriptor.FunctionBody("static void Bump"));
     }
 
     // ---- conversions ------------------------------------------------------------------------------
@@ -457,7 +462,7 @@ public class ScalarTypeTests
             "longs[0] = Scaled;",
             "private static readonly long Scaled = (long)2.75f * 1000;").Verify(Shader);
 
-        Assert.Contains("constant long Scaled = 2L * 1000L;", folded.MslSource);
+        Assert.Contains("constant long Scaled = long(ulong(2L) * 1000UL);", folded.MslSource);
 
         // One that reads another program-scope constant would need the helper, which an initializer cannot call.
         GeneratorRun run = RunBody(
@@ -477,8 +482,8 @@ public class ScalarTypeTests
             "longs[0] = Mask + Small;",
             "private static readonly long Mask = (1L << 40) - 1;\n    private static readonly byte Small = (byte)(Three + 4);\n    private const int Three = 3;").Verify(Shader);
 
-        Assert.Contains("constant long Mask = (1L << 40) - 1L;", operators.MslSource);
-        Assert.Contains("constant uchar Small = uchar(::Three + 4);", operators.MslSource);
+        Assert.Contains("constant long Mask = long(ulong(1L << 40) - 1UL);", operators.MslSource);
+        Assert.Contains("constant uchar Small = uchar(int(uint(::Three) + 4u));", operators.MslSource);
 
         // ...but a call has to be evaluated here, and the folder only knows float, int and uint.
         GeneratorRun run = RunBody("longs[0] = Lowest;", "private static readonly long Lowest = Gpu.Min(5L, 3L);");
@@ -707,8 +712,8 @@ public class ScalarTypeTests
         Assert.Equal(
             """
             int i = int(__tid.x);
-            records[i].Key += long(records[i].Tag);
-            records[i].Count = ushort(int(records[i].Delta) + int(records[i].Sign));
+            records[i].Key = long(ulong(records[i].Key) + ulong(records[i].Tag));
+            records[i].Count = ushort(int(uint(records[i].Delta) + uint(records[i].Sign)));
             records[i].Hash ^= ulong(records[i].Key);
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
@@ -780,15 +785,15 @@ public class ScalarTypeTests
             const ulong primes[2] = { 1099511628211UL, 15485907386658061715UL };
             char signs[2] = { char(-1), char(1) };
             Keys keys = Keys{};
-            for (int k = 0; k < 4; k++)
+            for (int k = 0; k < 4; k = int(uint(k) + 1u))
             {
-                window[k] = bytes[i + k];
-                sums[k % 3] += long(int(window[k]) * int(weights[k]));
+                window[k] = bytes[int(uint(i) + uint(k))];
+                sums[k % 3] = long(ulong(sums[k % 3]) + ulong(int(uint(window[k]) * uint(weights[k]))));
             }
             keys._e[1] = short(sums[0] >> 3);
             keys._e[0] += int(keys._e[1]);
             ulongs[i] = ulong(sums[1]) * primes[1] + primes[0];
-            longs[i] = sums[0] + (sums[2] * long(signs[i & 1])) + long(keys._e[0]);
+            longs[i] = long(ulong(sums[0]) + (ulong(sums[2]) * ulong(signs[i & 1])) + ulong(keys._e[0]));
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
         Assert.Contains("struct Keys\n{\n    short _e[2];\n};", descriptor.MslSource);
@@ -822,7 +827,7 @@ public class ScalarTypeTests
         Assert.Contains("static_assert(sizeof(Slot) == 40,", descriptor.MslSource);
         Assert.Contains("static_assert(__builtin_offsetof(Slot, Totals) == 8,", descriptor.MslSource);
         Assert.Contains("static_assert(__builtin_offsetof(Slot, Count) == 32,", descriptor.MslSource);
-        Assert.Equal("int i = int(__tid.x);\nslots[i].Totals._e[1] = slots[i].Totals._e[0] + long(slots[i].Tag);", descriptor.KernelBody);
+        Assert.Equal("int i = int(__tid.x);\nslots[i].Totals._e[1] = long(ulong(slots[i].Totals._e[0]) + ulong(slots[i].Tag));", descriptor.KernelBody);
         descriptor.AssertLayoutMatchesClr("Slot", run.LoadType("Tests.Slot"));
     }
 
@@ -910,7 +915,7 @@ public class ScalarTypeTests
         // A const of another type is inlined, with the type it has there.
         Assert.Equal("return (hash ^ ulong(value)) * 1099511628211UL;", descriptor.FunctionBody("static ulong Bits_Feed"));
         Assert.Equal("return uchar(int(value) >> 8);", descriptor.FunctionBody("static uchar Bits_High"));
-        Assert.Equal("return long(small) * long(medium);", descriptor.FunctionBody("static long Bits_Widen"));
+        Assert.Equal("return long(ulong(small) * ulong(medium));", descriptor.FunctionBody("static long Bits_Widen"));
         Assert.Equal(
             """
             int i = int(__tid.x);
@@ -1004,10 +1009,10 @@ public class ScalarTypeTests
         Assert.Contains("static void Tally_Add_device(device Tally& __this, uchar value)", descriptor.MslSource);
         Assert.Contains("static Tally Tally_op_Addition(Tally a, Tally b)", descriptor.MslSource);
         Assert.Contains("static long Tally_op_Explicit(Tally tally)", descriptor.MslSource);
-        Assert.Equal("return long(__this.Total) + long(__this.Delta);", descriptor.FunctionBody("static long Tally_Signed"));
-        Assert.Equal("return ushort(int(__this.Count) * int(factor));", descriptor.FunctionBody("static ushort Tally_Scaled"));
+        Assert.Equal("return long(__this.Total + ulong(__this.Delta));", descriptor.FunctionBody("static long Tally_Signed"));
+        Assert.Equal("return ushort(int(uint(__this.Count) * uint(factor)));", descriptor.FunctionBody("static ushort Tally_Scaled"));
         Assert.Equal("__this.Total += ulong(value);\n__this.Count++;", descriptor.FunctionBody("static void Tally_Add(thread"));
-        Assert.Equal("return ::Tally_new(a.Total + b.Total, short(int(a.Delta) + int(b.Delta)));", descriptor.FunctionBody("static Tally Tally_op_Addition"));
+        Assert.Equal("return ::Tally_new(a.Total + b.Total, short(int(uint(a.Delta) + uint(b.Delta))));", descriptor.FunctionBody("static Tally Tally_op_Addition"));
         descriptor.AssertLayoutMatchesClr("Tally", run.LoadType("Tests.Tally"));
     }
 
@@ -1049,10 +1054,10 @@ public class ScalarTypeTests
             sbytes[2] = metal::reverse_bits(sb);
             shorts[1] = metal::clamp(s, short(-5), short(5));
             ushorts[1] = metal::popcount(us);
-            longs[1] = metal::abs(a) + metal::ctz(a);
+            longs[1] = long(ulong(metal::abs(a)) + ulong(metal::ctz(a)));
             ulongs[1] = metal::max(u, 1UL << 40);
             ulongs[2] = __ms_rotate_right(u, n);
-            ints[0] = metal::min(int(b), 5) + metal::clz(int(b));
+            ints[0] = int(uint(metal::min(int(b), 5)) + uint(metal::clz(int(b))));
             """,
             """
             int n = ThreadIds.X;
@@ -1085,9 +1090,9 @@ public class ScalarTypeTests
             long a = longs[0];
             long b = longs[1];
             ulong u = ulongs[0];
-            ints[0] = int(metal::popcount(u)) + int(metal::clz(u)) + int(metal::ctz(u)) + int(metal::ctz(a));
-            ulongs[1] = metal::rotate(u, ulong(uint(n) & 63u)) ^ metal::rotate(u, ulong((0u - uint(n + 1)) & 63u));
-            longs[2] = metal::min(a, b) + metal::max(a, b) + metal::clamp(a, -10L, 10L) + long(metal::abs(b));
+            ints[0] = int(uint(int(metal::popcount(u))) + uint(int(metal::clz(u))) + uint(int(metal::ctz(u))) + uint(int(metal::ctz(a))));
+            ulongs[1] = metal::rotate(u, ulong(uint(n) & 63u)) ^ metal::rotate(u, ulong((0u - uint(int(uint(n) + 1u))) & 63u));
+            longs[2] = long(ulong(metal::min(a, b)) + ulong(metal::max(a, b)) + ulong(metal::clamp(a, -10L, 10L)) + ulong(long(metal::abs(b))));
             bytes[0] = metal::max(bytes[1], bytes[2]);
             shorts[0] = short(metal::abs(shorts[1]));
             """,
