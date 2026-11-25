@@ -62,6 +62,10 @@ here as an original game built on SharpCompute.
 - **Textures in shaders.** `ReadOnlyTexture2D<T>` is read and sampled (point or bilinear; clamp,
   repeat or mirror), `ReadWriteTexture2D<T>` is read and written, in eight pixel formats from 8-bit
   to float. A texture one pass wrote can be sampled by the next.
+- **Threadgroup shared memory and barriers.** `[GroupShared] static readonly float[] tile = new float[256];`
+  is memory the threads of a threadgroup share, `Gpu.GroupMemoryBarrierWithGroupSync()` is where they
+  meet, and `GroupSize`, `GroupIds.Index` and `ThreadGroupCount` tell a thread where it is: what
+  reductions, prefix sums and tiled algorithms are built from. Such shaders run on the CPU too.
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
@@ -107,6 +111,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
 | `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
 
@@ -291,6 +296,81 @@ address modes. The CPU is exact where the GPU (measured on an M4 Pro) is not qui
   sizes. With Repeat or Mirror outside [0, 1) on other sizes, a coordinate within float rounding of
   a pixel boundary can pick the neighbouring pixel on the GPU.
 
+### Threadgroup shared memory and barriers
+
+The GPU runs a grid in threadgroups (`[ThreadGroupSize]`, 256 threads by default for a 1D grid). A
+`[GroupShared]` array is memory that the threads of one group share, and a barrier is the point
+where they all wait for each other, so that what one thread wrote before it another can read after
+it. Together they turn independent threads into a team, here summing 256 values in eight steps:
+
+```csharp
+[ThreadGroupSize(256)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SumBlocks(ReadOnlyBuffer<float> input, ReadWriteBuffer<float> sums, int count) : IComputeShader
+{
+    [GroupShared]
+    private static readonly float[] tile = new float[256];
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int local = GroupIds.X;
+
+        tile[local] = i < count ? input[i] : 0f;       // every thread loads one value
+        Gpu.GroupMemoryBarrierWithGroupSync();
+
+        for (int half = 128; half > 0; half >>= 1)
+        {
+            if (local < half)
+            {
+                tile[local] += tile[local + half];     // the lower half adds the upper half
+            }
+
+            Gpu.GroupMemoryBarrierWithGroupSync();     // outside the if: every thread calls it
+        }
+
+        if (local == 0)
+        {
+            sums[ThreadGroupIds.X] = tile[0];
+        }
+    }
+}
+
+device.For((count + 255) / 256 * 256, new SumBlocks(input, sums, count)); // whole threadgroups
+```
+
+| C# | MSL |
+|---|---|
+| `[GroupShared] static readonly T[] name = new T[N];` | `threadgroup T name[N];` in the kernel; helpers that use it receive `threadgroup T* name` |
+| `name[i]`, `name.Length` | `name[i]`, the constant `N` |
+| `Gpu.GroupMemoryBarrierWithGroupSync()` | `threadgroup_barrier(mem_flags::mem_threadgroup)` |
+| `Gpu.DeviceMemoryBarrierWithGroupSync()` | `threadgroup_barrier(mem_flags::mem_device)` (plus `mem_texture` when the shader has a read-write texture) |
+| `Gpu.AllMemoryBarrierWithGroupSync()` | `threadgroup_barrier` with all of those flags |
+| `GroupSize.X/Y/Z/XY/XYZ`, `GroupSize.Count` | `threads_per_threadgroup`, and the product of its components |
+| `GroupIds.Index` | `thread_index_in_threadgroup` |
+| `ThreadGroupCount.X/Y/Z/XY/XYZ` | `threadgroups_per_grid` |
+
+- `T` is anything a buffer can hold (scalars, vectors, your own structs), `N` a compile-time
+  constant, and the field belongs to the shader struct that uses it. The arrays a shader uses may
+  total 32,768 bytes, the threadgroup memory of an Apple GPU (`SCG0043` beyond that). Give the
+  shader an explicit `[ThreadGroupSize]`, since its arrays are sized for it.
+- **Threadgroup memory starts out undefined**, on the GPU and on the CPU: a thread may only read what
+  a thread of its own group wrote, with a barrier in between.
+- **Every thread of a group must call the same barriers.** A barrier inside an `if` or a loop that
+  only some threads of the group enter, or after a `return` only some take, is undefined on the GPU,
+  and the generator cannot detect it. Put conditions around the work, as above.
+- A grid that is not a multiple of the threadgroup size ends in partial groups, where `GroupSize`
+  reports the threads the group really has. The simple way out is the one above: dispatch whole
+  groups and let the threads past the end of the data load a neutral value.
+- **On the CPU** (`ForCpu`, `ForSplit`) such a shader runs with one dedicated thread per thread of a
+  threadgroup (at most 1,024), meeting at every barrier, one group after another. That computes what
+  the GPU computes and is good for checking and debugging a shader, but it costs microseconds per
+  thread per barrier: thousands of times slower than the GPU. Shaders without shared memory or
+  barriers are not affected.
+
+`scripts/demo-groupshared.sh` runs a reduction, a prefix sum, a tiled matrix product and a tiled blur
+built this way, each checked against plain C#.
+
 ### Batching and async dispatch
 
 Every `device.For` call is its own command buffer, commit and wait, which costs about 0.1 ms even for
@@ -461,8 +541,8 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 ## Limitations
 
 - Apple Silicon and macOS 15+ only, for now.
-- No threadgroup shared memory yet. Atomics work on buffer elements of `int`, `uint` and (add only)
-  `float`, not on struct fields.
+- Atomics work on buffer elements of `int`, `uint` and (add only) `float`, not on struct fields
+  and not on `[GroupShared]` memory.
 - Textures are 2D with one mip level; samplers are the six fixed ones.
 - 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`
   (`Gpu.PackUnorm4x8` for colors).
@@ -474,7 +554,7 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 - **Vulkan backend** (Windows, Linux, Android; macOS through MoltenVK), then **OpenGL 4.3**
   (Windows, Linux; macOS caps OpenGL at 4.1, which has no compute shaders). The shader authoring
   API stays the same; each backend adds its own shading-language emitter and runtime.
-- Threadgroup memory (and atomics on it).
+- Atomics on threadgroup memory.
 - NuGet packages.
 
 ## License

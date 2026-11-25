@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Textures\SharpCompute.Samples.Textures.csproj" />
     <!-- An Exe as well; its pages, canvas and headless mode are tested directly. -->
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.ComputeLab\SharpCompute.Samples.ComputeLab.csproj" />
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.GroupShared\SharpCompute.Samples.GroupShared.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
