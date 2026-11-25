@@ -267,7 +267,9 @@ public class SimdGroupTests
 
         // All-equal is a helper of the prelude, overloaded for this type; a binary expression is unpacked first.
         Assert.Contains(body, static line => line.EndsWith("= __ms_wave_all_equal(v) ? " + (line.Contains("1.0f", StringComparison.Ordinal) ? "1.0f : 0.0f;" : line.Contains("1u", StringComparison.Ordinal) ? "1u : 0u;" : "1 : 0;"), StringComparison.Ordinal));
-        Assert.Contains(body, line => line.Contains(Width(type) == 1 ? "__ms_wave_all_equal(v - v)" : $"__ms_wave_all_equal({msl}(v - v))", StringComparison.Ordinal));
+        // (A signed difference is computed unsigned, where it wraps as in C#.)
+        string difference = ScalarName(type) != "int" ? "v - v" : Width(type) == 1 ? "int(uint(v) - uint(v))" : $"{msl}(u{msl}(v) - u{msl}(v))";
+        Assert.Contains(body, line => line.Contains(Width(type) == 1 ? $"__ms_wave_all_equal({difference})" : $"__ms_wave_all_equal({msl}({difference}))", StringComparison.Ordinal));
         Assert.Contains($"inline bool __ms_wave_all_equal({msl} v)", descriptor.MslSource);
 
         // Nothing of the call site reaches the MSL, and no SIMD built-in is needed for these.
@@ -533,15 +535,15 @@ public class SimdGroupTests
                     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
                     int i = int(__tid.x);
                     bool keep = input[i] > __c.threshold;
-                    output[i * 8] = uint(int(__lane));
-                    output[i * 8 + 1] = uint(int(__lanes));
-                    output[i * 8 + 2] = uint((int(__sgid) * 100) + int(__sgroups));
-                    output[i * 8 + 3] = uint(metal::simd_vote::vote_t(metal::simd_ballot(keep)));
-                    output[i * 8 + 4] = uint(metal::simd_sum(int(keep)));
-                    output[i * 8 + 5] = uint(metal::simd_prefix_exclusive_sum(int(keep)));
+                    output[int(uint(i) * 8u)] = uint(int(__lane));
+                    output[int(uint(i) * 8u + 1u)] = uint(int(__lanes));
+                    output[int(uint(i) * 8u + 2u)] = uint(int((uint(int(__sgid)) * 100u) + uint(int(__sgroups))));
+                    output[int(uint(i) * 8u + 3u)] = uint(metal::simd_vote::vote_t(metal::simd_ballot(keep)));
+                    output[int(uint(i) * 8u + 4u)] = uint(metal::simd_sum(int(keep)));
+                    output[int(uint(i) * 8u + 5u)] = uint(metal::simd_prefix_exclusive_sum(int(keep)));
                     if (metal::simd_any(keep) && !metal::simd_all(keep) && metal::simd_is_first())
                     {
-                        output[i * 8 + 6] = 1u;
+                        output[int(uint(i) * 8u + 6u)] = 1u;
                     }
                 }
                 """),
@@ -570,7 +572,7 @@ public class SimdGroupTests
         Assert.True(UsesSimdGroups(run));
         Assert.Contains(".CompileOptions => global::SharpCompute.ShaderCompileOptions.", generated);
         Assert.Contains(".UsesSimdGroups => true;", generated);
-        Assert.Equal("output[int(__tid.x)] = metal::simd_sum(int(__tid.x)) + int(metal::simd_max(__c.tint.x * 2.0f + 1.0f));", descriptor.KernelBody);
+        Assert.Equal("output[int(__tid.x)] = int(uint(metal::simd_sum(int(__tid.x))) + uint(int(metal::simd_max(__c.tint.x * 2.0f + 1.0f))));", descriptor.KernelBody);
         Assert.DoesNotContain("pragma", descriptor.MslSource);
     }
 
@@ -622,9 +624,9 @@ public class SimdGroupTests
         Assert.Contains("static int Lane(uint __lane)", descriptor.MslSource);
         Assert.Contains("static int Position(uint __lane, uint __sgid)", descriptor.MslSource);
         Assert.Contains("static int Total(int value)", descriptor.MslSource);
-        Assert.Equal("return (int(__sgid) * 32) + ::Lane(__lane);", descriptor.FunctionBody("static int Position"));
+        Assert.Equal("return int((uint(int(__sgid)) * 32u) + uint(::Lane(__lane)));", descriptor.FunctionBody("static int Position"));
         Assert.Equal("return metal::simd_sum(value);", descriptor.FunctionBody("static int Total"));
-        Assert.Equal("output[int(__tid.x)] = ::Position(__lane, __sgid) + ::Total(int(__tid.x));", descriptor.KernelBody);
+        Assert.Equal("output[int(__tid.x)] = int(uint(::Position(__lane, __sgid)) + uint(::Total(int(__tid.x))));", descriptor.KernelBody);
         Assert.True(UsesSimdGroups(run));
     }
 
@@ -703,9 +705,9 @@ public class SimdGroupTests
     [InlineData("output[0] = Gpu.WaveActiveSum(output[1], \"Elsewhere.cs\", 7);", "output[0] = metal::simd_sum(output[1]);")] // an explicit call site is the CPU's business too
     [InlineData("output[0] = Gpu.WaveActiveSum(callerLine: 9, value: output[1]);", "output[0] = metal::simd_sum(output[1]);")]
     [InlineData("output[0] = Gpu.WaveShuffleUpAndFill(delta: 2, fill: -1, value: output[1]);", "output[0] = metal::simd_shuffle_and_fill_up(output[1], -1, ushort(2));")]
-    [InlineData("output[0] = (int)Gpu.QuadActiveBallot(output[1] > 0) + (Gpu.QuadActiveAnyTrue(true) && Gpu.QuadActiveAllTrue(true) ? 1 : 0);", "output[0] = int(uint(metal::quad_vote::vote_t(metal::quad_ballot(output[1] > 0)))) + (metal::quad_any(true) && metal::quad_all(true) ? 1 : 0);")]
-    [InlineData("output[0] = Gpu.WaveActiveMax(1 + output[1]);", "output[0] = metal::simd_max(1 + output[1]);")]
-    [InlineData("output[0] = (int)Gpu.WaveActiveSum(2.5f) + (int)Gpu.WaveActiveMax(3u);", "output[0] = int(metal::simd_sum(2.5f)) + int(metal::simd_max(3u));")]
+    [InlineData("output[0] = (int)Gpu.QuadActiveBallot(output[1] > 0) + (Gpu.QuadActiveAnyTrue(true) && Gpu.QuadActiveAllTrue(true) ? 1 : 0);", "output[0] = int(uint(metal::quad_vote::vote_t(metal::quad_ballot(output[1] > 0))) + uint(metal::quad_any(true) && metal::quad_all(true) ? 1 : 0));")]
+    [InlineData("output[0] = Gpu.WaveActiveMax(1 + output[1]);", "output[0] = metal::simd_max(int(1u + uint(output[1])));")]
+    [InlineData("output[0] = (int)Gpu.WaveActiveSum(2.5f) + (int)Gpu.WaveActiveMax(3u);", "output[0] = int(uint(int(metal::simd_sum(2.5f))) + metal::simd_max(3u));")]
     public void Arguments_AreTranslatedInParameterOrder_WithoutTheCallSiteId(string body, string expected)
     {
         Assert.Equal(expected, RunBody(body).Verify(Shader).KernelBody);
@@ -816,7 +818,7 @@ public class SimdGroupTests
 
         ShaderDescriptor descriptor = run.Verify(Shader);
 
-        Assert.Equal("output[0] = metal::simd_sum(1) + ::Elsewhere(2);", descriptor.KernelBody);
+        Assert.Equal("output[0] = int(uint(metal::simd_sum(1)) + uint(::Elsewhere(2)));", descriptor.KernelBody);
         Assert.Equal(7, run.Input.SyntaxTrees.Select(static tree => tree.GetText().ToString().Split('\n').ToList().FindIndex(static line => line.Contains("WaveActiveSum", StringComparison.Ordinal)) + 1).Distinct().Single());
     }
 

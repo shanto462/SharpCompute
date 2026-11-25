@@ -418,6 +418,12 @@ internal sealed partial class MslTranslator
             return OperatorCall(operation, userOperator, operation.Operand) ?? Expr.Error;
         }
 
+        if (SignedArithmetic(operation) is { } wrapped)
+        {
+            // `-a` on a signed integer: `int(-uint(a))`, which wraps for MinValue as C# does.
+            return wrapped;
+        }
+
         string operand = Expression(operation.Operand).Operand(Expr.Unary);
 
         // Avoid gluing `-` and `-x` into a decrement.
@@ -500,6 +506,12 @@ internal sealed partial class MslTranslator
         {
             // In MSL, comparing vectors yields a bool vector, not the single bool that C# computed.
             return Unsupported(operation, $"a '{text}' comparison of vectors that returns 'bool' (MSL compares component-wise; compare the components or use an intrinsic such as all/any)");
+        }
+
+        if (SignedArithmetic(operation) is { } wrapped)
+        {
+            // Signed `+`, `-` and `*` are computed unsigned, where overflow wraps as in C#.
+            return wrapped;
         }
 
         Expr left = Expression(operation.LeftOperand);
@@ -602,6 +614,12 @@ internal sealed partial class MslTranslator
         }
 
         Expr target = StoreTarget(operation.Target, out bool packed);
+
+        if (!packed && SignedCompoundAssignment(operation, target, text, precedence) is { } wrapped)
+        {
+            return wrapped;
+        }
+
         Expr value = Expression(operation.Value);
         GpuType? targetType = _types.Resolve(operation.Target.Type);
 
@@ -649,6 +667,11 @@ internal sealed partial class MslTranslator
 
         string text = operation.Kind == OperationKind.Increment ? "++" : "--";
         Expr target = Expression(operation.Target);
+
+        if (SignedIncrementOrDecrement(operation, target) is { } wrapped)
+        {
+            return wrapped;
+        }
 
         return operation.IsPostfix
             ? new Expr(target.Operand(Expr.Primary) + text, Expr.Primary)

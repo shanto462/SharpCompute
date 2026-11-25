@@ -46,8 +46,8 @@ public class AtomicTests
             int i = int(__tid.x);
             int a = metal::atomic_fetch_add_explicit((device metal::atomic_int*)&(counts[i]), 1, metal::memory_order_relaxed);
             int b = metal::atomic_fetch_sub_explicit((device metal::atomic_int*)&(counts[i]), a, metal::memory_order_relaxed);
-            int c = metal::atomic_fetch_min_explicit((device metal::atomic_int*)&(counts[i + 1]), b, metal::memory_order_relaxed);
-            int d = metal::atomic_fetch_max_explicit((device metal::atomic_int*)&(counts[i + 1]), c, metal::memory_order_relaxed);
+            int c = metal::atomic_fetch_min_explicit((device metal::atomic_int*)&(counts[int(uint(i) + 1u)]), b, metal::memory_order_relaxed);
+            int d = metal::atomic_fetch_max_explicit((device metal::atomic_int*)&(counts[int(uint(i) + 1u)]), c, metal::memory_order_relaxed);
             int e = metal::atomic_fetch_and_explicit((device metal::atomic_int*)&(counts[2]), d, metal::memory_order_relaxed);
             int f = metal::atomic_fetch_or_explicit((device metal::atomic_int*)&(counts[2]), e, metal::memory_order_relaxed);
             int g = metal::atomic_fetch_xor_explicit((device metal::atomic_int*)&(counts[2]), f, metal::memory_order_relaxed);
@@ -124,9 +124,9 @@ public class AtomicTests
 
         Assert.Equal(
             """
-            int seen = __ms_atomic_compare_exchange((device metal::atomic_int*)&(counts[0]), 0, int(__tid.x) + 1);
+            int seen = __ms_atomic_compare_exchange((device metal::atomic_int*)&(counts[0]), 0, int(__tid.x + 1u));
             uint other = __ms_atomic_compare_exchange((device metal::atomic_uint*)&(flags[0]), 7u, 9u);
-            counts[1] = seen + int(other);
+            counts[1] = int(uint(seen) + other);
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
 
@@ -277,7 +277,7 @@ public class AtomicTests
         AssertKernel(
             """
             int bin = int(__tid.x) & 255;
-            metal::atomic_fetch_add_explicit((device metal::atomic_int*)&(counts[(bin * 2 + __c.seed) % 16]), bin - 1, metal::memory_order_relaxed);
+            metal::atomic_fetch_add_explicit((device metal::atomic_int*)&(counts[(int(uint(bin) * 2u + uint(__c.seed))) % 16]), int(uint(bin) - 1u), metal::memory_order_relaxed);
             """,
             """
             int bin = ThreadIds.X & 255;
