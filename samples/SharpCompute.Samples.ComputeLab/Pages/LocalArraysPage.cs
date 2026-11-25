@@ -55,6 +55,8 @@ public sealed class LocalArraysPage : ILabPage
 
     public string Feature => "fixed-size local arrays";
 
+    public string Topic => LabTopics.LocalArrays;
+
     public string Help => "F median / gaussian   N noise on/off";
 
     public IReadOnlyList<string> Variants => s_variants;
@@ -187,7 +189,7 @@ public sealed class LocalArraysPage : ILabPage
 
         // The C# of the two filters, and what the generator makes of it.
         const int CSharp = 3, Msl = 62;
-        int row = (below / LabCanvas.CellHeight) + 3;
+        int row = ((below - LabCanvas.TextTop) / LabCanvas.CellHeight) + 3;
         canvas.Text(CSharp, row, "C#", TextColor.Dim);
         canvas.Text(Msl, row, "MSL", TextColor.Dim);
         canvas.Text(CSharp, row + 1, "Span<Float3> window = stackalloc Float3[9];", TextColor.Cool);

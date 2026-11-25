@@ -103,6 +103,9 @@ public sealed class IndirectPage : ILabPage
 
     public string Feature => "indirect dispatch";
 
+
+    public string Topic => LabTopics.Dispatch;
+
     public string Help => "Up/Down threshold   D next way";
 
     public IReadOnlyList<string> Variants => s_variants;

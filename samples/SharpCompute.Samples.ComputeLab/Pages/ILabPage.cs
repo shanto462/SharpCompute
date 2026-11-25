@@ -2,6 +2,8 @@
 using System;
 using System.Collections.Generic;
 using SharpCompute.Presentation;
+using SharpCompute.Samples.ComputeLab.Pages.SharedMemory;
+using SharpCompute.Samples.ComputeLab.Pages.Simd;
 
 namespace SharpCompute.Samples.ComputeLab.Pages;
 
@@ -26,8 +28,8 @@ public readonly record struct LabBaseline(string Name, double GpuMilliseconds);
 
 /// <summary>
 /// One page of the lab: one core compute feature, shown, checked and timed. To add a page, implement
-/// this and add it to <see cref="LabPages.Create"/>; the window, the keys, the text and the headless
-/// mode come with it.
+/// this and add it to <see cref="LabPages.Create"/> among the pages of its <see cref="Topic"/>; the
+/// window, the keys, the text and the headless mode come with it.
 /// </summary>
 /// <remarks>
 /// A frame is <see cref="Compute"/>, now and then <see cref="Check"/>, then <see cref="Draw"/>, all on
@@ -41,6 +43,9 @@ public interface ILabPage : IDisposable
 
     /// <summary>The feature the page is about, e.g. "atomics".</summary>
     string Feature { get; }
+
+    /// <summary>The group of features the page belongs to: one of <see cref="LabTopics.All"/>, shown in the page header.</summary>
+    string Topic { get; }
 
     /// <summary>The page's own keys for the help line, or an empty string.</summary>
     string Help { get; }
@@ -60,6 +65,12 @@ public interface ILabPage : IDisposable
     /// </summary>
     LabBaseline? Baseline => null;
 
+    /// <summary>
+    /// What the CPU side of <see cref="Check"/> runs on, shown after the CPU time ("all cores", the
+    /// default, or "one core"), so that the GPU/CPU ratio next to it is read for what it is.
+    /// </summary>
+    string CpuNote => "all cores";
+
     /// <summary>Prepares this frame's inputs and runs the feature kernel on the GPU.</summary>
     void Compute(LabFrame frame);
 
@@ -73,17 +84,56 @@ public interface ILabPage : IDisposable
     bool OnKeyDown(Key key) => false;
 }
 
-/// <summary>The pages, in ←/→ order.</summary>
+/// <summary>A page with a figure of merit beyond milliseconds, shown after the times and in the headless summary.</summary>
+public interface IRatedPage
+{
+    /// <summary>The rate for the measured times, e.g. "GPU 900 GFLOP/s   CPU 38 GFLOP/s".</summary>
+    string Rate(double gpuMilliseconds, double cpuMilliseconds);
+}
+
+/// <summary>The topics the pages are grouped by, in the order the lab shows them.</summary>
+public static class LabTopics
+{
+    public const string Atomics = "Atomics";
+    public const string SharedMemory = "Shared memory";
+    public const string LocalArrays = "Local arrays";
+    public const string Simd = "SIMD groups";
+    public const string Dispatch = "Dispatch";
+    public const string Math = "Math";
+
+    /// <summary>Every topic, in ←/→ order: a page of a topic comes after every page of the topics before it.</summary>
+    public static IReadOnlyList<string> All { get; } = [Atomics, SharedMemory, LocalArrays, Simd, Dispatch, Math];
+}
+
+/// <summary>The pages, in ←/→ order: by topic (<see cref="LabTopics.All"/>), then as listed here.</summary>
 public static class LabPages
 {
     public static List<ILabPage> Create(GraphicsDevice device) =>
     [
+        // Atomics: on buffer elements, then on threadgroup memory next to the page it is timed against.
         new HistogramPage(device),
         new PrivatisedHistogramPage(device),
-        new CompactionPage(device),
-        new BitsPage(device),
+        new Pages.CompactionPage(device),
+
+        // Threadgroup shared memory and barriers.
+        new SharedMemory.ReductionPage(device),
+        new PrefixSumPage(device),
+        new MatMulPage(device),
+        new BlurPage(device),
+
+        // Local arrays: a thread's own fixed-size arrays.
         new LocalArraysPage(device),
+
+        // SIMD-group (wave) operations.
+        new Simd.ReductionPage(device),
+        new Simd.CompactionPage(device),
+        new ShufflePage(device),
+
+        // Dispatch.
         new IndirectPage(device),
+
+        // Math.
+        new BitsPage(device),
         new FastMathPage(device),
     ];
 

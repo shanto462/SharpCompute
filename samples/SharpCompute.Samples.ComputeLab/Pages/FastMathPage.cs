@@ -54,6 +54,9 @@ public sealed class FastMathPage : ILabPage
 
     public string Feature => "per-shader compile options";
 
+
+    public string Topic => LabTopics.Math;
+
     public string Help => "F fast math on/off";
 
     public IReadOnlyList<string> Variants => s_variants;
