@@ -226,6 +226,9 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Tests only: true when a completed batch is kept for the next recording.</summary>
+    internal bool HasSpareBatch => Volatile.Read(ref _spare) is not null;
+
     /// <summary>Tests only: the pending batch completes as if the GPU had failed it (see <see cref="CommandBatch.SimulateGpuError"/>).</summary>
     internal void SimulateGpuError(string description) =>
         (_batch ?? throw new InvalidOperationException("Nothing is pending.")).SimulateGpuError(description);

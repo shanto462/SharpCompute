@@ -226,10 +226,33 @@ public class ComputeContextTests
             Frame();
         }
 
-        long perFrame = (GC.GetAllocatedBytesForCurrentThread() - before) / frames;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-        // A new batch per frame allocated about 37 KB here (40 dispatches, ~100 commands of 72 bytes).
-        Assert.True(perFrame == 0, $"Recording and executing a frame allocated {perFrame} bytes.");
+        // A new batch per frame allocated about 37 KB per frame here (40 dispatches, ~100 commands of 72 bytes).
+        Assert.True(allocated == 0, $"Recording and executing {frames} frames allocated {allocated} bytes.");
+    }
+
+    [MetalFact]
+    public void OversizedBatch_IsDroppedAfterItRuns_AndASmallOneIsKept()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<int> a = device.AllocateReadWriteBuffer<int>(Length);
+        using ReadWriteBuffer<int> b = device.AllocateReadWriteBuffer<int>(Length);
+        using ComputeContext context = device.CreateComputeContext();
+
+        // Each ReverseAddOne records two buffers, its constants and the dispatch: 1500 of them is
+        // about 6000 commands, past the 4096 a context keeps between executions.
+        for (int pass = 0; pass < 1500; pass++)
+        {
+            context.For(Length, pass % 2 == 0 ? new ReverseAddOne(a, b) : new ReverseAddOne(b, a));
+        }
+
+        context.Execute();
+        Assert.False(context.HasSpareBatch);
+
+        context.For(Length, new IncrementAll(a));
+        context.Execute();
+        Assert.True(context.HasSpareBatch);
     }
 
     [MetalFact]
