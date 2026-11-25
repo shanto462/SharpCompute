@@ -9,8 +9,12 @@ namespace SharpCompute;
 /// <summary>MSL <c>float3</c>. Tightly packed (4-byte alignment) to match <c>packed_float3</c>.</summary>
 /// <remarks>
 /// Members map 1:1 to MSL: constructors to <c>float3(...)</c>, properties to swizzles,
-/// operators to native operators. There is deliberately no <c>==</c>/<c>!=</c>: in MSL they
-/// return a <c>bool3</c>, not a <c>bool</c>.
+/// operators to native operators. The ordering operators <c>&lt; &lt;= &gt; &gt;=</c> compare component by
+/// component, as in MSL, and return a <see cref="Bool3"/>. There is deliberately no <c>==</c>/<c>!=</c>:
+/// in MSL they return a <c>bool3</c>, not a <c>bool</c>, and a C# <c>==</c> that does not answer
+/// with a <c>bool</c> breaks what C# builds on it (<c>if (a == b)</c>, <c>Equals</c>, pattern matching).
+/// Use <see cref="Gpu.Equal(Float3, Float3)"/> and <see cref="Gpu.NotEqual(Float3, Float3)"/>, which return the
+/// <see cref="Bool3"/>, and <see cref="Gpu.All(Bool3)"/> or <see cref="Gpu.Any(Bool3)"/> for one answer.
 /// </remarks>
 [MslType("float3", Packed = "packed_float3")]
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -109,11 +113,50 @@ public partial struct Float3
     /// <summary>Componentwise C <c>fmod</c> (<see cref="Gpu.Fmod(float, float)"/>): truncated remainder with the sign of the dividend. Translated to <c>metal::fmod</c>, which matches bit for bit under precise math (MSL has no float <c>%</c>).</summary>
     public static Float3 operator %(float left, Float3 right) => new Float3(Gpu.Fmod(left, right._x), Gpu.Fmod(left, right._y), Gpu.Fmod(left, right._z));
 
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator <(Float3 left, Float3 right) => new Bool3(left._x < right._x, left._y < right._y, left._z < right._z);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator <(Float3 left, float right) => new Bool3(left._x < right, left._y < right, left._z < right);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator <(float left, Float3 right) => new Bool3(left < right._x, left < right._y, left < right._z);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator <=(Float3 left, Float3 right) => new Bool3(left._x <= right._x, left._y <= right._y, left._z <= right._z);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator <=(Float3 left, float right) => new Bool3(left._x <= right, left._y <= right, left._z <= right);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator <=(float left, Float3 right) => new Bool3(left <= right._x, left <= right._y, left <= right._z);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator >(Float3 left, Float3 right) => new Bool3(left._x > right._x, left._y > right._y, left._z > right._z);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator >(Float3 left, float right) => new Bool3(left._x > right, left._y > right, left._z > right);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator >(float left, Float3 right) => new Bool3(left > right._x, left > right._y, left > right._z);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator >=(Float3 left, Float3 right) => new Bool3(left._x >= right._x, left._y >= right._y, left._z >= right._z);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator >=(Float3 left, float right) => new Bool3(left._x >= right, left._y >= right, left._z >= right);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool3</c>). False for a component where either side is NaN.</summary>
+    public static Bool3 operator >=(float left, Float3 right) => new Bool3(left >= right._x, left >= right._y, left >= right._z);
+
     /// <summary>Converts each component to <c>float</c> (MSL <c>float3(v)</c>).</summary>
     public static explicit operator Float3(Int3 value) => unchecked(new Float3((float)value.X, (float)value.Y, (float)value.Z));
 
     /// <summary>Converts each component to <c>float</c> (MSL <c>float3(v)</c>).</summary>
     public static explicit operator Float3(UInt3 value) => unchecked(new Float3((float)value.X, (float)value.Y, (float)value.Z));
+
+    /// <summary>Widens each component to <c>float</c>, which is exact (MSL <c>float3(v)</c>).</summary>
+    public static explicit operator Float3(Half3 value) => unchecked(new Float3((float)value.X, (float)value.Y, (float)value.Z));
 
     /// <summary>Formats the vector as <c>&lt;x, y, ...&gt;</c> using the invariant culture.</summary>
     public readonly override string ToString() => string.Create(CultureInfo.InvariantCulture, $"<{_x}, {_y}, {_z}>");

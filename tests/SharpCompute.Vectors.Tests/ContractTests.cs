@@ -35,7 +35,8 @@ public class ContractTests
     /// <summary>
     /// Every public static <see cref="Gpu"/> method maps to MSL in exactly one way: a function call
     /// (<c>[MslIntrinsic]</c>: <c>metal::</c>, a <c>__ms_</c> prelude helper, or the <c>as_type</c>
-    /// bit cast), a binary operator (<c>[MslBinaryOperator]</c>, only <c>Mul</c>), or an atomic
+    /// bit cast), a binary operator (<c>[MslBinaryOperator]</c>: <c>Mul</c>, and <c>Equal</c> and
+    /// <c>NotEqual</c>, which are methods because a C# <c>==</c> has to return <c>bool</c>), or an atomic
     /// function (<c>[MslAtomic]</c>, exactly the <c>Atomic*</c> methods). The exception is the three
     /// threadgroup barriers, which the generator recognizes by name: one MSL function with different
     /// flags, no arguments.
@@ -64,10 +65,22 @@ public class ContractTests
             Assert.True(atomic is not null == m.Name.StartsWith("Atomic", StringComparison.Ordinal), $"{m}: exactly the Atomic* methods are [MslAtomic]");
             if (op is not null)
             {
-                Assert.Equal("Mul", m.Name);
-                Assert.Equal("*", op.Operator);
-                Assert.True(op.SwapOperands, $"{m}: Mul must swap operands (the MSL matrix is the transpose)");
                 Assert.Equal(2, m.GetParameters().Length);
+
+                if (m.Name == "Mul")
+                {
+                    Assert.Equal("*", op.Operator);
+                    Assert.True(op.SwapOperands, $"{m}: Mul must swap operands (the MSL matrix is the transpose)");
+                    continue;
+                }
+
+                // The componentwise equality of two vectors (or a vector and a scalar), as a bool vector.
+                Assert.Equal(m.Name switch { "Equal" => "==", "NotEqual" => "!=", _ => throw new InvalidOperationException($"{m}: unexpected [MslBinaryOperator]") }, op.Operator);
+                Assert.False(op.SwapOperands, $"{m}: equality does not swap its operands");
+                Type compared = m.GetParameters()[0].ParameterType;
+                Assert.Contains(compared, VectorTypes.Numeric);
+                Assert.Equal(VectorTypes.Vector(typeof(bool), VectorTypes.Width(compared)), m.ReturnType);
+                Assert.Contains(m.GetParameters()[1].ParameterType, new[] { compared, VectorTypes.Element(compared) });
                 continue;
             }
 
@@ -75,6 +88,9 @@ public class ContractTests
             {
                 continue; // AtomicsMapToTheExplicitMetalFunctions
             }
+
+            // Only Select takes its arguments in the reverse of the MSL order (HLSL's order instead).
+            Assert.True(attr!.ReverseArguments == (m.Name == "Select"), $"{m}: ReverseArguments");
 
             if (attr!.Name.StartsWith("as_type<", StringComparison.Ordinal))
             {
@@ -208,6 +224,7 @@ public class ContractTests
         [
             "Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul", "Transpose", "Determinant",
             "AsFloat", "AsInt", "AsUInt", "IsNaN", "IsInfinity", "IsFinite", "PackUnorm4x8", "UnpackUnorm4x8",
+            "Equal", "NotEqual", "Any", "All", "Select",
             "AtomicAdd", "AtomicSub", "AtomicMin", "AtomicMax", "AtomicAnd", "AtomicOr", "AtomicXor", "AtomicExchange", "AtomicCompareExchange",
         ];
         string[] expected = [.. componentwise, .. bits, .. rotates, .. other];
@@ -267,12 +284,46 @@ public class ContractTests
             }
         }
 
-        // Scalar float -> bool classification; unorm8 packing of a Float4 into a uint and back.
+        // Classification: a scalar float gives a bool, a float or half vector the bool vector of its width.
+        // There is no scalar Half overload (see below).
         foreach (string name in new[] { "IsNaN", "IsInfinity", "IsFinite" })
         {
-            Assert.Equal(typeof(bool), Assert.Single(typeof(Gpu).GetMethods(), m => m.Name == name).ReturnType);
-            Assert.NotNull(typeof(Gpu).GetMethod(name, [typeof(float)]));
+            Assert.Equal(typeof(bool), typeof(Gpu).GetMethod(name, [typeof(float)])?.ReturnType);
+            Assert.Equal(7, typeof(Gpu).GetMethods().Count(m => m.Name == name));
+
+            for (int n = 2; n <= 4; n++)
+            {
+                Assert.Equal(VectorTypes.Vector(typeof(bool), n), typeof(Gpu).GetMethod(name, [VectorTypes.Vector(typeof(float), n)])?.ReturnType);
+                Assert.Equal(VectorTypes.Vector(typeof(bool), n), typeof(Gpu).GetMethod(name, [VectorTypes.Vector(typeof(Half), n)])?.ReturnType);
+            }
         }
+
+        // Bool vectors: any/all to one bool, select for every vector type (bool vectors included), and
+        // equality of every numeric vector with a vector or a scalar.
+        for (int n = 2; n <= 4; n++)
+        {
+            Type mask = VectorTypes.Vector(typeof(bool), n);
+            Assert.Equal(typeof(bool), typeof(Gpu).GetMethod("Any", [mask])?.ReturnType);
+            Assert.Equal(typeof(bool), typeof(Gpu).GetMethod("All", [mask])?.ReturnType);
+
+            foreach (Type v in VectorTypes.Every.Where(t => VectorTypes.Width(t) == n))
+            {
+                Assert.Equal(v, typeof(Gpu).GetMethod("Select", [mask, v, v])?.ReturnType);
+            }
+
+            foreach (Type v in VectorTypes.Numeric.Where(t => VectorTypes.Width(t) == n))
+            {
+                foreach (string name in new[] { "Equal", "NotEqual" })
+                {
+                    Assert.Equal(mask, typeof(Gpu).GetMethod(name, [v, v])?.ReturnType);
+                    Assert.Equal(mask, typeof(Gpu).GetMethod(name, [v, VectorTypes.Element(v)])?.ReturnType);
+                }
+            }
+        }
+
+        Assert.Equal(6, typeof(Gpu).GetMethods().Count(m => m.Name is "Any" or "All"));
+        Assert.Equal(15, typeof(Gpu).GetMethods().Count(m => m.Name == "Select"));
+        Assert.Equal(48, typeof(Gpu).GetMethods().Count(m => m.Name is "Equal" or "NotEqual"));
 
         Assert.Equal(typeof(uint), typeof(Gpu).GetMethod("PackUnorm4x8", [typeof(Float4)])?.ReturnType);
         Assert.Equal(typeof(Float4), typeof(Gpu).GetMethod("UnpackUnorm4x8", [typeof(uint)])?.ReturnType);
@@ -302,7 +353,54 @@ public class ContractTests
                     Assert.True(typeof(Gpu).GetMethod(name, Enumerable.Repeat(v, arity).ToArray()) is not null, $"{name}({v.Name})");
                 }
             }
+
+            // Half2..4 for every function MSL defines for half: all of them but the prelude's
+            // Radians and Degrees, which are float helpers.
+            for (int n = 2; n <= 4; n++)
+            {
+                Type v = VectorTypes.Vector(typeof(Half), n);
+                bool definedForHalf = name is not ("Radians" or "Degrees");
+                Assert.True(typeof(Gpu).GetMethod(name, Enumerable.Repeat(v, arity).ToArray()) is not null == definedForHalf, $"{name}({v.Name})");
+            }
         }
+
+        // The geometric functions of half vectors return halves.
+        for (int n = 2; n <= 4; n++)
+        {
+            Type v = VectorTypes.Vector(typeof(Half), n);
+            Assert.Equal(typeof(Half), typeof(Gpu).GetMethod("Dot", [v, v])?.ReturnType);
+            Assert.Equal(typeof(Half), typeof(Gpu).GetMethod("Length", [v])?.ReturnType);
+            Assert.Equal(typeof(Half), typeof(Gpu).GetMethod("Distance", [v, v])?.ReturnType);
+            Assert.Equal(v, typeof(Gpu).GetMethod("Normalize", [v])?.ReturnType);
+            Assert.Equal(v, typeof(Gpu).GetMethod("Reflect", [v, v])?.ReturnType);
+        }
+
+        Assert.Equal(typeof(Half3), typeof(Gpu).GetMethod("Cross", [typeof(Half3), typeof(Half3)])?.ReturnType);
+    }
+
+    /// <summary>
+    /// No method of <see cref="Gpu"/> takes only scalar <see cref="Half"/> parameters: next to its float
+    /// overload it would make a call with small integer constants ambiguous (<c>Gpu.Sqrt(2)</c>,
+    /// <c>Gpu.Pow(2, 3)</c>), because <see cref="Half"/> converts implicitly from <c>byte</c> and
+    /// <c>sbyte</c>. A scalar <see cref="Half"/> parameter only appears beside a half vector.
+    /// </summary>
+    [Fact]
+    public void NoGpuMethodTakesOnlyScalarHalves()
+    {
+        foreach (MethodInfo m in MathMethods())
+        {
+            Type[] parameters = m.GetParameters().Select(p => p.ParameterType).ToArray();
+
+            if (parameters.Contains(typeof(Half)))
+            {
+                Assert.True(parameters.Any(p => VectorTypes.HalfVectors.Contains(p)), $"{m} would be ambiguous with its float overload for integer constants");
+            }
+        }
+
+        // The calls that must keep compiling, and keep meaning float.
+        Assert.Equal(MathF.Sqrt(2f), Gpu.Sqrt(2));
+        Assert.Equal(8f, Gpu.Pow(2, 3));
+        Assert.Equal(1f, Gpu.Clamp(5, 0, 1));
     }
 
     /// <summary>
@@ -363,7 +461,7 @@ public class ContractTests
     public void ExactlyTheVectorAndMatrixTypesCarryMslType()
     {
         Type[] tagged = typeof(Float2).Assembly.GetTypes().Where(t => t.GetCustomAttribute<MslTypeAttribute>() is not null).ToArray();
-        Assert.Equal(VectorTypes.All.Concat(MatrixTests.All).OrderBy(t => t.Name), tagged.OrderBy(t => t.Name));
+        Assert.Equal(VectorTypes.Every.Concat(MatrixTests.All).OrderBy(t => t.Name), tagged.OrderBy(t => t.Name));
     }
 
     [Fact]
@@ -388,7 +486,7 @@ public class ContractTests
     }
 
     [Theory]
-    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    [MemberData(nameof(VectorTypes.EveryData), MemberType = typeof(VectorTypes))]
     public void VectorStructHasMatchingMslType(Type t)
     {
         Assert.True(t.IsValueType);
@@ -396,7 +494,10 @@ public class ContractTests
         MslTypeAttribute attr = t.GetCustomAttribute<MslTypeAttribute>()!;
         string name = VectorTypes.MslScalar(VectorTypes.Element(t)) + VectorTypes.Width(t);
         Assert.Equal(name, attr.Name);
-        Assert.Equal("packed_" + name, attr.Packed);
+
+        // A bool vector has no packed form (MSL has no packed_bool*): that is what keeps it out of
+        // buffers, constants and struct fields.
+        Assert.Equal(VectorTypes.BoolVectors.Contains(t) ? null : "packed_" + name, attr.Packed);
     }
 
     /// <summary>
@@ -404,7 +505,7 @@ public class ContractTests
     /// nothing at all, so the public instance surface must be exactly swizzle properties + ToString.
     /// </summary>
     [Theory]
-    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    [MemberData(nameof(VectorTypes.EveryData), MemberType = typeof(VectorTypes))]
     public void PublicInstanceSurfaceIsOnlySwizzles(Type t)
     {
         string letters = VectorTypes.Components[..VectorTypes.Width(t)];
@@ -432,5 +533,7 @@ public class ContractTests
         : t == typeof(ushort) ? "ushort"
         : t == typeof(long) ? "long"
         : t == typeof(ulong) ? "ulong"
+        : t == typeof(Half) ? "half"
+        : t == typeof(bool) ? "bool"
         : t.GetCustomAttribute<MslTypeAttribute>()?.Name ?? throw new InvalidOperationException($"no MSL name for {t}");
 }

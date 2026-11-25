@@ -506,6 +506,13 @@ internal sealed partial class MslTranslator
 
             intrinsicArguments.AddRange(Arguments(operation.Arguments, method, out _));
 
+            if (intrinsic.NamedArguments.Any(static a => a.Key == "ReverseArguments" && a.Value.Value is true))
+            {
+                // The MSL function takes them last parameter first: Gpu.Select(mask, whenTrue, whenFalse)
+                // is metal::select(whenFalse, whenTrue, mask).
+                intrinsicArguments.Reverse();
+            }
+
             if (intrinsicName.StartsWith(MslNames.EscapePrefix, System.StringComparison.Ordinal))
             {
                 // A helper from MslPrelude.Source (e.g. __ms_radians); the prelude is emitted when used.

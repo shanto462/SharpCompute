@@ -10,9 +10,12 @@ Usage (from the repo root; paths are resolved relative to this script, so any cw
                                                     # with tools/compile_msl.swift
 
 Outputs (checked in; edit this script, not the files):
-    src/SharpCompute/Vectors/{Float,Int,UInt}{2,3,4}.g.cs            fields, ctors, X/Y/Z/W,
-                                                                   operators, conversions
-    src/SharpCompute/Vectors/{Float,Int,UInt}{2,3,4}.Swizzles.g.cs   2-4 component swizzles
+    src/SharpCompute/Vectors/{Float,Half,Int,UInt}{2,3,4}.g.cs       fields, ctors, X/Y/Z/W,
+                                                                   operators, comparisons,
+                                                                   conversions
+    src/SharpCompute/Vectors/Bool{2,3,4}.g.cs                        fields, ctors, X/Y/Z/W,
+                                                                   logical operators
+    src/SharpCompute/Vectors/{...}{2,3,4}.Swizzles.g.cs              2-4 component swizzles
     src/SharpCompute/Vectors/Float{2x2,3x3,4x4}.g.cs                 matrices (rows in, MSL transpose)
     src/SharpCompute/Intrinsics/Gpu.g.cs                             vector overloads of Gpu.*,
                                                                    Radians/Degrees
@@ -28,7 +31,9 @@ Outputs (checked in; edit this script, not the files):
 
 Scalar intrinsics for float, int and uint (and Gpu.Cross, the unorm8 packing and the atomics) are
 hand-written in src/SharpCompute/Intrinsics/Gpu.cs and Gpu.Atomics.cs; the vector overloads
-generated here are componentwise calls to those scalar implementations.
+generated here are componentwise calls to those scalar implementations. The half vectors call the
+scalar implementations of src/SharpCompute/Intrinsics/HalfMath.cs instead, which are internal: a
+public Gpu.Sqrt(Half) next to Gpu.Sqrt(float) would make Gpu.Sqrt(2) ambiguous.
 
 Requires only the Python 3 standard library.
 """
@@ -56,17 +61,30 @@ WIDTHS = (2, 3, 4)
 
 @dataclass(frozen=True)
 class Kind:
-    prefix: str  # C# type prefix: Float, Int, UInt
-    scalar: str  # C# scalar keyword: float, int, uint
+    prefix: str  # C# type prefix: Float, Half, Int, UInt, Bool
+    scalar: str  # C# scalar type: float, Half, int, uint, bool
     msl: str  # MSL scalar name
+    size: int = 4  # bytes per component, also the alignment of the packed MSL vector
 
     @property
     def is_float(self) -> bool:
         return self.scalar == "float"
 
     @property
+    def is_half(self) -> bool:
+        return self.scalar == "Half"
+
+    @property
+    def is_floating(self) -> bool:
+        return self.is_float or self.is_half
+
+    @property
     def is_integer(self) -> bool:
-        return not self.is_float
+        return self.scalar in ("int", "uint")
+
+    @property
+    def is_bool(self) -> bool:
+        return self.scalar == "bool"
 
     def vec(self, n: int) -> str:
         return f"{self.prefix}{n}"
@@ -76,9 +94,16 @@ class Kind:
 
 
 FLOAT = Kind("Float", "float", "float")
+HALF = Kind("Half", "Half", "half", size=2)
 INT = Kind("Int", "int", "int")
 UINT = Kind("UInt", "uint", "uint")
+BOOL = Kind("Bool", "bool", "bool", size=1)
+
+# The 32-bit kinds: what the SIMD-group operations and the prelude are defined for.
 KINDS = (FLOAT, INT, UINT)
+
+# Every kind with arithmetic, comparisons and a packed MSL vector (bool vectors have none of those).
+NUMERIC_KINDS = (FLOAT, HALF, INT, UINT)
 
 
 def field(i: int) -> str:
@@ -167,6 +192,12 @@ def binary_ops(kind: Kind) -> list[tuple[str, str]]:
         ops.append(("%", "Componentwise C <c>fmod</c> (<see cref=\"Gpu.Fmod(float, float)\"/>): truncated remainder with "
                          "the sign of the dividend. Translated to <c>metal::fmod</c>, which matches bit for bit under "
                          "precise math (MSL has no float <c>%</c>)."))
+    elif kind.is_half:
+        ops.append(("/", "Componentwise division."))
+        ops.append(("%", "Componentwise C <c>fmod</c>: the exact truncated remainder, with the sign of the dividend. "
+                         "Translated to <c>metal::fmod</c> (MSL has no half <c>%</c>). A zero remainder of a non-zero "
+                         "dividend is <c>+0</c> also when the dividend is negative, as an Apple GPU returns it for halves "
+                         "(for floats it returns <c>-0</c>)."))
     else:
         throws = ("Throws <see cref=\"System.DivideByZeroException\"/> for a zero divisor"
                   + (" and <see cref=\"System.OverflowException\"/> for <c>int.MinValue</c> and <c>-1</c>" if kind is INT else "")
@@ -189,15 +220,15 @@ def gen_operators(kind: Kind, n: int) -> list[str]:
         lines.append(f"    public static {t} operator {sig} => {body};")
         lines.append("")
 
-    if kind.is_float or kind is INT:
+    if kind.is_floating or kind is INT:
         op("Componentwise negation.", f"-({t} value)", new(kind, n, [f"-value.{field(i)}" for i in r]))
     if kind.is_integer:
         op("Componentwise bitwise complement.", f"~({t} value)", new(kind, n, [f"~value.{field(i)}" for i in r]))
 
     for sym, doc in binary_ops(kind):
-        if kind.is_float and sym == "%":
-            def apply(a: str, b: str) -> str:
-                return f"Gpu.Fmod({a}, {b})"
+        if kind.is_floating and sym == "%":
+            def apply(a: str, b: str, fmod: str = "Gpu.Fmod" if kind.is_float else "HalfMath.Fmod") -> str:
+                return f"{fmod}({a}, {b})"
         else:
             def apply(a: str, b: str, sym: str = sym) -> str:
                 return f"{a} {sym} {b}"
@@ -215,21 +246,55 @@ def gen_operators(kind: Kind, n: int) -> list[str]:
     return lines
 
 
+COMPARISONS = (("<", "&lt;", "less than"), ("<=", "&lt;=", "less than or equal to"),
+               (">", "&gt;", "greater than"), (">=", "&gt;=", "greater than or equal to"))
+
+
+def gen_comparisons(kind: Kind, n: int) -> list[str]:
+    """The ordering operators, componentwise as in MSL: a bool vector, one answer per component."""
+    t, s, b = kind.vec(n), kind.scalar, BOOL.vec(n)
+    r = range(n)
+    nan = " False for a component where either side is NaN." if kind.is_floating else ""
+    lines: list[str] = []
+    for sym, entity, words in COMPARISONS:
+        doc = (f"Componentwise <c>{entity}</c>: for each component, whether the left one is {words} the right one "
+               f"(MSL <c>{entity}</c>, which also answers with a <c>{BOOL.msl_vec(n)}</c>).{nan}")
+        for sig, left, right in ((f"{t} left, {t} right", "left.{0}", "right.{0}"),
+                                 (f"{t} left, {s} right", "left.{0}", "right"),
+                                 (f"{s} left, {t} right", "left", "right.{0}")):
+            comps = [f"{left.format(field(i))} {sym} {right.format(field(i))}" for i in r]
+            lines.append(f"    /// <summary>{doc}</summary>")
+            lines.append(f"    public static {b} operator {sym}({sig}) => new {b}({', '.join(comps)});")
+            lines.append("")
+    return lines
+
+
 def gen_conversions(kind: Kind, n: int) -> list[str]:
     t = kind.vec(n)
     lines: list[str] = []
-    for other in KINDS:
+    # The half vectors come last, so that adding them left the existing conversions where they were.
+    for other in KINDS + (HALF,):
         if other is kind:
             continue
         src = other.vec(n)
-        if kind.is_float:
+        if kind.is_float and other.is_half:
+            doc = f"Widens each component to <c>float</c>, which is exact (MSL <c>{kind.msl_vec(n)}(v)</c>)."
+        elif kind.is_float:
             doc = f"Converts each component to <c>float</c> (MSL <c>{kind.msl_vec(n)}(v)</c>)."
-        elif other.is_float:
+        elif kind.is_half and other.is_float:
+            doc = (f"Rounds each component to the nearest half, ties to even; a magnitude of 65520 or more becomes "
+                   f"infinity (MSL <c>{kind.msl_vec(n)}(v)</c>, bit for bit what an Apple GPU does).")
+        elif kind.is_half:
+            doc = (f"Converts each component to the nearest half, ties to even: exact up to 2048, and infinity from "
+                   f"65520 (MSL <c>{kind.msl_vec(n)}(v)</c>).")
+        elif other.is_floating:
             doc = (f"Converts each component to <c>{kind.scalar}</c>, rounding toward zero and saturating "
                    f"out-of-range values; NaN becomes 0 (MSL <c>{kind.msl_vec(n)}(v)</c>).")
         else:
             doc = f"Reinterprets each component's bits as <c>{kind.scalar}</c> (MSL <c>{kind.msl_vec(n)}(v)</c>)."
-        exprs = [f"({kind.scalar})value.{prop(i)}" for i in range(n)]
+        # A half goes through float on its way to an integer: exact, and the float conversion saturates.
+        via = "(float)" if other.is_half and kind.is_integer else ""
+        exprs = [f"({kind.scalar}){via}value.{prop(i)}" for i in range(n)]
         body = f"unchecked(new {t}({', '.join(exprs)}))"
         lines.append(f"    /// <summary>{doc}</summary>")
         lines.append(f"    public static explicit operator {t}({src} value) => {body};")
@@ -240,20 +305,43 @@ def gen_conversions(kind: Kind, n: int) -> list[str]:
 def gen_core(kind: Kind, n: int) -> str:
     t = kind.vec(n)
     msl = kind.msl_vec(n)
+    b = BOOL.vec(n)
     out: list[str] = [HEADER]
+    if kind.is_half:
+        out.append("using System;")
     out.append("using System.Globalization;")
     out.append("using System.Runtime.InteropServices;")
     out.append("")
     out.append("namespace SharpCompute;")
     out.append("")
-    out.append(f"/// <summary>MSL <c>{msl}</c>. Tightly packed (4-byte alignment) to match <c>packed_{msl}</c>.</summary>")
+    out.append(f"/// <summary>MSL <c>{msl}</c>. Tightly packed ({kind.size}-byte alignment) to match <c>packed_{msl}</c>.</summary>")
     out.append("/// <remarks>")
     out.append("/// Members map 1:1 to MSL: constructors to <c>" + msl + "(...)</c>, properties to swizzles,")
-    out.append("/// operators to native operators. There is deliberately no <c>==</c>/<c>!=</c>: in MSL they")
-    out.append("/// return a <c>bool" + str(n) + "</c>, not a <c>bool</c>.")
+    out.append("/// operators to native operators. The ordering operators <c>&lt; &lt;= &gt; &gt;=</c> compare component by")
+    out.append(f"/// component, as in MSL, and return a <see cref=\"{b}\"/>. There is deliberately no <c>==</c>/<c>!=</c>:")
+    out.append("/// in MSL they return a <c>bool" + str(n) + "</c>, not a <c>bool</c>, and a C# <c>==</c> that does not answer")
+    out.append("/// with a <c>bool</c> breaks what C# builds on it (<c>if (a == b)</c>, <c>Equals</c>, pattern matching).")
+    out.append(f"/// Use <see cref=\"Gpu.Equal({t}, {t})\"/> and <see cref=\"Gpu.NotEqual({t}, {t})\"/>, which return the")
+    out.append(f"/// <see cref=\"{b}\"/>, and <see cref=\"Gpu.All({b})\"/> or <see cref=\"Gpu.Any({b})\"/> for one answer.")
+    if kind.is_half:
+        out.append("/// <para>")
+        out.append("/// Half precision: 11 significant bits (about 3 decimal digits) and magnitudes from about 6e-8 up")
+        out.append("/// to 65504. On the CPU every operator is one correctly rounded IEEE half operation")
+        out.append("/// (<see cref=\"System.Half\"/> computes in <c>float</c> and rounds, which for <c>+ - * /</c> is the same")
+        out.append("/// result), and that is bit for bit what an Apple GPU computes, subnormals included: unlike floats,")
+        out.append("/// half subnormals are not flushed to zero. What differs is contraction: the GPU fuses <c>a * b + c</c>")
+        out.append("/// into one half fused multiply-add unless the shader turns that off")
+        out.append("/// (<see cref=\"ShaderOptionsAttribute.FpContract\"/>). See <see cref=\"Gpu\"/> for the intrinsics.")
+        out.append("/// </para>")
+        out.append("/// <para>")
+        out.append("/// C# has no half literal, and neither a <c>float</c> nor an integer constant converts to")
+        out.append("/// <see cref=\"System.Half\"/> implicitly (<c>v * 2</c> does not compile: the constant fits both of its")
+        out.append("/// <c>byte</c> and <c>sbyte</c> conversions). Write <c>(Half)0.5f</c> and <c>(Half)2</c>, keep constants in")
+        out.append("/// <c>static readonly</c> fields, or convert a whole vector: <c>(" + t + ")new " + FLOAT.vec(n) + "(...)</c>.")
+        out.append("/// </para>")
     out.append("/// </remarks>")
     out.append(f"[MslType(\"{msl}\", Packed = \"packed_{msl}\")]")
-    out.append("[StructLayout(LayoutKind.Sequential, Pack = 4)]")
+    out.append(f"[StructLayout(LayoutKind.Sequential, Pack = {kind.size})]")
     out.append(f"public partial struct {t}")
     out.append("{")
     for i in range(n):
@@ -265,10 +353,64 @@ def gen_core(kind: Kind, n: int) -> str:
         out.append(f"    public {kind.scalar} {prop(i)} {{ readonly get => {field(i)}; set => {field(i)} = value; }}")
         out.append("")
     out.extend(gen_operators(kind, n))
+    out.extend(gen_comparisons(kind, n))
     out.extend(gen_conversions(kind, n))
     fmt = ", ".join("{" + field(i) + "}" for i in range(n))
     out.append("    /// <summary>Formats the vector as <c>&lt;x, y, ...&gt;</c> using the invariant culture.</summary>")
     out.append(f"    public readonly override string ToString() => string.Create(CultureInfo.InvariantCulture, $\"<{fmt}>\");")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
+def gen_bool_core(n: int) -> str:
+    """A bool vector: the result of a componentwise comparison. Locals only, like bool itself."""
+    kind, t, msl = BOOL, BOOL.vec(n), BOOL.msl_vec(n)
+    r = range(n)
+    out: list[str] = [HEADER]
+    out.append("using System.Runtime.InteropServices;")
+    out.append("")
+    out.append("namespace SharpCompute;")
+    out.append("")
+    out.append(f"/// <summary>MSL <c>{msl}</c>: one <c>bool</c> per component, the result of a componentwise comparison.</summary>")
+    out.append("/// <remarks>")
+    out.append(f"/// The ordering operators of the numeric vectors (<c>a &lt; b</c>), <see cref=\"Gpu.Equal({FLOAT.vec(n)}, {FLOAT.vec(n)})\"/>,")
+    out.append(f"/// <see cref=\"Gpu.NotEqual({FLOAT.vec(n)}, {FLOAT.vec(n)})\"/> and <see cref=\"Gpu.IsNaN({FLOAT.vec(n)})\"/> return one. Combine them with")
+    out.append("/// <c>&amp;</c>, <c>|</c>, <c>^</c> and <c>!</c>, reduce them to one <c>bool</c> with")
+    out.append(f"/// <see cref=\"Gpu.Any({t})\"/> and <see cref=\"Gpu.All({t})\"/>, or pick components with")
+    out.append(f"/// <see cref=\"Gpu.Select({t}, {FLOAT.vec(n)}, {FLOAT.vec(n)})\"/>. There is no <c>&amp;&amp;</c> or <c>||</c>: every")
+    out.append("/// component is always evaluated, on the GPU as well, so there is nothing to short-circuit; and no")
+    out.append("/// conversion to <c>bool</c>, so <c>if (a &lt; b)</c> on vectors does not compile: say which of")
+    out.append("/// <c>Any</c> and <c>All</c> is meant.")
+    out.append("/// <para>")
+    out.append("/// Locals, parameters and return values only, like <c>bool</c> itself: MSL has no packed bool vector")
+    out.append("/// and no layout for one that C# could match, so there is no <c>Packed</c> type and a bool vector in")
+    out.append("/// a buffer, a captured field, a struct field or a <c>[GroupShared]</c> array is a generator")
+    out.append(f"/// diagnostic. Store an <see cref=\"{INT.vec(n)}\"/> or a <see cref=\"{UINT.vec(n)}\"/> of 0 and 1 instead")
+    out.append(f"/// (<c>Gpu.Select(mask, new {INT.vec(n)}(1), new {INT.vec(n)}(0))</c>).")
+    out.append("/// </para>")
+    out.append("/// </remarks>")
+    out.append(f"[MslType(\"{msl}\")]")
+    out.append("[StructLayout(LayoutKind.Sequential)]")
+    out.append(f"public partial struct {t}")
+    out.append("{")
+    for i in r:
+        out.append(f"    private bool {field(i)};")
+    out.append("")
+    out.extend(gen_constructors(kind, n))
+    for i in r:
+        out.append(f"    /// <summary>The {COMPONENTS[i]} component.</summary>")
+        out.append(f"    public bool {prop(i)} {{ readonly get => {field(i)}; set => {field(i)} = value; }}")
+        out.append("")
+    out.append("    /// <summary>Componentwise logical NOT (MSL <c>!</c>).</summary>")
+    out.append(f"    public static {t} operator !({t} value) => new {t}({', '.join(f'!value.{field(i)}' for i in r)});")
+    out.append("")
+    for sym, entity, word in (("&", "&amp;", "AND"), ("|", "|", "OR"), ("^", "^", "XOR (true where the two differ)")):
+        out.append(f"    /// <summary>Componentwise logical {word} (MSL <c>{entity}</c>).</summary>")
+        out.append(f"    public static {t} operator {sym}({t} left, {t} right) => new {t}({', '.join(f'left.{field(i)} {sym} right.{field(i)}' for i in r)});")
+        out.append("")
+    fmt = ", ".join("{" + field(i) + "}" for i in r)
+    out.append("    /// <summary>Formats the vector as <c>&lt;True, False, ...&gt;</c>.</summary>")
+    out.append(f"    public readonly override string ToString() => $\"<{fmt}>\";")
     out.append("}")
     return "\n".join(out) + "\n"
 
@@ -647,12 +789,12 @@ class Func:
     name: str  # C# name
     msl: str  # MSL function name (without metal::)
     params: tuple[str, ...]
-    kinds: tuple[Kind, ...] = (FLOAT,)
+    kinds: tuple[Kind, ...] = (FLOAT, HALF)
     # Extra overloads: each entry is the set of parameter indices that stay scalar.
     mixed: tuple[tuple[int, ...], ...] = ()
 
 
-ALL_KINDS = (FLOAT, INT, UINT)
+ALL_KINDS = NUMERIC_KINDS
 INTEGER_KINDS = (INT, UINT)
 FUNCS: tuple[Func, ...] = (
     Func("Abs", "abs", ("x",), ALL_KINDS),
@@ -697,6 +839,23 @@ FUNCS: tuple[Func, ...] = (
     Func("ReverseBits", "reverse_bits", ("x",), INTEGER_KINDS),
 )
 
+# Classification of float and half vectors: C# name, MSL function, <summary>.
+CLASSIFICATIONS = (
+    ("IsNaN", "isnan", "For each component, whether it is a NaN (any payload, either sign)."),
+    ("IsInfinity", "isinf", "For each component, whether it is positive or negative infinity."),
+    ("IsFinite", "isfinite", "For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite)."),
+)
+
+# Equality as methods: C# name, MSL operator, <summary>.
+EQUALITIES = (
+    ("Equal", "==", "For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector)."),
+    ("NotEqual", "!=", "For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector)."),
+)
+EQUALITY_NAN = {
+    "Equal": " A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.",
+    "NotEqual": " A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.",
+}
+
 # Bit reinterpretation (MSL as_type<T>): C# name, source kinds, result kind.
 REINTERPRETS = (("AsFloat", (INT, UINT), FLOAT), ("AsInt", (FLOAT,), INT), ("AsUInt", (FLOAT,), UINT))
 
@@ -719,6 +878,8 @@ def gen_gpu() -> str:
         out.append(f"    // {f.name} -> metal::{f.msl} (componentwise)")
         out.append("")
         for kind in f.kinds:
+            # The scalar implementation: a public overload of Gpu, or HalfMath for halves (see the top of this file).
+            scalar = f"HalfMath.{f.name}" if kind.is_half else f.name
             for n in WIDTHS:
                 t = kind.vec(n)
                 for scalars in ((),) + f.mixed:
@@ -726,7 +887,7 @@ def gen_gpu() -> str:
                     comps = []
                     for c in range(n):
                         args = [p if i in scalars else f"{p}.{prop(c)}" for i, p in enumerate(f.params)]
-                        comps.append(f"{f.name}({', '.join(args)})")
+                        comps.append(f"{scalar}({', '.join(args)})")
                     method(f.msl, t, f.name, params, f"new {t}({', '.join(comps)})")
 
     out.append("    // Bit reinterpretation -> as_type<T> (componentwise; the bits are unchanged)")
@@ -753,7 +914,7 @@ def gen_gpu() -> str:
             out.append(f"    public static {t} {f.name}({t} x) => new {t}({', '.join(f'{f.name}(x.{prop(i)})' for i in range(n))});")
             out.append("")
 
-    out.append("    // Geometric functions (float vectors only; MSL has no scalar overloads). Evaluated the way")
+    out.append("    // Geometric functions of float vectors (MSL has no scalar overloads). Evaluated the way")
     out.append("    // Apple GPUs evaluate them under precise math (bit-exact except for subnormal flushing):")
     out.append("    // dot is an fma chain in component order; length/normalize scale by an exact power of two.")
     out.append("")
@@ -835,6 +996,108 @@ def gen_gpu() -> str:
         body = ", ".join(f"MathF.ScaleB(v.{prop(i)}, e)" for i in range(n))
         out.append(f"    private static {t} ScaleB({t} v, int e) => new {t}({body});")
         out.append("")
+
+    out.append("    // Geometric functions of half vectors. Measured on an Apple GPU (M4 Pro) and reproduced bit for bit:")
+    out.append("    // the same fma chains as for floats, each step rounded to half, but no power-of-two prescaling,")
+    out.append("    // so length, distance and normalize overflow and underflow where the sum of squares does.")
+    out.append("")
+
+    def half_fma_chain(a: list[str], b: list[str]) -> str:
+        expr = f"{a[0]} * {b[0]}"
+        for x, y in zip(a[1:], b[1:]):
+            expr = f"HalfMath.Fma({x}, {y}, {expr})"
+        return expr
+
+    for n in WIDTHS:
+        t = HALF.vec(n)
+        out.append("    /// <summary>Dot product, evaluated as a chain of half fused multiply-adds in component order (as on Apple GPUs).</summary>")
+        method("dot", "Half", "Dot", [f"{t} x", f"{t} y"], half_fma_chain(comps("x", n), comps("y", n)))
+    for n in WIDTHS:
+        t = HALF.vec(n)
+        out.append("    /// <summary>")
+        out.append("    /// Euclidean length, <c>sqrt(dot(x, x))</c> in half precision. Unlike the float overload it is not")
+        out.append("    /// rescaled (an Apple GPU does not rescale halves either): the sum of squares overflows to infinity")
+        out.append("    /// for a length above about 255.9 and underflows, losing precision and finally giving 0, for")
+        out.append("    /// components below about 2.4e-4. Convert to a float vector first when the range matters.")
+        out.append("    /// </summary>")
+        method("length", "Half", "Length", [f"{t} x"], "HalfMath.Sqrt(Dot(x, x))")
+    for n in WIDTHS:
+        t = HALF.vec(n)
+        out.append(f"    /// <summary><c>length(x - y)</c>, with the range limits of <see cref=\"Length({t})\"/>.</summary>")
+        method("distance", "Half", "Distance", [f"{t} x", f"{t} y"], "Length(x - y)")
+    for n in WIDTHS:
+        t = HALF.vec(n)
+        out.append("    /// <summary>")
+        out.append("    /// Unit vector in the direction of <paramref name=\"x\"/>: <c>x * rsqrt(dot(x, x))</c> in half precision,")
+        out.append(f"    /// with the range limits of <see cref=\"Length({t})\"/>. A zero vector (and one so short that its sum of")
+        out.append("    /// squares underflows to 0) gives NaN in every zero component and infinity in the others, where the")
+        out.append("    /// float overload returns the vector unchanged; this is what an Apple GPU returns for halves.")
+        out.append("    /// </summary>")
+        method("normalize", t, "Normalize", [f"{t} x"], "x * HalfMath.Rsqrt(Dot(x, x))")
+    for n in WIDTHS:
+        t = HALF.vec(n)
+        body = ", ".join(f"HalfMath.Fma(k, n.{prop(i)}, i.{prop(i)})" for i in range(n))
+        block("reflect", t, "Reflect", [f"{t} i", f"{t} n"], [
+            "Half k = HalfMath.MinusTwo * Dot(n, i);",
+            f"return new {t}({body});",
+        ], "Reflection of <paramref name=\"i\"/> about the normal <paramref name=\"n\"/>: "
+           "<c>i - 2 * dot(n, i) * n</c>, evaluated as <c>fma(-2 * dot(n, i), n, i)</c> in half precision (as on Apple GPUs).")
+    out.append("    /// <summary>Cross product, each component evaluated as a half <c>fma(a, b, -(c * d))</c> (as on Apple GPUs).</summary>")
+    out.append("    [MslIntrinsic(\"metal::cross\")]")
+    out.append(f"    public static {HALF.vec(3)} Cross({HALF.vec(3)} x, {HALF.vec(3)} y) => new(")
+    out.append("        HalfMath.Fma(x.Y, y.Z, -(x.Z * y.Y)),")
+    out.append("        HalfMath.Fma(x.Z, y.X, -(x.X * y.Z)),")
+    out.append("        HalfMath.Fma(x.X, y.Y, -(x.Y * y.X)));")
+    out.append("")
+
+    out.append("    // Classification of float and half vectors -> metal::isnan / isinf / isfinite (componentwise, a bool vector)")
+    out.append("")
+    for name, msl, doc in CLASSIFICATIONS:
+        for kind in (FLOAT, HALF):
+            scalar = f"Half.{name}" if kind.is_half else name
+            for n in WIDTHS:
+                t, b = kind.vec(n), BOOL.vec(n)
+                out.append(f"    /// <summary>{doc}</summary>")
+                method(msl, b, name, [f"{t} x"], f"new {b}({', '.join(f'{scalar}(x.{prop(i)})' for i in range(n))})")
+
+    out.append("    // Equality of vectors -> the MSL operators == and != (componentwise, a bool vector). They are methods")
+    out.append("    // because a C# == that does not return bool breaks what C# builds on it; see the vector types.")
+    out.append("")
+    for name, sym, doc in EQUALITIES:
+        for kind in NUMERIC_KINDS:
+            nan = EQUALITY_NAN[name] if kind.is_floating else ""
+            for n in WIDTHS:
+                t, b = kind.vec(n), BOOL.vec(n)
+                for second, right in ((t, "y.{0}"), (kind.scalar, "y")):
+                    cmp = ", ".join(f"x.{prop(i)} {sym} {right.format(prop(i))}" for i in range(n))
+                    out.append(f"    /// <summary>{doc}{nan}</summary>")
+                    out.append(f"    [MslBinaryOperator(\"{sym}\")]")
+                    out.append(f"    public static {b} {name}({t} x, {second} y) => new {b}({cmp});")
+                    out.append("")
+
+    out.append("    // Bool vectors -> metal::any / all / select")
+    out.append("")
+    for name, msl, joiner, doc in (("Any", "any", " || ", "True when at least one component is true (MSL <c>any</c>)."),
+                                   ("All", "all", " && ", "True when every component is true (MSL <c>all</c>).")):
+        for n in WIDTHS:
+            out.append(f"    /// <summary>{doc}</summary>")
+            method(msl, "bool", name, [f"{BOOL.vec(n)} x"], joiner.join(f"x.{prop(i)}" for i in range(n)))
+    for kind in NUMERIC_KINDS + (BOOL,):
+        for n in WIDTHS:
+            t, b = kind.vec(n), BOOL.vec(n)
+            picks = ", ".join(f"mask.{prop(i)} ? whenTrue.{prop(i)} : whenFalse.{prop(i)}" for i in range(n))
+            out.append("    /// <summary>")
+            out.append("    /// Picks each component from <paramref name=\"whenTrue\"/> where <paramref name=\"mask\"/> is true and from")
+            out.append("    /// <paramref name=\"whenFalse\"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.")
+            out.append("    /// Both values are always evaluated, and the chosen components are copied bit for bit (a NaN keeps its payload).")
+            out.append("    /// </summary>")
+            out.append("    /// <remarks>")
+            out.append("    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,")
+            out.append("    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.")
+            out.append("    /// </remarks>")
+            out.append("    [MslIntrinsic(\"metal::select\", ReverseArguments = true)]")
+            out.append(f"    public static {t} Select({b} mask, {t} whenTrue, {t} whenFalse) => new {t}({picks});")
+            out.append("")
     if out[-1] == "":
         out.pop()
     out.append("}")
@@ -1217,8 +1480,9 @@ def gen_msl_probe() -> str:
              "    threadgroup uint tguint[4];",
              "    threadgroup float tgfloat[4];",
              "    float acc = 0;"]
-    vals = {FLOAT: "1.5f", INT: "3", UINT: "3u"}
-    for kind in KINDS:
+    vals = {FLOAT: "1.5f", HALF: "1.5h", INT: "3", UINT: "3u"}
+    lines.append("    bool sbool = (tid & 1u) != 0u;")
+    for kind in NUMERIC_KINDS:
         s = kind.msl
         lines.append(f"    {s} s{kind.msl} = {s}(tid) + {vals[kind]};")
         for n in WIDTHS:
@@ -1240,13 +1504,24 @@ def gen_msl_probe() -> str:
             ops = [sym for sym, _ in binary_ops(kind)]
             for sym in ops:
                 lhs, rhs, sc = v, v, f"s{kind.msl}"
-                if kind.is_float and sym == "%":
+                if kind.is_floating and sym == "%":
                     for a, b in ((lhs, rhs), (lhs, sc), (sc, rhs)):
                         lines.append(f"    acc += float(metal::fmod({a}, {b}).x);")
                     continue
                 for a, b in ((lhs, rhs), (lhs, sc), (sc, rhs)):
                     lines.append(f"    acc += float(({a} {sym} {b}).x);")
-            if kind.is_float or kind is INT:
+            # Comparisons: a bool vector, also from the packed form and against a scalar. Gpu.Equal and
+            # Gpu.NotEqual ([MslBinaryOperator]) convert their vector operands to the native type.
+            bv = f"b{kind.msl_vec(n)}"
+            lines.append(f"    bool{n} {bv} = {v} < {v};")
+            for sym, _, _ in COMPARISONS:
+                for a, b in ((v, v), (v, f"s{kind.msl}"), (f"s{kind.msl}", v), (f"p{v}", f"p{v}"), (f"p{v}", f"s{kind.msl}")):
+                    lines.append(f"    {bv} = {a} {sym} {b};")
+            for _, sym, _ in EQUALITIES:
+                lines.append(f"    {bv} = ({kind.msl_vec(n)}({v}) {sym} {kind.msl_vec(n)}(p{v})); {bv} = ({kind.msl_vec(n)}(p{v}) {sym} s{kind.msl});")
+            # Gpu.Select(mask, whenTrue, whenFalse) is emitted with its arguments reversed.
+            lines.append(f"    acc += float(metal::select({v}, p{v}, {bv}).x) + float(metal::any({bv})) + float(metal::all({bv}));")
+            if kind.is_floating or kind is INT:
                 lines.append(f"    acc += float((-{v}).x);")
             if kind.is_integer:
                 lines.append(f"    acc += float((~{v}).x);")
@@ -1254,9 +1529,23 @@ def gen_msl_probe() -> str:
                     lines.append(f"    acc += float(({v} {sym} {v}).x);")
                     lines.append(f"    acc += float(({v} {sym} int(tid)).x);")
             # Conversions.
-            for other in KINDS:
+            for other in NUMERIC_KINDS:
                 if other is not kind:
                     lines.append(f"    acc += float({other.msl_vec(n)}({v}).x);")
+    # Bool vectors: constructors, swizzles, the logical operators, any/all/select and a zero value.
+    for n in WIDTHS:
+        v = f"vbool{n}"
+        lines.append(f"    bool{n} {v} = bool{n}(sbool);")
+        for parts in compositions(n):
+            args = ["sbool" if p == 1 else f"vbool{p}" for p in parts]
+            lines.append(f"    acc += float(bool{n}({', '.join(args)}).x);")
+        for sw in swizzles(n):
+            name = "".join(COMPONENTS[i] for i in sw)
+            lines.append(f"    acc += float({v}.{name}.x);")
+            if len(set(sw)) == len(sw):
+                lines.append(f"    {v}.{name} = {v}.{name};")
+        lines.append(f"    {v} = !{v}; {v} = {v} & {v}; {v} = {v} | {v}; {v} = {v} ^ {v}; {v} &= {v}; {v} |= {v}; {v} ^= {v};")
+        lines.append(f"    acc += float(metal::any({v})) + float(metal::all({v})) + float(metal::select({v}, {v}, {v}).x) + float(bool{n}(false).x);")
     # Intrinsics.
     for f in FUNCS:
         for kind in f.kinds:
@@ -1276,10 +1565,13 @@ def gen_msl_probe() -> str:
     # Scalar-only intrinsics of Gpu.cs.
     lines.append("    acc += float(metal::isnan(sfloat)) + float(metal::isinf(sfloat)) + float(metal::isfinite(sfloat));")
     lines.append("    acc += float(metal::pack_float_to_unorm4x8(vfloat4)) + metal::unpack_unorm4x8_to_float(suint).x;")
-    for n in WIDTHS:
-        v = f"vfloat{n}"
-        lines.append(f"    acc += metal::dot({v}, {v}) + metal::length({v}) + metal::distance({v}, {v}) + metal::normalize({v}).x + metal::reflect({v}, {v}).x;")
-    lines.append("    acc += metal::cross(vfloat3, vfloat3).x;")
+    for kind in (FLOAT, HALF):
+        for n in WIDTHS:
+            v = f"v{kind.msl_vec(n)}"
+            lines.append(f"    acc += float(metal::dot({v}, {v})) + float(metal::length({v})) + float(metal::distance({v}, {v})) + float(metal::normalize({v}).x) + float(metal::reflect({v}, {v}).x);")
+            for _, msl, _ in CLASSIFICATIONS:
+                lines.append(f"    bool{n} c{msl}{kind.msl}{n} = metal::{msl}({v}); acc += float(c{msl}{kind.msl}{n}.x) + float(metal::{msl}(p{v}).x);")
+        lines.append(f"    acc += float(metal::cross(v{kind.msl_vec(3)}, v{kind.msl_vec(3)}).x);")
     # Prelude helpers.
     for f in PRELUDE_SCALES:
         lines.append(f"    acc += {f.msl}(sfloat);")
@@ -1347,10 +1639,13 @@ def gen_msl_probe() -> str:
 
 def outputs() -> dict[Path, str]:
     files: dict[Path, str] = {}
-    for kind in KINDS:
+    for kind in NUMERIC_KINDS:
         for n in WIDTHS:
             files[VECTORS_DIR / f"{kind.vec(n)}.g.cs"] = gen_core(kind, n)
             files[VECTORS_DIR / f"{kind.vec(n)}.Swizzles.g.cs"] = gen_swizzles(kind, n)
+    for n in WIDTHS:
+        files[VECTORS_DIR / f"{BOOL.vec(n)}.g.cs"] = gen_bool_core(n)
+        files[VECTORS_DIR / f"{BOOL.vec(n)}.Swizzles.g.cs"] = gen_swizzles(BOOL, n)
     for n in MATRIX_SIZES:
         files[VECTORS_DIR / f"{mat(n)}.g.cs"] = gen_matrix(n)
     files[INTRINSICS_DIR / "Gpu.g.cs"] = gen_gpu()
