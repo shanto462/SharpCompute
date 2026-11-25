@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SharpCompute/SharpCompute.csproj" />
     <Project Path="src/SharpCompute.SourceGenerators/SharpCompute.SourceGenerators.csproj" />
+    <Project Path="src/SharpCompute.Imaging/SharpCompute.Imaging.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SharpCompute.Tests/SharpCompute.Tests.csproj" />

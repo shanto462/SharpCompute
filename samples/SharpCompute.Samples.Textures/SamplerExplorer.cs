@@ -1,6 +1,8 @@
 // Original SharpCompute sample (MIT).
 using System;
+using System.IO;
 using System.Linq;
+using SharpCompute.Imaging;
 
 namespace SharpCompute.Samples.Textures;
 
@@ -57,16 +59,17 @@ public readonly record struct ExplorerLayout(int Width, int Height)
     /// <paramref name="y"/>), which must lie in panel <paramref name="panel"/>: the same arithmetic
     /// as <see cref="SamplerGrid"/>, on the CPU.
     /// </summary>
-    public Float2 Uv(int panel, int x, int y, float zoom, Float2 pan, float angle)
+    public Float2 Uv(int panel, int x, int y, float zoom, Float2 pan, float angle, float aspect = 1f)
     {
         Float2 local = (new Float2(x + 0.5f, y + 0.5f) - PanelOrigin(panel)) / Cell;
-        return SamplerGrid.PanelUv(local, Cell, zoom, pan, angle);
+        return SamplerGrid.ImageUv(local, Cell, zoom, pan, angle, aspect);
     }
 }
 
 /// <summary>
 /// The sampler explorer: one small picture in each of the eight texture formats, and a frame that
-/// magnifies the selected one through all six samplers at once.
+/// magnifies the selected one through all six samplers at once. The picture is the generated
+/// <see cref="SourceImage"/> tile, or an image file loaded with SharpCompute.Imaging.
 /// </summary>
 /// <remarks>
 /// Two passes a frame. The first copies <c>source[x, y]</c>, which is what a shader reads from the
@@ -88,9 +91,44 @@ public sealed class SamplerExplorer : IDisposable
     private readonly ReadOnlyTexture2D<Float4> _float4;
     private readonly ReadWriteTexture2D<Float4> _decoded;
     private readonly ReadOnlyTexture2D<Float4> _decodedView;
+    private readonly int _width;
+    private readonly int _height;
     private int _format;
 
-    public SamplerExplorer(GraphicsDevice device)
+    /// <summary>Loads the formats with the generated tile, or with the image at <paramref name="imagePath"/>.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="imagePath">An image file (PNG, JPEG, HEIC, ...) to explore instead of the tile; null for the tile.</param>
+    public SamplerExplorer(GraphicsDevice device, string? imagePath = null)
+    {
+        if (imagePath is not null)
+        {
+            // The image formats load straight from the file, each converted by the loader: sRGB bytes,
+            // gray, and linear floats. The others are made from those, as for the tile.
+            _rgba32 = ImageLoader.LoadTexture2D<Rgba32>(device, imagePath);
+            _rgba32Srgb = ImageLoader.LoadTexture2D<Rgba32Srgb>(device, imagePath);
+            _r8 = ImageLoader.LoadTexture2D<R8>(device, imagePath);
+            _rgba16Float = ImageLoader.LoadTexture2D<Rgba16Float>(device, imagePath);
+            _float4 = ImageLoader.LoadTexture2D<Float4>(device, imagePath);
+            (_width, _height) = (_rgba32.Width, _rgba32.Height);
+
+            byte[] gray = [.. _r8.ToArray().Select(static p => p.R)];
+            _rg16 = device.AllocateReadOnlyTexture2D<Rg16>(_rgba32.ToArray().Select(static p => new Rg16(p.R, p.G)).ToArray(), _width, _height);
+            _half = device.AllocateReadOnlyTexture2D<Half>(gray.Select(static g => (Half)(g / 255f)).ToArray(), _width, _height);
+            _single = device.AllocateReadOnlyTexture2D<float>(gray.Select(static g => g / 255f).ToArray(), _width, _height);
+            ImageName = Path.GetFileName(imagePath);
+        }
+        else
+        {
+            (_width, _height) = (SourceImage.Size, SourceImage.Size);
+            (_rgba32, _rgba32Srgb, _r8, _rg16, _half, _rgba16Float, _single, _float4) = CreateTile(device);
+        }
+
+        _decoded = device.AllocateReadWriteTexture2D<Float4>(_width, _height);
+        _decodedView = _decoded.AsReadOnly();
+    }
+
+    private static (ReadOnlyTexture2D<Rgba32>, ReadOnlyTexture2D<Rgba32Srgb>, ReadOnlyTexture2D<R8>, ReadOnlyTexture2D<Rg16>, ReadOnlyTexture2D<Half>,
+        ReadOnlyTexture2D<Rgba16Float>, ReadOnlyTexture2D<float>, ReadOnlyTexture2D<Float4>) CreateTile(GraphicsDevice device)
     {
         const int size = SourceImage.Size;
         Rgba32[] tile = SourceImage.Create();
@@ -98,19 +136,29 @@ public sealed class SamplerExplorer : IDisposable
         // The same picture in every format. The 8-bit formats keep the bytes (the sRGB one too: it
         // is the decode that differs), the float formats store value / 255, and the one- and
         // two-channel formats store what fits: brightness, or red and green.
-        _rgba32 = device.AllocateReadOnlyTexture2D<Rgba32>(tile, size, size);
-        _rgba32Srgb = device.AllocateReadOnlyTexture2D<Rgba32Srgb>(tile.Select(static p => new Rgba32Srgb(p.R, p.G, p.B, p.A)).ToArray(), size, size);
-        _r8 = device.AllocateReadOnlyTexture2D<R8>(tile.Select(static p => new R8(SourceImage.Luminance(p))).ToArray(), size, size);
-        _rg16 = device.AllocateReadOnlyTexture2D<Rg16>(tile.Select(static p => new Rg16(p.R, p.G)).ToArray(), size, size);
-        _half = device.AllocateReadOnlyTexture2D<Half>(tile.Select(static p => (Half)(SourceImage.Luminance(p) / 255f)).ToArray(), size, size);
-        _rgba16Float = device.AllocateReadOnlyTexture2D<Rgba16Float>(
-            tile.Select(static p => new Rgba16Float((Half)(p.R / 255f), (Half)(p.G / 255f), (Half)(p.B / 255f), (Half)(p.A / 255f))).ToArray(), size, size);
-        _single = device.AllocateReadOnlyTexture2D<float>(tile.Select(static p => SourceImage.Luminance(p) / 255f).ToArray(), size, size);
-        _float4 = device.AllocateReadOnlyTexture2D<Float4>(tile.Select(static p => new Float4(p.R / 255f, p.G / 255f, p.B / 255f, p.A / 255f)).ToArray(), size, size);
-
-        _decoded = device.AllocateReadWriteTexture2D<Float4>(size, size);
-        _decodedView = _decoded.AsReadOnly();
+        return (
+            device.AllocateReadOnlyTexture2D<Rgba32>(tile, size, size),
+            device.AllocateReadOnlyTexture2D<Rgba32Srgb>(tile.Select(static p => new Rgba32Srgb(p.R, p.G, p.B, p.A)).ToArray(), size, size),
+            device.AllocateReadOnlyTexture2D<R8>(tile.Select(static p => new R8(SourceImage.Luminance(p))).ToArray(), size, size),
+            device.AllocateReadOnlyTexture2D<Rg16>(tile.Select(static p => new Rg16(p.R, p.G)).ToArray(), size, size),
+            device.AllocateReadOnlyTexture2D<Half>(tile.Select(static p => (Half)(SourceImage.Luminance(p) / 255f)).ToArray(), size, size),
+            device.AllocateReadOnlyTexture2D<Rgba16Float>(
+                tile.Select(static p => new Rgba16Float((Half)(p.R / 255f), (Half)(p.G / 255f), (Half)(p.B / 255f), (Half)(p.A / 255f))).ToArray(), size, size),
+            device.AllocateReadOnlyTexture2D<float>(tile.Select(static p => SourceImage.Luminance(p) / 255f).ToArray(), size, size),
+            device.AllocateReadOnlyTexture2D<Float4>(tile.Select(static p => new Float4(p.R / 255f, p.G / 255f, p.B / 255f, p.A / 255f)).ToArray(), size, size));
     }
+
+    /// <summary>The file name of the loaded image, or null for the generated tile.</summary>
+    public string? ImageName { get; }
+
+    /// <summary>Width of the picture in pixels.</summary>
+    public int Width => _width;
+
+    /// <summary>Height of the picture in pixels.</summary>
+    public int Height => _height;
+
+    /// <summary>The picture's width over its height: 1 for the tile.</summary>
+    public float Aspect => _width / (float)_height;
 
     /// <summary>The selected format, an index into <see cref="SourceImage.Formats"/>.</summary>
     public int Format
@@ -158,7 +206,7 @@ public sealed class SamplerExplorer : IDisposable
         // moved under the pointer. Both terms come from the shader's own mapping, without the pan, so
         // a large pan costs no precision; and the zoom is the one actually reached, so nothing slides
         // once it is at a limit.
-        Pan += SamplerGrid.PanelUv(local, layout.Cell, zoom, default, Angle) - SamplerGrid.PanelUv(local, layout.Cell, Zoom, default, Angle);
+        Pan += SamplerGrid.ImageUv(local, layout.Cell, zoom, default, Angle, Aspect) - SamplerGrid.ImageUv(local, layout.Cell, Zoom, default, Angle, Aspect);
     }
 
     /// <summary>
@@ -168,48 +216,49 @@ public sealed class SamplerExplorer : IDisposable
     /// </summary>
     public void DragBy(double dx, double dy, ExplorerLayout layout)
     {
-        // A pixel is Zoom / panel height texture heights, along the view's (possibly rotated) axes; see SamplerGrid.PanelUv.
+        // A pixel is Zoom / panel height texture heights, along the view's (possibly rotated) axes, and
+        // a texture width is Aspect texture heights; see SamplerGrid.ImageUv.
         float scale = Zoom / layout.Cell.Y;
         float sine = MathF.Sin(Angle), cosine = MathF.Cos(Angle);
         float px = (float)dx * scale, py = (float)dy * scale;
 
-        Pan -= new Float2((px * cosine) - (py * sine), (px * sine) + (py * cosine));
+        Pan -= new Float2(((px * cosine) - (py * sine)) / Aspect, (px * sine) + (py * cosine));
     }
 
     /// <summary>The shader that draws the grid for a frame of <paramref name="layout"/>'s size with the current view.</summary>
     public SamplerGrid Shader(ExplorerLayout layout, TextLayer labels) =>
-        new(_decodedView, labels.Texture, layout.Origin, layout.Cell, layout.Gap, Zoom, Pan, Angle);
+        new(_decodedView, labels.Texture, layout.Origin, layout.Cell, layout.Gap, Zoom, Pan, Angle, Aspect);
 
     /// <summary>Records the frame's two passes: read the selected format, then sample the result six ways into <paramref name="target"/>.</summary>
     public void Record(ComputeContext context, ReadWriteTexture2D<Rgba32> target, TextLayer labels)
     {
-        const int size = SourceImage.Size;
+        int width = _width, height = _height;
 
         switch (_format)
         {
             case 0:
-                context.For(size, size, new DecodeRgba32(_rgba32, _decoded));
+                context.For(width, height, new DecodeRgba32(_rgba32, _decoded));
                 break;
             case 1:
-                context.For(size, size, new DecodeRgba32Srgb(_rgba32Srgb, _decoded));
+                context.For(width, height, new DecodeRgba32Srgb(_rgba32Srgb, _decoded));
                 break;
             case 2:
-                context.For(size, size, new DecodeR8(_r8, _decoded));
+                context.For(width, height, new DecodeR8(_r8, _decoded));
                 break;
             case 3:
-                context.For(size, size, new DecodeRg16(_rg16, _decoded));
+                context.For(width, height, new DecodeRg16(_rg16, _decoded));
                 break;
             case 4:
-                context.For(size, size, new DecodeHalf(_half, _decoded));
+                context.For(width, height, new DecodeHalf(_half, _decoded));
                 break;
             case 5:
-                context.For(size, size, new DecodeRgba16Float(_rgba16Float, _decoded));
+                context.For(width, height, new DecodeRgba16Float(_rgba16Float, _decoded));
                 break;
             case 6:
-                context.For(size, size, new DecodeSingle(_single, _decoded));
+                context.For(width, height, new DecodeSingle(_single, _decoded));
                 break;
             default:
-                context.For(size, size, new DecodeFloat4(_float4, _decoded));
+                context.For(width, height, new DecodeFloat4(_float4, _decoded));
                 break;
         }
 
@@ -228,7 +277,8 @@ public sealed class SamplerExplorer : IDisposable
         labels.Text(
             $"SAMPLER EXPLORER   FORMAT {_format + 1}/{SourceImage.Formats.Length}: READONLYTEXTURE2D<{format.Type}> = {format.MetalFormat}",
             3 * small, 3 * small, small);
-        labels.Text($"SOURCE[X, Y] READS {format.Reads}   OUTLINE = UV 0..1, THE REST IS THE ADDRESS MODE", 3 * small, (6 * small) + line, small);
+        string source = ImageName is null ? "" : $"   IMAGE {_width}X{_height} LOADED WITH SHARPCOMPUTE.IMAGING";
+        labels.Text($"SOURCE[X, Y] READS {format.Reads}   OUTLINE = UV 0..1, THE REST IS THE ADDRESS MODE{source}", 3 * small, (6 * small) + line, small);
 
         for (int panel = 0; panel < ExplorerLayout.PanelCount; panel++)
         {

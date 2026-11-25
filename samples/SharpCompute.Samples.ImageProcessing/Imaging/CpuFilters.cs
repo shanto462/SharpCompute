@@ -85,6 +85,10 @@ public static class CpuFilters
                 });
                 break;
 
+            case FilterKind.Lens:
+                Lens(source, destination, width, height, filter[0], filter[1]);
+                break;
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(filter), filter.Kind, "Unknown filter.");
         }
@@ -212,4 +216,45 @@ public static class CpuFilters
                 destination[(y * width) + x] = sum / (float)((x1 - x0) * (y1 - y0));
             }
         });
+
+    private static void Lens(Float4[] source, Float4[] destination, int width, int height, float strength, float fringe) =>
+        Rows(height, y =>
+        {
+            Float2 size = new(width, height);
+
+            for (int x = 0; x < width; x++)
+            {
+                Float2 pixel = new(x + 0.5f, y + 0.5f);
+                Float4 red = SampleLinearClamp(source, width, height, LensDistortion.SourceUv(pixel, size, strength, 1f + fringe));
+                Float4 green = SampleLinearClamp(source, width, height, LensDistortion.SourceUv(pixel, size, strength, 1f));
+                Float4 blue = SampleLinearClamp(source, width, height, LensDistortion.SourceUv(pixel, size, strength, 1f - fringe));
+                destination[(y * width) + x] = new Float4(MathF.Min(red.X, green.W), green.Y, MathF.Min(blue.Z, green.W), green.W);
+            }
+        });
+
+    /// <summary>
+    /// <c>Sample(Sampler.LinearClamp, uv)</c> over a row-major image, with the texture's own math:
+    /// texel centers at <c>(i + 0.5) / size</c>, indices clamped, <c>a + (b - a) * t</c>. The GPU rounds
+    /// the interpolation weights to 1/256, so its samples differ from these by up to 1/512 of the
+    /// difference between neighbouring pixels.
+    /// </summary>
+    public static Float4 SampleLinearClamp(Float4[] image, int width, int height, Float2 uv)
+    {
+        float fx = (uv.X * width) - 0.5f;
+        float fy = (uv.Y * height) - 0.5f;
+        float floorX = MathF.Floor(fx);
+        float floorY = MathF.Floor(fy);
+        float tx = fx - floorX;
+        float ty = fy - floorY;
+        int x0 = Math.Clamp((int)floorX, 0, width - 1);
+        int x1 = Math.Clamp((int)floorX + 1, 0, width - 1);
+        int y0 = Math.Clamp((int)floorY, 0, height - 1);
+        int y1 = Math.Clamp((int)floorY + 1, 0, height - 1);
+
+        Float4 upper = Lerp(image[(y0 * width) + x0], image[(y0 * width) + x1], tx);
+        Float4 lower = Lerp(image[(y1 * width) + x0], image[(y1 * width) + x1], tx);
+        return Lerp(upper, lower, ty);
+    }
+
+    private static Float4 Lerp(Float4 a, Float4 b, float t) => a + ((b - a) * t);
 }

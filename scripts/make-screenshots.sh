@@ -37,12 +37,17 @@ thumb() {
 
 demo_textures() {
   build samples/SharpCompute.Samples.Textures
-  step "Textures: the sampler explorer (two formats) and the ping-pong simulation"
+  build samples/SharpCompute.Samples.ImageProcessing
+  step "Textures: the sampler explorer (two formats), the ping-pong simulation, and the explorer on a loaded image"
   run_project samples/SharpCompute.Samples.Textures --headless --out "$WORK/textures" >/dev/null
   shot "$WORK/textures/samplers-rgba32.png" textures-samplers
   thumb textures-samplers
   shot "$WORK/textures/samplers-rg16.png" textures-format-rg16
   shot "$WORK/textures/pingpong.png" textures-pingpong
+  # --image: ImageProcessing's test image at 64 x 36, written as a PNG and loaded with SharpCompute.Imaging.
+  run_project samples/SharpCompute.Samples.ImageProcessing --make-test-image "$WORK/textures-photo.png" 64x36 >/dev/null
+  run_project samples/SharpCompute.Samples.Textures --headless --out "$WORK/textures-image" --image "$WORK/textures-photo.png" >/dev/null
+  shot "$WORK/textures-image/samplers-rgba32.png" textures-image
 }
 
 demo_computelab() {
@@ -77,14 +82,14 @@ demo_viewer() {
 
 demo_imgproc() {
   build samples/SharpCompute.Samples.ImageProcessing
-  step "ImageProcessing: the 4K test image and three filters of it"
+  step "ImageProcessing: the 4K test image and three filters of it, one of them sampling a texture"
   local imgproc=samples/SharpCompute.Samples.ImageProcessing input="$WORK/imgproc-test.png"
   run_project "$imgproc" --make-test-image "$input" 3840x2160 >/dev/null
   run_project "$imgproc" "$input" "$WORK/imgproc-bokeh.png" bokeh 12 >/dev/null
   run_project "$imgproc" "$input" "$WORK/imgproc-edges.png" edges >/dev/null
-  run_project "$imgproc" "$input" "$WORK/imgproc-grade.png" grade 0.2 1.15 1.2 >/dev/null
-  # 2 x 2: the input | bokeh / edges | grade.
-  ffmpeg -v error -y -i "$input" -i "$WORK/imgproc-bokeh.png" -i "$WORK/imgproc-edges.png" -i "$WORK/imgproc-grade.png" \
+  run_project "$imgproc" "$input" "$WORK/imgproc-lens.png" lens 0.3 0.006 >/dev/null
+  # 2 x 2: the input | bokeh / edges | lens.
+  ffmpeg -v error -y -i "$input" -i "$WORK/imgproc-bokeh.png" -i "$WORK/imgproc-edges.png" -i "$WORK/imgproc-lens.png" \
     -filter_complex "[0][1][2][3]xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0" "$WORK/imgproc.png"
   shot "$WORK/imgproc.png" imgproc
   thumb imgproc

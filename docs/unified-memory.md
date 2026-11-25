@@ -55,8 +55,9 @@ are already in GPU memory, the conversion can run on the GPU, fused into the fir
 | CPU converts bytes ↔ `Float4`, copies 133 MB in and out, Float4 kernels | 12.2 ms |
 | **GPU reads and writes the bytes itself** | **3.10 ms (3.9×)** |
 
-The `imgproc` sample does exactly this; see `ImageFile.LoadRgba8`, `UnpackRgba8`, `PackRgba8` and
-`ImageFile.SaveRgba8`.
+The `imgproc` sample does exactly this with textures: `ImageLoader.LoadTexture2D<Rgba32>`
+(SharpCompute.Imaging) decodes into a texture's memory, `UnpackTexture` and `PackTexture` convert on
+the GPU, and `ImageSaver.Save` encodes the output texture in place.
 
 ### 3. Put files on the GPU without reading them
 

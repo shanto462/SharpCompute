@@ -75,6 +75,7 @@ step "ImageProcessing: GPU vs CPU (Parallel.For) on a generated 3840×2160 image
 "${IMGPROC[@]}" --make-test-image "$OUT/imgproc/test-3840x2160.png" 3840x2160
 "${IMGPROC[@]}" "$OUT/imgproc/test-3840x2160.png" "$OUT/imgproc/blur-8.png" blur 8 --compare | tee "$OUT/imgproc/compare.txt"
 "${IMGPROC[@]}" "$OUT/imgproc/test-3840x2160.png" "$OUT/imgproc/bokeh-12.png" bokeh 12 --compare | tee -a "$OUT/imgproc/compare.txt"
+"${IMGPROC[@]}" "$OUT/imgproc/test-3840x2160.png" "$OUT/imgproc/lens.png" lens 0.3 0.006 --compare | tee -a "$OUT/imgproc/compare.txt"
 
 step "Pipeline: GPU renders frame N+1 (ForAsync) while the CPU post-processes frame N"
 mkdir -p "$OUT/pipeline"
