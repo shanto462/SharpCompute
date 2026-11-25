@@ -288,17 +288,19 @@ Against native Metal on the same GPU, by the GPU's own time for one dispatch
 | Single-precision matrix multiply, 1024×1024 | Written as | GPU time | TFLOP/s |
 |---|---|---:|---:|
 | `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
-| `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.16 |
+| `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.15 |
 | threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
-| naive | generated from C# | 4.14 ms | 0.52 |
-| naive | hand-written MSL | 4.10 ms | 0.52 |
+| naive | generated from C# | 4.12 ms | 0.52 |
+| naive | hand-written MSL | 4.08 ms | 0.53 |
 
-A generated kernel takes the same GPU time as the same kernel written by hand in MSL: the ratio is
-1.009 to 1.011 for the naive matrix multiply, 0.995 for an N-body step, 0.997 for SAXPY and 1.000
-for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written kernel next to
-it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet. The same section
-of the report places every kernel under the machine's measured ceilings (6.24 TFLOP/s of FP32
-arithmetic, 258 GB/s of memory bandwidth): MPS reaches 85 % of the first, SAXPY 98 % of the second.
+A generated kernel takes the same GPU time as the same kernel written by hand in MSL, to about
+1 %: the ratio is 1.010 to 1.013 for the naive matrix multiply, 1.000 for an N-body step, 1.001 for
+SAXPY and 1.000 for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written
+kernel next to it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet.
+The same section of the report places every kernel under the machine's measured ceilings:
+6.24 TFLOP/s of FP32 arithmetic, of which MPS reaches 85 %, and 250 GB/s of memory bandwidth (243 to
+255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
+101 % of that: it is bound by memory, and no kernel will make it faster.
 See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
 
 Moving and converting data can cost more than the kernel, and unified memory means it can be
