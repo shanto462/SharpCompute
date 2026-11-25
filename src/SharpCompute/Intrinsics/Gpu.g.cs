@@ -378,6 +378,28 @@ public static partial class Gpu
     [MslIntrinsic("metal::log2")]
     public static Float4 Log2(Float4 x) => new Float4(Log2(x.X), Log2(x.Y), Log2(x.Z), Log2(x.W));
 
+    // Log10 -> metal::log10 (componentwise)
+
+    [MslIntrinsic("metal::log10")]
+    public static Float2 Log10(Float2 x) => new Float2(Log10(x.X), Log10(x.Y));
+
+    [MslIntrinsic("metal::log10")]
+    public static Float3 Log10(Float3 x) => new Float3(Log10(x.X), Log10(x.Y), Log10(x.Z));
+
+    [MslIntrinsic("metal::log10")]
+    public static Float4 Log10(Float4 x) => new Float4(Log10(x.X), Log10(x.Y), Log10(x.Z), Log10(x.W));
+
+    // Exp10 -> metal::exp10 (componentwise)
+
+    [MslIntrinsic("metal::exp10")]
+    public static Float2 Exp10(Float2 x) => new Float2(Exp10(x.X), Exp10(x.Y));
+
+    [MslIntrinsic("metal::exp10")]
+    public static Float3 Exp10(Float3 x) => new Float3(Exp10(x.X), Exp10(x.Y), Exp10(x.Z));
+
+    [MslIntrinsic("metal::exp10")]
+    public static Float4 Exp10(Float4 x) => new Float4(Exp10(x.X), Exp10(x.Y), Exp10(x.Z), Exp10(x.W));
+
     // Sin -> metal::sin (componentwise)
 
     [MslIntrinsic("metal::sin")]
@@ -547,6 +569,146 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::smoothstep")]
     public static Float4 Smoothstep(float edge0, float edge1, Float4 x) => new Float4(Smoothstep(edge0, edge1, x.X), Smoothstep(edge0, edge1, x.Y), Smoothstep(edge0, edge1, x.Z), Smoothstep(edge0, edge1, x.W));
+
+    // Fma -> metal::fma (componentwise)
+
+    [MslIntrinsic("metal::fma")]
+    public static Float2 Fma(Float2 x, Float2 y, Float2 z) => new Float2(Fma(x.X, y.X, z.X), Fma(x.Y, y.Y, z.Y));
+
+    [MslIntrinsic("metal::fma")]
+    public static Float3 Fma(Float3 x, Float3 y, Float3 z) => new Float3(Fma(x.X, y.X, z.X), Fma(x.Y, y.Y, z.Y), Fma(x.Z, y.Z, z.Z));
+
+    [MslIntrinsic("metal::fma")]
+    public static Float4 Fma(Float4 x, Float4 y, Float4 z) => new Float4(Fma(x.X, y.X, z.X), Fma(x.Y, y.Y, z.Y), Fma(x.Z, y.Z, z.Z), Fma(x.W, y.W, z.W));
+
+    // CopySign -> metal::copysign (componentwise)
+
+    [MslIntrinsic("metal::copysign")]
+    public static Float2 CopySign(Float2 x, Float2 y) => new Float2(CopySign(x.X, y.X), CopySign(x.Y, y.Y));
+
+    [MslIntrinsic("metal::copysign")]
+    public static Float3 CopySign(Float3 x, Float3 y) => new Float3(CopySign(x.X, y.X), CopySign(x.Y, y.Y), CopySign(x.Z, y.Z));
+
+    [MslIntrinsic("metal::copysign")]
+    public static Float4 CopySign(Float4 x, Float4 y) => new Float4(CopySign(x.X, y.X), CopySign(x.Y, y.Y), CopySign(x.Z, y.Z), CopySign(x.W, y.W));
+
+    // CountBits -> metal::popcount (componentwise)
+
+    [MslIntrinsic("metal::popcount")]
+    public static Int2 CountBits(Int2 x) => new Int2(CountBits(x.X), CountBits(x.Y));
+
+    [MslIntrinsic("metal::popcount")]
+    public static Int3 CountBits(Int3 x) => new Int3(CountBits(x.X), CountBits(x.Y), CountBits(x.Z));
+
+    [MslIntrinsic("metal::popcount")]
+    public static Int4 CountBits(Int4 x) => new Int4(CountBits(x.X), CountBits(x.Y), CountBits(x.Z), CountBits(x.W));
+
+    [MslIntrinsic("metal::popcount")]
+    public static UInt2 CountBits(UInt2 x) => new UInt2(CountBits(x.X), CountBits(x.Y));
+
+    [MslIntrinsic("metal::popcount")]
+    public static UInt3 CountBits(UInt3 x) => new UInt3(CountBits(x.X), CountBits(x.Y), CountBits(x.Z));
+
+    [MslIntrinsic("metal::popcount")]
+    public static UInt4 CountBits(UInt4 x) => new UInt4(CountBits(x.X), CountBits(x.Y), CountBits(x.Z), CountBits(x.W));
+
+    // LeadingZeroCount -> metal::clz (componentwise)
+
+    [MslIntrinsic("metal::clz")]
+    public static Int2 LeadingZeroCount(Int2 x) => new Int2(LeadingZeroCount(x.X), LeadingZeroCount(x.Y));
+
+    [MslIntrinsic("metal::clz")]
+    public static Int3 LeadingZeroCount(Int3 x) => new Int3(LeadingZeroCount(x.X), LeadingZeroCount(x.Y), LeadingZeroCount(x.Z));
+
+    [MslIntrinsic("metal::clz")]
+    public static Int4 LeadingZeroCount(Int4 x) => new Int4(LeadingZeroCount(x.X), LeadingZeroCount(x.Y), LeadingZeroCount(x.Z), LeadingZeroCount(x.W));
+
+    [MslIntrinsic("metal::clz")]
+    public static UInt2 LeadingZeroCount(UInt2 x) => new UInt2(LeadingZeroCount(x.X), LeadingZeroCount(x.Y));
+
+    [MslIntrinsic("metal::clz")]
+    public static UInt3 LeadingZeroCount(UInt3 x) => new UInt3(LeadingZeroCount(x.X), LeadingZeroCount(x.Y), LeadingZeroCount(x.Z));
+
+    [MslIntrinsic("metal::clz")]
+    public static UInt4 LeadingZeroCount(UInt4 x) => new UInt4(LeadingZeroCount(x.X), LeadingZeroCount(x.Y), LeadingZeroCount(x.Z), LeadingZeroCount(x.W));
+
+    // TrailingZeroCount -> metal::ctz (componentwise)
+
+    [MslIntrinsic("metal::ctz")]
+    public static Int2 TrailingZeroCount(Int2 x) => new Int2(TrailingZeroCount(x.X), TrailingZeroCount(x.Y));
+
+    [MslIntrinsic("metal::ctz")]
+    public static Int3 TrailingZeroCount(Int3 x) => new Int3(TrailingZeroCount(x.X), TrailingZeroCount(x.Y), TrailingZeroCount(x.Z));
+
+    [MslIntrinsic("metal::ctz")]
+    public static Int4 TrailingZeroCount(Int4 x) => new Int4(TrailingZeroCount(x.X), TrailingZeroCount(x.Y), TrailingZeroCount(x.Z), TrailingZeroCount(x.W));
+
+    [MslIntrinsic("metal::ctz")]
+    public static UInt2 TrailingZeroCount(UInt2 x) => new UInt2(TrailingZeroCount(x.X), TrailingZeroCount(x.Y));
+
+    [MslIntrinsic("metal::ctz")]
+    public static UInt3 TrailingZeroCount(UInt3 x) => new UInt3(TrailingZeroCount(x.X), TrailingZeroCount(x.Y), TrailingZeroCount(x.Z));
+
+    [MslIntrinsic("metal::ctz")]
+    public static UInt4 TrailingZeroCount(UInt4 x) => new UInt4(TrailingZeroCount(x.X), TrailingZeroCount(x.Y), TrailingZeroCount(x.Z), TrailingZeroCount(x.W));
+
+    // ReverseBits -> metal::reverse_bits (componentwise)
+
+    [MslIntrinsic("metal::reverse_bits")]
+    public static Int2 ReverseBits(Int2 x) => new Int2(ReverseBits(x.X), ReverseBits(x.Y));
+
+    [MslIntrinsic("metal::reverse_bits")]
+    public static Int3 ReverseBits(Int3 x) => new Int3(ReverseBits(x.X), ReverseBits(x.Y), ReverseBits(x.Z));
+
+    [MslIntrinsic("metal::reverse_bits")]
+    public static Int4 ReverseBits(Int4 x) => new Int4(ReverseBits(x.X), ReverseBits(x.Y), ReverseBits(x.Z), ReverseBits(x.W));
+
+    [MslIntrinsic("metal::reverse_bits")]
+    public static UInt2 ReverseBits(UInt2 x) => new UInt2(ReverseBits(x.X), ReverseBits(x.Y));
+
+    [MslIntrinsic("metal::reverse_bits")]
+    public static UInt3 ReverseBits(UInt3 x) => new UInt3(ReverseBits(x.X), ReverseBits(x.Y), ReverseBits(x.Z));
+
+    [MslIntrinsic("metal::reverse_bits")]
+    public static UInt4 ReverseBits(UInt4 x) => new UInt4(ReverseBits(x.X), ReverseBits(x.Y), ReverseBits(x.Z), ReverseBits(x.W));
+
+    // Bit reinterpretation -> as_type<T> (componentwise; the bits are unchanged)
+
+    [MslIntrinsic("as_type<float2>")]
+    public static Float2 AsFloat(Int2 x) => new Float2(AsFloat(x.X), AsFloat(x.Y));
+
+    [MslIntrinsic("as_type<float3>")]
+    public static Float3 AsFloat(Int3 x) => new Float3(AsFloat(x.X), AsFloat(x.Y), AsFloat(x.Z));
+
+    [MslIntrinsic("as_type<float4>")]
+    public static Float4 AsFloat(Int4 x) => new Float4(AsFloat(x.X), AsFloat(x.Y), AsFloat(x.Z), AsFloat(x.W));
+
+    [MslIntrinsic("as_type<float2>")]
+    public static Float2 AsFloat(UInt2 x) => new Float2(AsFloat(x.X), AsFloat(x.Y));
+
+    [MslIntrinsic("as_type<float3>")]
+    public static Float3 AsFloat(UInt3 x) => new Float3(AsFloat(x.X), AsFloat(x.Y), AsFloat(x.Z));
+
+    [MslIntrinsic("as_type<float4>")]
+    public static Float4 AsFloat(UInt4 x) => new Float4(AsFloat(x.X), AsFloat(x.Y), AsFloat(x.Z), AsFloat(x.W));
+
+    [MslIntrinsic("as_type<int2>")]
+    public static Int2 AsInt(Float2 x) => new Int2(AsInt(x.X), AsInt(x.Y));
+
+    [MslIntrinsic("as_type<int3>")]
+    public static Int3 AsInt(Float3 x) => new Int3(AsInt(x.X), AsInt(x.Y), AsInt(x.Z));
+
+    [MslIntrinsic("as_type<int4>")]
+    public static Int4 AsInt(Float4 x) => new Int4(AsInt(x.X), AsInt(x.Y), AsInt(x.Z), AsInt(x.W));
+
+    [MslIntrinsic("as_type<uint2>")]
+    public static UInt2 AsUInt(Float2 x) => new UInt2(AsUInt(x.X), AsUInt(x.Y));
+
+    [MslIntrinsic("as_type<uint3>")]
+    public static UInt3 AsUInt(Float3 x) => new UInt3(AsUInt(x.X), AsUInt(x.Y), AsUInt(x.Z));
+
+    [MslIntrinsic("as_type<uint4>")]
+    public static UInt4 AsUInt(Float4 x) => new UInt4(AsUInt(x.X), AsUInt(x.Y), AsUInt(x.Z), AsUInt(x.W));
 
     // MSL prelude helpers (see MslPrelude). Same constant and single multiply as the MSL helper.
 

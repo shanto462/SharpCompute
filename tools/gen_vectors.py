@@ -13,14 +13,17 @@ Outputs (checked in; edit this script, not the files):
     src/SharpCompute/Vectors/{Float,Int,UInt}{2,3,4}.g.cs            fields, ctors, X/Y/Z/W,
                                                                    operators, conversions
     src/SharpCompute/Vectors/{Float,Int,UInt}{2,3,4}.Swizzles.g.cs   2-4 component swizzles
-    src/SharpCompute/Vectors/Float{2x2,3x3}.g.cs                     matrices (rows in, MSL transpose)
+    src/SharpCompute/Vectors/Float{2x2,3x3,4x4}.g.cs                 matrices (rows in, MSL transpose)
     src/SharpCompute/Intrinsics/Gpu.g.cs                             vector overloads of Gpu.*,
                                                                    Radians/Degrees
-    src/SharpCompute/Intrinsics/Gpu.Matrices.g.cs                    Gpu.Mul ([MslBinaryOperator])
-    src/SharpCompute/Intrinsics/MslPrelude.g.cs                      MslPrelude.Source (__ms_* helpers)
+    src/SharpCompute/Intrinsics/Gpu.Matrices.g.cs                    Gpu.Mul ([MslBinaryOperator]),
+                                                                   Transpose, Determinant
+    src/SharpCompute/Intrinsics/MslPrelude.g.cs                      MslPrelude.Source (__ms_* helpers
+                                                                   and types)
 
-Scalar intrinsics (and Gpu.Cross) are hand-written in src/SharpCompute/Intrinsics/Gpu.cs; the
-vector overloads generated here are componentwise calls to those scalar implementations.
+Scalar intrinsics (and Gpu.Cross, the unorm8 packing and the atomics) are hand-written in
+src/SharpCompute/Intrinsics/Gpu.cs and Gpu.Atomics.cs; the vector overloads generated here are
+componentwise calls to those scalar implementations.
 
 Requires only the Python 3 standard library.
 """
@@ -308,10 +311,17 @@ def gen_swizzles(kind: Kind, n: int) -> str:
 
 
 # --------------------------------------------------------------------------------------------
-# Matrices (locals only in v1: [MslType] without Packed)
+# Matrices. Float2x2 and Float3x3 are locals only ([MslType] without Packed: MSL pads float3x3
+# columns to 16 bytes and aligns float2x2 to 8). Float4x4 has no padding, 64 bytes of floats on
+# both sides, so it may cross the CPU/GPU boundary; its Packed type is a prelude struct of four
+# packed_float4 columns (4-byte instead of 16-byte alignment), which the generator converts with
+# the prelude's __ms_unpack / __ms_pack on every load and store (see prelude_msl).
 # --------------------------------------------------------------------------------------------
 
-MATRIX_SIZES = (2, 3)
+MATRIX_SIZES = (2, 3, 4)
+
+# Matrix sizes whose C# layout is exactly the MSL layout, mapped to their boundary (Packed) type.
+PACKED_MATRICES = {4: "__ms_packed_float4x4"}
 
 
 def mat(n: int) -> str:
@@ -340,18 +350,29 @@ def gen_matrix(n: int) -> str:
     out.append("")
     out.append("namespace SharpCompute;")
     out.append("")
+    packed = PACKED_MATRICES.get(n)
     out.append(f"/// <summary>MSL <c>{msl}</c>, built from <b>rows</b> (HLSL/ComputeSharp convention).</summary>")
     out.append("/// <remarks>")
     out.append(f"/// The generator passes the constructor arguments unchanged to MSL's <c>{msl}(...)</c>, which takes")
     out.append(f"/// <b>columns</b>, so the MSL value is the transpose of this matrix. <see cref=\"Gpu.Mul({row}, {t})\"/>")
     out.append("/// compensates by swapping its operands, so every result has HLSL semantics with no explicit transpose.")
-    out.append("/// Locals only in v1: there is no <c>Packed</c> layout, so a matrix in a buffer, the constants or a")
-    out.append("/// struct field is a generator diagnostic. There is no unary minus (invalid MSL; write <c>m * -1f</c>),")
+    if packed:
+        out.append(f"/// Unlike the smaller matrices it can cross the CPU/GPU boundary (buffer elements, constants,")
+        out.append(f"/// struct fields): both sides store {n * n} floats with no padding, the C# rows where MSL keeps its")
+        out.append(f"/// columns, which is the same transpose the constructor applies. The memory layout is also that of")
+        out.append("/// <c>System.Numerics.Matrix4x4</c> (row-major, row vectors), so the two can be reinterpreted.")
+        out.append(f"/// In MSL the boundary type is the prelude's <c>{packed}</c>: four <c>packed_float4</c> columns,")
+        out.append(f"/// 4-byte aligned where <c>{msl}</c> is 16-byte aligned, so it packs next to other fields like the")
+        out.append("/// vectors do. The generator converts on every load and store (<c>__ms_unpack</c>, <c>__ms_pack</c>).")
+    else:
+        out.append("/// Locals only in v1: there is no <c>Packed</c> layout, so a matrix in a buffer, the constants or a")
+        out.append("/// struct field is a generator diagnostic.")
+    out.append("/// There is no unary minus (invalid MSL; write <c>m * -1f</c>),")
     out.append("/// no matrix <c>*</c> operator (HLSL's is componentwise, MSL's is a product; use <c>Gpu.Mul</c>) and")
     out.append("/// no element access in v1.")
     out.append("/// </remarks>")
-    out.append(f"[MslType(\"{msl}\")]")
-    out.append("[StructLayout(LayoutKind.Sequential)]")
+    out.append(f"[MslType(\"{msl}\", Packed = \"{packed}\")]" if packed else f"[MslType(\"{msl}\")]")
+    out.append("[StructLayout(LayoutKind.Sequential, Pack = 4)]" if packed else "[StructLayout(LayoutKind.Sequential)]")
     out.append(f"public partial struct {t}")
     out.append("{")
     out.append("    // Row-major CPU storage: _mRC is row R, column C.")
@@ -425,7 +446,47 @@ def gen_gpu_matrices() -> str:
         out.append(f"    public static {t} Mul({t} a, {t} b) => new {t}(")
         out.append("        " + ",\n        ".join(comps) + ");")
         out.append("")
-    out.pop()
+    out.append("    // transpose and determinant commute with the C#/MSL transpose convention: the MSL transpose of")
+    out.append("    // the transposed matrix is the transposed C# transpose, and det(M) == det(transpose(M)).")
+    out.append("")
+    for n in MATRIX_SIZES:
+        t = mat(n)
+        out.append("    /// <summary>The transpose: rows become columns (<c>result[i][j] = m[j][i]</c>). Exact.</summary>")
+        out.append("    [MslIntrinsic(\"metal::transpose\")]")
+        out.append(f"    public static {t} Transpose({t} m) => new {t}(")
+        out.append("        " + ",\n        ".join(", ".join(f"m.{mfield(c, r)}" for c in range(n)) for r in range(n)) + ");")
+        out.append("")
+    for n in MATRIX_SIZES:
+        t = mat(n)
+        out.append("    /// <summary>")
+        out.append("    /// The determinant, by cofactor expansion with fused multiply-adds. The GPU evaluates the same")
+        out.append("    /// polynomial in its own order, so results agree to rounding (a few ULP of the largest term),")
+        out.append("    /// not bit for bit; a nearly singular matrix can differ in every digit, as with any determinant.")
+        out.append("    /// </summary>")
+        out.append("    [MslIntrinsic(\"metal::determinant\")]")
+        if n == 2:
+            out.append(f"    public static float Determinant({t} m) => Det2(m._m00, m._m01, m._m10, m._m11);")
+        elif n == 3:
+            out.append(f"    public static float Determinant({t} m) => Det3(")
+            out.append("        m._m00, m._m01, m._m02,")
+            out.append("        m._m10, m._m11, m._m12,")
+            out.append("        m._m20, m._m21, m._m22);")
+        else:
+            # Expansion along the first row; each minor is a 3x3 determinant of the other rows.
+            out.append(f"    public static float Determinant({t} m)")
+            out.append("    {")
+            for c in range(4):
+                cols = [k for k in range(4) if k != c]
+                rows = ",\n            ".join(", ".join(f"m.{mfield(r, k)}" for k in cols) for r in (1, 2, 3))
+                out.append(f"        float c{c} = Det3(")
+                out.append(f"            {rows});")
+            out.append("        return MathF.FusedMultiplyAdd(m._m00, c0, -(m._m01 * c1)) + MathF.FusedMultiplyAdd(m._m02, c2, -(m._m03 * c3));")
+            out.append("    }")
+        out.append("")
+    out.append("    private static float Det2(float a, float b, float c, float d) => MathF.FusedMultiplyAdd(a, d, -(b * c));")
+    out.append("")
+    out.append("    private static float Det3(float a, float b, float c, float d, float e, float f, float g, float h, float i) =>")
+    out.append("        MathF.FusedMultiplyAdd(a, Det2(e, f, h, i), MathF.FusedMultiplyAdd(-b, Det2(d, f, g, i), c * Det2(d, e, g, h)));")
     out.append("}")
     return "\n".join(out) + "\n"
 
@@ -449,11 +510,41 @@ PRELUDE_SCALES = (
 )
 
 
+# The strong compare-and-swap behind Gpu.AtomicCompareExchange. MSL only has the weak form, which
+# may fail spuriously (leaving `expected` equal to the comparand): retry until it succeeds or reads
+# another value. The memory order must be a compile-time constant in MSL, so it cannot be a
+# parameter; relaxed is the only order there is. One overload per atomic type and address space.
+PRELUDE_ATOMIC_CAS = "__ms_atomic_compare_exchange"
+
+# Conversions between a prelude boundary type and its native type (overloaded per type). The
+# generator emits them by these names for every [MslType] whose Packed type starts with __ms_.
+PRELUDE_UNPACK = "__ms_unpack"
+PRELUDE_PACK = "__ms_pack"
+PRELUDE_ATOMICS = (("device", "int", "metal::atomic_int"), ("device", "uint", "metal::atomic_uint"))
+
+
 def prelude_msl() -> list[str]:
     lines = ["// SharpCompute prelude (MslPrelude.Source)."]
     for f in PRELUDE_SCALES:
         for t in ("float", "float2", "float3", "float4"):
             lines.append(f"inline {t} {f.msl}({t} x) {{ return x * {f.constant}; }}")
+    for space, t, atomic in PRELUDE_ATOMICS:
+        lines.append(
+            f"inline {t} {PRELUDE_ATOMIC_CAS}({space} {atomic}* location, {t} comparand, {t} value) "
+            f"{{ {t} expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, "
+            f"metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) {{ }} return expected; }}")
+    for n, packed in PACKED_MATRICES.items():
+        msl, column = f"float{n}x{n}", f"float{n}"
+        # The boundary form of a matrix: its columns as packed vectors, so the struct has the
+        # alignment of a float and sits at any 4-byte offset, like the C# struct does. It is a
+        # distinct type on purpose: the generator loads it with __ms_unpack and stores it with
+        # __ms_pack, so native (16-byte aligned) matrix code never touches under-aligned storage.
+        lines.append(f"struct {packed} {{ packed_{column} columns[{n}]; }};")
+        lines.append(f"static_assert(sizeof({packed}) == {4 * n * n} && alignof({packed}) == 4, \"SharpCompute: layout of '{packed}' does not match its C# layout\");")
+        columns = ", ".join(f"{column}(m.columns[{c}])" for c in range(n))
+        lines.append(f"inline {msl} {PRELUDE_UNPACK}({packed} m) {{ return {msl}({columns}); }}")
+        columns = ", ".join(f"m[{c}]" for c in range(n))
+        lines.append(f"inline {packed} {PRELUDE_PACK}({msl} m) {{ return {packed}{{{{{columns}}}}}; }}")
     return lines
 
 
@@ -462,9 +553,11 @@ def gen_prelude() -> str:
     out.append("namespace SharpCompute;")
     out.append("")
     out.append("/// <summary>")
-    out.append("/// MSL helpers for functions that have no <c>metal::</c> equivalent. The generator emits")
-    out.append("/// <see cref=\"Source\"/> after <c>using namespace metal;</c>. Helpers are named <c>__ms_*</c> and are")
-    out.append("/// referenced by <c>[MslIntrinsic(\"__ms_...\")]</c> on the matching <see cref=\"Gpu\"/> methods.")
+    out.append("/// MSL helpers and types that have no <c>metal::</c> equivalent. The generator emits")
+    out.append("/// <see cref=\"Source\"/> after <c>using namespace metal;</c> when a shader uses one of them. They")
+    out.append("/// are named <c>__ms_*</c> and are referenced by <c>[MslIntrinsic(\"__ms_...\")]</c> and")
+    out.append("/// <c>[MslAtomic(\"__ms_...\")]</c> on the matching <see cref=\"Gpu\"/> methods, and by")
+    out.append("/// <c>[MslType(..., Packed = \"__ms_...\")]</c> on <see cref=\"Float4x4\"/>.")
     out.append("/// </summary>")
     out.append("public static class MslPrelude")
     out.append("{")
@@ -492,6 +585,7 @@ class Func:
 
 
 ALL_KINDS = (FLOAT, INT, UINT)
+INTEGER_KINDS = (INT, UINT)
 FUNCS: tuple[Func, ...] = (
     Func("Abs", "abs", ("x",), ALL_KINDS),
     Func("Min", "min", ("x", "y"), ALL_KINDS, mixed=((1,),)),
@@ -512,6 +606,8 @@ FUNCS: tuple[Func, ...] = (
     Func("Exp2", "exp2", ("x",)),
     Func("Log", "log", ("x",)),
     Func("Log2", "log2", ("x",)),
+    Func("Log10", "log10", ("x",)),
+    Func("Exp10", "exp10", ("x",)),
     Func("Sin", "sin", ("x",)),
     Func("Cos", "cos", ("x",)),
     Func("Tan", "tan", ("x",)),
@@ -525,7 +621,16 @@ FUNCS: tuple[Func, ...] = (
     Func("Lerp", "mix", ("x", "y", "a"), mixed=((2,),)),
     Func("Step", "step", ("edge", "x"), mixed=((0,),)),
     Func("Smoothstep", "smoothstep", ("edge0", "edge1", "x"), mixed=((0, 1),)),
+    Func("Fma", "fma", ("x", "y", "z")),
+    Func("CopySign", "copysign", ("x", "y")),
+    Func("CountBits", "popcount", ("x",), INTEGER_KINDS),
+    Func("LeadingZeroCount", "clz", ("x",), INTEGER_KINDS),
+    Func("TrailingZeroCount", "ctz", ("x",), INTEGER_KINDS),
+    Func("ReverseBits", "reverse_bits", ("x",), INTEGER_KINDS),
 )
+
+# Bit reinterpretation (MSL as_type<T>): C# name, source kinds, result kind.
+REINTERPRETS = (("AsFloat", (INT, UINT), FLOAT), ("AsInt", (FLOAT,), INT), ("AsUInt", (FLOAT,), UINT))
 
 
 def gen_gpu() -> str:
@@ -555,6 +660,16 @@ def gen_gpu() -> str:
                         args = [p if i in scalars else f"{p}.{prop(c)}" for i, p in enumerate(f.params)]
                         comps.append(f"{f.name}({', '.join(args)})")
                     method(f.msl, t, f.name, params, f"new {t}({', '.join(comps)})")
+
+    out.append("    // Bit reinterpretation -> as_type<T> (componentwise; the bits are unchanged)")
+    out.append("")
+    for name, sources, result in REINTERPRETS:
+        for source in sources:
+            for n in WIDTHS:
+                t = result.vec(n)
+                out.append(f"    [MslIntrinsic(\"as_type<{result.msl_vec(n)}>\")]")
+                out.append(f"    public static {t} {name}({source.vec(n)} x) => new {t}({', '.join(f'{name}(x.{prop(i)})' for i in range(n))});")
+                out.append("")
 
     out.append("    // MSL prelude helpers (see MslPrelude). Same constant and single multiply as the MSL helper.")
     out.append("")
@@ -717,6 +832,15 @@ def gen_msl_probe() -> str:
                 for scalars in ((),) + f.mixed:
                     args = [sc if i in scalars else v for i in range(len(f.params))]
                     lines.append(f"    acc += float(metal::{f.msl}({', '.join(args)}).x);")
+    # Bit reinterpretation.
+    for _, sources, result in REINTERPRETS:
+        for source in sources:
+            lines.append(f"    acc += float(as_type<{result.msl}>(s{source.msl}));")
+            for n in WIDTHS:
+                lines.append(f"    acc += float(as_type<{result.msl_vec(n)}>(v{source.msl_vec(n)}).x);")
+    # Scalar-only intrinsics of Gpu.cs.
+    lines.append("    acc += float(metal::isnan(sfloat)) + float(metal::isinf(sfloat)) + float(metal::isfinite(sfloat));")
+    lines.append("    acc += float(metal::pack_float_to_unorm4x8(vfloat4)) + metal::unpack_unorm4x8_to_float(suint).x;")
     for n in WIDTHS:
         v = f"vfloat{n}"
         lines.append(f"    acc += metal::dot({v}, {v}) + metal::length({v}) + metal::distance({v}, {v}) + metal::normalize({v}).x + metal::reflect({v}, {v}).x;")
@@ -744,6 +868,20 @@ def gen_msl_probe() -> str:
         lines.append(f"    acc += {mul(v, m)}.x; // Gpu.Mul(v, M)")
         lines.append(f"    acc += {mul(m, v)}.x; // Gpu.Mul(M, v)")
         lines.append(f"    acc += {mul(m, r)}[0].x; // Gpu.Mul(A, B)")
+        lines.append(f"    acc += metal::transpose({m})[0].x + metal::determinant({m});")
+        if n in PACKED_MATRICES:
+            # The boundary type: read, written and used in place through device memory.
+            p = f"((device {PACKED_MATRICES[n]}*)sink)"
+            lines.append(f"    {m} = {PRELUDE_UNPACK}({p}[tid]); {p}[tid] = {PRELUDE_PACK}({m}); acc += {mul(v, PRELUDE_UNPACK + '(' + p + '[tid])')}.x;")
+    # Atomics on device memory (Gpu.Atomic*): every function for int and uint, the float add, and the
+    # prelude's strong compare-and-swap.
+    order = "metal::memory_order_relaxed"
+    for t, atomic in (("int", "metal::atomic_int"), ("uint", "metal::atomic_uint")):
+        a = f"(device {atomic}*)&(((device {t}*)sink)[tid])"
+        for fn in ("fetch_add", "fetch_sub", "fetch_min", "fetch_max", "fetch_and", "fetch_or", "fetch_xor", "exchange"):
+            lines.append(f"    acc += float(metal::atomic_{fn}_explicit({a}, s{t}, {order}));")
+        lines.append(f"    acc += float({PRELUDE_ATOMIC_CAS}({a}, s{t}, s{t}));")
+    lines.append(f"    acc += metal::atomic_fetch_add_explicit((device metal::atomic<float>*)&(sink[tid]), sfloat, {order});")
     lines.append("    sink[tid] = acc;")
     lines.append("}")
     return "\n".join(lines) + "\n"

@@ -57,4 +57,115 @@ public static partial class Gpu
         MathF.FusedMultiplyAdd(a._m22, b._m20, MathF.FusedMultiplyAdd(a._m21, b._m10, a._m20 * b._m00)),
         MathF.FusedMultiplyAdd(a._m22, b._m21, MathF.FusedMultiplyAdd(a._m21, b._m11, a._m20 * b._m01)),
         MathF.FusedMultiplyAdd(a._m22, b._m22, MathF.FusedMultiplyAdd(a._m21, b._m12, a._m20 * b._m02)));
+
+    /// <summary>HLSL <c>mul(v, m)</c>: row vector times matrix, <c>result[j] = sum_k v[k] * m[k][j]</c>. Emitted as <c>(m * v)</c>.</summary>
+    [MslBinaryOperator("*", SwapOperands = true)]
+    public static Float4 Mul(Float4 v, Float4x4 m) => new Float4(
+        MathF.FusedMultiplyAdd(v.W, m._m30, MathF.FusedMultiplyAdd(v.Z, m._m20, MathF.FusedMultiplyAdd(v.Y, m._m10, v.X * m._m00))),
+        MathF.FusedMultiplyAdd(v.W, m._m31, MathF.FusedMultiplyAdd(v.Z, m._m21, MathF.FusedMultiplyAdd(v.Y, m._m11, v.X * m._m01))),
+        MathF.FusedMultiplyAdd(v.W, m._m32, MathF.FusedMultiplyAdd(v.Z, m._m22, MathF.FusedMultiplyAdd(v.Y, m._m12, v.X * m._m02))),
+        MathF.FusedMultiplyAdd(v.W, m._m33, MathF.FusedMultiplyAdd(v.Z, m._m23, MathF.FusedMultiplyAdd(v.Y, m._m13, v.X * m._m03))));
+
+    /// <summary>HLSL <c>mul(m, v)</c>: matrix times column vector, <c>result[i] = sum_k m[i][k] * v[k]</c>. Emitted as <c>(v * m)</c>.</summary>
+    [MslBinaryOperator("*", SwapOperands = true)]
+    public static Float4 Mul(Float4x4 m, Float4 v) => new Float4(
+        MathF.FusedMultiplyAdd(v.W, m._m03, MathF.FusedMultiplyAdd(v.Z, m._m02, MathF.FusedMultiplyAdd(v.Y, m._m01, v.X * m._m00))),
+        MathF.FusedMultiplyAdd(v.W, m._m13, MathF.FusedMultiplyAdd(v.Z, m._m12, MathF.FusedMultiplyAdd(v.Y, m._m11, v.X * m._m10))),
+        MathF.FusedMultiplyAdd(v.W, m._m23, MathF.FusedMultiplyAdd(v.Z, m._m22, MathF.FusedMultiplyAdd(v.Y, m._m21, v.X * m._m20))),
+        MathF.FusedMultiplyAdd(v.W, m._m33, MathF.FusedMultiplyAdd(v.Z, m._m32, MathF.FusedMultiplyAdd(v.Y, m._m31, v.X * m._m30))));
+
+    /// <summary>HLSL <c>mul(a, b)</c>: matrix product, <c>result[i][j] = sum_k a[i][k] * b[k][j]</c>. Emitted as <c>(b * a)</c>.</summary>
+    [MslBinaryOperator("*", SwapOperands = true)]
+    public static Float4x4 Mul(Float4x4 a, Float4x4 b) => new Float4x4(
+        MathF.FusedMultiplyAdd(a._m03, b._m30, MathF.FusedMultiplyAdd(a._m02, b._m20, MathF.FusedMultiplyAdd(a._m01, b._m10, a._m00 * b._m00))),
+        MathF.FusedMultiplyAdd(a._m03, b._m31, MathF.FusedMultiplyAdd(a._m02, b._m21, MathF.FusedMultiplyAdd(a._m01, b._m11, a._m00 * b._m01))),
+        MathF.FusedMultiplyAdd(a._m03, b._m32, MathF.FusedMultiplyAdd(a._m02, b._m22, MathF.FusedMultiplyAdd(a._m01, b._m12, a._m00 * b._m02))),
+        MathF.FusedMultiplyAdd(a._m03, b._m33, MathF.FusedMultiplyAdd(a._m02, b._m23, MathF.FusedMultiplyAdd(a._m01, b._m13, a._m00 * b._m03))),
+        MathF.FusedMultiplyAdd(a._m13, b._m30, MathF.FusedMultiplyAdd(a._m12, b._m20, MathF.FusedMultiplyAdd(a._m11, b._m10, a._m10 * b._m00))),
+        MathF.FusedMultiplyAdd(a._m13, b._m31, MathF.FusedMultiplyAdd(a._m12, b._m21, MathF.FusedMultiplyAdd(a._m11, b._m11, a._m10 * b._m01))),
+        MathF.FusedMultiplyAdd(a._m13, b._m32, MathF.FusedMultiplyAdd(a._m12, b._m22, MathF.FusedMultiplyAdd(a._m11, b._m12, a._m10 * b._m02))),
+        MathF.FusedMultiplyAdd(a._m13, b._m33, MathF.FusedMultiplyAdd(a._m12, b._m23, MathF.FusedMultiplyAdd(a._m11, b._m13, a._m10 * b._m03))),
+        MathF.FusedMultiplyAdd(a._m23, b._m30, MathF.FusedMultiplyAdd(a._m22, b._m20, MathF.FusedMultiplyAdd(a._m21, b._m10, a._m20 * b._m00))),
+        MathF.FusedMultiplyAdd(a._m23, b._m31, MathF.FusedMultiplyAdd(a._m22, b._m21, MathF.FusedMultiplyAdd(a._m21, b._m11, a._m20 * b._m01))),
+        MathF.FusedMultiplyAdd(a._m23, b._m32, MathF.FusedMultiplyAdd(a._m22, b._m22, MathF.FusedMultiplyAdd(a._m21, b._m12, a._m20 * b._m02))),
+        MathF.FusedMultiplyAdd(a._m23, b._m33, MathF.FusedMultiplyAdd(a._m22, b._m23, MathF.FusedMultiplyAdd(a._m21, b._m13, a._m20 * b._m03))),
+        MathF.FusedMultiplyAdd(a._m33, b._m30, MathF.FusedMultiplyAdd(a._m32, b._m20, MathF.FusedMultiplyAdd(a._m31, b._m10, a._m30 * b._m00))),
+        MathF.FusedMultiplyAdd(a._m33, b._m31, MathF.FusedMultiplyAdd(a._m32, b._m21, MathF.FusedMultiplyAdd(a._m31, b._m11, a._m30 * b._m01))),
+        MathF.FusedMultiplyAdd(a._m33, b._m32, MathF.FusedMultiplyAdd(a._m32, b._m22, MathF.FusedMultiplyAdd(a._m31, b._m12, a._m30 * b._m02))),
+        MathF.FusedMultiplyAdd(a._m33, b._m33, MathF.FusedMultiplyAdd(a._m32, b._m23, MathF.FusedMultiplyAdd(a._m31, b._m13, a._m30 * b._m03))));
+
+    // transpose and determinant commute with the C#/MSL transpose convention: the MSL transpose of
+    // the transposed matrix is the transposed C# transpose, and det(M) == det(transpose(M)).
+
+    /// <summary>The transpose: rows become columns (<c>result[i][j] = m[j][i]</c>). Exact.</summary>
+    [MslIntrinsic("metal::transpose")]
+    public static Float2x2 Transpose(Float2x2 m) => new Float2x2(
+        m._m00, m._m10,
+        m._m01, m._m11);
+
+    /// <summary>The transpose: rows become columns (<c>result[i][j] = m[j][i]</c>). Exact.</summary>
+    [MslIntrinsic("metal::transpose")]
+    public static Float3x3 Transpose(Float3x3 m) => new Float3x3(
+        m._m00, m._m10, m._m20,
+        m._m01, m._m11, m._m21,
+        m._m02, m._m12, m._m22);
+
+    /// <summary>The transpose: rows become columns (<c>result[i][j] = m[j][i]</c>). Exact.</summary>
+    [MslIntrinsic("metal::transpose")]
+    public static Float4x4 Transpose(Float4x4 m) => new Float4x4(
+        m._m00, m._m10, m._m20, m._m30,
+        m._m01, m._m11, m._m21, m._m31,
+        m._m02, m._m12, m._m22, m._m32,
+        m._m03, m._m13, m._m23, m._m33);
+
+    /// <summary>
+    /// The determinant, by cofactor expansion with fused multiply-adds. The GPU evaluates the same
+    /// polynomial in its own order, so results agree to rounding (a few ULP of the largest term),
+    /// not bit for bit; a nearly singular matrix can differ in every digit, as with any determinant.
+    /// </summary>
+    [MslIntrinsic("metal::determinant")]
+    public static float Determinant(Float2x2 m) => Det2(m._m00, m._m01, m._m10, m._m11);
+
+    /// <summary>
+    /// The determinant, by cofactor expansion with fused multiply-adds. The GPU evaluates the same
+    /// polynomial in its own order, so results agree to rounding (a few ULP of the largest term),
+    /// not bit for bit; a nearly singular matrix can differ in every digit, as with any determinant.
+    /// </summary>
+    [MslIntrinsic("metal::determinant")]
+    public static float Determinant(Float3x3 m) => Det3(
+        m._m00, m._m01, m._m02,
+        m._m10, m._m11, m._m12,
+        m._m20, m._m21, m._m22);
+
+    /// <summary>
+    /// The determinant, by cofactor expansion with fused multiply-adds. The GPU evaluates the same
+    /// polynomial in its own order, so results agree to rounding (a few ULP of the largest term),
+    /// not bit for bit; a nearly singular matrix can differ in every digit, as with any determinant.
+    /// </summary>
+    [MslIntrinsic("metal::determinant")]
+    public static float Determinant(Float4x4 m)
+    {
+        float c0 = Det3(
+            m._m11, m._m12, m._m13,
+            m._m21, m._m22, m._m23,
+            m._m31, m._m32, m._m33);
+        float c1 = Det3(
+            m._m10, m._m12, m._m13,
+            m._m20, m._m22, m._m23,
+            m._m30, m._m32, m._m33);
+        float c2 = Det3(
+            m._m10, m._m11, m._m13,
+            m._m20, m._m21, m._m23,
+            m._m30, m._m31, m._m33);
+        float c3 = Det3(
+            m._m10, m._m11, m._m12,
+            m._m20, m._m21, m._m22,
+            m._m30, m._m31, m._m32);
+        return MathF.FusedMultiplyAdd(m._m00, c0, -(m._m01 * c1)) + MathF.FusedMultiplyAdd(m._m02, c2, -(m._m03 * c3));
+    }
+
+    private static float Det2(float a, float b, float c, float d) => MathF.FusedMultiplyAdd(a, d, -(b * c));
+
+    private static float Det3(float a, float b, float c, float d, float e, float f, float g, float h, float i) =>
+        MathF.FusedMultiplyAdd(a, Det2(e, f, h, i), MathF.FusedMultiplyAdd(-b, Det2(d, f, g, i), c * Det2(d, e, g, h)));
 }

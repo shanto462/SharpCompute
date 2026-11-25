@@ -38,4 +38,5 @@ SCG0030 | SharpCompute | Error | Sampler must be a static property of Sampler pa
 SCG0031 | SharpCompute | Error | Texture element is modified in place
 SCG0032 | SharpCompute | Error | Texture is returned or passed by reference
 SCG0033 | SharpCompute | Error | Read-write texture cannot be sampled
+SCG0034 | SharpCompute | Error | Atomic operation needs a buffer element
 SCG9999 | SharpCompute | Error | Internal generator error

@@ -4,9 +4,11 @@
 namespace SharpCompute;
 
 /// <summary>
-/// MSL helpers for functions that have no <c>metal::</c> equivalent. The generator emits
-/// <see cref="Source"/> after <c>using namespace metal;</c>. Helpers are named <c>__ms_*</c> and are
-/// referenced by <c>[MslIntrinsic("__ms_...")]</c> on the matching <see cref="Gpu"/> methods.
+/// MSL helpers and types that have no <c>metal::</c> equivalent. The generator emits
+/// <see cref="Source"/> after <c>using namespace metal;</c> when a shader uses one of them. They
+/// are named <c>__ms_*</c> and are referenced by <c>[MslIntrinsic("__ms_...")]</c> and
+/// <c>[MslAtomic("__ms_...")]</c> on the matching <see cref="Gpu"/> methods, and by
+/// <c>[MslType(..., Packed = "__ms_...")]</c> on <see cref="Float4x4"/>.
 /// </summary>
 public static class MslPrelude
 {
@@ -21,5 +23,11 @@ public static class MslPrelude
         inline float2 __ms_degrees(float2 x) { return x * 57.29577951308232f; }
         inline float3 __ms_degrees(float3 x) { return x * 57.29577951308232f; }
         inline float4 __ms_degrees(float4 x) { return x * 57.29577951308232f; }
+        inline int __ms_atomic_compare_exchange(device metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
+        inline uint __ms_atomic_compare_exchange(device metal::atomic_uint* location, uint comparand, uint value) { uint expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
+        struct __ms_packed_float4x4 { packed_float4 columns[4]; };
+        static_assert(sizeof(__ms_packed_float4x4) == 64 && alignof(__ms_packed_float4x4) == 4, "SharpCompute: layout of '__ms_packed_float4x4' does not match its C# layout");
+        inline float4x4 __ms_unpack(__ms_packed_float4x4 m) { return float4x4(float4(m.columns[0]), float4(m.columns[1]), float4(m.columns[2]), float4(m.columns[3])); }
+        inline __ms_packed_float4x4 __ms_pack(float4x4 m) { return __ms_packed_float4x4{{m[0], m[1], m[2], m[3]}}; }
         """;
 }

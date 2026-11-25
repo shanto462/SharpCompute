@@ -271,6 +271,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor InvalidAtomicTarget = new(
+        id: "SCG0034",
+        title: "Atomic operation needs a buffer element",
+        messageFormat: "'{0}' cannot be the target of the atomic operation '{1}': {2}. Pass an element of a captured ReadWriteBuffer<int>, ReadWriteBuffer<uint> or ReadWriteBuffer<float> by reference, as in 'ref buffer[i]'.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",

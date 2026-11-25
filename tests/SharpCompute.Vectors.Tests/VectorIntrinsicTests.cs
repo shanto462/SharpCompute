@@ -6,7 +6,9 @@ namespace SharpCompute.Vectors.Tests;
 
 public class VectorIntrinsicTests
 {
-    private static readonly string[] Geometric = ["Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul"];
+    // Not "the same function per component": geometric functions, and those that change the element
+    // type (bit reinterpretation, unorm8 packing; see BitIntrinsicTests).
+    private static readonly string[] Geometric = ["Dot", "Cross", "Length", "Distance", "Normalize", "Reflect", "Mul", "AsFloat", "AsInt", "AsUInt", "PackUnorm4x8"];
 
     /// <summary>
     /// Every vector overload of a componentwise intrinsic equals the scalar overload applied per
