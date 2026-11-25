@@ -337,6 +337,13 @@ internal sealed partial class MslTranslator
     /// <summary>True when a <c>__ms_*</c> prelude helper is called, so the MSL needs <c>MslPrelude.Source</c>.</summary>
     public bool UsesPrelude { get; private set; }
 
+    /// <summary>
+    /// True when an <c>[MslAtomic]</c> call was translated, in the kernel or in a helper it reaches
+    /// (helpers are only translated when called). Published on the descriptor so that the runtime
+    /// never divides such a shader between the CPU and the GPU.
+    /// </summary>
+    public bool UsesAtomics { get; private set; }
+
     /// <summary>Every local and parameter name that was emitted, used to detect clashes with struct names.</summary>
     public HashSet<string> LocalNames { get; } = new(StringComparer.Ordinal);
 

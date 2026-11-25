@@ -102,6 +102,8 @@ internal sealed partial class MslTranslator
             return Expr.Error;
         }
 
+        UsesAtomics = true;
+
         var arguments = new List<string> { location.Pointer };
         arguments.AddRange(values.OrderBy(static v => v.Ordinal).Select(v => Expression(v.Argument.Value).Text));
 

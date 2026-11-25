@@ -335,6 +335,80 @@ public readonly partial struct SmallMatrixMath(ReadOnlyBuffer<float> elements, R
 }
 
 /// <summary>
+/// One thread, a fixed sequence of atomics at the wrap-around points, every returned value recorded.
+/// The contention tests discard most results; this pins what each operation returns and stores.
+/// <c>big</c> is <c>int.MaxValue</c> and <c>ubig</c> is <c>0xC0000000</c>, passed as constants so that
+/// some operands only exist at run time.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct AtomicSequence(
+    ReadWriteBuffer<int> ints,
+    ReadWriteBuffer<uint> uints,
+    ReadWriteBuffer<float> floats,
+    ReadWriteBuffer<int> returned,
+    ReadWriteBuffer<uint> returnedUInts,
+    ReadWriteBuffer<float> returnedFloats,
+    int big,
+    uint ubig) : IComputeShader
+{
+    public void Execute()
+    {
+        // int: add past int.MaxValue, subtract int.MinValue, signed min/max, bitwise, exchange, both compare-exchanges.
+        returned[0] = Gpu.AtomicAdd(ref ints[0], int.MaxValue);
+        returned[1] = Gpu.AtomicAdd(ref ints[0], 1);
+        returned[2] = Gpu.AtomicSub(ref ints[1], int.MinValue);
+        returned[3] = Gpu.AtomicSub(ref ints[2], 1);
+        returned[4] = Gpu.AtomicSub(ref ints[2], -1);
+        returned[5] = Gpu.AtomicMin(ref ints[3], -1);
+        returned[6] = Gpu.AtomicMin(ref ints[3], 5);
+        returned[7] = Gpu.AtomicMax(ref ints[4], int.MinValue);
+        returned[8] = Gpu.AtomicMax(ref ints[4], 9);
+        returned[9] = Gpu.AtomicAnd(ref ints[5], 0x00FF00FF);
+        returned[10] = Gpu.AtomicOr(ref ints[5], int.MinValue);
+        returned[11] = Gpu.AtomicXor(ref ints[5], -1);
+        returned[12] = Gpu.AtomicExchange(ref ints[6], int.MinValue);
+        returned[13] = Gpu.AtomicCompareExchange(ref ints[7], 3, 9);
+        returned[14] = Gpu.AtomicCompareExchange(ref ints[7], 1, 11);
+        returned[15] = Gpu.AtomicAdd(ref ints[8], big);
+        returned[16] = Gpu.AtomicAdd(ref ints[8], big);
+        returned[17] = Gpu.AtomicSub(ref ints[9], big);
+        returned[18] = Gpu.AtomicSub(ref ints[9], -big - 1);
+
+        // uint: add and subtract through zero, unsigned min/max (0xFFFFFFFF is the largest, not -1).
+        returnedUInts[0] = Gpu.AtomicAdd(ref uints[0], 0xFFFFFFFFu);
+        returnedUInts[1] = Gpu.AtomicAdd(ref uints[0], 2u);
+        returnedUInts[2] = Gpu.AtomicSub(ref uints[1], 1u);
+        returnedUInts[3] = Gpu.AtomicSub(ref uints[1], ubig);
+        returnedUInts[4] = Gpu.AtomicSub(ref uints[1], ubig);
+        returnedUInts[5] = Gpu.AtomicMin(ref uints[2], 0xFFFFFFFFu);
+        returnedUInts[6] = Gpu.AtomicMin(ref uints[2], 3u);
+        returnedUInts[7] = Gpu.AtomicMax(ref uints[3], 0x80000000u);
+        returnedUInts[8] = Gpu.AtomicMax(ref uints[3], 7u);
+        returnedUInts[9] = Gpu.AtomicAnd(ref uints[4], 0xFF00FF00u);
+        returnedUInts[10] = Gpu.AtomicOr(ref uints[4], 0x0000000Fu);
+        returnedUInts[11] = Gpu.AtomicXor(ref uints[4], 0xFFFFFFFFu);
+        returnedUInts[12] = Gpu.AtomicExchange(ref uints[5], 0xDEADBEEFu);
+        returnedUInts[13] = Gpu.AtomicCompareExchange(ref uints[6], 1u, 2u);
+        returnedUInts[14] = Gpu.AtomicCompareExchange(ref uints[6], ubig, 1u);
+        returnedUInts[15] = Gpu.AtomicMax(ref uints[6], ubig);
+
+        returnedFloats[0] = Gpu.AtomicAdd(ref floats[0], 0.25f);
+        returnedFloats[1] = Gpu.AtomicAdd(ref floats[0], -2f);
+    }
+}
+
+/// <summary>A pixel shader that also counts its pixels per column parity with an atomic: safe on one device, not when split.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct AtomicPixelCount(ReadWriteBuffer<int> counts) : IComputeShader<Float4>
+{
+    public Float4 Execute()
+    {
+        Gpu.AtomicAdd(ref counts[ThreadIds.X & 1], 1);
+        return new Float4(ThreadIds.Normalized.X, ThreadIds.Normalized.Y, 0.5f, 1f);
+    }
+}
+
+/// <summary>
 /// Matrix products whose vector operand has the packed type without being a direct read of a buffer:
 /// a conditional between two elements, a helper's result, a swizzle, a struct field.
 /// </summary>

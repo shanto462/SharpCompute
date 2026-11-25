@@ -27,6 +27,15 @@ namespace SharpCompute;
 /// the GPU alike; only the set of them is deterministic (for an add of 1: a permutation of
 /// <c>0..n-1</c>).
 /// </para>
+/// <para>
+/// The guarantee holds among the threads of one dispatch on one device, not between a GPU dispatch
+/// and CPU code running at the same time: the GPU's atomics and the CPU's <see cref="Interlocked"/>
+/// operations do not exclude each other on shared memory, and updates are lost. <c>ForAsync</c> next
+/// to <c>ForCpu</c> (or any other CPU code) on the same buffer is such a race, and so is a CPU+GPU
+/// split, which is why <c>ForSplit</c> never divides a shader that uses atomics: an explicit share
+/// strictly between 0 and 1 throws <see cref="NotSupportedException"/>, and the adaptive mode runs
+/// the whole grid on the GPU.
+/// </para>
 /// </remarks>
 public static partial class Gpu
 {

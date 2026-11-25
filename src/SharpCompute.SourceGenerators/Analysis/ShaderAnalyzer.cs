@@ -422,7 +422,8 @@ internal sealed class ShaderAnalyzer
             new EquatableArray<ConstantArgument>(constants.Select(static c => new ConstantArgument(c.Type.CSharpName, CSharpIdentifier(c.Name), c.Value))),
             constantsIndex: buffers.Count,
             usesInstanceAccess,
-            gridWindowIndex);
+            gridWindowIndex,
+            translator.UsesAtomics);
 
         return translation;
     }
@@ -742,7 +743,8 @@ internal sealed class ShaderAnalyzer
         EquatableArray<ConstantArgument> constants = default,
         int constantsIndex = 0,
         bool usesInstanceAccess = false,
-        int gridWindowIndex = -1)
+        int gridWindowIndex = -1,
+        bool usesAtomics = false)
     {
         var types = new List<TypeDeclarationInfo>();
 
@@ -778,7 +780,8 @@ internal sealed class ShaderAnalyzer
             Constants: constants,
             ConstantsIndex: constantsIndex,
             UsesInstanceAccess: usesInstanceAccess,
-            GridWindowIndex: gridWindowIndex);
+            GridWindowIndex: gridWindowIndex,
+            UsesAtomics: usesAtomics);
     }
 
     // ---------------------------------------------------------------------------------------------

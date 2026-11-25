@@ -350,7 +350,8 @@ device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shad
 ```
 
 Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
-the GPU up to floating-point rounding. Only split shaders whose threads write their own elements.
+the GPU up to floating-point rounding. Only split shaders whose threads write their own elements;
+a shader that uses `Gpu.Atomic*` is never divided (see [Atomics](#shader-language-reference)).
 Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
 every CPU core is busy. The adaptive mode therefore only splits while that measures faster than the
 GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % faster than GPU-only
@@ -403,6 +404,12 @@ device.For(image.Length, new LuminanceHistogram(image, counts));
   `output[Gpu.AtomicAdd(ref counter[0], 1)] = i` gives the right elements in an unspecified order.
   The float add applies every add exactly once, but float addition is not associative, so its sum
   can depend on the order unless the partial sums are exact.
+- The guarantee holds among the threads of one dispatch on one device, not between a GPU dispatch
+  and CPU code running at the same time: the GPU's atomics and the CPU's `Interlocked` operations
+  do not exclude each other on shared memory, so `ForAsync` next to `ForCpu` on the same buffer
+  loses updates. For the same reason `ForSplit` never divides a shader that uses atomics: a
+  `cpuFraction` strictly between 0 and 1 throws `NotSupportedException`, and the adaptive mode runs
+  the whole grid on the GPU and reports it in `SplitDispatchInfo.SingleDeviceOnly`.
 
 **Bits.** All bit-exact between the GPU and the CPU, including NaN payloads, signed zeros and
 subnormals.

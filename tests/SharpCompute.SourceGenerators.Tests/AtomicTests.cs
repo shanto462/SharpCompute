@@ -144,6 +144,36 @@ public class AtomicTests
     }
 
     [Fact]
+    public void TheDescriptor_SaysWhetherTheShaderUsesAtomics()
+    {
+        // The runtime reads this to keep a CPU+GPU split from dividing the shader. It is a static
+        // virtual with a default of false, so the member is only emitted when it is true.
+        const string Member = "static bool global::SharpCompute.IComputeShaderDescriptor<global::Tests.TestShader>.UsesAtomics => true;";
+
+        GeneratorRun direct = Run("Gpu.AtomicAdd(ref counts[0], 1);");
+        Assert.True(direct.Verify(Shader).UsesAtomics);
+        Assert.Contains(Member, direct.Source("TestShader.SharpCompute.g.cs"));
+
+        // An atomic in a helper, two calls down, counts as well.
+        GeneratorRun viaHelpers = Run(
+            "counts[1] = Outer(ThreadIds.X);",
+            """
+            private int Outer(int value) => Inner(value) + 1;
+
+            private int Inner(int value) => (int)Gpu.AtomicCompareExchange(ref flags[0], 0u, (uint)value);
+            """);
+        Assert.True(viaHelpers.Verify(Shader).UsesAtomics);
+        Assert.Contains(Member, viaHelpers.Source("TestShader.SharpCompute.g.cs"));
+
+        // No atomic: the default applies, also when a helper with an atomic exists but is never called.
+        GeneratorRun without = Run(
+            "counts[ThreadIds.X] += 1;",
+            "private void Unused() => Gpu.AtomicAdd(ref counts[0], 1);");
+        Assert.False(without.Verify(Shader).UsesAtomics);
+        Assert.DoesNotContain("UsesAtomics", without.Source("TestShader.SharpCompute.g.cs"));
+    }
+
+    [Fact]
     public void NamedArguments_AreEmittedInParameterOrder_AndTheIndexMayBeAnyExpression()
     {
         AssertKernel(

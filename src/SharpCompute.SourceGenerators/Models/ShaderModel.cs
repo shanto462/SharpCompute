@@ -8,6 +8,7 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// primitives (no symbols or syntax) so that it is cheap to compare between generator runs.
 /// <see cref="GridWindowIndex"/> is the buffer index of the hidden grid window (the first index after
 /// the buffers and constants), or -1 when every index is taken and the shader cannot run a partial grid.
+/// <see cref="UsesAtomics"/> is true when the kernel or a helper it reaches contains an atomic operation.
 /// </summary>
 internal sealed record ShaderModel(
     string HintName,
@@ -25,7 +26,8 @@ internal sealed record ShaderModel(
     EquatableArray<ConstantArgument> Constants,
     int ConstantsIndex,
     bool UsesInstanceAccess,
-    int GridWindowIndex);
+    int GridWindowIndex,
+    bool UsesAtomics);
 
 /// <summary>One level of the type hierarchy to re-open, e.g. <c>partial class Outer</c>.</summary>
 internal sealed record TypeDeclarationInfo(string Keyword, string Name);

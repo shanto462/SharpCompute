@@ -39,6 +39,16 @@ public interface IComputeShaderDescriptor<TSelf>
     static virtual int GridWindowIndex => -1;
 
     /// <summary>
+    /// True when the kernel, or a helper it calls, contains an atomic operation (a <c>Gpu.Atomic*</c>
+    /// call, or any other <see cref="MslAtomicAttribute"/> method). Such a shader lets many threads
+    /// update one element, which is only safe among the threads of one dispatch on one device: the
+    /// GPU's atomics and the CPU's interlocked operations do not exclude each other on shared memory.
+    /// <c>GraphicsDevice.ForSplit</c> therefore never divides it between the CPU and the GPU. The
+    /// default is false: hand-written descriptors and generated shaders without atomics.
+    /// </summary>
+    static virtual bool UsesAtomics => false;
+
+    /// <summary>
     /// Binds the shader's captured state. The binding order is generator-internal; the runtime
     /// assumes nothing beyond the writer calls made here.
     /// </summary>
