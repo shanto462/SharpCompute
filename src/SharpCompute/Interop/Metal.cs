@@ -32,6 +32,9 @@ internal static partial class Metal
     /// <summary><c>MTLTextureUsageShaderWrite</c>.</summary>
     internal const nuint TextureUsageShaderWrite = 0x2;
 
+    /// <summary><c>MTLCommandBufferStatusCompleted</c>: the command buffer ran (without an error).</summary>
+    internal const nuint CommandBufferStatusCompleted = 4;
+
     /// <summary><c>MTLCommandBufferStatusEnqueued</c>: the last status in which commands can still be encoded.</summary>
     internal const nuint CommandBufferStatusEnqueued = 1;
 

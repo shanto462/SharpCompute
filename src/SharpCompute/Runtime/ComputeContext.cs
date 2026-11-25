@@ -485,7 +485,8 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// <param name="mtlCommandBuffer">An <c>id&lt;MTLCommandBuffer&gt;</c> of this context's device that has not been committed.</param>
     /// <returns>
     /// A task that completes when the command buffer has completed (continuations run asynchronously),
-    /// and faults with <see cref="MetalException"/> when it failed. An already completed task when
+    /// faults with <see cref="MetalException"/> when it failed, and faults with
+    /// <see cref="InvalidOperationException"/> when it was deallocated without having been committed. An already completed task when
     /// nothing is pending, in which case nothing is encoded.
     /// </returns>
     /// <remarks>
@@ -502,10 +503,15 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// <para>
     /// <b>Lifetime.</b> Everything the recorded work uses stays leased until the command buffer
     /// completes, as with <see cref="ExecuteAsync"/>, even if the caller created it with unretained
-    /// references. The caller must commit the command buffer: one that is never committed never
-    /// completes, so what was leased for it is never released. The same holds if this method throws
-    /// once encoding has begun (Metal failing to create an encoder): what was already encoded stays
-    /// in the command buffer, and stays leased until it completes.
+    /// references. SharpCompute does not retain the command buffer itself. If the caller releases it
+    /// without committing it (which Metal allows: an error path, a skipped frame), the work never runs,
+    /// and when the command buffer is deallocated everything leased for it is released and the task
+    /// faults with an <see cref="InvalidOperationException"/> whose message starts with "The command
+    /// buffer was released without being committed". That happens on the thread whose release
+    /// deallocated the command buffer, which may be the caller's own (inside its release, or when its
+    /// autorelease pool drains). The same holds if this method throws once encoding has begun (Metal
+    /// failing to create an encoder): what was already encoded stays in the command buffer, and stays
+    /// leased until it completes or is deallocated.
     /// </para>
     /// <para>
     /// Results are not visible on the CPU until the command buffer has completed: wait for the task,
