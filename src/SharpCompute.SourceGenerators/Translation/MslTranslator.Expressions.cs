@@ -286,6 +286,8 @@ internal sealed partial class MslTranslator
                 return new Expr("0", Expr.Primary);
             case GpuTypeKind.Scalar when type.MslName == "uint":
                 return new Expr("0u", Expr.Primary);
+            case GpuTypeKind.Vector when type.IsBoolean:
+                return new Expr(type.MslName + "(false)", Expr.Primary);
             case GpuTypeKind.Scalar:
             case GpuTypeKind.Vector:
                 return new Expr(type.MslName + "(0)", Expr.Primary);

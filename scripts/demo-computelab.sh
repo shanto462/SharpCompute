@@ -24,6 +24,8 @@
 #     FastMath: one kernel with and without [ShaderOptions(FastMath = true)]; F toggles
 #     Small and wide integers: an 8-bit image in a ReadWriteBuffer<byte> equalised in place (uint histogram,
 #       byte lookup table), and a 64-bit hash per pixel with the largest found by a 64-bit atomic maximum
+#     Half precision: one 289-tap blur on Float4 and on Half4 pixels, the GPU time of both, the error of
+#       each against the same blur in double, and a mask from Gpu.Select(color > t, color, 0); R radius
 #   Code reuse
 #     Shared code: a path-traced scene built from a static class and structs with methods
 #       (ShaderMath, Ray.At, Sphere.Intersect); ForCpu checks every 8th pixel

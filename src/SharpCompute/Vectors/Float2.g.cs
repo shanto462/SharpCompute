@@ -9,8 +9,12 @@ namespace SharpCompute;
 /// <summary>MSL <c>float2</c>. Tightly packed (4-byte alignment) to match <c>packed_float2</c>.</summary>
 /// <remarks>
 /// Members map 1:1 to MSL: constructors to <c>float2(...)</c>, properties to swizzles,
-/// operators to native operators. There is deliberately no <c>==</c>/<c>!=</c>: in MSL they
-/// return a <c>bool2</c>, not a <c>bool</c>.
+/// operators to native operators. The ordering operators <c>&lt; &lt;= &gt; &gt;=</c> compare component by
+/// component, as in MSL, and return a <see cref="Bool2"/>. There is deliberately no <c>==</c>/<c>!=</c>:
+/// in MSL they return a <c>bool2</c>, not a <c>bool</c>, and a C# <c>==</c> that does not answer
+/// with a <c>bool</c> breaks what C# builds on it (<c>if (a == b)</c>, <c>Equals</c>, pattern matching).
+/// Use <see cref="Gpu.Equal(Float2, Float2)"/> and <see cref="Gpu.NotEqual(Float2, Float2)"/>, which return the
+/// <see cref="Bool2"/>, and <see cref="Gpu.All(Bool2)"/> or <see cref="Gpu.Any(Bool2)"/> for one answer.
 /// </remarks>
 [MslType("float2", Packed = "packed_float2")]
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -87,11 +91,50 @@ public partial struct Float2
     /// <summary>Componentwise C <c>fmod</c> (<see cref="Gpu.Fmod(float, float)"/>): truncated remainder with the sign of the dividend. Translated to <c>metal::fmod</c>, which matches bit for bit under precise math (MSL has no float <c>%</c>).</summary>
     public static Float2 operator %(float left, Float2 right) => new Float2(Gpu.Fmod(left, right._x), Gpu.Fmod(left, right._y));
 
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator <(Float2 left, Float2 right) => new Bool2(left._x < right._x, left._y < right._y);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator <(Float2 left, float right) => new Bool2(left._x < right, left._y < right);
+
+    /// <summary>Componentwise <c>&lt;</c>: for each component, whether the left one is less than the right one (MSL <c>&lt;</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator <(float left, Float2 right) => new Bool2(left < right._x, left < right._y);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator <=(Float2 left, Float2 right) => new Bool2(left._x <= right._x, left._y <= right._y);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator <=(Float2 left, float right) => new Bool2(left._x <= right, left._y <= right);
+
+    /// <summary>Componentwise <c>&lt;=</c>: for each component, whether the left one is less than or equal to the right one (MSL <c>&lt;=</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator <=(float left, Float2 right) => new Bool2(left <= right._x, left <= right._y);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator >(Float2 left, Float2 right) => new Bool2(left._x > right._x, left._y > right._y);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator >(Float2 left, float right) => new Bool2(left._x > right, left._y > right);
+
+    /// <summary>Componentwise <c>&gt;</c>: for each component, whether the left one is greater than the right one (MSL <c>&gt;</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator >(float left, Float2 right) => new Bool2(left > right._x, left > right._y);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator >=(Float2 left, Float2 right) => new Bool2(left._x >= right._x, left._y >= right._y);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator >=(Float2 left, float right) => new Bool2(left._x >= right, left._y >= right);
+
+    /// <summary>Componentwise <c>&gt;=</c>: for each component, whether the left one is greater than or equal to the right one (MSL <c>&gt;=</c>, which also answers with a <c>bool2</c>). False for a component where either side is NaN.</summary>
+    public static Bool2 operator >=(float left, Float2 right) => new Bool2(left >= right._x, left >= right._y);
+
     /// <summary>Converts each component to <c>float</c> (MSL <c>float2(v)</c>).</summary>
     public static explicit operator Float2(Int2 value) => unchecked(new Float2((float)value.X, (float)value.Y));
 
     /// <summary>Converts each component to <c>float</c> (MSL <c>float2(v)</c>).</summary>
     public static explicit operator Float2(UInt2 value) => unchecked(new Float2((float)value.X, (float)value.Y));
+
+    /// <summary>Widens each component to <c>float</c>, which is exact (MSL <c>float2(v)</c>).</summary>
+    public static explicit operator Float2(Half2 value) => unchecked(new Float2((float)value.X, (float)value.Y));
 
     /// <summary>Formats the vector as <c>&lt;x, y, ...&gt;</c> using the invariant culture.</summary>
     public readonly override string ToString() => string.Create(CultureInfo.InvariantCulture, $"<{_x}, {_y}>");

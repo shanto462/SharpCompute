@@ -100,7 +100,7 @@ dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Shooter 
 step "Textures: the six samplers on each of the eight formats, and a ping-pong simulation (headless)"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Textures -- --headless --out "$OUT/textures"
 
-step "ComputeLab: atomics, threadgroup shared memory, SIMD-group operations, local arrays, indirect dispatch, bits, compile options and shared shader code; one page each, GPU checked against the CPU"
+step "ComputeLab: atomics, threadgroup shared memory, SIMD-group operations, local arrays, indirect dispatch, bits, compile options, half precision and shared shader code; one page each, GPU checked against the CPU"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.ComputeLab -- --headless --out "$OUT/computelab"
 
 step "NativeInterop: a raw Metal host renderer with SharpCompute's particle sim and post-process in its command buffer (headless)"

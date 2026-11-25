@@ -2,6 +2,7 @@
 // change the script and run: python3 -I tools/gen_vectors.py
 
 using System;
+using System.Runtime.CompilerServices;
 
 namespace SharpCompute;
 
@@ -17,6 +18,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::abs")]
     public static Float4 Abs(Float4 x) => new Float4(Abs(x.X), Abs(x.Y), Abs(x.Z), Abs(x.W));
+
+    [MslIntrinsic("metal::abs")]
+    public static Half2 Abs(Half2 x) => new Half2(HalfMath.Abs(x.X), HalfMath.Abs(x.Y));
+
+    [MslIntrinsic("metal::abs")]
+    public static Half3 Abs(Half3 x) => new Half3(HalfMath.Abs(x.X), HalfMath.Abs(x.Y), HalfMath.Abs(x.Z));
+
+    [MslIntrinsic("metal::abs")]
+    public static Half4 Abs(Half4 x) => new Half4(HalfMath.Abs(x.X), HalfMath.Abs(x.Y), HalfMath.Abs(x.Z), HalfMath.Abs(x.W));
 
     [MslIntrinsic("metal::abs")]
     public static Int2 Abs(Int2 x) => new Int2(Abs(x.X), Abs(x.Y));
@@ -55,6 +65,24 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::min")]
     public static Float4 Min(Float4 x, float y) => new Float4(Min(x.X, y), Min(x.Y, y), Min(x.Z, y), Min(x.W, y));
+
+    [MslIntrinsic("metal::min")]
+    public static Half2 Min(Half2 x, Half2 y) => new Half2(HalfMath.Min(x.X, y.X), HalfMath.Min(x.Y, y.Y));
+
+    [MslIntrinsic("metal::min")]
+    public static Half2 Min(Half2 x, Half y) => new Half2(HalfMath.Min(x.X, y), HalfMath.Min(x.Y, y));
+
+    [MslIntrinsic("metal::min")]
+    public static Half3 Min(Half3 x, Half3 y) => new Half3(HalfMath.Min(x.X, y.X), HalfMath.Min(x.Y, y.Y), HalfMath.Min(x.Z, y.Z));
+
+    [MslIntrinsic("metal::min")]
+    public static Half3 Min(Half3 x, Half y) => new Half3(HalfMath.Min(x.X, y), HalfMath.Min(x.Y, y), HalfMath.Min(x.Z, y));
+
+    [MslIntrinsic("metal::min")]
+    public static Half4 Min(Half4 x, Half4 y) => new Half4(HalfMath.Min(x.X, y.X), HalfMath.Min(x.Y, y.Y), HalfMath.Min(x.Z, y.Z), HalfMath.Min(x.W, y.W));
+
+    [MslIntrinsic("metal::min")]
+    public static Half4 Min(Half4 x, Half y) => new Half4(HalfMath.Min(x.X, y), HalfMath.Min(x.Y, y), HalfMath.Min(x.Z, y), HalfMath.Min(x.W, y));
 
     [MslIntrinsic("metal::min")]
     public static Int2 Min(Int2 x, Int2 y) => new Int2(Min(x.X, y.X), Min(x.Y, y.Y));
@@ -113,6 +141,24 @@ public static partial class Gpu
     public static Float4 Max(Float4 x, float y) => new Float4(Max(x.X, y), Max(x.Y, y), Max(x.Z, y), Max(x.W, y));
 
     [MslIntrinsic("metal::max")]
+    public static Half2 Max(Half2 x, Half2 y) => new Half2(HalfMath.Max(x.X, y.X), HalfMath.Max(x.Y, y.Y));
+
+    [MslIntrinsic("metal::max")]
+    public static Half2 Max(Half2 x, Half y) => new Half2(HalfMath.Max(x.X, y), HalfMath.Max(x.Y, y));
+
+    [MslIntrinsic("metal::max")]
+    public static Half3 Max(Half3 x, Half3 y) => new Half3(HalfMath.Max(x.X, y.X), HalfMath.Max(x.Y, y.Y), HalfMath.Max(x.Z, y.Z));
+
+    [MslIntrinsic("metal::max")]
+    public static Half3 Max(Half3 x, Half y) => new Half3(HalfMath.Max(x.X, y), HalfMath.Max(x.Y, y), HalfMath.Max(x.Z, y));
+
+    [MslIntrinsic("metal::max")]
+    public static Half4 Max(Half4 x, Half4 y) => new Half4(HalfMath.Max(x.X, y.X), HalfMath.Max(x.Y, y.Y), HalfMath.Max(x.Z, y.Z), HalfMath.Max(x.W, y.W));
+
+    [MslIntrinsic("metal::max")]
+    public static Half4 Max(Half4 x, Half y) => new Half4(HalfMath.Max(x.X, y), HalfMath.Max(x.Y, y), HalfMath.Max(x.Z, y), HalfMath.Max(x.W, y));
+
+    [MslIntrinsic("metal::max")]
     public static Int2 Max(Int2 x, Int2 y) => new Int2(Max(x.X, y.X), Max(x.Y, y.Y));
 
     [MslIntrinsic("metal::max")]
@@ -169,6 +215,24 @@ public static partial class Gpu
     public static Float4 Clamp(Float4 x, float minValue, float maxValue) => new Float4(Clamp(x.X, minValue, maxValue), Clamp(x.Y, minValue, maxValue), Clamp(x.Z, minValue, maxValue), Clamp(x.W, minValue, maxValue));
 
     [MslIntrinsic("metal::clamp")]
+    public static Half2 Clamp(Half2 x, Half2 minValue, Half2 maxValue) => new Half2(HalfMath.Clamp(x.X, minValue.X, maxValue.X), HalfMath.Clamp(x.Y, minValue.Y, maxValue.Y));
+
+    [MslIntrinsic("metal::clamp")]
+    public static Half2 Clamp(Half2 x, Half minValue, Half maxValue) => new Half2(HalfMath.Clamp(x.X, minValue, maxValue), HalfMath.Clamp(x.Y, minValue, maxValue));
+
+    [MslIntrinsic("metal::clamp")]
+    public static Half3 Clamp(Half3 x, Half3 minValue, Half3 maxValue) => new Half3(HalfMath.Clamp(x.X, minValue.X, maxValue.X), HalfMath.Clamp(x.Y, minValue.Y, maxValue.Y), HalfMath.Clamp(x.Z, minValue.Z, maxValue.Z));
+
+    [MslIntrinsic("metal::clamp")]
+    public static Half3 Clamp(Half3 x, Half minValue, Half maxValue) => new Half3(HalfMath.Clamp(x.X, minValue, maxValue), HalfMath.Clamp(x.Y, minValue, maxValue), HalfMath.Clamp(x.Z, minValue, maxValue));
+
+    [MslIntrinsic("metal::clamp")]
+    public static Half4 Clamp(Half4 x, Half4 minValue, Half4 maxValue) => new Half4(HalfMath.Clamp(x.X, minValue.X, maxValue.X), HalfMath.Clamp(x.Y, minValue.Y, maxValue.Y), HalfMath.Clamp(x.Z, minValue.Z, maxValue.Z), HalfMath.Clamp(x.W, minValue.W, maxValue.W));
+
+    [MslIntrinsic("metal::clamp")]
+    public static Half4 Clamp(Half4 x, Half minValue, Half maxValue) => new Half4(HalfMath.Clamp(x.X, minValue, maxValue), HalfMath.Clamp(x.Y, minValue, maxValue), HalfMath.Clamp(x.Z, minValue, maxValue), HalfMath.Clamp(x.W, minValue, maxValue));
+
+    [MslIntrinsic("metal::clamp")]
     public static Int2 Clamp(Int2 x, Int2 minValue, Int2 maxValue) => new Int2(Clamp(x.X, minValue.X, maxValue.X), Clamp(x.Y, minValue.Y, maxValue.Y));
 
     [MslIntrinsic("metal::clamp")]
@@ -215,6 +279,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::saturate")]
     public static Float4 Saturate(Float4 x) => new Float4(Saturate(x.X), Saturate(x.Y), Saturate(x.Z), Saturate(x.W));
 
+    [MslIntrinsic("metal::saturate")]
+    public static Half2 Saturate(Half2 x) => new Half2(HalfMath.Saturate(x.X), HalfMath.Saturate(x.Y));
+
+    [MslIntrinsic("metal::saturate")]
+    public static Half3 Saturate(Half3 x) => new Half3(HalfMath.Saturate(x.X), HalfMath.Saturate(x.Y), HalfMath.Saturate(x.Z));
+
+    [MslIntrinsic("metal::saturate")]
+    public static Half4 Saturate(Half4 x) => new Half4(HalfMath.Saturate(x.X), HalfMath.Saturate(x.Y), HalfMath.Saturate(x.Z), HalfMath.Saturate(x.W));
+
     // Sign -> metal::sign (componentwise)
 
     [MslIntrinsic("metal::sign")]
@@ -225,6 +298,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::sign")]
     public static Float4 Sign(Float4 x) => new Float4(Sign(x.X), Sign(x.Y), Sign(x.Z), Sign(x.W));
+
+    [MslIntrinsic("metal::sign")]
+    public static Half2 Sign(Half2 x) => new Half2(HalfMath.Sign(x.X), HalfMath.Sign(x.Y));
+
+    [MslIntrinsic("metal::sign")]
+    public static Half3 Sign(Half3 x) => new Half3(HalfMath.Sign(x.X), HalfMath.Sign(x.Y), HalfMath.Sign(x.Z));
+
+    [MslIntrinsic("metal::sign")]
+    public static Half4 Sign(Half4 x) => new Half4(HalfMath.Sign(x.X), HalfMath.Sign(x.Y), HalfMath.Sign(x.Z), HalfMath.Sign(x.W));
 
     // Floor -> metal::floor (componentwise)
 
@@ -237,6 +319,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::floor")]
     public static Float4 Floor(Float4 x) => new Float4(Floor(x.X), Floor(x.Y), Floor(x.Z), Floor(x.W));
 
+    [MslIntrinsic("metal::floor")]
+    public static Half2 Floor(Half2 x) => new Half2(HalfMath.Floor(x.X), HalfMath.Floor(x.Y));
+
+    [MslIntrinsic("metal::floor")]
+    public static Half3 Floor(Half3 x) => new Half3(HalfMath.Floor(x.X), HalfMath.Floor(x.Y), HalfMath.Floor(x.Z));
+
+    [MslIntrinsic("metal::floor")]
+    public static Half4 Floor(Half4 x) => new Half4(HalfMath.Floor(x.X), HalfMath.Floor(x.Y), HalfMath.Floor(x.Z), HalfMath.Floor(x.W));
+
     // Ceil -> metal::ceil (componentwise)
 
     [MslIntrinsic("metal::ceil")]
@@ -247,6 +338,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::ceil")]
     public static Float4 Ceil(Float4 x) => new Float4(Ceil(x.X), Ceil(x.Y), Ceil(x.Z), Ceil(x.W));
+
+    [MslIntrinsic("metal::ceil")]
+    public static Half2 Ceil(Half2 x) => new Half2(HalfMath.Ceil(x.X), HalfMath.Ceil(x.Y));
+
+    [MslIntrinsic("metal::ceil")]
+    public static Half3 Ceil(Half3 x) => new Half3(HalfMath.Ceil(x.X), HalfMath.Ceil(x.Y), HalfMath.Ceil(x.Z));
+
+    [MslIntrinsic("metal::ceil")]
+    public static Half4 Ceil(Half4 x) => new Half4(HalfMath.Ceil(x.X), HalfMath.Ceil(x.Y), HalfMath.Ceil(x.Z), HalfMath.Ceil(x.W));
 
     // Round -> metal::round (componentwise)
 
@@ -259,6 +359,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::round")]
     public static Float4 Round(Float4 x) => new Float4(Round(x.X), Round(x.Y), Round(x.Z), Round(x.W));
 
+    [MslIntrinsic("metal::round")]
+    public static Half2 Round(Half2 x) => new Half2(HalfMath.Round(x.X), HalfMath.Round(x.Y));
+
+    [MslIntrinsic("metal::round")]
+    public static Half3 Round(Half3 x) => new Half3(HalfMath.Round(x.X), HalfMath.Round(x.Y), HalfMath.Round(x.Z));
+
+    [MslIntrinsic("metal::round")]
+    public static Half4 Round(Half4 x) => new Half4(HalfMath.Round(x.X), HalfMath.Round(x.Y), HalfMath.Round(x.Z), HalfMath.Round(x.W));
+
     // Trunc -> metal::trunc (componentwise)
 
     [MslIntrinsic("metal::trunc")]
@@ -269,6 +378,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::trunc")]
     public static Float4 Trunc(Float4 x) => new Float4(Trunc(x.X), Trunc(x.Y), Trunc(x.Z), Trunc(x.W));
+
+    [MslIntrinsic("metal::trunc")]
+    public static Half2 Trunc(Half2 x) => new Half2(HalfMath.Trunc(x.X), HalfMath.Trunc(x.Y));
+
+    [MslIntrinsic("metal::trunc")]
+    public static Half3 Trunc(Half3 x) => new Half3(HalfMath.Trunc(x.X), HalfMath.Trunc(x.Y), HalfMath.Trunc(x.Z));
+
+    [MslIntrinsic("metal::trunc")]
+    public static Half4 Trunc(Half4 x) => new Half4(HalfMath.Trunc(x.X), HalfMath.Trunc(x.Y), HalfMath.Trunc(x.Z), HalfMath.Trunc(x.W));
 
     // Fract -> metal::fract (componentwise)
 
@@ -281,6 +399,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::fract")]
     public static Float4 Fract(Float4 x) => new Float4(Fract(x.X), Fract(x.Y), Fract(x.Z), Fract(x.W));
 
+    [MslIntrinsic("metal::fract")]
+    public static Half2 Fract(Half2 x) => new Half2(HalfMath.Fract(x.X), HalfMath.Fract(x.Y));
+
+    [MslIntrinsic("metal::fract")]
+    public static Half3 Fract(Half3 x) => new Half3(HalfMath.Fract(x.X), HalfMath.Fract(x.Y), HalfMath.Fract(x.Z));
+
+    [MslIntrinsic("metal::fract")]
+    public static Half4 Fract(Half4 x) => new Half4(HalfMath.Fract(x.X), HalfMath.Fract(x.Y), HalfMath.Fract(x.Z), HalfMath.Fract(x.W));
+
     // Fmod -> metal::fmod (componentwise)
 
     [MslIntrinsic("metal::fmod")]
@@ -291,6 +418,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::fmod")]
     public static Float4 Fmod(Float4 x, Float4 y) => new Float4(Fmod(x.X, y.X), Fmod(x.Y, y.Y), Fmod(x.Z, y.Z), Fmod(x.W, y.W));
+
+    [MslIntrinsic("metal::fmod")]
+    public static Half2 Fmod(Half2 x, Half2 y) => new Half2(HalfMath.Fmod(x.X, y.X), HalfMath.Fmod(x.Y, y.Y));
+
+    [MslIntrinsic("metal::fmod")]
+    public static Half3 Fmod(Half3 x, Half3 y) => new Half3(HalfMath.Fmod(x.X, y.X), HalfMath.Fmod(x.Y, y.Y), HalfMath.Fmod(x.Z, y.Z));
+
+    [MslIntrinsic("metal::fmod")]
+    public static Half4 Fmod(Half4 x, Half4 y) => new Half4(HalfMath.Fmod(x.X, y.X), HalfMath.Fmod(x.Y, y.Y), HalfMath.Fmod(x.Z, y.Z), HalfMath.Fmod(x.W, y.W));
 
     // Sqrt -> metal::sqrt (componentwise)
 
@@ -303,6 +439,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::sqrt")]
     public static Float4 Sqrt(Float4 x) => new Float4(Sqrt(x.X), Sqrt(x.Y), Sqrt(x.Z), Sqrt(x.W));
 
+    [MslIntrinsic("metal::sqrt")]
+    public static Half2 Sqrt(Half2 x) => new Half2(HalfMath.Sqrt(x.X), HalfMath.Sqrt(x.Y));
+
+    [MslIntrinsic("metal::sqrt")]
+    public static Half3 Sqrt(Half3 x) => new Half3(HalfMath.Sqrt(x.X), HalfMath.Sqrt(x.Y), HalfMath.Sqrt(x.Z));
+
+    [MslIntrinsic("metal::sqrt")]
+    public static Half4 Sqrt(Half4 x) => new Half4(HalfMath.Sqrt(x.X), HalfMath.Sqrt(x.Y), HalfMath.Sqrt(x.Z), HalfMath.Sqrt(x.W));
+
     // Rsqrt -> metal::rsqrt (componentwise)
 
     [MslIntrinsic("metal::rsqrt")]
@@ -313,6 +458,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::rsqrt")]
     public static Float4 Rsqrt(Float4 x) => new Float4(Rsqrt(x.X), Rsqrt(x.Y), Rsqrt(x.Z), Rsqrt(x.W));
+
+    [MslIntrinsic("metal::rsqrt")]
+    public static Half2 Rsqrt(Half2 x) => new Half2(HalfMath.Rsqrt(x.X), HalfMath.Rsqrt(x.Y));
+
+    [MslIntrinsic("metal::rsqrt")]
+    public static Half3 Rsqrt(Half3 x) => new Half3(HalfMath.Rsqrt(x.X), HalfMath.Rsqrt(x.Y), HalfMath.Rsqrt(x.Z));
+
+    [MslIntrinsic("metal::rsqrt")]
+    public static Half4 Rsqrt(Half4 x) => new Half4(HalfMath.Rsqrt(x.X), HalfMath.Rsqrt(x.Y), HalfMath.Rsqrt(x.Z), HalfMath.Rsqrt(x.W));
 
     // Pow -> metal::pow (componentwise)
 
@@ -334,6 +488,24 @@ public static partial class Gpu
     [MslIntrinsic("metal::pow")]
     public static Float4 Pow(Float4 x, float y) => new Float4(Pow(x.X, y), Pow(x.Y, y), Pow(x.Z, y), Pow(x.W, y));
 
+    [MslIntrinsic("metal::pow")]
+    public static Half2 Pow(Half2 x, Half2 y) => new Half2(HalfMath.Pow(x.X, y.X), HalfMath.Pow(x.Y, y.Y));
+
+    [MslIntrinsic("metal::pow")]
+    public static Half2 Pow(Half2 x, Half y) => new Half2(HalfMath.Pow(x.X, y), HalfMath.Pow(x.Y, y));
+
+    [MslIntrinsic("metal::pow")]
+    public static Half3 Pow(Half3 x, Half3 y) => new Half3(HalfMath.Pow(x.X, y.X), HalfMath.Pow(x.Y, y.Y), HalfMath.Pow(x.Z, y.Z));
+
+    [MslIntrinsic("metal::pow")]
+    public static Half3 Pow(Half3 x, Half y) => new Half3(HalfMath.Pow(x.X, y), HalfMath.Pow(x.Y, y), HalfMath.Pow(x.Z, y));
+
+    [MslIntrinsic("metal::pow")]
+    public static Half4 Pow(Half4 x, Half4 y) => new Half4(HalfMath.Pow(x.X, y.X), HalfMath.Pow(x.Y, y.Y), HalfMath.Pow(x.Z, y.Z), HalfMath.Pow(x.W, y.W));
+
+    [MslIntrinsic("metal::pow")]
+    public static Half4 Pow(Half4 x, Half y) => new Half4(HalfMath.Pow(x.X, y), HalfMath.Pow(x.Y, y), HalfMath.Pow(x.Z, y), HalfMath.Pow(x.W, y));
+
     // Exp -> metal::exp (componentwise)
 
     [MslIntrinsic("metal::exp")]
@@ -344,6 +516,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::exp")]
     public static Float4 Exp(Float4 x) => new Float4(Exp(x.X), Exp(x.Y), Exp(x.Z), Exp(x.W));
+
+    [MslIntrinsic("metal::exp")]
+    public static Half2 Exp(Half2 x) => new Half2(HalfMath.Exp(x.X), HalfMath.Exp(x.Y));
+
+    [MslIntrinsic("metal::exp")]
+    public static Half3 Exp(Half3 x) => new Half3(HalfMath.Exp(x.X), HalfMath.Exp(x.Y), HalfMath.Exp(x.Z));
+
+    [MslIntrinsic("metal::exp")]
+    public static Half4 Exp(Half4 x) => new Half4(HalfMath.Exp(x.X), HalfMath.Exp(x.Y), HalfMath.Exp(x.Z), HalfMath.Exp(x.W));
 
     // Exp2 -> metal::exp2 (componentwise)
 
@@ -356,6 +537,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::exp2")]
     public static Float4 Exp2(Float4 x) => new Float4(Exp2(x.X), Exp2(x.Y), Exp2(x.Z), Exp2(x.W));
 
+    [MslIntrinsic("metal::exp2")]
+    public static Half2 Exp2(Half2 x) => new Half2(HalfMath.Exp2(x.X), HalfMath.Exp2(x.Y));
+
+    [MslIntrinsic("metal::exp2")]
+    public static Half3 Exp2(Half3 x) => new Half3(HalfMath.Exp2(x.X), HalfMath.Exp2(x.Y), HalfMath.Exp2(x.Z));
+
+    [MslIntrinsic("metal::exp2")]
+    public static Half4 Exp2(Half4 x) => new Half4(HalfMath.Exp2(x.X), HalfMath.Exp2(x.Y), HalfMath.Exp2(x.Z), HalfMath.Exp2(x.W));
+
     // Log -> metal::log (componentwise)
 
     [MslIntrinsic("metal::log")]
@@ -366,6 +556,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::log")]
     public static Float4 Log(Float4 x) => new Float4(Log(x.X), Log(x.Y), Log(x.Z), Log(x.W));
+
+    [MslIntrinsic("metal::log")]
+    public static Half2 Log(Half2 x) => new Half2(HalfMath.Log(x.X), HalfMath.Log(x.Y));
+
+    [MslIntrinsic("metal::log")]
+    public static Half3 Log(Half3 x) => new Half3(HalfMath.Log(x.X), HalfMath.Log(x.Y), HalfMath.Log(x.Z));
+
+    [MslIntrinsic("metal::log")]
+    public static Half4 Log(Half4 x) => new Half4(HalfMath.Log(x.X), HalfMath.Log(x.Y), HalfMath.Log(x.Z), HalfMath.Log(x.W));
 
     // Log2 -> metal::log2 (componentwise)
 
@@ -378,6 +577,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::log2")]
     public static Float4 Log2(Float4 x) => new Float4(Log2(x.X), Log2(x.Y), Log2(x.Z), Log2(x.W));
 
+    [MslIntrinsic("metal::log2")]
+    public static Half2 Log2(Half2 x) => new Half2(HalfMath.Log2(x.X), HalfMath.Log2(x.Y));
+
+    [MslIntrinsic("metal::log2")]
+    public static Half3 Log2(Half3 x) => new Half3(HalfMath.Log2(x.X), HalfMath.Log2(x.Y), HalfMath.Log2(x.Z));
+
+    [MslIntrinsic("metal::log2")]
+    public static Half4 Log2(Half4 x) => new Half4(HalfMath.Log2(x.X), HalfMath.Log2(x.Y), HalfMath.Log2(x.Z), HalfMath.Log2(x.W));
+
     // Log10 -> metal::log10 (componentwise)
 
     [MslIntrinsic("metal::log10")]
@@ -388,6 +596,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::log10")]
     public static Float4 Log10(Float4 x) => new Float4(Log10(x.X), Log10(x.Y), Log10(x.Z), Log10(x.W));
+
+    [MslIntrinsic("metal::log10")]
+    public static Half2 Log10(Half2 x) => new Half2(HalfMath.Log10(x.X), HalfMath.Log10(x.Y));
+
+    [MslIntrinsic("metal::log10")]
+    public static Half3 Log10(Half3 x) => new Half3(HalfMath.Log10(x.X), HalfMath.Log10(x.Y), HalfMath.Log10(x.Z));
+
+    [MslIntrinsic("metal::log10")]
+    public static Half4 Log10(Half4 x) => new Half4(HalfMath.Log10(x.X), HalfMath.Log10(x.Y), HalfMath.Log10(x.Z), HalfMath.Log10(x.W));
 
     // Exp10 -> metal::exp10 (componentwise)
 
@@ -400,6 +617,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::exp10")]
     public static Float4 Exp10(Float4 x) => new Float4(Exp10(x.X), Exp10(x.Y), Exp10(x.Z), Exp10(x.W));
 
+    [MslIntrinsic("metal::exp10")]
+    public static Half2 Exp10(Half2 x) => new Half2(HalfMath.Exp10(x.X), HalfMath.Exp10(x.Y));
+
+    [MslIntrinsic("metal::exp10")]
+    public static Half3 Exp10(Half3 x) => new Half3(HalfMath.Exp10(x.X), HalfMath.Exp10(x.Y), HalfMath.Exp10(x.Z));
+
+    [MslIntrinsic("metal::exp10")]
+    public static Half4 Exp10(Half4 x) => new Half4(HalfMath.Exp10(x.X), HalfMath.Exp10(x.Y), HalfMath.Exp10(x.Z), HalfMath.Exp10(x.W));
+
     // Sin -> metal::sin (componentwise)
 
     [MslIntrinsic("metal::sin")]
@@ -410,6 +636,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::sin")]
     public static Float4 Sin(Float4 x) => new Float4(Sin(x.X), Sin(x.Y), Sin(x.Z), Sin(x.W));
+
+    [MslIntrinsic("metal::sin")]
+    public static Half2 Sin(Half2 x) => new Half2(HalfMath.Sin(x.X), HalfMath.Sin(x.Y));
+
+    [MslIntrinsic("metal::sin")]
+    public static Half3 Sin(Half3 x) => new Half3(HalfMath.Sin(x.X), HalfMath.Sin(x.Y), HalfMath.Sin(x.Z));
+
+    [MslIntrinsic("metal::sin")]
+    public static Half4 Sin(Half4 x) => new Half4(HalfMath.Sin(x.X), HalfMath.Sin(x.Y), HalfMath.Sin(x.Z), HalfMath.Sin(x.W));
 
     // Cos -> metal::cos (componentwise)
 
@@ -422,6 +657,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::cos")]
     public static Float4 Cos(Float4 x) => new Float4(Cos(x.X), Cos(x.Y), Cos(x.Z), Cos(x.W));
 
+    [MslIntrinsic("metal::cos")]
+    public static Half2 Cos(Half2 x) => new Half2(HalfMath.Cos(x.X), HalfMath.Cos(x.Y));
+
+    [MslIntrinsic("metal::cos")]
+    public static Half3 Cos(Half3 x) => new Half3(HalfMath.Cos(x.X), HalfMath.Cos(x.Y), HalfMath.Cos(x.Z));
+
+    [MslIntrinsic("metal::cos")]
+    public static Half4 Cos(Half4 x) => new Half4(HalfMath.Cos(x.X), HalfMath.Cos(x.Y), HalfMath.Cos(x.Z), HalfMath.Cos(x.W));
+
     // Tan -> metal::tan (componentwise)
 
     [MslIntrinsic("metal::tan")]
@@ -432,6 +676,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::tan")]
     public static Float4 Tan(Float4 x) => new Float4(Tan(x.X), Tan(x.Y), Tan(x.Z), Tan(x.W));
+
+    [MslIntrinsic("metal::tan")]
+    public static Half2 Tan(Half2 x) => new Half2(HalfMath.Tan(x.X), HalfMath.Tan(x.Y));
+
+    [MslIntrinsic("metal::tan")]
+    public static Half3 Tan(Half3 x) => new Half3(HalfMath.Tan(x.X), HalfMath.Tan(x.Y), HalfMath.Tan(x.Z));
+
+    [MslIntrinsic("metal::tan")]
+    public static Half4 Tan(Half4 x) => new Half4(HalfMath.Tan(x.X), HalfMath.Tan(x.Y), HalfMath.Tan(x.Z), HalfMath.Tan(x.W));
 
     // Asin -> metal::asin (componentwise)
 
@@ -444,6 +697,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::asin")]
     public static Float4 Asin(Float4 x) => new Float4(Asin(x.X), Asin(x.Y), Asin(x.Z), Asin(x.W));
 
+    [MslIntrinsic("metal::asin")]
+    public static Half2 Asin(Half2 x) => new Half2(HalfMath.Asin(x.X), HalfMath.Asin(x.Y));
+
+    [MslIntrinsic("metal::asin")]
+    public static Half3 Asin(Half3 x) => new Half3(HalfMath.Asin(x.X), HalfMath.Asin(x.Y), HalfMath.Asin(x.Z));
+
+    [MslIntrinsic("metal::asin")]
+    public static Half4 Asin(Half4 x) => new Half4(HalfMath.Asin(x.X), HalfMath.Asin(x.Y), HalfMath.Asin(x.Z), HalfMath.Asin(x.W));
+
     // Acos -> metal::acos (componentwise)
 
     [MslIntrinsic("metal::acos")]
@@ -454,6 +716,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::acos")]
     public static Float4 Acos(Float4 x) => new Float4(Acos(x.X), Acos(x.Y), Acos(x.Z), Acos(x.W));
+
+    [MslIntrinsic("metal::acos")]
+    public static Half2 Acos(Half2 x) => new Half2(HalfMath.Acos(x.X), HalfMath.Acos(x.Y));
+
+    [MslIntrinsic("metal::acos")]
+    public static Half3 Acos(Half3 x) => new Half3(HalfMath.Acos(x.X), HalfMath.Acos(x.Y), HalfMath.Acos(x.Z));
+
+    [MslIntrinsic("metal::acos")]
+    public static Half4 Acos(Half4 x) => new Half4(HalfMath.Acos(x.X), HalfMath.Acos(x.Y), HalfMath.Acos(x.Z), HalfMath.Acos(x.W));
 
     // Atan -> metal::atan (componentwise)
 
@@ -466,6 +737,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::atan")]
     public static Float4 Atan(Float4 x) => new Float4(Atan(x.X), Atan(x.Y), Atan(x.Z), Atan(x.W));
 
+    [MslIntrinsic("metal::atan")]
+    public static Half2 Atan(Half2 x) => new Half2(HalfMath.Atan(x.X), HalfMath.Atan(x.Y));
+
+    [MslIntrinsic("metal::atan")]
+    public static Half3 Atan(Half3 x) => new Half3(HalfMath.Atan(x.X), HalfMath.Atan(x.Y), HalfMath.Atan(x.Z));
+
+    [MslIntrinsic("metal::atan")]
+    public static Half4 Atan(Half4 x) => new Half4(HalfMath.Atan(x.X), HalfMath.Atan(x.Y), HalfMath.Atan(x.Z), HalfMath.Atan(x.W));
+
     // Atan2 -> metal::atan2 (componentwise)
 
     [MslIntrinsic("metal::atan2")]
@@ -476,6 +756,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::atan2")]
     public static Float4 Atan2(Float4 y, Float4 x) => new Float4(Atan2(y.X, x.X), Atan2(y.Y, x.Y), Atan2(y.Z, x.Z), Atan2(y.W, x.W));
+
+    [MslIntrinsic("metal::atan2")]
+    public static Half2 Atan2(Half2 y, Half2 x) => new Half2(HalfMath.Atan2(y.X, x.X), HalfMath.Atan2(y.Y, x.Y));
+
+    [MslIntrinsic("metal::atan2")]
+    public static Half3 Atan2(Half3 y, Half3 x) => new Half3(HalfMath.Atan2(y.X, x.X), HalfMath.Atan2(y.Y, x.Y), HalfMath.Atan2(y.Z, x.Z));
+
+    [MslIntrinsic("metal::atan2")]
+    public static Half4 Atan2(Half4 y, Half4 x) => new Half4(HalfMath.Atan2(y.X, x.X), HalfMath.Atan2(y.Y, x.Y), HalfMath.Atan2(y.Z, x.Z), HalfMath.Atan2(y.W, x.W));
 
     // Sinh -> metal::sinh (componentwise)
 
@@ -488,6 +777,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::sinh")]
     public static Float4 Sinh(Float4 x) => new Float4(Sinh(x.X), Sinh(x.Y), Sinh(x.Z), Sinh(x.W));
 
+    [MslIntrinsic("metal::sinh")]
+    public static Half2 Sinh(Half2 x) => new Half2(HalfMath.Sinh(x.X), HalfMath.Sinh(x.Y));
+
+    [MslIntrinsic("metal::sinh")]
+    public static Half3 Sinh(Half3 x) => new Half3(HalfMath.Sinh(x.X), HalfMath.Sinh(x.Y), HalfMath.Sinh(x.Z));
+
+    [MslIntrinsic("metal::sinh")]
+    public static Half4 Sinh(Half4 x) => new Half4(HalfMath.Sinh(x.X), HalfMath.Sinh(x.Y), HalfMath.Sinh(x.Z), HalfMath.Sinh(x.W));
+
     // Cosh -> metal::cosh (componentwise)
 
     [MslIntrinsic("metal::cosh")]
@@ -499,6 +797,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::cosh")]
     public static Float4 Cosh(Float4 x) => new Float4(Cosh(x.X), Cosh(x.Y), Cosh(x.Z), Cosh(x.W));
 
+    [MslIntrinsic("metal::cosh")]
+    public static Half2 Cosh(Half2 x) => new Half2(HalfMath.Cosh(x.X), HalfMath.Cosh(x.Y));
+
+    [MslIntrinsic("metal::cosh")]
+    public static Half3 Cosh(Half3 x) => new Half3(HalfMath.Cosh(x.X), HalfMath.Cosh(x.Y), HalfMath.Cosh(x.Z));
+
+    [MslIntrinsic("metal::cosh")]
+    public static Half4 Cosh(Half4 x) => new Half4(HalfMath.Cosh(x.X), HalfMath.Cosh(x.Y), HalfMath.Cosh(x.Z), HalfMath.Cosh(x.W));
+
     // Tanh -> metal::tanh (componentwise)
 
     [MslIntrinsic("metal::tanh")]
@@ -509,6 +816,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::tanh")]
     public static Float4 Tanh(Float4 x) => new Float4(Tanh(x.X), Tanh(x.Y), Tanh(x.Z), Tanh(x.W));
+
+    [MslIntrinsic("metal::tanh")]
+    public static Half2 Tanh(Half2 x) => new Half2(HalfMath.Tanh(x.X), HalfMath.Tanh(x.Y));
+
+    [MslIntrinsic("metal::tanh")]
+    public static Half3 Tanh(Half3 x) => new Half3(HalfMath.Tanh(x.X), HalfMath.Tanh(x.Y), HalfMath.Tanh(x.Z));
+
+    [MslIntrinsic("metal::tanh")]
+    public static Half4 Tanh(Half4 x) => new Half4(HalfMath.Tanh(x.X), HalfMath.Tanh(x.Y), HalfMath.Tanh(x.Z), HalfMath.Tanh(x.W));
 
     // Lerp -> metal::mix (componentwise)
 
@@ -530,6 +846,24 @@ public static partial class Gpu
     [MslIntrinsic("metal::mix")]
     public static Float4 Lerp(Float4 x, Float4 y, float a) => new Float4(Lerp(x.X, y.X, a), Lerp(x.Y, y.Y, a), Lerp(x.Z, y.Z, a), Lerp(x.W, y.W, a));
 
+    [MslIntrinsic("metal::mix")]
+    public static Half2 Lerp(Half2 x, Half2 y, Half2 a) => new Half2(HalfMath.Lerp(x.X, y.X, a.X), HalfMath.Lerp(x.Y, y.Y, a.Y));
+
+    [MslIntrinsic("metal::mix")]
+    public static Half2 Lerp(Half2 x, Half2 y, Half a) => new Half2(HalfMath.Lerp(x.X, y.X, a), HalfMath.Lerp(x.Y, y.Y, a));
+
+    [MslIntrinsic("metal::mix")]
+    public static Half3 Lerp(Half3 x, Half3 y, Half3 a) => new Half3(HalfMath.Lerp(x.X, y.X, a.X), HalfMath.Lerp(x.Y, y.Y, a.Y), HalfMath.Lerp(x.Z, y.Z, a.Z));
+
+    [MslIntrinsic("metal::mix")]
+    public static Half3 Lerp(Half3 x, Half3 y, Half a) => new Half3(HalfMath.Lerp(x.X, y.X, a), HalfMath.Lerp(x.Y, y.Y, a), HalfMath.Lerp(x.Z, y.Z, a));
+
+    [MslIntrinsic("metal::mix")]
+    public static Half4 Lerp(Half4 x, Half4 y, Half4 a) => new Half4(HalfMath.Lerp(x.X, y.X, a.X), HalfMath.Lerp(x.Y, y.Y, a.Y), HalfMath.Lerp(x.Z, y.Z, a.Z), HalfMath.Lerp(x.W, y.W, a.W));
+
+    [MslIntrinsic("metal::mix")]
+    public static Half4 Lerp(Half4 x, Half4 y, Half a) => new Half4(HalfMath.Lerp(x.X, y.X, a), HalfMath.Lerp(x.Y, y.Y, a), HalfMath.Lerp(x.Z, y.Z, a), HalfMath.Lerp(x.W, y.W, a));
+
     // Step -> metal::step (componentwise)
 
     [MslIntrinsic("metal::step")]
@@ -549,6 +883,24 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::step")]
     public static Float4 Step(float edge, Float4 x) => new Float4(Step(edge, x.X), Step(edge, x.Y), Step(edge, x.Z), Step(edge, x.W));
+
+    [MslIntrinsic("metal::step")]
+    public static Half2 Step(Half2 edge, Half2 x) => new Half2(HalfMath.Step(edge.X, x.X), HalfMath.Step(edge.Y, x.Y));
+
+    [MslIntrinsic("metal::step")]
+    public static Half2 Step(Half edge, Half2 x) => new Half2(HalfMath.Step(edge, x.X), HalfMath.Step(edge, x.Y));
+
+    [MslIntrinsic("metal::step")]
+    public static Half3 Step(Half3 edge, Half3 x) => new Half3(HalfMath.Step(edge.X, x.X), HalfMath.Step(edge.Y, x.Y), HalfMath.Step(edge.Z, x.Z));
+
+    [MslIntrinsic("metal::step")]
+    public static Half3 Step(Half edge, Half3 x) => new Half3(HalfMath.Step(edge, x.X), HalfMath.Step(edge, x.Y), HalfMath.Step(edge, x.Z));
+
+    [MslIntrinsic("metal::step")]
+    public static Half4 Step(Half4 edge, Half4 x) => new Half4(HalfMath.Step(edge.X, x.X), HalfMath.Step(edge.Y, x.Y), HalfMath.Step(edge.Z, x.Z), HalfMath.Step(edge.W, x.W));
+
+    [MslIntrinsic("metal::step")]
+    public static Half4 Step(Half edge, Half4 x) => new Half4(HalfMath.Step(edge, x.X), HalfMath.Step(edge, x.Y), HalfMath.Step(edge, x.Z), HalfMath.Step(edge, x.W));
 
     // Smoothstep -> metal::smoothstep (componentwise)
 
@@ -570,6 +922,24 @@ public static partial class Gpu
     [MslIntrinsic("metal::smoothstep")]
     public static Float4 Smoothstep(float edge0, float edge1, Float4 x) => new Float4(Smoothstep(edge0, edge1, x.X), Smoothstep(edge0, edge1, x.Y), Smoothstep(edge0, edge1, x.Z), Smoothstep(edge0, edge1, x.W));
 
+    [MslIntrinsic("metal::smoothstep")]
+    public static Half2 Smoothstep(Half2 edge0, Half2 edge1, Half2 x) => new Half2(HalfMath.Smoothstep(edge0.X, edge1.X, x.X), HalfMath.Smoothstep(edge0.Y, edge1.Y, x.Y));
+
+    [MslIntrinsic("metal::smoothstep")]
+    public static Half2 Smoothstep(Half edge0, Half edge1, Half2 x) => new Half2(HalfMath.Smoothstep(edge0, edge1, x.X), HalfMath.Smoothstep(edge0, edge1, x.Y));
+
+    [MslIntrinsic("metal::smoothstep")]
+    public static Half3 Smoothstep(Half3 edge0, Half3 edge1, Half3 x) => new Half3(HalfMath.Smoothstep(edge0.X, edge1.X, x.X), HalfMath.Smoothstep(edge0.Y, edge1.Y, x.Y), HalfMath.Smoothstep(edge0.Z, edge1.Z, x.Z));
+
+    [MslIntrinsic("metal::smoothstep")]
+    public static Half3 Smoothstep(Half edge0, Half edge1, Half3 x) => new Half3(HalfMath.Smoothstep(edge0, edge1, x.X), HalfMath.Smoothstep(edge0, edge1, x.Y), HalfMath.Smoothstep(edge0, edge1, x.Z));
+
+    [MslIntrinsic("metal::smoothstep")]
+    public static Half4 Smoothstep(Half4 edge0, Half4 edge1, Half4 x) => new Half4(HalfMath.Smoothstep(edge0.X, edge1.X, x.X), HalfMath.Smoothstep(edge0.Y, edge1.Y, x.Y), HalfMath.Smoothstep(edge0.Z, edge1.Z, x.Z), HalfMath.Smoothstep(edge0.W, edge1.W, x.W));
+
+    [MslIntrinsic("metal::smoothstep")]
+    public static Half4 Smoothstep(Half edge0, Half edge1, Half4 x) => new Half4(HalfMath.Smoothstep(edge0, edge1, x.X), HalfMath.Smoothstep(edge0, edge1, x.Y), HalfMath.Smoothstep(edge0, edge1, x.Z), HalfMath.Smoothstep(edge0, edge1, x.W));
+
     // Fma -> metal::fma (componentwise)
 
     [MslIntrinsic("metal::fma")]
@@ -581,6 +951,15 @@ public static partial class Gpu
     [MslIntrinsic("metal::fma")]
     public static Float4 Fma(Float4 x, Float4 y, Float4 z) => new Float4(Fma(x.X, y.X, z.X), Fma(x.Y, y.Y, z.Y), Fma(x.Z, y.Z, z.Z), Fma(x.W, y.W, z.W));
 
+    [MslIntrinsic("metal::fma")]
+    public static Half2 Fma(Half2 x, Half2 y, Half2 z) => new Half2(HalfMath.Fma(x.X, y.X, z.X), HalfMath.Fma(x.Y, y.Y, z.Y));
+
+    [MslIntrinsic("metal::fma")]
+    public static Half3 Fma(Half3 x, Half3 y, Half3 z) => new Half3(HalfMath.Fma(x.X, y.X, z.X), HalfMath.Fma(x.Y, y.Y, z.Y), HalfMath.Fma(x.Z, y.Z, z.Z));
+
+    [MslIntrinsic("metal::fma")]
+    public static Half4 Fma(Half4 x, Half4 y, Half4 z) => new Half4(HalfMath.Fma(x.X, y.X, z.X), HalfMath.Fma(x.Y, y.Y, z.Y), HalfMath.Fma(x.Z, y.Z, z.Z), HalfMath.Fma(x.W, y.W, z.W));
+
     // CopySign -> metal::copysign (componentwise)
 
     [MslIntrinsic("metal::copysign")]
@@ -591,6 +970,15 @@ public static partial class Gpu
 
     [MslIntrinsic("metal::copysign")]
     public static Float4 CopySign(Float4 x, Float4 y) => new Float4(CopySign(x.X, y.X), CopySign(x.Y, y.Y), CopySign(x.Z, y.Z), CopySign(x.W, y.W));
+
+    [MslIntrinsic("metal::copysign")]
+    public static Half2 CopySign(Half2 x, Half2 y) => new Half2(HalfMath.CopySign(x.X, y.X), HalfMath.CopySign(x.Y, y.Y));
+
+    [MslIntrinsic("metal::copysign")]
+    public static Half3 CopySign(Half3 x, Half3 y) => new Half3(HalfMath.CopySign(x.X, y.X), HalfMath.CopySign(x.Y, y.Y), HalfMath.CopySign(x.Z, y.Z));
+
+    [MslIntrinsic("metal::copysign")]
+    public static Half4 CopySign(Half4 x, Half4 y) => new Half4(HalfMath.CopySign(x.X, y.X), HalfMath.CopySign(x.Y, y.Y), HalfMath.CopySign(x.Z, y.Z), HalfMath.CopySign(x.W, y.W));
 
     // CountBits -> metal::popcount (componentwise)
 
@@ -728,6 +1116,28 @@ public static partial class Gpu
     [MslIntrinsic("__ms_radians")]
     public static Float4 Radians(Float4 x) => new Float4(Radians(x.X), Radians(x.Y), Radians(x.Z), Radians(x.W));
 
+    /// <summary>
+    /// Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product.
+    /// </summary>
+    /// <remarks>
+    /// The float overload is preferred when both apply: <c>Gpu.Radians(90)</c> is the <c>float</c> it always was.
+    /// </remarks>
+    [MslIntrinsic("__ms_radians")]
+    [OverloadResolutionPriority(-1)]
+    public static Half Radians(Half x) => x * HalfMath.RadiansPerDegree;
+
+    /// <summary>Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_radians")]
+    public static Half2 Radians(Half2 x) => x * HalfMath.RadiansPerDegree;
+
+    /// <summary>Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_radians")]
+    public static Half3 Radians(Half3 x) => x * HalfMath.RadiansPerDegree;
+
+    /// <summary>Converts degrees to radians in half precision: one half multiplication by the constant rounded to half, 0.017456055 (<c>half(0.017453292519943295f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_radians")]
+    public static Half4 Radians(Half4 x) => x * HalfMath.RadiansPerDegree;
+
     /// <summary>Converts radians to degrees: <c>x * 57.29577951308232f</c>.</summary>
     [MslIntrinsic("__ms_degrees")]
     public static float Degrees(float x) => x * 57.29577951308232f;
@@ -744,7 +1154,29 @@ public static partial class Gpu
     [MslIntrinsic("__ms_degrees")]
     public static Float4 Degrees(Float4 x) => new Float4(Degrees(x.X), Degrees(x.Y), Degrees(x.Z), Degrees(x.W));
 
-    // Geometric functions (float vectors only; MSL has no scalar overloads). Evaluated the way
+    /// <summary>
+    /// Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product.
+    /// </summary>
+    /// <remarks>
+    /// The float overload is preferred when both apply: <c>Gpu.Degrees(90)</c> is the <c>float</c> it always was.
+    /// </remarks>
+    [MslIntrinsic("__ms_degrees")]
+    [OverloadResolutionPriority(-1)]
+    public static Half Degrees(Half x) => x * HalfMath.DegreesPerRadian;
+
+    /// <summary>Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_degrees")]
+    public static Half2 Degrees(Half2 x) => x * HalfMath.DegreesPerRadian;
+
+    /// <summary>Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_degrees")]
+    public static Half3 Degrees(Half3 x) => x * HalfMath.DegreesPerRadian;
+
+    /// <summary>Converts radians to degrees in half precision: one half multiplication by the constant rounded to half, 57.28125 (<c>half(57.29577951308232f)</c> in MSL), which is bit for bit what the GPU computes and within about one half ULP of the exact product, componentwise.</summary>
+    [MslIntrinsic("__ms_degrees")]
+    public static Half4 Degrees(Half4 x) => x * HalfMath.DegreesPerRadian;
+
+    // Geometric functions of float vectors (MSL has no scalar overloads). Evaluated the way
     // Apple GPUs evaluate them under precise math (bit-exact except for subnormal flushing):
     // dot is an fma chain in component order; length/normalize scale by an exact power of two.
 
@@ -903,4 +1335,592 @@ public static partial class Gpu
     private static Float3 ScaleB(Float3 v, int e) => new Float3(MathF.ScaleB(v.X, e), MathF.ScaleB(v.Y, e), MathF.ScaleB(v.Z, e));
 
     private static Float4 ScaleB(Float4 v, int e) => new Float4(MathF.ScaleB(v.X, e), MathF.ScaleB(v.Y, e), MathF.ScaleB(v.Z, e), MathF.ScaleB(v.W, e));
+
+    // Geometric functions of half vectors. Measured on an Apple GPU (M4 Pro) and reproduced bit for bit:
+    // the same fma chains as for floats, each step rounded to half, but no power-of-two prescaling,
+    // so length, distance and normalize overflow and underflow where the sum of squares does.
+
+    /// <summary>Dot product, evaluated as a chain of half fused multiply-adds in component order (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::dot")]
+    public static Half Dot(Half2 x, Half2 y) => HalfMath.Fma(x.Y, y.Y, x.X * y.X);
+
+    /// <summary>Dot product, evaluated as a chain of half fused multiply-adds in component order (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::dot")]
+    public static Half Dot(Half3 x, Half3 y) => HalfMath.Fma(x.Z, y.Z, HalfMath.Fma(x.Y, y.Y, x.X * y.X));
+
+    /// <summary>Dot product, evaluated as a chain of half fused multiply-adds in component order (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::dot")]
+    public static Half Dot(Half4 x, Half4 y) => HalfMath.Fma(x.W, y.W, HalfMath.Fma(x.Z, y.Z, HalfMath.Fma(x.Y, y.Y, x.X * y.X)));
+
+    /// <summary>
+    /// Euclidean length, <c>sqrt(dot(x, x))</c> in half precision. Unlike the float overload it is not
+    /// rescaled (an Apple GPU does not rescale halves either): the sum of squares overflows to infinity
+    /// for a length above about 255.9 and underflows, losing precision and finally giving 0, for
+    /// components below about 2.4e-4. Convert to a float vector first when the range matters.
+    /// </summary>
+    [MslIntrinsic("metal::length")]
+    public static Half Length(Half2 x) => HalfMath.Sqrt(Dot(x, x));
+
+    /// <summary>
+    /// Euclidean length, <c>sqrt(dot(x, x))</c> in half precision. Unlike the float overload it is not
+    /// rescaled (an Apple GPU does not rescale halves either): the sum of squares overflows to infinity
+    /// for a length above about 255.9 and underflows, losing precision and finally giving 0, for
+    /// components below about 2.4e-4. Convert to a float vector first when the range matters.
+    /// </summary>
+    [MslIntrinsic("metal::length")]
+    public static Half Length(Half3 x) => HalfMath.Sqrt(Dot(x, x));
+
+    /// <summary>
+    /// Euclidean length, <c>sqrt(dot(x, x))</c> in half precision. Unlike the float overload it is not
+    /// rescaled (an Apple GPU does not rescale halves either): the sum of squares overflows to infinity
+    /// for a length above about 255.9 and underflows, losing precision and finally giving 0, for
+    /// components below about 2.4e-4. Convert to a float vector first when the range matters.
+    /// </summary>
+    [MslIntrinsic("metal::length")]
+    public static Half Length(Half4 x) => HalfMath.Sqrt(Dot(x, x));
+
+    /// <summary><c>length(x - y)</c>, with the range limits of <see cref="Length(Half2)"/>.</summary>
+    [MslIntrinsic("metal::distance")]
+    public static Half Distance(Half2 x, Half2 y) => Length(x - y);
+
+    /// <summary><c>length(x - y)</c>, with the range limits of <see cref="Length(Half3)"/>.</summary>
+    [MslIntrinsic("metal::distance")]
+    public static Half Distance(Half3 x, Half3 y) => Length(x - y);
+
+    /// <summary><c>length(x - y)</c>, with the range limits of <see cref="Length(Half4)"/>.</summary>
+    [MslIntrinsic("metal::distance")]
+    public static Half Distance(Half4 x, Half4 y) => Length(x - y);
+
+    /// <summary>
+    /// Unit vector in the direction of <paramref name="x"/>: <c>x * rsqrt(dot(x, x))</c> in half precision,
+    /// with the range limits of <see cref="Length(Half2)"/>. A zero vector (and one so short that its sum of
+    /// squares underflows to 0) gives NaN in every zero component and infinity in the others, where the
+    /// float overload returns the vector unchanged; this is what an Apple GPU returns for halves.
+    /// </summary>
+    [MslIntrinsic("metal::normalize")]
+    public static Half2 Normalize(Half2 x) => x * HalfMath.Rsqrt(Dot(x, x));
+
+    /// <summary>
+    /// Unit vector in the direction of <paramref name="x"/>: <c>x * rsqrt(dot(x, x))</c> in half precision,
+    /// with the range limits of <see cref="Length(Half3)"/>. A zero vector (and one so short that its sum of
+    /// squares underflows to 0) gives NaN in every zero component and infinity in the others, where the
+    /// float overload returns the vector unchanged; this is what an Apple GPU returns for halves.
+    /// </summary>
+    [MslIntrinsic("metal::normalize")]
+    public static Half3 Normalize(Half3 x) => x * HalfMath.Rsqrt(Dot(x, x));
+
+    /// <summary>
+    /// Unit vector in the direction of <paramref name="x"/>: <c>x * rsqrt(dot(x, x))</c> in half precision,
+    /// with the range limits of <see cref="Length(Half4)"/>. A zero vector (and one so short that its sum of
+    /// squares underflows to 0) gives NaN in every zero component and infinity in the others, where the
+    /// float overload returns the vector unchanged; this is what an Apple GPU returns for halves.
+    /// </summary>
+    [MslIntrinsic("metal::normalize")]
+    public static Half4 Normalize(Half4 x) => x * HalfMath.Rsqrt(Dot(x, x));
+
+    /// <summary>Reflection of <paramref name="i"/> about the normal <paramref name="n"/>: <c>i - 2 * dot(n, i) * n</c>, evaluated as <c>fma(-2 * dot(n, i), n, i)</c> in half precision (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::reflect")]
+    public static Half2 Reflect(Half2 i, Half2 n)
+    {
+        Half k = HalfMath.MinusTwo * Dot(n, i);
+        return new Half2(HalfMath.Fma(k, n.X, i.X), HalfMath.Fma(k, n.Y, i.Y));
+    }
+
+    /// <summary>Reflection of <paramref name="i"/> about the normal <paramref name="n"/>: <c>i - 2 * dot(n, i) * n</c>, evaluated as <c>fma(-2 * dot(n, i), n, i)</c> in half precision (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::reflect")]
+    public static Half3 Reflect(Half3 i, Half3 n)
+    {
+        Half k = HalfMath.MinusTwo * Dot(n, i);
+        return new Half3(HalfMath.Fma(k, n.X, i.X), HalfMath.Fma(k, n.Y, i.Y), HalfMath.Fma(k, n.Z, i.Z));
+    }
+
+    /// <summary>Reflection of <paramref name="i"/> about the normal <paramref name="n"/>: <c>i - 2 * dot(n, i) * n</c>, evaluated as <c>fma(-2 * dot(n, i), n, i)</c> in half precision (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::reflect")]
+    public static Half4 Reflect(Half4 i, Half4 n)
+    {
+        Half k = HalfMath.MinusTwo * Dot(n, i);
+        return new Half4(HalfMath.Fma(k, n.X, i.X), HalfMath.Fma(k, n.Y, i.Y), HalfMath.Fma(k, n.Z, i.Z), HalfMath.Fma(k, n.W, i.W));
+    }
+
+    /// <summary>Cross product, each component evaluated as a half <c>fma(a, b, -(c * d))</c> (as on Apple GPUs).</summary>
+    [MslIntrinsic("metal::cross")]
+    public static Half3 Cross(Half3 x, Half3 y) => new(
+        HalfMath.Fma(x.Y, y.Z, -(x.Z * y.Y)),
+        HalfMath.Fma(x.Z, y.X, -(x.X * y.Z)),
+        HalfMath.Fma(x.X, y.Y, -(x.Y * y.X)));
+
+    // Classification of float and half vectors -> metal::isnan / isinf / isfinite (componentwise, a bool vector)
+
+    /// <summary>For each component, whether it is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static Bool2 IsNaN(Float2 x) => new Bool2(IsNaN(x.X), IsNaN(x.Y));
+
+    /// <summary>For each component, whether it is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static Bool3 IsNaN(Float3 x) => new Bool3(IsNaN(x.X), IsNaN(x.Y), IsNaN(x.Z));
+
+    /// <summary>For each component, whether it is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static Bool4 IsNaN(Float4 x) => new Bool4(IsNaN(x.X), IsNaN(x.Y), IsNaN(x.Z), IsNaN(x.W));
+
+    /// <summary>For each component, whether it is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static Bool2 IsNaN(Half2 x) => new Bool2(Half.IsNaN(x.X), Half.IsNaN(x.Y));
+
+    /// <summary>For each component, whether it is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static Bool3 IsNaN(Half3 x) => new Bool3(Half.IsNaN(x.X), Half.IsNaN(x.Y), Half.IsNaN(x.Z));
+
+    /// <summary>For each component, whether it is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static Bool4 IsNaN(Half4 x) => new Bool4(Half.IsNaN(x.X), Half.IsNaN(x.Y), Half.IsNaN(x.Z), Half.IsNaN(x.W));
+
+    /// <summary>For each component, whether it is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static Bool2 IsInfinity(Float2 x) => new Bool2(IsInfinity(x.X), IsInfinity(x.Y));
+
+    /// <summary>For each component, whether it is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static Bool3 IsInfinity(Float3 x) => new Bool3(IsInfinity(x.X), IsInfinity(x.Y), IsInfinity(x.Z));
+
+    /// <summary>For each component, whether it is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static Bool4 IsInfinity(Float4 x) => new Bool4(IsInfinity(x.X), IsInfinity(x.Y), IsInfinity(x.Z), IsInfinity(x.W));
+
+    /// <summary>For each component, whether it is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static Bool2 IsInfinity(Half2 x) => new Bool2(Half.IsInfinity(x.X), Half.IsInfinity(x.Y));
+
+    /// <summary>For each component, whether it is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static Bool3 IsInfinity(Half3 x) => new Bool3(Half.IsInfinity(x.X), Half.IsInfinity(x.Y), Half.IsInfinity(x.Z));
+
+    /// <summary>For each component, whether it is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static Bool4 IsInfinity(Half4 x) => new Bool4(Half.IsInfinity(x.X), Half.IsInfinity(x.Y), Half.IsInfinity(x.Z), Half.IsInfinity(x.W));
+
+    /// <summary>For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static Bool2 IsFinite(Float2 x) => new Bool2(IsFinite(x.X), IsFinite(x.Y));
+
+    /// <summary>For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static Bool3 IsFinite(Float3 x) => new Bool3(IsFinite(x.X), IsFinite(x.Y), IsFinite(x.Z));
+
+    /// <summary>For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static Bool4 IsFinite(Float4 x) => new Bool4(IsFinite(x.X), IsFinite(x.Y), IsFinite(x.Z), IsFinite(x.W));
+
+    /// <summary>For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static Bool2 IsFinite(Half2 x) => new Bool2(Half.IsFinite(x.X), Half.IsFinite(x.Y));
+
+    /// <summary>For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static Bool3 IsFinite(Half3 x) => new Bool3(Half.IsFinite(x.X), Half.IsFinite(x.Y), Half.IsFinite(x.Z));
+
+    /// <summary>For each component, whether it is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static Bool4 IsFinite(Half4 x) => new Bool4(Half.IsFinite(x.X), Half.IsFinite(x.Y), Half.IsFinite(x.Z), Half.IsFinite(x.W));
+
+    // Equality of vectors -> the MSL operators == and != (componentwise, a bool vector). They are methods
+    // because a C# == that does not return bool breaks what C# builds on it; see the vector types.
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(Float2 x, Float2 y) => new Bool2(x.X == y.X, x.Y == y.Y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(Float2 x, float y) => new Bool2(x.X == y, x.Y == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(Float3 x, Float3 y) => new Bool3(x.X == y.X, x.Y == y.Y, x.Z == y.Z);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(Float3 x, float y) => new Bool3(x.X == y, x.Y == y, x.Z == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(Float4 x, Float4 y) => new Bool4(x.X == y.X, x.Y == y.Y, x.Z == y.Z, x.W == y.W);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(Float4 x, float y) => new Bool4(x.X == y, x.Y == y, x.Z == y, x.W == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(Half2 x, Half2 y) => new Bool2(x.X == y.X, x.Y == y.Y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(Half2 x, Half y) => new Bool2(x.X == y, x.Y == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(Half3 x, Half3 y) => new Bool3(x.X == y.X, x.Y == y.Y, x.Z == y.Z);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(Half3 x, Half y) => new Bool3(x.X == y, x.Y == y, x.Z == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(Half4 x, Half4 y) => new Bool4(x.X == y.X, x.Y == y.Y, x.Z == y.Z, x.W == y.W);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector). A NaN equals nothing, itself included, and <c>-0</c> equals <c>+0</c>.</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(Half4 x, Half y) => new Bool4(x.X == y, x.Y == y, x.Z == y, x.W == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(Int2 x, Int2 y) => new Bool2(x.X == y.X, x.Y == y.Y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(Int2 x, int y) => new Bool2(x.X == y, x.Y == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(Int3 x, Int3 y) => new Bool3(x.X == y.X, x.Y == y.Y, x.Z == y.Z);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(Int3 x, int y) => new Bool3(x.X == y, x.Y == y, x.Z == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(Int4 x, Int4 y) => new Bool4(x.X == y.X, x.Y == y.Y, x.Z == y.Z, x.W == y.W);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(Int4 x, int y) => new Bool4(x.X == y, x.Y == y, x.Z == y, x.W == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(UInt2 x, UInt2 y) => new Bool2(x.X == y.X, x.Y == y.Y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool2 Equal(UInt2 x, uint y) => new Bool2(x.X == y, x.Y == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(UInt3 x, UInt3 y) => new Bool3(x.X == y.X, x.Y == y.Y, x.Z == y.Z);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool3 Equal(UInt3 x, uint y) => new Bool3(x.X == y, x.Y == y, x.Z == y);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(UInt4 x, UInt4 y) => new Bool4(x.X == y.X, x.Y == y.Y, x.Z == y.Z, x.W == y.W);
+
+    /// <summary>For each component, whether the two are equal (MSL <c>==</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("==")]
+    public static Bool4 Equal(UInt4 x, uint y) => new Bool4(x.X == y, x.Y == y, x.Z == y, x.W == y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(Float2 x, Float2 y) => new Bool2(x.X != y.X, x.Y != y.Y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(Float2 x, float y) => new Bool2(x.X != y, x.Y != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(Float3 x, Float3 y) => new Bool3(x.X != y.X, x.Y != y.Y, x.Z != y.Z);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(Float3 x, float y) => new Bool3(x.X != y, x.Y != y, x.Z != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(Float4 x, Float4 y) => new Bool4(x.X != y.X, x.Y != y.Y, x.Z != y.Z, x.W != y.W);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(Float4 x, float y) => new Bool4(x.X != y, x.Y != y, x.Z != y, x.W != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(Half2 x, Half2 y) => new Bool2(x.X != y.X, x.Y != y.Y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(Half2 x, Half y) => new Bool2(x.X != y, x.Y != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(Half3 x, Half3 y) => new Bool3(x.X != y.X, x.Y != y.Y, x.Z != y.Z);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(Half3 x, Half y) => new Bool3(x.X != y, x.Y != y, x.Z != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(Half4 x, Half4 y) => new Bool4(x.X != y.X, x.Y != y.Y, x.Z != y.Z, x.W != y.W);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector). A NaN differs from everything, itself included, and <c>-0</c> does not differ from <c>+0</c>.</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(Half4 x, Half y) => new Bool4(x.X != y, x.Y != y, x.Z != y, x.W != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(Int2 x, Int2 y) => new Bool2(x.X != y.X, x.Y != y.Y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(Int2 x, int y) => new Bool2(x.X != y, x.Y != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(Int3 x, Int3 y) => new Bool3(x.X != y.X, x.Y != y.Y, x.Z != y.Z);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(Int3 x, int y) => new Bool3(x.X != y, x.Y != y, x.Z != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(Int4 x, Int4 y) => new Bool4(x.X != y.X, x.Y != y.Y, x.Z != y.Z, x.W != y.W);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(Int4 x, int y) => new Bool4(x.X != y, x.Y != y, x.Z != y, x.W != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(UInt2 x, UInt2 y) => new Bool2(x.X != y.X, x.Y != y.Y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool2 NotEqual(UInt2 x, uint y) => new Bool2(x.X != y, x.Y != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(UInt3 x, UInt3 y) => new Bool3(x.X != y.X, x.Y != y.Y, x.Z != y.Z);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool3 NotEqual(UInt3 x, uint y) => new Bool3(x.X != y, x.Y != y, x.Z != y);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(UInt4 x, UInt4 y) => new Bool4(x.X != y.X, x.Y != y.Y, x.Z != y.Z, x.W != y.W);
+
+    /// <summary>For each component, whether the two differ (MSL <c>!=</c>, which answers with a bool vector).</summary>
+    [MslBinaryOperator("!=")]
+    public static Bool4 NotEqual(UInt4 x, uint y) => new Bool4(x.X != y, x.Y != y, x.Z != y, x.W != y);
+
+    // Bool vectors -> metal::any / all / select
+
+    /// <summary>True when at least one component is true (MSL <c>any</c>).</summary>
+    [MslIntrinsic("metal::any")]
+    public static bool Any(Bool2 x) => x.X || x.Y;
+
+    /// <summary>True when at least one component is true (MSL <c>any</c>).</summary>
+    [MslIntrinsic("metal::any")]
+    public static bool Any(Bool3 x) => x.X || x.Y || x.Z;
+
+    /// <summary>True when at least one component is true (MSL <c>any</c>).</summary>
+    [MslIntrinsic("metal::any")]
+    public static bool Any(Bool4 x) => x.X || x.Y || x.Z || x.W;
+
+    /// <summary>True when every component is true (MSL <c>all</c>).</summary>
+    [MslIntrinsic("metal::all")]
+    public static bool All(Bool2 x) => x.X && x.Y;
+
+    /// <summary>True when every component is true (MSL <c>all</c>).</summary>
+    [MslIntrinsic("metal::all")]
+    public static bool All(Bool3 x) => x.X && x.Y && x.Z;
+
+    /// <summary>True when every component is true (MSL <c>all</c>).</summary>
+    [MslIntrinsic("metal::all")]
+    public static bool All(Bool4 x) => x.X && x.Y && x.Z && x.W;
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Float2 Select(Bool2 mask, Float2 whenTrue, Float2 whenFalse) => new Float2(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Float3 Select(Bool3 mask, Float3 whenTrue, Float3 whenFalse) => new Float3(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Float4 Select(Bool4 mask, Float4 whenTrue, Float4 whenFalse) => new Float4(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z, mask.W ? whenTrue.W : whenFalse.W);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Half2 Select(Bool2 mask, Half2 whenTrue, Half2 whenFalse) => new Half2(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Half3 Select(Bool3 mask, Half3 whenTrue, Half3 whenFalse) => new Half3(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Half4 Select(Bool4 mask, Half4 whenTrue, Half4 whenFalse) => new Half4(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z, mask.W ? whenTrue.W : whenFalse.W);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Int2 Select(Bool2 mask, Int2 whenTrue, Int2 whenFalse) => new Int2(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Int3 Select(Bool3 mask, Int3 whenTrue, Int3 whenFalse) => new Int3(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Int4 Select(Bool4 mask, Int4 whenTrue, Int4 whenFalse) => new Int4(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z, mask.W ? whenTrue.W : whenFalse.W);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static UInt2 Select(Bool2 mask, UInt2 whenTrue, UInt2 whenFalse) => new UInt2(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static UInt3 Select(Bool3 mask, UInt3 whenTrue, UInt3 whenFalse) => new UInt3(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static UInt4 Select(Bool4 mask, UInt4 whenTrue, UInt4 whenFalse) => new UInt4(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z, mask.W ? whenTrue.W : whenFalse.W);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Bool2 Select(Bool2 mask, Bool2 whenTrue, Bool2 whenFalse) => new Bool2(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Bool3 Select(Bool3 mask, Bool3 whenTrue, Bool3 whenFalse) => new Bool3(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z);
+
+    /// <summary>
+    /// Picks each component from <paramref name="whenTrue"/> where <paramref name="mask"/> is true and from
+    /// <paramref name="whenFalse"/> where it is false: a componentwise <c>mask ? whenTrue : whenFalse</c>.
+    /// Both values are always evaluated, and the chosen components are copied as they are (<c>-0</c> stays <c>-0</c>, a NaN stays a NaN).
+    /// </summary>
+    /// <remarks>
+    /// The argument order is HLSL's <c>select(condition, whenTrue, whenFalse)</c>. MSL's is the reverse,
+    /// <c>select(whenFalse, whenTrue, condition)</c>, which is what the generator emits.
+    /// </remarks>
+    [MslIntrinsic("metal::select", ReverseArguments = true)]
+    public static Bool4 Select(Bool4 mask, Bool4 whenTrue, Bool4 whenFalse) => new Bool4(mask.X ? whenTrue.X : whenFalse.X, mask.Y ? whenTrue.Y : whenFalse.Y, mask.Z ? whenTrue.Z : whenFalse.Z, mask.W ? whenTrue.W : whenFalse.W);
 }
