@@ -13,6 +13,19 @@ public sealed class BrushSettings
     public const float SizeStep = 1.25f;
     public const float MinOpacity = 0.1f;
 
+    /// <summary>How far two fingers scroll, in points, for the same change as one notch of a wheel.</summary>
+    public const float WheelPointsPerStep = 40f;
+
+    /// <summary>The most one wheel event may change a setting, so a fast spin can't jump across the whole range.</summary>
+    public const float MaxWheelSteps = 4f;
+
+    /// <summary>Hardness change per wheel step.</summary>
+    public const float HardnessWheelStep = 0.05f;
+
+    // Hardness is kept to two decimals, and one trackpad event is worth far less than that: what the
+    // rounding dropped is carried to the next event, or slow scrolling would never move it.
+    private float _hardnessCarry;
+
     /// <summary>The 1–9 palette (straight sRGB).</summary>
     public static IReadOnlyList<Float3> Palette { get; } =
     [
@@ -44,6 +57,34 @@ public sealed class BrushSettings
 
     /// <summary>Stamp spacing along a stroke: a fifth of the radius, at least half a pixel.</summary>
     public float Spacing => MathF.Max(0.5f, Radius * 0.2f);
+
+    /// <summary>
+    /// Turns one wheel event's delta into steps (one step is one press of <c>]</c> or <c>'</c>).
+    /// A notched wheel reports lines, scaled by macOS with how fast it turns, and a slow notch can be
+    /// a tenth of a line: every notch counts as at least one whole step. Trackpad deltas are precise
+    /// and arrive many per gesture, so they convert proportionally (pass them in points).
+    /// </summary>
+    public static float WheelSteps(float delta, bool precise)
+    {
+        if (delta == 0f || float.IsNaN(delta))
+        {
+            return 0f;
+        }
+
+        float steps = precise ? delta / WheelPointsPerStep : MathF.CopySign(MathF.Max(1f, MathF.Abs(delta)), delta);
+        return Math.Clamp(steps, -MaxWheelSteps, MaxWheelSteps);
+    }
+
+    /// <summary>Grows (positive) or shrinks the brush by <paramref name="steps"/> wheel steps; fractions are fine.</summary>
+    public void ScrollSize(float steps) => Size *= MathF.Pow(SizeStep, steps);
+
+    /// <summary>Raises (positive) or lowers the hardness by <paramref name="steps"/> wheel steps, carrying fractions too small to show.</summary>
+    public void ScrollHardness(float steps)
+    {
+        float target = Math.Clamp(Hardness + _hardnessCarry + (steps * HardnessWheelStep), 0f, 1f);
+        Hardness = target;
+        _hardnessCarry = target - Hardness;
+    }
 
     public string ColorHex => string.Create(CultureInfo.InvariantCulture, $"#{ToByte(Color.X):X2}{ToByte(Color.Y):X2}{ToByte(Color.Z):X2}");
 

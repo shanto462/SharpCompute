@@ -11,11 +11,11 @@ namespace SharpCompute.Interop;
 /// </summary>
 internal static unsafe partial class ObjC
 {
-    // CGFloat f(id, SEL) — backingScaleFactor.
+    // CGFloat f(id, SEL) — backingScaleFactor, scrollingDeltaX, scrollingDeltaY.
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial double SendDouble(nint receiver, nint selector);
 
-    // BOOL f(id, SEL) — isVisible, isMiniaturized, isKeyWindow, isActive, isARepeat. BOOL is a one-byte bool on arm64.
+    // BOOL f(id, SEL) — isVisible, isMiniaturized, isKeyWindow, isActive, isARepeat, hasPreciseScrollingDeltas. BOOL is a one-byte bool on arm64.
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial byte SendByte(nint receiver, nint selector);
 
@@ -189,6 +189,7 @@ internal static partial class AppKit
     internal const nuint EventKeyDown = 10;
     internal const nuint EventKeyUp = 11;
     internal const nuint EventFlagsChanged = 12;
+    internal const nuint EventScrollWheel = 22;
     internal const nuint EventOtherMouseDown = 25;
     internal const nuint EventOtherMouseUp = 26;
     internal const nuint EventOtherMouseDragged = 27;
@@ -249,6 +250,10 @@ internal static class AppKitSelectors
     public static readonly nint ModifierFlags = ObjC.GetSelector("modifierFlags"); // also +[NSEvent modifierFlags]
     public static readonly nint IsARepeat = ObjC.GetSelector("isARepeat");
     public static readonly nint CharactersIgnoringModifiers = ObjC.GetSelector("charactersIgnoringModifiers");
+    public static readonly nint ScrollingDeltaX = ObjC.GetSelector("scrollingDeltaX");
+    public static readonly nint ScrollingDeltaY = ObjC.GetSelector("scrollingDeltaY");
+    public static readonly nint HasPreciseScrollingDeltas = ObjC.GetSelector("hasPreciseScrollingDeltas");
+    public static readonly nint MomentumPhase = ObjC.GetSelector("momentumPhase");
 
     // CAMetalLayer / CAMetalDrawable
     public static readonly nint Layer = ObjC.GetSelector("layer");

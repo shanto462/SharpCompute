@@ -20,7 +20,7 @@ public sealed class PaintController : IDisposable
     public const int CanvasHeight = 1080;
 
     public const string Keys =
-        "drag: paint (right button erases) · [ ] size · ; ' hardness · - = opacity · 1–9 color · H color wheel · E eraser · " +
+        "drag: paint (right button erases) · [ ] or wheel: size · ; ' or Shift+wheel: hardness · - = opacity · 1–9 color · H color wheel · E eraser · " +
         "B blur · K sharpen · D edges · I invert · P posterize · G grayscale · C clear · ⌘Z undo · ⇧⌘Z redo · ⌘S save PNG · Esc quit";
 
     private readonly StrokePath _path = new();
@@ -124,6 +124,46 @@ public sealed class PaintController : IDisposable
 
         Version++;
         return message;
+    }
+
+    /// <summary>
+    /// The scroll wheel or a two-finger scroll: brush size, or hardness with Shift held. The deltas
+    /// are <see cref="MouseWheelEventArgs"/>'s, with precise ones converted to points; a positive one
+    /// makes the brush bigger or harder. Returns whether a setting changed; the new value shows in
+    /// <see cref="Status"/>.
+    /// </summary>
+    public bool HandleWheel(float deltaX, float deltaY, bool precise, KeyModifiers modifiers)
+    {
+        bool shift = (modifiers & KeyModifiers.Shift) != 0;
+
+        // macOS turns Shift + a notched wheel into horizontal scrolling, so with Shift held the
+        // movement can arrive on either axis: take whichever moved more.
+        float delta = shift && MathF.Abs(deltaX) > MathF.Abs(deltaY) ? deltaX : deltaY;
+        float steps = BrushSettings.WheelSteps(delta, precise);
+
+        if (steps == 0f)
+        {
+            return false;
+        }
+
+        (float size, float hardness) = (Brush.Size, Brush.Hardness);
+
+        if (shift)
+        {
+            Brush.ScrollHardness(steps);
+        }
+        else
+        {
+            Brush.ScrollSize(steps);
+        }
+
+        if (Brush.Size == size && Brush.Hardness == hardness)
+        {
+            return false;
+        }
+
+        Version++;
+        return true;
     }
 
     /// <summary>A press at canvas position (<paramref name="x"/>, <paramref name="y"/>): starts a stroke, or picks a color while the wheel is shown.</summary>

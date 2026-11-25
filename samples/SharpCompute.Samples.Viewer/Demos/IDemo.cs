@@ -32,6 +32,15 @@ public interface IDemo : IDisposable
     void OnMouse(MouseAction action, MouseButton button, double x, double y, int targetWidth, int targetHeight)
     {
     }
+
+    /// <summary>
+    /// The scroll wheel or a two-finger scroll over the frame, in wheel notches (fractions for a
+    /// trackpad; see <see cref="WheelInput"/>). Positive is a positive
+    /// <see cref="MouseWheelEventArgs.DeltaY"/>, which demos treat as "zoom in".
+    /// </summary>
+    void OnWheel(float steps)
+    {
+    }
 }
 
 public enum MouseAction
@@ -39,6 +48,37 @@ public enum MouseAction
     Down,
     Drag,
     Up,
+}
+
+/// <summary>Turns <see cref="MetalWindow.MouseWheel"/> deltas into the notches <see cref="IDemo.OnWheel"/> takes.</summary>
+public static class WheelInput
+{
+    /// <summary>How far two fingers scroll, in points, for the same effect as one notch of a wheel.</summary>
+    public const float PointsPerStep = 40f;
+
+    /// <summary>The most one event may count for, so a fast spin can't jump across a demo's whole range.</summary>
+    public const float MaxSteps = 4f;
+
+    /// <summary>
+    /// One wheel event as notches. A wheel reports lines, and macOS scales them with how fast it
+    /// turns (a slow notch can be a tenth of a line), so each event counts as at least one notch. A
+    /// trackpad reports drawable pixels, many events per gesture: those convert proportionally, by
+    /// finger travel in points so a Retina display doesn't double the speed. The sign is used as it
+    /// comes, because macOS has already applied the user's "Natural scrolling" setting.
+    /// </summary>
+    public static float ToSteps(float delta, bool precise, double scaleFactor)
+    {
+        if (delta == 0f || float.IsNaN(delta))
+        {
+            return 0f;
+        }
+
+        float steps = precise
+            ? delta / ((float)Math.Max(scaleFactor, 1) * PointsPerStep)
+            : MathF.CopySign(MathF.Max(1f, MathF.Abs(delta)), delta);
+
+        return Math.Clamp(steps, -MaxSteps, MaxSteps);
+    }
 }
 
 /// <summary>Adapts a <see cref="GalleryShader"/> (a pure function of time) to <see cref="IDemo"/>.</summary>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GPU paint app in a window.
-#   drag paint · 1–9 colors · H+drag pick color · [ ] size · ; ' hardness · - = opacity · E eraser
+#   drag paint · 1–9 colors · H+drag pick color · [ ] or wheel size · ; ' or Shift+wheel hardness · - = opacity · E eraser
 #   B blur · K sharpen · D edges · I invert · P posterize · G grayscale · ⌘Z/⇧⌘Z undo/redo · ⌘S save · C clear
 #
 #   scripts/demo-paint.sh            # paint yourself

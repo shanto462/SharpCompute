@@ -129,6 +129,25 @@ public class MetalWindowTests(ITestOutputHelper output)
         Assert.True(exitCode is 0 or TestProgram.NoFocus, $"exit code {exitCode}\n{stdout}\n{stderr}");
     }
 
+    /// <summary>
+    /// Scrolling through a real window: synthetic scroll-wheel events (lines, precise pixels, Shift,
+    /// momentum, the title bar) are queued for a MetalWindow on its main thread and
+    /// <see cref="MetalWindow.MouseWheel"/> is checked after each. The conversion itself is covered
+    /// without a window by <see cref="MouseWheelTests"/>.
+    /// </summary>
+    [WindowFact]
+    public void MouseWheel_IsRaisedOverTheContentArea_WithPixelPositionsAndDeltas()
+    {
+        (int exitCode, string stdout, string stderr) = RunProcess(typeof(TestProgram).Assembly.Location, ["mouse-wheel"], [], "mouse-wheel");
+
+        output.WriteLine(stdout.Trim());
+
+        // CannotSynthesize: aiming a scroll event at a window uses two CoreGraphics entry points that
+        // are not in the public headers (see WindowScenarios.PostWheel). If a macOS release drops
+        // them, that is not a failure of the code under test; the output says so.
+        Assert.True(exitCode is 0 or TestProgram.NoFocus or TestProgram.CannotSynthesize, $"exit code {exitCode}\n{stdout}\n{stderr}");
+    }
+
     [WindowFact]
     public void KeyState_TracksHeldKeysAndReleasesThemWhenHidden()
     {

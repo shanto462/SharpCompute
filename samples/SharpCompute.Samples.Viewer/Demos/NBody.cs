@@ -210,14 +210,20 @@ public sealed class NBodySimulation : IDisposable
 
 /// <summary>
 /// The live N-body demo: 16,384 bodies, every pair interacting each frame. Drag to orbit the
-/// camera; it drifts slowly on its own otherwise.
+/// camera (it drifts slowly on its own otherwise) and scroll to zoom.
 /// </summary>
 public sealed class NBodyDemo : IDemo
 {
     public const int BodyCount = 16_384;
 
     private const float TimeStep = 0.0025f;
-    private const float Zoom = 0.6f;
+    public const float DefaultZoom = 0.6f;
+    public const float MinZoom = 0.15f;
+    public const float MaxZoom = 6f;
+
+    /// <summary>Zoom factor per wheel notch.</summary>
+    public const float ZoomStep = 1.1f;
+
     private const uint SplatWeight = 256;
     private const uint Decay = 190;
 
@@ -226,6 +232,7 @@ public sealed class NBodyDemo : IDemo
     private ReadWriteBuffer<uint>? _pixels;
     private float _yaw;
     private float _pitch = 0.5f;
+    private float _zoom = DefaultZoom;
     private double _dragX;
     private double _dragY;
     private bool _dragging;
@@ -234,7 +241,10 @@ public sealed class NBodyDemo : IDemo
 
     public string Author => "SharpCompute";
 
-    public string Controls => "drag: orbit the camera, R: restart";
+    public string Controls => "drag: orbit the camera, wheel: zoom, R: restart";
+
+    /// <summary>World units to frame heights: at 1, a distance of 1 spans the frame's height.</summary>
+    public float Zoom => _zoom;
 
     public void Render(GraphicsDevice device, ReadWriteTexture2D<Rgba32> target, DemoFrame frame)
     {
@@ -260,7 +270,7 @@ public sealed class NBodyDemo : IDemo
             _accumulation = device.AllocateReadWriteBuffer<uint>(count);
         }
 
-        device.For(BodyCount, new NBodySplat(_simulation.Positions, _accumulation!, target.Width, target.Height, _yaw, _pitch, Zoom, SplatWeight));
+        device.For(BodyCount, new NBodySplat(_simulation.Positions, _accumulation!, target.Width, target.Height, _yaw, _pitch, _zoom, SplatWeight));
 
         // A pixel hit once per frame settles near weight / (1 - decay/256) ≈ 4 × weight. Larger
         // targets spread the same bodies over more pixels, so exposure grows with the height.
@@ -296,6 +306,14 @@ public sealed class NBodyDemo : IDemo
         }
 
         (_dragX, _dragY) = (x, y);
+    }
+
+    public void OnWheel(float steps)
+    {
+        if (float.IsFinite(steps))
+        {
+            _zoom = Math.Clamp(_zoom * MathF.Pow(ZoomStep, steps), MinZoom, MaxZoom);
+        }
     }
 
     public void Dispose()

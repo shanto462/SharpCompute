@@ -134,6 +134,7 @@ internal sealed class PaintApp : IDisposable
         window.MouseDown += (_, e) => OnMouse(e, MouseState.Down);
         window.MouseDragged += (_, e) => OnMouse(e, MouseState.Drag);
         window.MouseUp += (_, e) => OnMouse(e, MouseState.Up);
+        window.MouseWheel += OnWheel;
     }
 
     private enum MouseState
@@ -200,6 +201,21 @@ internal sealed class PaintApp : IDisposable
         {
             Console.WriteLine(message);
         }
+    }
+
+    private void OnWheel(object? sender, MouseWheelEventArgs e)
+    {
+        // A brush setting should stop changing the moment the fingers lift, so trackpad inertia is skipped.
+        if (e.IsMomentum)
+        {
+            return;
+        }
+
+        // Precise deltas are drawable pixels. The controller counts finger travel in points, so that a
+        // Retina display doesn't change the brush twice as fast. The sign is used as it comes: macOS
+        // has already applied the user's "Natural scrolling" setting.
+        float scale = e.IsPrecise ? (float)_window.ScaleFactor : 1f;
+        _controller.HandleWheel(e.DeltaX / scale, e.DeltaY / scale, e.IsPrecise, e.Modifiers);
     }
 
     private void OnMouse(MouseEventArgs e, MouseState state)
