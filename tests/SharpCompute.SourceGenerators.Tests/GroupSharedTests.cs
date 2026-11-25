@@ -12,7 +12,11 @@ public class GroupSharedTests
 {
     private const string Shader = "Tests.TestShader";
 
-    private static GeneratorRun Run(string members, string attributes = "", string trailer = "") =>
+    /// <summary>
+    /// A shader with the given members. It gets a <c>[ThreadGroupSize]</c> unless <paramref name="attributes"/>
+    /// says otherwise, because a group-shared array without one is a warning (SCG0044).
+    /// </summary>
+    private static GeneratorRun Run(string members, string attributes = "[ThreadGroupSize(64)]", string trailer = "") =>
         GeneratorHarness.Run(TestSources.Vectors, TestSources.Shader(members, attributes) + trailer);
 
     private static string GeneratedCode(GeneratorRun run) => Assert.Single(run.Sources).SourceText.ToString();
@@ -162,6 +166,246 @@ public class GroupSharedTests
         Assert.Contains("particles[local].Position.x -= 1.0f;", descriptor.MslSource);
         Assert.Contains("Particle other = particles[7 - local];", descriptor.MslSource);
         Assert.Equal((8 * 4) + (8 * 4) + (8 * 12) + (8 * 8) + (8 * 16), descriptor.ThreadgroupMemoryLength);
+    }
+
+    [Fact]
+    public void MatrixElements_UseThePackedPreludeType_UnpackedOnReadAndPackedOnStore()
+    {
+        // Float4x4's boundary type is not Metal's but the prelude's: no implicit conversions, so the
+        // element is handled exactly like a buffer element of that type.
+        ShaderDescriptor descriptor = Run(
+            """
+                public readonly ReadWriteBuffer<Float4x4> buffer;
+                public readonly Float4x4 view;
+
+                [GroupShared]
+                private static readonly Float4x4[] matrices = new Float4x4[8];
+
+                public void Execute()
+                {
+                    int local = GroupIds.X;
+                    matrices[local] = buffer[ThreadIds.X];
+                    matrices[local] *= 2f;
+                    matrices[local] += view;
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+                    Float4x4 neighbour = matrices[(local + 1) % 8];
+                    Float4 row = Gpu.Mul(new Float4(1, 2, 3, 4), matrices[0]);
+                    buffer[ThreadIds.X] = Gpu.Mul(matrices[local], neighbour) * row.X + Last();
+                }
+
+                private static Float4x4 Last() => Gpu.Transpose(matrices[matrices.Length - 1]);
+            """,
+            "[ThreadGroupSize(8)]").Verify(Shader);
+
+        Assert.Equal(
+            """
+            threadgroup __ms_packed_float4x4 matrices[8];
+            int local = int(__gtid.x);
+            matrices[local] = __ms_pack(__ms_unpack(buffer[int(__tid.x)]));
+            matrices[local] = __ms_pack(__ms_unpack(matrices[local]) * 2.0f);
+            matrices[local] = __ms_pack(__ms_unpack(matrices[local]) + __ms_unpack(__c.view));
+            metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+            float4x4 neighbour = __ms_unpack(matrices[(local + 1) % 8]);
+            float4 row = (__ms_unpack(matrices[0]) * float4(float4(1.0f, 2.0f, 3.0f, 4.0f)));
+            buffer[int(__tid.x)] = __ms_pack((neighbour * __ms_unpack(matrices[local])) * row.x + ::Last(matrices));
+            """.ReplaceLineEndings("\n"),
+            descriptor.KernelBody);
+
+        // Helpers get the packed pointer and unpack there; the prelude declares the type before its first use.
+        Assert.Contains("static float4x4 Last(threadgroup __ms_packed_float4x4* matrices)\n{\n    return metal::transpose(__ms_unpack(matrices[8 - 1]));\n}", descriptor.MslSource);
+        Assert.Contains("struct __ms_packed_float4x4 { packed_float4 columns[4]; };", descriptor.MslSource);
+        Assert.Contains("static_assert(sizeof(__ms_packed_float4x4) == 64,", descriptor.MslSource);
+        Assert.Equal(8 * 64, descriptor.ThreadgroupMemoryLength);
+    }
+
+    [Fact]
+    public void AMatrixArrayAlone_PullsInThePrelude()
+    {
+        // No buffer, constant or struct holds a matrix: the group-shared array is the only reason for the prelude.
+        ShaderDescriptor descriptor = Run(
+            """
+                public readonly ReadWriteBuffer<float> buffer;
+
+                [GroupShared]
+                private static readonly Float4x4[] matrices = new Float4x4[4];
+
+                public void Execute()
+                {
+                    matrices[GroupIds.X] = new Float4x4(new Float4(1f), new Float4(2f), new Float4(3f), new Float4(ThreadIds.X));
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+                    buffer[ThreadIds.X] = Gpu.Determinant(matrices[0]);
+                }
+            """,
+            "[ThreadGroupSize(4)]").Verify(Shader);
+
+        Assert.Contains("inline float4x4 __ms_unpack(__ms_packed_float4x4 m)", descriptor.MslSource);
+        Assert.Contains("matrices[int(__gtid.x)] = __ms_pack(float4x4(", descriptor.MslSource);
+        Assert.Contains("buffer[int(__tid.x)] = metal::determinant(__ms_unpack(matrices[0]));", descriptor.MslSource);
+    }
+
+    [Fact]
+    public void AMatrixElement_CannotBeModifiedInPlaceThroughAnIndexWithSideEffects()
+    {
+        GeneratorRun run = Run(
+            """
+                [GroupShared]
+                private static readonly Float4x4[] matrices = new Float4x4[4];
+
+                public void Execute()
+                {
+                    int i = GroupIds.X;
+                    matrices[i++] *= 2f;
+                }
+            """,
+            "[ThreadGroupSize(4)]");
+
+        // Packed storage has no operators: the target is named twice (unpack, apply, pack).
+        Assert.Contains("'*=' on a matrix", run.AssertOnlyDiagnostic("SCG0012", "matrices[i++] *= 2f").GetMessage());
+    }
+
+    [Fact]
+    public void EveryBoundaryType_IsDeclaredWithItsPackedType_AndCompiles()
+    {
+        GeneratorRun run = GeneratorHarness.Run(
+            TestSources.Vectors,
+            """
+            using System;
+            using SharpCompute;
+
+            namespace Tests;
+
+            public struct Pose
+            {
+                public float Weight;
+                public Float4x4 Transform;
+                public Float3 Position;
+                public int Id;
+            }
+
+            public struct Nested { public Pose Pose; public UInt2 Flags; }
+
+            [ThreadGroupSize(4)]
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct TestShader : IComputeShader
+            {
+                public readonly ReadWriteBuffer<float> buffer;
+
+                [GroupShared] private static readonly float[] floats = new float[4];
+                [GroupShared] private static readonly int[] ints = new int[4];
+                [GroupShared] private static readonly uint[] uints = new uint[4];
+                [GroupShared] private static readonly Half[] halves = new Half[4];
+                [GroupShared] private static readonly Float2[] float2s = new Float2[4];
+                [GroupShared] private static readonly Float3[] float3s = new Float3[4];
+                [GroupShared] private static readonly Float4[] float4s = new Float4[4];
+                [GroupShared] private static readonly Int2[] int2s = new Int2[4];
+                [GroupShared] private static readonly Int3[] int3s = new Int3[4];
+                [GroupShared] private static readonly Int4[] int4s = new Int4[4];
+                [GroupShared] private static readonly UInt2[] uint2s = new UInt2[4];
+                [GroupShared] private static readonly UInt3[] uint3s = new UInt3[4];
+                [GroupShared] private static readonly UInt4[] uint4s = new UInt4[4];
+                [GroupShared] private static readonly Float4x4[] matrices = new Float4x4[4];
+                [GroupShared] private static readonly Pose[] poses = new Pose[4];
+                [GroupShared] private static readonly Nested[] nested = new Nested[4];
+
+                public void Execute()
+                {
+                    int j = GroupIds.X;
+
+                    floats[j] = j;
+                    ints[j] = j;
+                    uints[j] = (uint)j;
+                    halves[j] = (Half)floats[j];
+                    float2s[j] = new Float2(j, 1);
+                    float3s[j] = new Float3(j, 1, 2);
+                    float3s[j].Z += 1;
+                    float4s[j] = new Float4(float3s[j], 3);
+                    int2s[j] = new Int2(j, 1);
+                    int3s[j] = new Int3(j, 1, 2);
+                    int4s[j] = new Int4(j, 1, 2, 3);
+                    uint2s[j] = new UInt2(1u, 2u);
+                    uint3s[j] = new UInt3(1u, 2u, 3u);
+                    uint4s[j] = new UInt4(1u, 2u, 3u, 4u);
+                    matrices[j] = new Float4x4(float4s[j], float4s[j], float4s[j], float4s[j]);
+
+                    Pose pose;
+                    pose.Weight = 1;
+                    pose.Transform = matrices[j];
+                    pose.Position = float3s[j];
+                    pose.Id = j;
+                    poses[j] = pose;
+                    poses[j].Transform *= 2f;
+                    poses[j].Position.Y = 4;
+                    nested[j].Pose = poses[j];
+                    nested[j].Pose.Transform = Gpu.Transpose(poses[j].Transform);
+                    nested[j].Flags = uint2s[j];
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+
+                    int k = 3 - j;
+                    Float3 sum = float3s[k] + float4s[k].XYZ + new Float3(float2s[k], (float)halves[k]);
+                    Int4 counts = int4s[k] + new Int4(int3s[k], int2s[k].Y) + new Int4(ints[k]);
+                    UInt4 bits = uint4s[k] ^ new UInt4(uint3s[k], uint2s[k].X + uints[k]);
+                    Float4 row = Gpu.Mul(new Float4(1, 0, 0, 0), nested[k].Pose.Transform) + Gpu.Mul(float4s[k], matrices[k]);
+
+                    buffer[ThreadIds.X] = sum.X + counts.W + bits.Z + row.Y + poses[k].Position.Y + nested[k].Flags.Y + Gpu.Determinant(poses[k].Transform) + floats[k];
+                }
+            }
+            """);
+
+        ShaderDescriptor descriptor = run.Verify(Shader);
+
+        // Boundary types throughout, so the sizes are the C# arrays' element sizes.
+        Assert.Contains(
+            """
+                threadgroup float floats[4];
+                threadgroup int ints[4];
+                threadgroup uint uints[4];
+                threadgroup half halves[4];
+                threadgroup packed_float2 float2s[4];
+                threadgroup packed_float3 float3s[4];
+                threadgroup packed_float4 float4s[4];
+                threadgroup packed_int2 int2s[4];
+                threadgroup packed_int3 int3s[4];
+                threadgroup packed_int4 int4s[4];
+                threadgroup packed_uint2 uint2s[4];
+                threadgroup packed_uint3 uint3s[4];
+                threadgroup packed_uint4 uint4s[4];
+                threadgroup __ms_packed_float4x4 matrices[4];
+                threadgroup Pose poses[4];
+                threadgroup Nested nested[4];
+            """.ReplaceLineEndings("\n"),
+            descriptor.MslSource);
+
+        // The matrix is explicit wherever it is stored: an element, a field of a struct element, a nested field.
+        Assert.Contains("matrices[j] = __ms_pack(float4x4(", descriptor.MslSource);
+        Assert.Contains("pose.Transform = __ms_pack(__ms_unpack(matrices[j]));", descriptor.MslSource);
+        Assert.Contains("poses[j].Transform = __ms_pack(__ms_unpack(poses[j].Transform) * 2.0f);", descriptor.MslSource);
+        Assert.Contains("nested[j].Pose.Transform = __ms_pack(metal::transpose(__ms_unpack(poses[j].Transform)));", descriptor.MslSource);
+        Assert.Contains("metal::determinant(__ms_unpack(poses[k].Transform))", descriptor.MslSource);
+
+        // Packed vectors convert implicitly, as in buffers.
+        Assert.Contains("float3s[j].z += 1.0f;", descriptor.MslSource);
+        Assert.Contains("poses[j].Position.y = 4.0f;", descriptor.MslSource);
+
+        descriptor.AssertLayoutMatchesClr("Pose", run.LoadType("Tests.Pose"));
+        descriptor.AssertLayoutMatchesClr("Nested", run.LoadType("Tests.Nested"));
+        Assert.Equal(4 * (4 + 4 + 4 + 2 + 8 + 12 + 16 + 8 + 12 + 16 + 8 + 12 + 16 + 64 + 84 + 92), descriptor.ThreadgroupMemoryLength);
+    }
+
+    [Theory]
+    [InlineData("Float2x2")]
+    [InlineData("Float3x3")]
+    public void MatricesWithoutAPackedForm_AreRejected(string type)
+    {
+        GeneratorRun run = Run(
+            $$"""
+                [GroupShared] private static readonly {{type}}[] matrices = new {{type}}[4];
+
+                public void Execute() { }
+            """);
+
+        Diagnostic diagnostic = run.AssertOnlyDiagnostic("SCG0042", type + "[]");
+
+        Assert.Contains("'matrices'", diagnostic.GetMessage());
     }
 
     [Fact]
@@ -377,6 +621,7 @@ public class GroupSharedTests
 
             public struct Cell { public int Value; }
 
+            [ThreadGroupSize(4)]
             [GeneratedComputeShaderDescriptor]
             public readonly partial struct TestShader : IComputeShader
             {
@@ -752,6 +997,175 @@ public class GroupSharedTests
             """).Verify(Shader);
 
         Assert.Equal(32768, descriptor.ThreadgroupMemoryLength);
+    }
+
+    // ---- diagnostics: no [ThreadGroupSize] (a warning) ---------------------------------------------
+
+    private const string NoAttributes = "";
+
+    [Fact]
+    public void AUsedArray_InAShaderWithoutThreadGroupSize_IsAWarning_AndTheShaderIsStillGenerated()
+    {
+        GeneratorRun run = Run(
+            """
+                public readonly ReadWriteBuffer<float> buffer;
+
+                [GroupShared]
+                private static readonly float[] tile = new float[64];
+
+                public void Execute()
+                {
+                    tile[GroupIds.Index] = buffer[ThreadIds.X];
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+                    buffer[ThreadIds.X] = tile[0];
+                }
+            """,
+            NoAttributes);
+
+        Diagnostic diagnostic = run.AssertOnlyDiagnostic("SCG0044", "tile");
+
+        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Equal(
+            "[GroupShared] array 'tile' has 64 elements, but shader 'TestShader' has no [ThreadGroupSize]: the runtime then picks the threadgroup size " +
+            "by the rank of the dispatch (256, 16 x 16 or 8 x 8 x 4 threads, and the pipeline may clamp it), so an array shorter than the largest group " +
+            "it may pick is indexed out of bounds, silently, on the GPU. Add [ThreadGroupSize] to the shader, or size the array for 1024 threads.",
+            diagnostic.GetMessage());
+
+        // A warning, not an error: the descriptor is there, the sizes are left to the runtime, and the MSL compiles.
+        ShaderDescriptor descriptor = run.AssertCompiles().Descriptor(Shader).AssertMslCompiles();
+        Assert.Equal((0, 0, 0), (descriptor.ThreadGroupSizeX, descriptor.ThreadGroupSizeY, descriptor.ThreadGroupSizeZ));
+        Assert.Contains("threadgroup float tile[64];", descriptor.MslSource);
+        Assert.True(descriptor.UsesThreadgroupMemory);
+    }
+
+    [Theory]
+    [InlineData("[ThreadGroupSize(64)]")]
+    [InlineData("[ThreadGroupSize(8, 8)]")]
+    [InlineData("[ThreadGroupSize(4, 4, 4)]")]
+    public void WithThreadGroupSize_ThereIsNoWarning(string attribute)
+    {
+        Run(
+            """
+                [GroupShared]
+                private static readonly float[] tile = new float[64];
+
+                public void Execute() { tile[GroupIds.Index] = 1; }
+            """,
+            attribute).Verify(Shader);
+    }
+
+    [Fact]
+    public void BarriersAlone_DoNotNeedAThreadGroupSize()
+    {
+        ShaderDescriptor descriptor = Run(
+            """
+                public readonly ReadWriteBuffer<float> buffer;
+
+                public void Execute()
+                {
+                    buffer[ThreadIds.X] = 1;
+                    Gpu.DeviceMemoryBarrierWithGroupSync();
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+                    buffer[ThreadIds.X] += buffer[ThreadIds.X - GroupIds.X];
+                }
+            """,
+            NoAttributes).Verify(Shader);
+
+        Assert.True(descriptor.UsesThreadgroupMemory);
+    }
+
+    [Fact]
+    public void AnUnusedArray_DoesNotNeedAThreadGroupSize()
+    {
+        ShaderDescriptor descriptor = Run(
+            """
+                public readonly ReadWriteBuffer<float> buffer;
+
+                [GroupShared]
+                private static readonly float[] unused = new float[8];
+
+                public void Execute() { buffer[ThreadIds.X] = 1; }
+
+                private static float Unreachable() => unused[0];
+            """,
+            NoAttributes).Verify(Shader);
+
+        Assert.False(descriptor.UsesThreadgroupMemory);
+    }
+
+    [Fact]
+    public void EveryUsedArrayShorterThanTheLargestThreadgroup_IsWarnedAbout_AlsoWhenOnlyAHelperUsesIt()
+    {
+        GeneratorRun run = Run(
+            """
+                public readonly ReadWriteBuffer<float> buffer;
+
+                [GroupShared] private static readonly float[] inKernel = new float[256];
+                [GroupShared] private static readonly int[] inHelper = new int[1023];
+                [GroupShared] private static readonly float[] forAnyGroup = new float[1024];
+                [GroupShared] private static readonly float[] unused = new float[4];
+
+                public void Execute()
+                {
+                    inKernel[GroupIds.Index] = 1;
+                    forAnyGroup[GroupIds.Index] = 2;
+                    buffer[ThreadIds.X] = Helper();
+                }
+
+                private static float Helper() => inHelper[GroupIds.Index];
+            """,
+            NoAttributes);
+
+        // In declaration order; an array with an element for every thread of the largest group Metal
+        // allows (1,024) cannot be overrun whatever size the runtime picks.
+        Assert.Equal(["SCG0044", "SCG0044"], run.Diagnostics.Select(static d => d.Id));
+        Assert.Equal(["inKernel", "inHelper"], run.Diagnostics.Select(run.TextAt));
+        Assert.Contains("'inKernel' has 256 elements", run.Diagnostics[0].GetMessage());
+        Assert.Contains("'inHelper' has 1023 elements", run.Diagnostics[1].GetMessage());
+        run.AssertCompiles().Descriptor(Shader).AssertMslCompiles();
+    }
+
+    [Fact]
+    public void PixelShaders_GetTheSameWarning()
+    {
+        GeneratorRun run = GeneratorHarness.Run(
+            TestSources.Vectors,
+            """
+            using SharpCompute;
+
+            namespace Tests;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct TestShader : IComputeShader<Float4>
+            {
+                [GroupShared] private static readonly float[] tile = new float[64];
+
+                public Float4 Execute()
+                {
+                    tile[GroupIds.Index] = ThreadIds.X;
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+                    return new Float4(tile[0], 0, 0, 1);
+                }
+            }
+            """);
+
+        Assert.Equal(DiagnosticSeverity.Warning, run.AssertOnlyDiagnostic("SCG0044", "tile").Severity);
+    }
+
+    [Fact]
+    public void AnInvalidThreadGroupSize_IsReportedAsThat_NotAsAMissingOne()
+    {
+        GeneratorRun run = Run(
+            """
+                [GroupShared]
+                private static readonly float[] tile = new float[64];
+
+                public void Execute() { tile[GroupIds.Index] = 1; }
+            """,
+            "[ThreadGroupSize(0)]");
+
+        Assert.DoesNotContain(run.Diagnostics, static d => d.Id == "SCG0044");
+        Assert.Contains(run.Diagnostics, static d => d.Id == "SCG0015");
     }
 
     // ---- diagnostics: uses ------------------------------------------------------------------------

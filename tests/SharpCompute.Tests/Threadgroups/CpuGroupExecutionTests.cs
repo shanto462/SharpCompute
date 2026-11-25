@@ -15,7 +15,7 @@ namespace SharpCompute.Tests.Threadgroups;
 public class CpuGroupExecutionTests
 {
     /// <summary>Fails instead of hanging the test run if the executor deadlocks.</summary>
-    private static void WithinTimeout(Action action, int seconds = 60)
+    internal static void WithinTimeout(Action action, int seconds = 60)
     {
         Task task = Task.Factory.StartNew(action, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
@@ -135,6 +135,118 @@ public class CpuGroupExecutionTests
 
         Assert.Equal(Flatten(gpuPositions.ToArray()), Flatten(cpuPositions.ToArray()));
         Assert.Equal(gpuWeights.ToArray(), cpuWeights.ToArray());
+    }
+
+    [MetalTheory]
+    [InlineData(8)]
+    [InlineData(64)]
+    [InlineData(21)]
+    public void MatricesInSharedMemory_MatchTheGpu_AndPlainCSharp(int count)
+    {
+        // Float4x4's boundary type is the prelude's packed matrix: unpacked on every read, packed on every store.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        Random random = new(count);
+        Float4 NextVector() => new((float)random.NextDouble(), (float)random.NextDouble(), (float)random.NextDouble(), (float)random.NextDouble());
+        Float4x4[] input = Enumerable.Range(0, count).Select(_ => new Float4x4(NextVector(), NextVector(), NextVector(), NextVector())).ToArray();
+        Float4[] vectors = Enumerable.Range(0, count).Select(_ => NextVector()).ToArray();
+
+        using ReadOnlyBuffer<Float4x4> inputBuffer = device.AllocateReadOnlyBuffer(input);
+        using ReadOnlyBuffer<Float4> vectorBuffer = device.AllocateReadOnlyBuffer(vectors);
+        using ReadWriteBuffer<Float4x4> gpuProducts = device.AllocateReadWriteBuffer<Float4x4>(count);
+        using ReadWriteBuffer<Float4> gpuTransformed = device.AllocateReadWriteBuffer<Float4>(count);
+        using ReadWriteBuffer<Float4x4> cpuProducts = device.AllocateReadWriteBuffer<Float4x4>(count);
+        using ReadWriteBuffer<Float4> cpuTransformed = device.AllocateReadWriteBuffer<Float4>(count);
+
+        device.For(count, new MatrixNeighbours(inputBuffer, vectorBuffer, gpuProducts, gpuTransformed));
+        WithinTimeout(() => device.ForCpu(count, new MatrixNeighbours(inputBuffer, vectorBuffer, cpuProducts, cpuTransformed)));
+
+        // What the shader computes, in plain C#: the neighbour is the next thread of the (possibly partial) group of 8.
+        Float4x4[] expectedProducts = new Float4x4[count];
+        Float4[] expectedTransformed = new Float4[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            int first = i / 8 * 8;
+            int next = first + ((i - first + 1) % Math.Min(8, count - first));
+            Float4x4 neighbour = input[next] * 2f;
+
+            expectedProducts[i] = Gpu.Mul(input[i] * 2f, neighbour);
+            expectedTransformed[i] = Gpu.Mul(vectors[i], neighbour) + Gpu.Mul(new Float4(0, 0, 0, 1), neighbour);
+        }
+
+        static float[] Elements(Float4x4[] matrices) => System.Runtime.InteropServices.MemoryMarshal.Cast<Float4x4, float>(matrices).ToArray();
+
+        AssertClose(Elements(expectedProducts), Elements(cpuProducts.ToArray()));
+        AssertClose(Flatten(expectedTransformed), Flatten(cpuTransformed.ToArray()));
+        AssertClose(Elements(gpuProducts.ToArray()), Elements(cpuProducts.ToArray()), relative: 1e-5f, absolute: 1e-5f);
+        AssertClose(Flatten(gpuTransformed.ToArray()), Flatten(cpuTransformed.ToArray()), relative: 1e-5f, absolute: 1e-5f);
+    }
+
+    [MetalTheory]
+    [InlineData(4, 2)]
+    [InlineData(12, 6)]
+    [InlineData(7, 3)]
+    public void EveryBoundaryType_IsSharedBetweenTheThreadsOfAGroup_OnBothDevices(int x, int y)
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<float> gpu = device.AllocateReadWriteBuffer<float>(x * y * BoundaryTypesExchange.Stride);
+        using ReadWriteBuffer<float> cpu = device.AllocateReadWriteBuffer<float>(x * y * BoundaryTypesExchange.Stride);
+
+        device.For(x, y, new BoundaryTypesExchange(gpu));
+        WithinTimeout(() => device.ForCpu(x, y, new BoundaryTypesExchange(cpu)));
+
+        float[] expected = ExpectedBoundaryTypes(x, y);
+        AssertClose(expected, cpu.ToArray(), relative: 1e-6f, absolute: 1e-6f);
+        AssertClose(expected, gpu.ToArray(), relative: 1e-5f, absolute: 1e-5f);
+    }
+
+    /// <summary>What <see cref="BoundaryTypesExchange"/> reports: the values the next thread of the 4 × 2 group (cut off at the grid's edge) stored.</summary>
+    private static float[] ExpectedBoundaryTypes(int x, int y)
+    {
+        float[] values = new float[x * y * BoundaryTypesExchange.Stride];
+
+        for (int ty = 0; ty < y; ty++)
+        {
+            for (int tx = 0; tx < x; tx++)
+            {
+                int extentX = Math.Min(4, x - (tx / 4 * 4)), extentY = Math.Min(2, y - (ty / 2 * 2));
+                int local = (ty % 2 * extentX) + (tx % 4);
+                int next = (local + 1) % (extentX * extentY);
+                int i = (((ty / 2 * 2) + (next / extentX)) * x) + (tx / 4 * 4) + (next % extentX);
+                Span<float> o = values.AsSpan(((ty * x) + tx) * BoundaryTypesExchange.Stride, BoundaryTypesExchange.Stride);
+
+                Float4x4 transform = new Float4x4(new Float4(i, 0, 0, 1), new Float4(0, i + 1, 0, 2), new Float4(0, 0, i + 2, 3), new Float4(4, 5, 6, 1))
+                    + new Float4x4(new Float4(1), new Float4(1), new Float4(1), new Float4(1));
+                Float4 diagonal = Gpu.Mul(new Float4(1, 1, 1, 1), transform);
+
+                o[0] = i;
+                o[1] = -i;
+                o[2] = i;
+                o[3] = i + 1.5f;
+                o[4] = i * 2;
+                o[5] = i + (4f * i);
+                o[6] = 3f * i;
+                o[7] = i + (i * 3);
+                o[8] = -i - 7;
+                o[9] = (uint)i << 4;
+                o[10] = (0xFFFFFFFFu - (uint)i) >> 8;
+                o[11] = i + i + 3;
+                o[12] = ((uint)i * 2654435761u) >> 12;
+                o[13] = i * 0.25f;
+                o[14] = i - 3f;
+                o[15] = i * 2;
+                o[16] = i + 101;
+                o[17] = Gpu.Determinant(transform);
+                o[18] = diagonal.X;
+                o[19] = diagonal.Y;
+                o[20] = diagonal.Z;
+                o[21] = diagonal.W;
+                o[22] = i + 1.5f;
+                o[23] = next;
+            }
+        }
+
+        return values;
     }
 
     [MetalTheory]

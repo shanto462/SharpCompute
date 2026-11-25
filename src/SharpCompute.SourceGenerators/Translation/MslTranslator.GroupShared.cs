@@ -263,7 +263,10 @@ internal sealed partial class MslTranslator
         }
 
         _function.Inputs.AddGroupShared(groupShared);
-        return new Expr(groupShared.MslName + "[" + Expression(operation.Indices[0]).Text + "]", Expr.Primary);
+
+        // Boundary storage, like a buffer element: a type the prelude packs (the matrix) is unpacked
+        // where it is read and packed where it is stored (see MslTranslator.Packing.cs).
+        return BoundaryRead(operation, groupShared.Element, new Expr(groupShared.MslName + "[" + Expression(operation.Indices[0]).Text + "]", Expr.Primary));
     }
 
     /// <summary><c>name.Length</c> on a <c>[GroupShared]</c> array: the constant from its declaration. Null for anything else.</summary>

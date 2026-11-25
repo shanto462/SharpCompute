@@ -26,14 +26,17 @@ public sealed class ThreadGroupSizeAttribute(int x, int y = 1, int z = 1) : Attr
 /// <para>
 /// Declare it as <c>[GroupShared] private static readonly float[] tile = new float[256];</c> in the
 /// shader struct that uses it. The element type is anything a buffer can hold (scalars, packed vectors,
-/// user structs) and the length must be a compile-time constant. In <c>Execute</c> and its helpers only
+/// <c>Float4x4</c>, user structs) and the length must be a compile-time constant. In <c>Execute</c> and its helpers only
 /// the elements (<c>tile[i]</c>) and <c>tile.Length</c> can be used. All the group-shared arrays a
 /// shader uses may total at most 32,768 bytes, the threadgroup memory of an Apple GPU.
 /// </para>
 /// <para>
 /// Give the shader an explicit <see cref="ThreadGroupSizeAttribute"/>: an array is sized for the
 /// threads that share it, and without the attribute the runtime picks the threadgroup size per
-/// dispatch (256, 16 × 16 or 8 × 8 × 4 by rank, smaller if the kernel does not allow that many).
+/// dispatch (256, 16 × 16 or 8 × 8 × 4 by rank, smaller if the kernel does not allow that many), so
+/// an array that is too short for the size it picks is indexed out of bounds, silently, on the GPU.
+/// The generator warns (SCG0044) about every array a shader without the attribute uses, unless the
+/// array has at least 1,024 elements, one for each thread of the largest threadgroup there is.
 /// </para>
 /// <para>
 /// <b>The contents are undefined when a threadgroup starts</b>, on the GPU (Metal does not clear

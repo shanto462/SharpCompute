@@ -1002,7 +1002,7 @@ public class DiagnosticTests
             .Select(static f => (DiagnosticDescriptor)f.GetValue(null)!)
             .ToArray();
 
-        Assert.Equal(39, descriptors.Length);
+        Assert.Equal(40, descriptors.Length);
         Assert.Equal(descriptors.Length, descriptors.Select(static d => d.Id).Distinct().Count());
         Assert.All(descriptors, static d =>
         {
@@ -1011,6 +1011,7 @@ public class DiagnosticTests
             Assert.True(d.IsEnabledByDefault);
         });
         Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.ShaderShouldBeReadOnly.DefaultSeverity);
-        Assert.All(descriptors.Where(static d => d.Id != "SCG0004"), static d => Assert.Equal(DiagnosticSeverity.Error, d.DefaultSeverity));
+        Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.GroupSharedWithoutThreadGroupSize.DefaultSeverity);
+        Assert.All(descriptors.Where(static d => d.Id is not ("SCG0004" or "SCG0044")), static d => Assert.Equal(DiagnosticSeverity.Error, d.DefaultSeverity));
     }
 }

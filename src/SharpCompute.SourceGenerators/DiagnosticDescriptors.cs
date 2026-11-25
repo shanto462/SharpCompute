@@ -313,6 +313,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor GroupSharedWithoutThreadGroupSize = new(
+        id: "SCG0044",
+        title: "[GroupShared] array in a shader without [ThreadGroupSize]",
+        messageFormat: "[GroupShared] array '{0}' has {1} elements, but shader '{2}' has no [ThreadGroupSize]: the runtime then picks the threadgroup size by the rank of the dispatch (256, 16 x 16 or 8 x 8 x 4 threads, and the pipeline may clamp it), so an array shorter than the largest group it may pick is indexed out of bounds, silently, on the GPU. Add [ThreadGroupSize] to the shader, or size the array for {3} threads.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",

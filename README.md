@@ -350,10 +350,13 @@ device.For((count + 255) / 256 * 256, new SumBlocks(input, sums, count)); // who
 | `GroupIds.Index` | `thread_index_in_threadgroup` |
 | `ThreadGroupCount.X/Y/Z/XY/XYZ` | `threadgroups_per_grid` |
 
-- `T` is anything a buffer can hold (scalars, vectors, your own structs), `N` a compile-time
-  constant, and the field belongs to the shader struct that uses it. The arrays a shader uses may
-  total 32,768 bytes, the threadgroup memory of an Apple GPU (`SCG0043` beyond that). Give the
-  shader an explicit `[ThreadGroupSize]`, since its arrays are sized for it.
+- `T` is anything a buffer can hold (scalars, vectors, `Float4x4`, your own structs), `N` a
+  compile-time constant, and the field belongs to the shader struct that uses it. The arrays a
+  shader uses may total 32,768 bytes, the threadgroup memory of an Apple GPU (`SCG0043` beyond that).
+- Give the shader an explicit `[ThreadGroupSize]`: its arrays are sized for it. Without one the
+  runtime picks the size per dispatch, and an array too short for that size is indexed out of bounds
+  silently on the GPU, so using an array of fewer than 1,024 elements in such a shader is warning
+  `SCG0044`.
 - **Threadgroup memory starts out undefined**, on the GPU and on the CPU: a thread may only read what
   a thread of its own group wrote, with a barrier in between.
 - **Every thread of a group must call the same barriers.** A barrier inside an `if` or a loop that

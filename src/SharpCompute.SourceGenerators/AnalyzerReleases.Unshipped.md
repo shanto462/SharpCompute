@@ -43,4 +43,5 @@ SCG0040 | SharpCompute | Error | Invalid [GroupShared] field
 SCG0041 | SharpCompute | Error | [GroupShared] array length is not a compile-time constant
 SCG0042 | SharpCompute | Error | Unsupported [GroupShared] element type
 SCG0043 | SharpCompute | Error | Too much threadgroup memory
+SCG0044 | SharpCompute | Warning | [GroupShared] array in a shader without [ThreadGroupSize]
 SCG9999 | SharpCompute | Error | Internal generator error

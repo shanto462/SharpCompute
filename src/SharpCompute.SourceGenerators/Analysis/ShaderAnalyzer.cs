@@ -395,6 +395,27 @@ internal sealed class ShaderAnalyzer
                 MslTranslator.MaxThreadgroupMemoryLength.ToString(CultureInfo.InvariantCulture));
         }
 
+        // An array is sized for the threads that share it, and without [ThreadGroupSize] the shader
+        // does not say how many that is. Only arrays the kernel uses, and only those that some
+        // group the runtime may pick could overrun: one with an element per thread of the largest
+        // threadgroup Metal allows is safe whatever size is picked. Barriers alone need no size.
+        if (groupShared.Count > 0 && TypeResolver.FindAttribute(_symbol, "ThreadGroupSizeAttribute") is null)
+        {
+            foreach (GroupSharedField field in groupShared)
+            {
+                if (field.Length < MaxThreadsPerThreadgroup)
+                {
+                    diagnostics.Report(
+                        DiagnosticDescriptors.GroupSharedWithoutThreadGroupSize,
+                        field.Symbol.Locations.FirstOrDefault() ?? _location,
+                        field.Symbol.Name,
+                        field.Length.ToString(CultureInfo.InvariantCulture),
+                        _symbol.Name,
+                        MaxThreadsPerThreadgroup.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
         if (diagnostics.HasErrors || translator.SawInvalidCode || types.SawErrorType)
         {
             // Either we reported why, or the user's code does not compile and the C# compiler will.
@@ -407,6 +428,7 @@ internal sealed class ShaderAnalyzer
         // with a Packed form): either makes the shader depend on it.
         bool usesPrelude = translator.UsesPrelude ||
             buffers.Any(static b => b.Type.Element!.NeedsExplicitPacking) ||
+            groupShared.Any(static g => g.Element.NeedsExplicitPacking) ||
             constants.Any(static c => c.Type.NeedsExplicitPacking) ||
             types.Structs.Any(static s => s.Fields.Any(static f => f.Type.NeedsExplicitPacking));
 
