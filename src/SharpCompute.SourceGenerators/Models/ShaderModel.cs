@@ -13,6 +13,8 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// threads then cooperate, which the CPU has to run differently), and <see cref="ThreadgroupMemoryLength"/>
 /// is the bytes of group-shared memory it declares.
 /// <see cref="CompileOptions"/> holds the shader's <c>[ShaderOptions]</c> as <c>ShaderCompileOptions</c> bits.
+/// <see cref="UsesSimdGroups"/> is true when the kernel uses a SIMD-group operation or built-in, whose
+/// results the lanes of a SIMD group compute together (the CPU has to run such a shader differently).
 /// </summary>
 internal sealed record ShaderModel(
     string HintName,
@@ -34,7 +36,8 @@ internal sealed record ShaderModel(
     bool UsesAtomics,
     bool UsesThreadgroupMemory,
     int ThreadgroupMemoryLength,
-    int CompileOptions)
+    int CompileOptions,
+    bool UsesSimdGroups)
 {
     /// <summary><c>ShaderCompileOptions.FastMath</c>.</summary>
     public const int FastMath = 1;

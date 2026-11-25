@@ -18,6 +18,8 @@ Outputs (checked in; edit this script, not the files):
                                                                    Radians/Degrees
     src/SharpCompute/Intrinsics/Gpu.Matrices.g.cs                    Gpu.Mul ([MslBinaryOperator]),
                                                                    Transpose, Determinant
+    src/SharpCompute/Intrinsics/Gpu.Wave.g.cs                        typed SIMD-group operations
+                                                                   (Gpu.Wave*, Gpu.Quad*)
     src/SharpCompute/Intrinsics/MslPrelude.g.cs                      MslPrelude.Source (__ms_* helpers
                                                                    and types)
 
@@ -774,6 +776,179 @@ def gen_gpu() -> str:
 
 
 # --------------------------------------------------------------------------------------------
+# SIMD-group (wave and quad) operations: one overload per scalar kind and width
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Wave:
+    name: str  # C# method, the HLSL name
+    msl: str  # the Metal function it maps to (for the comment and the MSL probe)
+    op: str  # SimdOp member
+    doc: str  # <summary> text
+    extra: str | None = None  # the name of a second, int parameter (a lane, delta or mask)
+    extra_doc: str = ""
+    integer_only: bool = False
+    remarks: str = ""
+    msl_extra: str | None = None  # a fixed second MSL argument (the quad reads across an axis)
+
+
+_ACTIVE = "over the active lanes of the SIMD group, componentwise for vectors"
+_SAME = "The same value in every active lane."
+_FLOAT_ORDER = (
+    "For floats the order in which the lanes are combined is the GPU's and unspecified, so compare the result with a tolerance."
+)
+_UNDEFINED_SOURCE = (
+    "Reading a lane that is not active (it returned, is in another branch, or lies past the end of a partial group) "
+    "is undefined in Metal; Apple GPUs return 0 (measured)."
+)
+
+WAVE_REDUCTIONS = (
+    Wave("WaveActiveSum", "simd_sum", "Sum", f"The sum of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_sum</c>). {_SAME}",
+         remarks=f"Integers wrap. {_FLOAT_ORDER}"),
+    Wave("WaveActiveProduct", "simd_product", "Product", f"The product of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_product</c>). {_SAME}",
+         remarks=f"Integers wrap. {_FLOAT_ORDER}"),
+    Wave("WaveActiveMin", "simd_min", "Min", f"The minimum of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_min</c>). {_SAME}"),
+    Wave("WaveActiveMax", "simd_max", "Max", f"The maximum of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_max</c>). {_SAME}"),
+    Wave("WaveActiveBitAnd", "simd_and", "BitAnd", f"The bitwise AND of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_and</c>). {_SAME}",
+         integer_only=True),
+    Wave("WaveActiveBitOr", "simd_or", "BitOr", f"The bitwise OR of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_or</c>). {_SAME}",
+         integer_only=True),
+    Wave("WaveActiveBitXor", "simd_xor", "BitXor", f"The bitwise XOR of <paramref name=\"value\"/> {_ACTIVE} (<c>simd_xor</c>). {_SAME}",
+         integer_only=True),
+)
+
+WAVE_SCANS = (
+    Wave("WavePrefixSum", "simd_prefix_exclusive_sum", "PrefixSum",
+         "The sum of <paramref name=\"value\"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_sum</c>): "
+         "an exclusive scan, as in HLSL, so the first active lane gets 0.",
+         remarks=f"Inactive lanes are skipped, not counted as 0 slots: the scan runs over the active lanes in lane order. Integers wrap. {_FLOAT_ORDER}"),
+    Wave("WavePrefixProduct", "simd_prefix_exclusive_product", "PrefixProduct",
+         "The product of <paramref name=\"value\"/> over the active lanes <i>below</i> this one (<c>simd_prefix_exclusive_product</c>): "
+         "an exclusive scan, as in HLSL, so the first active lane gets 1.",
+         remarks=f"Integers wrap. {_FLOAT_ORDER}"),
+    Wave("WaveInclusivePrefixSum", "simd_prefix_inclusive_sum", "InclusivePrefixSum",
+         "The sum of <paramref name=\"value\"/> over the active lanes up to and including this one (<c>simd_prefix_inclusive_sum</c>).",
+         remarks=f"Not an HLSL intrinsic; it is <c>WavePrefixSum(value) + value</c> in one step. Integers wrap. {_FLOAT_ORDER}"),
+    Wave("WaveInclusivePrefixProduct", "simd_prefix_inclusive_product", "InclusivePrefixProduct",
+         "The product of <paramref name=\"value\"/> over the active lanes up to and including this one (<c>simd_prefix_inclusive_product</c>).",
+         remarks=f"Not an HLSL intrinsic; it is <c>WavePrefixProduct(value) * value</c> in one step. Integers wrap. {_FLOAT_ORDER}"),
+)
+
+WAVE_EXCHANGES = (
+    Wave("WaveReadLaneAt", "simd_shuffle", "ReadLaneAt",
+         "The <paramref name=\"value\"/> of lane <paramref name=\"lane\"/> (<c>simd_shuffle</c>). Each lane may ask for a different one.",
+         extra="lane", extra_doc="The lane to read, 0 to <see cref=\"WaveGetLaneCount\"/> - 1.",
+         remarks=f"{_UNDEFINED_SOURCE} A lane index outside the group is undefined too."),
+    Wave("WaveReadLaneFirst", "simd_broadcast_first", "ReadLaneFirst",
+         "The <paramref name=\"value\"/> of the first active lane, the one <see cref=\"WaveIsFirstLane\"/> is true for "
+         "(<c>simd_broadcast_first</c>). The same value in every active lane."),
+    Wave("WaveShuffleUp", "simd_shuffle_up", "ShuffleUp",
+         "The <paramref name=\"value\"/> of the lane <paramref name=\"delta\"/> below this one: lane <c>i</c> gets lane "
+         "<c>i - delta</c>'s (<c>simd_shuffle_up</c>), so values move up the group.",
+         extra="delta", extra_doc="How many lanes to shift by, 0 to <see cref=\"WaveGetLaneCount\"/> - 1; must be the same in every lane.",
+         remarks=f"The lowest <paramref name=\"delta\"/> lanes have no lane below to read: they get their own <paramref name=\"value\"/> back, unchanged. {_UNDEFINED_SOURCE}"),
+    Wave("WaveShuffleDown", "simd_shuffle_down", "ShuffleDown",
+         "The <paramref name=\"value\"/> of the lane <paramref name=\"delta\"/> above this one: lane <c>i</c> gets lane "
+         "<c>i + delta</c>'s (<c>simd_shuffle_down</c>), so values move down the group.",
+         extra="delta", extra_doc="How many lanes to shift by, 0 to <see cref=\"WaveGetLaneCount\"/> - 1; must be the same in every lane.",
+         remarks="The highest <paramref name=\"delta\"/> lanes of a full group (those with <c>i + delta</c> &gt;= 32) get their own "
+                 f"<paramref name=\"value\"/> back, unchanged. {_UNDEFINED_SOURCE} That includes the top of a partial group, "
+                 "where <c>i + delta</c> is below 32 but past the last lane."),
+    Wave("WaveShuffleXor", "simd_shuffle_xor", "ShuffleXor",
+         "The <paramref name=\"value\"/> of lane <c>i ^ mask</c>, for lane <c>i</c> (<c>simd_shuffle_xor</c>): lanes swap in pairs "
+         "(a mask of 1 swaps neighbours, 16 swaps the two halves of the group).",
+         extra="mask", extra_doc="The bits to flip in the lane index, 0 to <see cref=\"WaveGetLaneCount\"/> - 1; must be the same in every lane.",
+         remarks=_UNDEFINED_SOURCE),
+)
+
+_QUAD = (
+    "A quad is four consecutive lanes of a SIMD group (lanes <c>4q</c> to <c>4q + 3</c>), laid out as a 2 × 2 block: "
+    "bit 0 of the lane index is its x and bit 1 its y. In a threadgroup that is 2 threads wide the quads are 2 × 2 "
+    "blocks of the grid; in any other they are four threads in a row."
+)
+
+QUAD_READS = (
+    Wave("QuadReadAcrossX", "quad_shuffle_xor", "QuadReadAcrossX",
+         "The <paramref name=\"value\"/> of the other lane of this quad's row: lane <c>i ^ 1</c> (<c>quad_shuffle_xor</c> with 1).",
+         remarks=f"{_QUAD} {_UNDEFINED_SOURCE}", msl_extra="1"),
+    Wave("QuadReadAcrossY", "quad_shuffle_xor", "QuadReadAcrossY",
+         "The <paramref name=\"value\"/> of the other lane of this quad's column: lane <c>i ^ 2</c> (<c>quad_shuffle_xor</c> with 2).",
+         remarks=f"{_QUAD} {_UNDEFINED_SOURCE}", msl_extra="2"),
+    Wave("QuadReadAcrossDiagonal", "quad_shuffle_xor", "QuadReadAcrossDiagonal",
+         "The <paramref name=\"value\"/> of the diagonally opposite lane of this quad: lane <c>i ^ 3</c> (<c>quad_shuffle_xor</c> with 3).",
+         remarks=f"{_QUAD} {_UNDEFINED_SOURCE}", msl_extra="3"),
+    Wave("QuadReadLaneAt", "quad_shuffle", "QuadReadLaneAt",
+         "The <paramref name=\"value\"/> of lane <paramref name=\"quadLane\"/> of this quad (<c>quad_shuffle</c>). Each lane may ask for a different one.",
+         extra="quadLane", extra_doc="The lane of the quad to read, 0 to 3 (<c>x + 2 * y</c>).",
+         remarks=f"{_QUAD} {_UNDEFINED_SOURCE}"),
+)
+
+WAVES = WAVE_REDUCTIONS + WAVE_SCANS + WAVE_EXCHANGES + QUAD_READS
+
+
+def wave_types(w: Wave) -> list[tuple[Kind, int]]:
+    """Every (kind, width) the operation has an overload for; width 1 is the scalar."""
+    kinds = (INT, UINT) if w.integer_only else KINDS
+    return [(kind, n) for kind in kinds for n in (1,) + WIDTHS]
+
+
+def gen_gpu_wave() -> str:
+    out: list[str] = [HEADER]
+    out.append("using System.Runtime.CompilerServices;")
+    out.append("")
+    out.append("namespace SharpCompute;")
+    out.append("")
+    out.append("// The typed SIMD-group operations. The generator maps them to Metal's simd_* and quad_* functions by")
+    out.append("// name (MslTranslator.SimdGroups.cs); on the CPU they all go through CpuSimdGroup.")
+    out.append("public static partial class Gpu")
+    out.append("{")
+    reductions = {w.name for w in WAVE_REDUCTIONS + WAVE_SCANS}
+    for w in WAVES:
+        note = f" with {w.msl_extra}" if w.msl_extra else ""
+        out.append(f"    // {w.name} -> metal::{w.msl}{note}")
+        out.append("")
+        for kind, n in wave_types(w):
+            t = kind.scalar if n == 1 else kind.vec(n)
+            out.append(f"    /// <summary>{w.doc}</summary>")
+            if w.remarks:
+                out.append(f"    /// <remarks>{w.remarks}</remarks>")
+            out.append("    /// <param name=\"value\">This lane's value.</param>")
+            params = [f"{t} value"]
+            if w.extra:
+                out.append(f"    /// <param name=\"{w.extra}\">{w.extra_doc}</param>")
+                params.append(f"int {w.extra}")
+            out.append("    /// <param name=\"callSite\">Filled in by the compiler; leave it out.</param>")
+            params.append("[CallerLineNumber] int callSite = 0")
+            if w.name in reductions:
+                body = f"CpuSimdGroup.Reduce(SimdOp.{w.op}, SimdScalar.{kind.prefix}, value, callSite)"
+            else:
+                body = f"CpuSimdGroup.Exchange(SimdOp.{w.op}, value, {w.extra or '0'}, callSite)"
+            out.append(f"    public static {t} {w.name}({', '.join(params)}) =>")
+            out.append(f"        {body};")
+            out.append("")
+    if out[-1] == "":
+        out.pop()
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
+def gen_wave_msl_probe() -> list[str]:
+    """Calls every typed SIMD-group overload the way the generator emits it."""
+    lines: list[str] = []
+    for w in WAVES:
+        for kind, n in wave_types(w):
+            v = f"s{kind.msl}" if n == 1 else f"v{kind.msl_vec(n)}"
+            second = f", ushort({w.msl_extra})" if w.msl_extra else ", ushort(int(tid) & 3)" if w.extra else ""
+            call = f"metal::{w.msl}({v}{second})"
+            lines.append(f"    acc += float({call}{'' if n == 1 else '.x'});")
+    lines.append("    acc += float(metal::simd_is_first()) + float(metal::simd_any(acc > 0.0f)) + float(metal::simd_all(acc > 0.0f));")
+    lines.append("    acc += float(uint(metal::simd_vote::vote_t(metal::simd_ballot(acc > 0.0f))));")
+    lines.append("    acc += float(metal::simd_sum(int(acc > 0.0f)) + metal::simd_prefix_exclusive_sum(int(acc > 0.0f)));")
+    return lines
+
+
+# --------------------------------------------------------------------------------------------
 # MSL probe: one kernel touching every operator / intrinsic overload, to verify the mapping
 # --------------------------------------------------------------------------------------------
 
@@ -882,6 +1057,7 @@ def gen_msl_probe() -> str:
             lines.append(f"    acc += float(metal::atomic_{fn}_explicit({a}, s{t}, {order}));")
         lines.append(f"    acc += float({PRELUDE_ATOMIC_CAS}({a}, s{t}, s{t}));")
     lines.append(f"    acc += metal::atomic_fetch_add_explicit((device metal::atomic<float>*)&(sink[tid]), sfloat, {order});")
+    lines += gen_wave_msl_probe()
     lines.append("    sink[tid] = acc;")
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -900,6 +1076,7 @@ def outputs() -> dict[Path, str]:
         files[VECTORS_DIR / f"{mat(n)}.g.cs"] = gen_matrix(n)
     files[INTRINSICS_DIR / "Gpu.g.cs"] = gen_gpu()
     files[INTRINSICS_DIR / "Gpu.Matrices.g.cs"] = gen_gpu_matrices()
+    files[INTRINSICS_DIR / "Gpu.Wave.g.cs"] = gen_gpu_wave()
     files[INTRINSICS_DIR / "MslPrelude.g.cs"] = gen_prelude()
     return files
 

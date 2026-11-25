@@ -38,7 +38,7 @@ public class ContractTests
     [Fact]
     public void EveryPublicGpuMethodHasExactlyOneMslMapping()
     {
-        MethodInfo[] methods = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly);
+        MethodInfo[] methods = MathMethods();
         Assert.NotEmpty(methods);
         foreach (MethodInfo m in methods)
         {
@@ -174,8 +174,7 @@ public class ContractTests
             "AtomicAdd", "AtomicSub", "AtomicMin", "AtomicMax", "AtomicAnd", "AtomicOr", "AtomicXor", "AtomicExchange", "AtomicCompareExchange",
         ];
         string[] expected = [.. componentwise, .. bits, .. other];
-        string[] actual = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-            .Select(m => m.Name).Distinct().ToArray();
+        string[] actual = MathMethods().Select(m => m.Name).Distinct().ToArray();
         Assert.Equal(expected.Concat(Barriers).Order(), actual.Order());
 
         // Signatures other code already depends on.
@@ -245,6 +244,49 @@ public class ContractTests
             }
         }
     }
+
+    /// <summary>
+    /// The SIMD-group operations are the one part of <see cref="Gpu"/> that carries no attribute: the
+    /// generator maps them by name (several need more than a function call, and all take a hidden
+    /// call-site parameter). Their names are HLSL's wave and quad intrinsics, plus the two inclusive
+    /// scans and <c>WavePrefixCountBits</c>; the generator's own tests check that it knows every one.
+    /// </summary>
+    [Fact]
+    public void SimdGroupOperationsAreMappedByName_AndCarryNoMslAttribute()
+    {
+        string[] expected =
+        [
+            "WaveGetLaneIndex", "WaveGetLaneCount", "WaveIsFirstLane",
+            "WaveActiveAnyTrue", "WaveActiveAllTrue", "WaveActiveBallot", "WaveActiveCountBits", "WavePrefixCountBits",
+            "WaveActiveSum", "WaveActiveProduct", "WaveActiveMin", "WaveActiveMax", "WaveActiveBitAnd", "WaveActiveBitOr", "WaveActiveBitXor",
+            "WavePrefixSum", "WavePrefixProduct", "WaveInclusivePrefixSum", "WaveInclusivePrefixProduct",
+            "WaveReadLaneAt", "WaveReadLaneFirst", "WaveShuffleUp", "WaveShuffleDown", "WaveShuffleXor",
+            "QuadReadAcrossX", "QuadReadAcrossY", "QuadReadAcrossDiagonal", "QuadReadLaneAt",
+        ];
+        MethodInfo[] methods = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Where(IsSimdGroupOperation).ToArray();
+
+        Assert.Equal(expected.Order(), methods.Select(m => m.Name).Distinct().Order());
+        Assert.All(methods, m => Assert.True(
+            m.GetCustomAttribute<MslIntrinsicAttribute>() is null && m.GetCustomAttribute<MslBinaryOperatorAttribute>() is null,
+            $"{m} is mapped by name; an attribute would map it a second time"));
+
+        // 12 value types (float, int, uint and their vectors) for the typed operations, 8 for the bit operations.
+        foreach (string name in expected.Skip(8))
+        {
+            Type[] types = methods.Where(m => m.Name == name).Select(m => m.ReturnType).ToArray();
+            Type[] elements = name.Contains("Bit", StringComparison.Ordinal) ? [typeof(int), typeof(uint)] : [typeof(float), typeof(int), typeof(uint)];
+            Type[] all = elements.SelectMany(e => new[] { e, VectorTypes.Vector(e, 2), VectorTypes.Vector(e, 3), VectorTypes.Vector(e, 4) }).ToArray();
+
+            Assert.Equal(all.OrderBy(t => t.Name), types.OrderBy(t => t.Name));
+        }
+    }
+
+    private static bool IsSimdGroupOperation(MethodInfo method) =>
+        method.Name.StartsWith("Wave", StringComparison.Ordinal) || method.Name.StartsWith("Quad", StringComparison.Ordinal);
+
+    /// <summary>The public static methods of <see cref="Gpu"/> that map to MSL through an attribute: everything but the SIMD-group operations.</summary>
+    private static MethodInfo[] MathMethods() =>
+        typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Where(m => !IsSimdGroupOperation(m)).ToArray();
 
     [Fact]
     public void ExactlyTheVectorAndMatrixTypesCarryMslType()

@@ -114,7 +114,9 @@ public sealed unsafe partial class GraphicsDevice
     /// <para>
     /// Results match a GPU dispatch up to floating-point rounding, as described for
     /// <see cref="ForCpu{T}(int, int, int, in T)"/>. Shaders with hand-written descriptors, and generated
-    /// shaders that use all 31 buffer indices, cannot be split.
+    /// shaders that use all 31 buffer indices, cannot be split. Neither can a shader that uses SIMD-group
+    /// operations (the <c>Wave*</c> and <c>Quad*</c> methods of <see cref="Gpu"/>, <see cref="SimdGroupIds"/>),
+    /// whatever the share: the CPU cannot run those yet.
     /// </para>
     /// <para>
     /// <paramref name="cpuFraction"/> 0 runs the whole grid on the GPU and 1 the whole grid on the CPU,
@@ -137,7 +139,7 @@ public sealed unsafe partial class GraphicsDevice
     /// <returns>How the grid was divided and how long each part took.</returns>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is negative, or <paramref name="cpuFraction"/> is not in 0..1.</exception>
     /// <exception cref="NotSupportedException">
-    /// The shader cannot run a partial grid, or it uses atomics and <paramref name="cpuFraction"/> is strictly between 0 and 1 (see remarks).
+    /// The shader cannot run a partial grid, or it uses atomics and <paramref name="cpuFraction"/> is strictly between 0 and 1, or it uses SIMD-group operations (see remarks).
     /// </exception>
     /// <exception cref="ArgumentNullException">A buffer of <paramref name="shader"/> is null, e.g. for <c>default(T)</c>.</exception>
     /// <exception cref="ArgumentException">A buffer of <paramref name="shader"/> was allocated from a different device.</exception>
@@ -172,7 +174,7 @@ public sealed unsafe partial class GraphicsDevice
     /// <returns>How the rows were divided and how long each part took.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="cpuFraction"/> is not in 0..1.</exception>
     /// <exception cref="NotSupportedException">
-    /// The shader cannot run a partial grid (a hand-written descriptor), or it uses atomics and <paramref name="cpuFraction"/> is strictly between 0 and 1.
+    /// The shader cannot run a partial grid (a hand-written descriptor), or it uses atomics and <paramref name="cpuFraction"/> is strictly between 0 and 1, or it uses SIMD-group operations.
     /// </exception>
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device.</exception>
@@ -240,6 +242,9 @@ public sealed unsafe partial class GraphicsDevice
                 "atomics are atomic among the threads of one dispatch on one device, and the two parts would lose each other's updates. " +
                 "Run it with For or ForCpu, pass a cpuFraction of 0 or 1, or use the ForSplit overload without a fraction, which runs such a shader on the GPU alone.");
         }
+
+        // Whatever share the CPU gets, also none: what a split accepts should not depend on the fraction.
+        ThrowIfSimdGroups<T>();
     }
 
     /// <summary>

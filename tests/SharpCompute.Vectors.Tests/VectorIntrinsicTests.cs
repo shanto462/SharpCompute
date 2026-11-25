@@ -18,8 +18,11 @@ public class VectorIntrinsicTests
     public void ComponentwiseOverloadsMatchScalarOverloads()
     {
         MethodInfo[] methods = typeof(Gpu).GetMethods(BindingFlags.Public | BindingFlags.Static);
+        // The SIMD-group operations are not componentwise calls of a scalar overload: a lane's result
+        // comes from the other lanes, and their vector overloads cannot run outside a shader.
         MethodInfo[] vectorMethods = methods
-            .Where(m => !Geometric.Contains(m.Name) && m.GetParameters().Any(p => VectorTypes.IsVector(p.ParameterType)))
+            .Where(m => !Geometric.Contains(m.Name) && !m.Name.StartsWith("Wave", StringComparison.Ordinal) && !m.Name.StartsWith("Quad", StringComparison.Ordinal))
+            .Where(m => m.GetParameters().Any(p => VectorTypes.IsVector(p.ParameterType)))
             .ToArray();
         Assert.NotEmpty(vectorMethods);
 

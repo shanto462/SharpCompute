@@ -164,6 +164,14 @@ internal static class DescriptorEmitter
             writer.Line();
         }
 
+        if (model.UsesSimdGroups)
+        {
+            // Without this member the interface's default (false) applies.
+            writer.Line("/// <summary>The kernel uses SIMD-group operations: the lanes of a SIMD group compute their results together.</summary>");
+            writer.Line($"static bool {contract}.UsesSimdGroups => true;");
+            writer.Line();
+        }
+
         writer.Line($"static void {contract}.SetArguments(in {model.FullyQualifiedName} shader, ref {Writer} writer)");
         writer.Line("{");
         writer.Indent++;

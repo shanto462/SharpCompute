@@ -278,3 +278,33 @@ public static class ThreadGroupIds
         }
     }
 }
+
+/// <summary>The SIMD group of the current thread within its threadgroup (<c>simdgroup_index_in_threadgroup</c>, <c>simdgroups_per_threadgroup</c>).</summary>
+/// <remarks>
+/// <para>
+/// An Apple GPU executes a threadgroup in SIMD groups of 32 consecutive threads (by their linear index
+/// in the threadgroup; see the SIMD-group operations of <see cref="Gpu"/>, such as
+/// <see cref="Gpu.WaveActiveSum(float, int)"/>). <see cref="Index"/> says which of them the thread is
+/// in, and <see cref="Gpu.WaveGetLaneIndex"/> which lane of it the thread is.
+/// </para>
+/// <para>
+/// Not available on the CPU yet: <c>GraphicsDevice.ForCpu</c> and <c>ForSplit</c> throw
+/// <see cref="NotSupportedException"/> for a shader that reads these.
+/// </para>
+/// </remarks>
+public static class SimdGroupIds
+{
+    /// <summary>
+    /// The index of the current thread's SIMD group within its threadgroup: the thread's linear index
+    /// in the threadgroup divided by 32, from 0 to <see cref="Count"/> - 1.
+    /// </summary>
+    public static int Index => CpuSimdGroup.GroupIndex();
+
+    /// <summary>
+    /// The number of SIMD groups in the current threadgroup: its thread count divided by 32, rounded
+    /// up. A partial threadgroup at the edge of the grid has as many as its real thread count needs
+    /// (a threadgroup of 256 has 8; the last one of a 1000-thread dispatch, with 232 threads, also 8;
+    /// one cut down to 40 threads has 2).
+    /// </summary>
+    public static int Count => CpuSimdGroup.GroupCount();
+}

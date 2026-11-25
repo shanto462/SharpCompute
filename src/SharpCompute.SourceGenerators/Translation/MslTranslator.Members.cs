@@ -95,6 +95,11 @@ internal sealed partial class MslTranslator
         IPropertySymbol property = operation.Property;
         Location location = operation.Syntax.GetLocation();
 
+        if (SimdGroupProperty(operation) is { } simdGroup)
+        {
+            return simdGroup;
+        }
+
         if (TryGetNormalized(property, out string normalizedSwizzle))
         {
             return NormalizedThreadId(operation, normalizedSwizzle);
@@ -407,6 +412,12 @@ internal sealed partial class MslTranslator
         IMethodSymbol method = operation.TargetMethod;
         IMethodSymbol definition = (method.ReducedFrom ?? method).OriginalDefinition;
         Location location = operation.Syntax.GetLocation();
+
+        // The SIMD-group (wave and quad) operations of Gpu, which map to Metal's simd_* and quad_* functions.
+        if (SimdGroupCall(operation, definition) is { } simdGroupCall)
+        {
+            return simdGroupCall;
+        }
 
         // Members of textures (Sample) are recognized by name, like the indexers and Width/Height.
         if (TypeResolver.IsSharpComputeType(definition.ContainingType, "Texture2D", "ReadOnlyTexture2D", "ReadWriteTexture2D"))
