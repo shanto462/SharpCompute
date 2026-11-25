@@ -96,6 +96,9 @@ step "Pulsewake: the arena shooter plays itself headless, frames as PNG"
 mkdir -p "$OUT/pulsewake"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Shooter -- --headless --frames "$OUT/pulsewake" --seconds 30 | tee "$OUT/pulsewake/pulsewake.txt"
 
+step "Textures: the six samplers on each of the eight formats, and a ping-pong simulation (headless)"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.Textures -- --headless --out "$OUT/textures"
+
 step "Done: $OUT"
 find "$OUT" -maxdepth 2 \( -name '*.png' -o -name '*.mp4' -o -name '*.txt' \) -not -path '*/video/*/*' | sed "s#^$OUT/#  #" | sort
 

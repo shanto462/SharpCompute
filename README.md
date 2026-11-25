@@ -101,6 +101,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-pipeline.sh` | A double-buffered pipeline: the GPU renders frame N+1 (`ForAsync`) while the CPU post-processes frame N; sync vs async throughput |
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
+| `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
 
@@ -270,6 +271,9 @@ using (ComputeContext context = device.CreateComputeContext())
     context.ForEach(frame, new ShowHeat(result)); // samples what the last pass wrote
 }
 ```
+
+`scripts/demo-textures.sh` shows all of this live: the six samplers side by side on any of the eight
+formats, and a simulation that ping-pongs between two textures while you paint into it.
 
 Shaders with textures run on the CPU too (`ForCpu`, `ForSplit`), with the same reads, writes and
 address modes. Two things differ slightly from the GPU: bilinear filtering (the GPU rounds its
