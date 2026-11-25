@@ -330,6 +330,99 @@ public class AtomicTests
         Assert.Equal([5 * width * height / 2, 5 * width * height / 2], counts.ToArray());
     }
 
+    // ---- atomics in a shader that also captures textures -----------------------------------------
+
+    private const int TextureWidth = 320;
+    private const int TextureHeight = 200;
+
+    private static Rgba32[] TexturePixels()
+    {
+        Random random = new(11);
+        byte[] bytes = new byte[TextureWidth * TextureHeight * 4];
+        random.NextBytes(bytes);
+
+        return Enumerable.Range(0, TextureWidth * TextureHeight)
+            .Select(i => new Rgba32(bytes[i * 4], bytes[(i * 4) + 1], bytes[(i * 4) + 2], bytes[(i * 4) + 3]))
+            .ToArray();
+    }
+
+    /// <summary>Rows (0, 2, 0, 0), (0.5, 0, 0, 0), (0, 0, 0, 1), (0, 0, 1, 0): M * (r, g, b, a) = (2g, r / 2, a, b), exact in floats.</summary>
+    private static readonly Float4x4 Tint = new(0f, 2f, 0f, 0f, 0.5f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 1f, 0f);
+
+    private static void AssertTextureHistogram(Rgba32[] pixels, int[] counts, uint seen, Float4[] target)
+    {
+        int[] expected = new int[AtomicTextureHistogram.Bins + 1];
+        uint union = 0;
+
+        foreach (Rgba32 pixel in pixels)
+        {
+            expected[pixel.R]++;
+            union |= pixel.R | ((uint)pixel.G << 8) | ((uint)pixel.B << 16) | ((uint)pixel.A << 24);
+        }
+
+        expected[AtomicTextureHistogram.Bins] = expected.Max();
+
+        Assert.Equal(expected, counts);
+        Assert.Equal(union, seen);
+        Assert.Equal(
+            pixels.SelectMany(static p => new[] { 2f * (p.G / 255f), 0.5f * (p.R / 255f), p.A / 255f, p.B / 255f }),
+            target.SelectMany(static v => new[] { v.X, v.Y, v.Z, v.W }));
+    }
+
+    [MetalTheory]
+    [InlineData(Target.Gpu)]
+    [InlineData(Target.Cpu)]
+    public void Atomics_InAShaderThatReadsAndWritesTextures(Target target)
+    {
+        // Textures have their own binding indices and their own CPU path; the atomics must still reach
+        // their buffers, from the kernel and from a helper that reads the texture, on both devices.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        Rgba32[] pixels = TexturePixels();
+        using ReadOnlyTexture2D<Rgba32> source = device.AllocateReadOnlyTexture2D<Rgba32>(pixels, TextureWidth, TextureHeight);
+        using ReadWriteTexture2D<Float4> output = device.AllocateReadWriteTexture2D<Float4>(TextureWidth, TextureHeight);
+        using ReadWriteBuffer<int> counts = device.AllocateReadWriteBuffer<int>(AtomicTextureHistogram.Bins + 1);
+        using ReadWriteBuffer<uint> seen = device.AllocateReadWriteBuffer<uint>(1);
+        AtomicTextureHistogram shader = new(source, output, counts, seen, Tint);
+
+        if (target == Target.Gpu)
+        {
+            device.For(TextureWidth, TextureHeight, shader);
+        }
+        else
+        {
+            device.ForCpu(TextureWidth, TextureHeight, shader);
+        }
+
+        AssertTextureHistogram(pixels, counts.ToArray(), seen[0], output.ToArray());
+    }
+
+    [MetalFact]
+    public void ForSplit_OfAShaderWithAtomicsAndTextures_IsNotDividedEither()
+    {
+        static bool UsesAtomics<T>()
+            where T : struct, IComputeShaderDescriptor<T> => T.UsesAtomics;
+
+        Assert.True(UsesAtomics<AtomicTextureHistogram>());
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        Rgba32[] pixels = TexturePixels();
+        using ReadOnlyTexture2D<Rgba32> source = device.AllocateReadOnlyTexture2D<Rgba32>(pixels, TextureWidth, TextureHeight);
+        using ReadWriteTexture2D<Float4> output = device.AllocateReadWriteTexture2D<Float4>(TextureWidth, TextureHeight);
+        using ReadWriteBuffer<int> counts = device.AllocateReadWriteBuffer<int>(AtomicTextureHistogram.Bins + 1);
+        using ReadWriteBuffer<uint> seen = device.AllocateReadWriteBuffer<uint>(1);
+        AtomicTextureHistogram shader = new(source, output, counts, seen, Tint);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() => device.ForSplit(TextureWidth, TextureHeight, shader, 0.5));
+        Assert.Contains("uses atomic operations", exception.Message);
+        Assert.All(counts.ToArray(), static count => Assert.Equal(0, count));
+
+        SplitDispatchInfo info = device.ForSplit(TextureWidth, TextureHeight, shader);
+
+        Assert.True(info.SingleDeviceOnly);
+        Assert.Equal((0, TextureHeight), (info.CpuExtent, info.GpuExtent));
+        AssertTextureHistogram(pixels, counts.ToArray(), seen[0], output.ToArray());
+    }
+
     [MetalFact]
     public void ShadersWithoutAtomics_AreStillSplit_AndNotMarkedSingleDevice()
     {

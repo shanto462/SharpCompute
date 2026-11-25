@@ -409,6 +409,38 @@ public readonly partial struct AtomicPixelCount(ReadWriteBuffer<int> counts) : I
 }
 
 /// <summary>
+/// Atomics next to textures: a red-channel histogram of a sampled texture, the union of all its pixels
+/// and the fullest bin, counted in a helper that reads the texture, while the kernel writes a
+/// read-write texture with a matrix product of the pixel it read.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct AtomicTextureHistogram(
+    ReadOnlyTexture2D<Rgba32> source,
+    ReadWriteTexture2D<Float4> target,
+    ReadWriteBuffer<int> counts,
+    ReadWriteBuffer<uint> seen,
+    Float4x4 tint) : IComputeShader
+{
+    public const int Bins = 256;
+
+    private int Count(Int2 xy)
+    {
+        uint packed = Gpu.PackUnorm4x8(source[xy]);
+        Gpu.AtomicOr(ref seen[0], packed);
+        return Gpu.AtomicAdd(ref counts[(int)(packed & 255u)], 1);
+    }
+
+    public void Execute()
+    {
+        Int2 xy = ThreadIds.XY;
+
+        // The add that fills a bin to n returns n - 1, so the largest returned value + 1 is the fullest bin.
+        Gpu.AtomicMax(ref counts[Bins], Count(xy) + 1);
+        target[xy] = Gpu.Mul(tint, source[xy]);
+    }
+}
+
+/// <summary>
 /// Matrix products whose vector operand has the packed type without being a direct read of a buffer:
 /// a conditional between two elements, a helper's result, a swizzle, a struct field.
 /// </summary>

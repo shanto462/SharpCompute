@@ -174,6 +174,95 @@ public class AtomicTests
     }
 
     [Fact]
+    public void Atomics_InAShaderThatCapturesTextures_KeepTheirBuffersAndTheFlag()
+    {
+        // Textures take their own binding indices and are passed to helpers next to the buffers; an
+        // atomic still addresses its buffer element, directly and inside a helper that also reads a
+        // texture. A pixel read is a native float4, so the matrix operand conversion is a no-op on it.
+        GeneratorRun run = GeneratorHarness.Run("""
+            using SharpCompute;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct TextureHistogram(
+                ReadOnlyTexture2D<Rgba32> source,
+                ReadWriteTexture2D<Float4> target,
+                ReadWriteBuffer<int> counts,
+                ReadWriteBuffer<uint> seen,
+                Float4x4 tint) : IComputeShader
+            {
+                private int Count(Int2 xy)
+                {
+                    uint packed = Gpu.PackUnorm4x8(source[xy]);
+                    Gpu.AtomicOr(ref seen[0], packed);
+                    return Gpu.AtomicAdd(ref counts[(int)(packed & 255u)], 1);
+                }
+
+                public void Execute()
+                {
+                    Int2 xy = ThreadIds.XY;
+                    int before = Count(xy);
+                    Gpu.AtomicMax(ref counts[256], before);
+                    Float2 uv = (new Float2(xy.X, xy.Y) + 0.5f) / new Float2(source.Width, source.Height);
+                    target[xy] = Gpu.Mul(tint, source[xy]) + Gpu.Mul(source.Sample(Sampler.LinearClamp, uv), tint) + Gpu.Mul(tint, target[xy]);
+                }
+            }
+            """);
+
+        ShaderDescriptor descriptor = run.Verify("TextureHistogram");
+
+        Assert.True(descriptor.UsesAtomics);
+        Assert.Contains(
+            "static bool global::SharpCompute.IComputeShaderDescriptor<global::TextureHistogram>.UsesAtomics => true;",
+            run.Source("TextureHistogram.SharpCompute.g.cs"));
+        Assert.Equal(
+            """
+            int2 xy = int2(__tid.xy);
+            int before = ::Count(xy, source, seen, counts);
+            metal::atomic_fetch_max_explicit((device metal::atomic_int*)&(counts[256]), before, metal::memory_order_relaxed);
+            float2 uv = (float2(float(xy.x), float(xy.y)) + 0.5f) / float2(float(int(source.get_width())), float(int(source.get_height())));
+            target.write((float4(source.read(uint2(xy))) * __ms_unpack(__c.tint)) + (__ms_unpack(__c.tint) * float4(source.sample(__ms_sampler_linear_clamp, uv, metal::level(0)))) + (float4(target.read(uint2(xy))) * __ms_unpack(__c.tint)), uint2(xy));
+            """.ReplaceLineEndings("\n"),
+            descriptor.KernelBody);
+
+        // The helper gets the texture and both buffers; the atomics address the buffers it was given.
+        Assert.Contains(
+            """
+            static int Count(int2 xy, texture2d<float, access::sample> source, device uint* seen, device int* counts)
+            {
+                uint packed = metal::pack_float_to_unorm4x8(source.read(uint2(xy)));
+                metal::atomic_fetch_or_explicit((device metal::atomic_uint*)&(seen[0]), packed, metal::memory_order_relaxed);
+                return metal::atomic_fetch_add_explicit((device metal::atomic_int*)&(counts[int(packed & 255u)]), 1, metal::memory_order_relaxed);
+            }
+            """.ReplaceLineEndings("\n"),
+            descriptor.MslSource);
+
+        // Textures and buffers are numbered separately, so the atomics' buffers start at 0.
+        Assert.Contains("texture2d<float, access::read_write> target [[texture(1)]],\n    device int* counts [[buffer(0)]],\n    device uint* seen [[buffer(1)]],", descriptor.MslSource);
+    }
+
+    [Fact]
+    public void ATextureElement_IsNotAnAtomicLocation()
+    {
+        // A pixel is read and written through Metal's texture functions and has no address. C# already
+        // refuses it (the indexer returns a Float4 by value, CS0206); the generator must not emit an atomic for it.
+        GeneratorRun run = GeneratorHarness.Run("""
+            using SharpCompute;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct Bad(ReadWriteTexture2D<float> target) : IComputeShader
+            {
+                public void Execute()
+                {
+                    Gpu.AtomicAdd(ref target[ThreadIds.XY], 1f);
+                }
+            }
+            """);
+
+        Assert.Contains(run.Input.GetDiagnostics(), static d => d.Id == "CS0206");
+        Assert.DoesNotContain(run.Sources, static source => source.SourceText.ToString().Contains("atomic_fetch", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void NamedArguments_AreEmittedInParameterOrder_AndTheIndexMayBeAnyExpression()
     {
         AssertKernel(

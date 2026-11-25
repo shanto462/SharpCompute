@@ -393,7 +393,8 @@ device.For(image.Length, new LuminanceHistogram(image, counts));
 
 - The location must be an element of a `ReadWriteBuffer<int>`, `<uint>` or `<float>` captured by
   the shader: `ref buffer[i]`. A local, a `ReadOnlyBuffer` element or a field of a struct element is
-  build error `SCG0034`.
+  build error `SCG0034`. A texture pixel has no address, so it cannot be a location either; a shader
+  that captures textures can use atomics on its buffers as usual.
 - The only ordering is relaxed (all MSL has): each operation is atomic by itself, nothing more. Don't
   also read or write the same element non-atomically in the same dispatch; read the results on the
   CPU afterwards, or in a later dispatch.
@@ -428,7 +429,8 @@ subnormals.
 `Gpu.Exp10` agree within a few ULP, like the other transcendentals. `Fma`, `CopySign`, `Log10` and
 `Exp10` have `Float2..4` overloads.
 
-**unorm8 packing.** Buffers cannot hold bytes, so keep 8-bit colors as one `uint` per pixel:
+**unorm8 packing.** Buffers cannot hold bytes (textures can: see [Textures](#textures)), so keep
+8-bit colors in a buffer as one `uint` per pixel:
 `Gpu.PackUnorm4x8(Float4)` (`metal::pack_float_to_unorm4x8`) and `Gpu.UnpackUnorm4x8(uint)`
 (`metal::unpack_unorm4x8_to_float`). `X` goes to the low byte, which is the layout of an `Rgba32` in
 memory. Packing clamps to [0, 1] (NaN gives 0) and rounds the exact product with 255 to the nearest
