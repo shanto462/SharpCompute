@@ -915,7 +915,8 @@ public readonly partial struct Depth(ReadWriteBuffer<float> depth, ReadOnlyBuffe
   the `readonly` keyword, so structs need no annotations.
 - **The usual rules apply**: recursion is `SCG0014`, a local function that captures is `SCG0025`, and
   `counter.Next() + counter.Next()` is `SCG0021` (a method that modifies its struct writes it, and MSL
-  does not say which call comes first). Two more: assigning a computed property is `SCG0045` (only
+  does not say which call comes first), as is `data[0] += Bump(0)` when `Bump` writes `data` (what a
+  helper does to buffers counts at its call; see **Evaluation order** in the reference). Two more: assigning a computed property is `SCG0045` (only
   getters are translated), and a generic method called with a type MSL does not have, such as
   `double`, is `SCG0046` at the call.
 
@@ -1179,6 +1180,11 @@ every CPU core is busy. The adaptive mode therefore only splits while that measu
 GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % faster than GPU-only
 ([`benchmarks/RESULTS.md`](benchmarks/RESULTS.md#cpu-execution-and-cpugpu-split)). `ForCpu` is a
 correct fallback and a debugging aid rather than a fast CPU path.
+
+Both run the shader's expressions in the same order: one whose result would depend on C#'s
+left-to-right evaluation, through a local or through what it (or a helper it calls) writes to a
+buffer, a `[GroupShared]` array or a texture, is build error `SCG0021` (see **Evaluation order** in
+the [shader language reference](#shader-language-reference)).
 
 ### Interop with existing Metal code
 
@@ -1642,6 +1648,42 @@ swaps its operands to compensate; you never transpose by hand. `Gpu.Transpose` a
 `Float4x4` can also be captured as a constant, stored in buffers and used as a struct field: it is 16
 floats with no padding on both sides, in the memory layout of `Matrix4x4`. `Float2x2` and `Float3x3`
 are for locals only, because MSL pads them.
+
+**Evaluation order.** C# evaluates an expression left to right. MSL leaves the order of two
+operands that modify and read the same variable undefined, and it evaluates the value of an
+assignment before its target. Where that could change the result, the build fails with `SCG0021`
+rather than run something else on the GPU. Besides locals, parameters and `this`, the check tracks
+the memory of the shader: with `Bump(slot)` an instance helper that does `data[slot] += 1` and
+returns 10,
+
+| Expression | C# (and `ForCpu`) | GPU |
+|---|---|---|
+| `data[0] += Bump(0)`, from 100 | 110 | 111 |
+| `data[data[8]] = Bump(8)`, with `data[8]` = 1 | writes `data[1]` | writes `data[2]` |
+| `data[24] += data[24] = 5`, from 100 | 105 | 10 |
+| `data[data[32]] += Bump(32)`, with `data[32]` = 40 | updates `data[40]` | updates `data[41]` |
+
+so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); data[0] += t;`.
+
+- **Each resource is one variable**: a captured buffer (or buffer view) or texture, a
+  `[GroupShared]` array, a buffer or texture parameter of a helper. Reading any element reads it
+  and writing any element writes it, whatever the indices: two elements of one resource are taken
+  to be possibly the same one. The location of a `Gpu.Atomic*` call is written, and so is a buffer
+  element that a method modifying its struct is called on (`cells[i].Grow()`). A texture local is
+  the texture it was initialized from; one that is assigned again may be any texture of its type.
+- **Helpers count at the call**: what a helper reads and writes, and what the helpers it calls do
+  (static helpers of any type, struct methods, properties and operators, instance helpers of the
+  shader), with the buffers and textures passed as arguments in place of its parameters.
+- **Operands and arguments too**: MSL does not say in which order it evaluates the operands of an
+  operator or the arguments of a call, so `data[i] + Bump(i)`, `Bump(0) + Bump(1)` and
+  `Pair(data[i], Bump(i))` are `SCG0021` as well; evaluate the call into a local first.
+- **Still fine**: `data[i] = data[i] + 1`, `data[i] += x`, `a[i] += b[i]` on two resources,
+  `data[0] = Bump(0)` and `data[i] = data[j] = 0` (the store comes last in both languages), a
+  call's own arguments (`Gpu.AtomicAdd(ref data[0], data[1])`: the call runs after them), and the
+  branches of `?:`, `&&` and `||`, which are evaluated in order.
+- **Two resources are never compared.** The same buffer bound under two names (captured twice, or
+  through overlapping views) is the same memory, which this check cannot see: it is a question of
+  how the shader is bound, not of how an expression is written.
 
 ## Building and testing
 
