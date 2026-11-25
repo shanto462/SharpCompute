@@ -8,8 +8,10 @@ namespace SharpCompute.Tests.Imaging;
 
 /// <summary>
 /// Loads a built sample assembly (ImageProcessing, Paint) so tests can exercise its public types.
-/// Like <c>ViewerAssembly</c>, this project has no project reference to the samples: it loads the
-/// output that <c>dotnet build SharpCompute.slnx</c> produces for the same configuration.
+/// Like <c>ViewerAssembly</c>, it loads the sample from the sample's own output folder, for the same
+/// configuration as the tests. The test project's references to these samples are build-only
+/// (<c>ReferenceOutputAssembly="false"</c>): they make any build of the tests build the samples too,
+/// without referencing or copying them.
 /// </summary>
 internal static class SampleAssembly
 {
@@ -19,8 +21,13 @@ internal static class SampleAssembly
     private static readonly ConcurrentDictionary<string, string?> s_paths = new();
     private static readonly ConcurrentDictionary<string, Assembly> s_assemblies = new();
 
+    /// <summary>
+    /// Why a sample's tests are skipped. A normal build of this project builds the samples, so the
+    /// output is missing only when the build left project references out or the output was deleted.
+    /// </summary>
     internal static string NotBuilt(string name) =>
-        $"{name} has not been built for this configuration; build SharpCompute.slnx (dotnet test SharpCompute.slnx builds it).";
+        $"{name}'s build output is missing for this configuration. Building SharpCompute.Tests builds it " +
+        "(a build-only project reference), so build or test without --no-build or --no-dependencies.";
 
     internal static string? PathOf(string name) => s_paths.GetOrAdd(name, Locate);
 
