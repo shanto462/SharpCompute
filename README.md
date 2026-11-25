@@ -212,8 +212,9 @@ using ReadWriteBuffer<float> wrapped = device.WrapReadWriteBuffer<float>((nint)m
 Shaders capture textures like buffers. A `ReadOnlyTexture2D<T>` is read with `texture[x, y]` (or an
 `Int2`) and sampled with `texture.Sample(sampler, uv)`; a `ReadWriteTexture2D<T>` is read and written
 with its indexer. Every pixel is a `Float4` in the shader, whatever `T` is; `Width` and `Height`
-work too. Textures are zero-copy like buffers: `CopyFrom`, `CopyTo` and `ToArray` go straight to
-the shared memory.
+work too. A thread that writes a pixel and reads it back gets what it wrote, as in C# (the
+generator emits the `fence()` Metal needs for that). Textures are zero-copy like buffers:
+`CopyFrom`, `CopyTo` and `ToArray` go straight to the shared memory.
 
 | `T` | Metal format | A shader reads | `ReadWriteTexture2D` |
 |---|---|---|---|

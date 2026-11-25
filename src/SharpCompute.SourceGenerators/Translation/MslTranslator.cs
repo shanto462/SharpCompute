@@ -147,7 +147,8 @@ internal sealed class HelperFunction
     /// <summary>The declaration without a trailing <c>;</c> or body.</summary>
     public string Signature { get; }
 
-    public string Body { get; }
+    /// <summary>The translated body. Final once the kernel is translated: until then it may hold the placeholders of texture fences.</summary>
+    public string Body { get; set; }
 
     /// <summary>Kernel inputs used by this function or anything it calls; passed as trailing hidden parameters.</summary>
     public HiddenInputs Inputs { get; }
@@ -369,7 +370,15 @@ internal sealed partial class MslTranslator
         }
 
         builtins = _function.Inputs.Builtins;
-        return _function.Writer.ToString();
+
+        // Everything the shader runs has been translated, so it is now known which textures are read:
+        // settle the fences after the writes, here and in the helpers.
+        foreach (HelperFunction helper in _helperOrder)
+        {
+            helper.Body = ResolveFences(helper.Body);
+        }
+
+        return ResolveFences(_function.Writer.ToString());
     }
 
     private SemanticModel GetSemanticModel(SyntaxTree tree)

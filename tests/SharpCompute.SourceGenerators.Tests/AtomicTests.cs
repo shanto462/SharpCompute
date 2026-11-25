@@ -221,6 +221,7 @@ public class AtomicTests
             metal::atomic_fetch_max_explicit((device metal::atomic_int*)&(counts[256]), before, metal::memory_order_relaxed);
             float2 uv = (float2(float(xy.x), float(xy.y)) + 0.5f) / float2(float(int(source.get_width())), float(int(source.get_height())));
             target.write((float4(source.read(uint2(xy))) * __ms_unpack(__c.tint)) + (__ms_unpack(__c.tint) * float4(source.sample(__ms_sampler_linear_clamp, uv, metal::level(0)))) + (float4(target.read(uint2(xy))) * __ms_unpack(__c.tint)), uint2(xy));
+            target.fence();
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
 
