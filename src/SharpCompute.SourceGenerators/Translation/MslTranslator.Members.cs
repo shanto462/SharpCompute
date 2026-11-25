@@ -78,7 +78,7 @@ internal sealed partial class MslTranslator
             case GpuTypeKind.Vector:
                 return new Expr(instance + "." + field.Name.ToLowerInvariant(), Expr.Primary);
             case GpuTypeKind.Struct when instanceType.FindField(field) is { } structField:
-                return new Expr(instance + "." + structField.MslName, Expr.Primary);
+                return BoundaryRead(operation, structField.Type, new Expr(instance + "." + structField.MslName, Expr.Primary));
             default:
                 return UnsupportedMember(operation, field, "its containing type has no MSL equivalent");
         }
@@ -132,12 +132,12 @@ internal sealed partial class MslTranslator
         {
             if (property.IsIndexer && operation.Arguments.Length == 1)
             {
-                if (ResolveType(property.Type, location) is null)
+                if (ResolveType(property.Type, location) is not { } elementType)
                 {
                     return Expr.Error;
                 }
 
-                return new Expr(Expression(operation.Instance).Operand(Expr.Primary) + "[" + Expression(operation.Arguments[0].Value).Text + "]", Expr.Primary);
+                return BoundaryRead(operation, elementType, new Expr(Expression(operation.Instance).Operand(Expr.Primary) + "[" + Expression(operation.Arguments[0].Value).Text + "]", Expr.Primary));
             }
 
             if (property.Name == "Length")
@@ -173,7 +173,7 @@ internal sealed partial class MslTranslator
         if (instanceType is { Kind: GpuTypeKind.Struct } && instanceType.FindField(property) is { } backingField)
         {
             // An auto-property of a user struct is just its backing field.
-            return new Expr(Expression(operation.Instance).Operand(Expr.Primary) + "." + backingField.MslName, Expr.Primary);
+            return BoundaryRead(operation, backingField.Type, new Expr(Expression(operation.Instance).Operand(Expr.Primary) + "." + backingField.MslName, Expr.Primary));
         }
 
         if (operation.Instance is IInstanceReferenceOperation)
@@ -412,10 +412,22 @@ internal sealed partial class MslTranslator
             return Call(intrinsicName, intrinsicArguments.ToArray());
         }
 
+        // 1a. [MslAtomic("metal::atomic_fetch_add_explicit")]: an atomic operation on a buffer element.
+        if (TypeResolver.FindAttribute(definition, "MslAtomicAttribute") is { } atomic)
+        {
+            return AtomicCall(operation, atomic);
+        }
+
         // 2. System.MathF / System.Math / float statics map to the same metal:: functions.
         if (method.IsStatic && method.ContainingType is { ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true }, Name: "MathF" or "Math" or "Single" })
         {
             return MathCall(operation);
+        }
+
+        // 2a. System.BitConverter and System.Numerics.BitOperations: bit casts, counts and rotates.
+        if (method.IsStatic && IsBitHelperType(method.ContainingType))
+        {
+            return BitCall(operation);
         }
 
         // 3. Local functions and methods of the shader struct become MSL functions.
@@ -459,6 +471,11 @@ internal sealed partial class MslTranslator
                 if (argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } && !IsThreadLocal(argument.Value))
                 {
                     return Unsupported(argument, $"the by-reference argument '{argument.Syntax}' (only locals and parameters, or their fields, can be passed by reference to a helper)");
+                }
+
+                if (argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } && IsPackedField(argument.Value))
+                {
+                    return Unsupported(argument, $"the by-reference argument '{argument.Syntax}' (a matrix in a struct field is stored packed; copy it to a local, pass that, and assign it back)");
                 }
             }
 
@@ -689,7 +706,7 @@ internal sealed partial class MslTranslator
                 return Unsupported(argument, "a 'params' argument");
             }
 
-            operands[parameter.Ordinal] = Expression(argument.Value);
+            operands[parameter.Ordinal] = NativeOperand(argument.Value, Expression(argument.Value));
         }
 
         int precedence = TryGetOperatorPrecedence(op, out int known) ? known : Expr.Unary;

@@ -1,4 +1,6 @@
 using System;
+using System.Buffers.Binary;
+using System.Numerics;
 
 namespace SharpCompute;
 
@@ -9,8 +11,13 @@ namespace SharpCompute;
 /// <remarks>
 /// <para>
 /// Scalar overloads live here; the componentwise vector overloads and the geometric functions are
-/// generated into <c>Gpu.g.cs</c> by <c>tools/gen_vectors.py</c>. C# names are the PascalCase MSL
-/// names, except <c>metal::mix</c>, which is exposed as <see cref="Lerp(float, float, float)"/>.
+/// generated into <c>Gpu.g.cs</c>, and the matrix functions into <c>Gpu.Matrices.g.cs</c>, by
+/// <c>tools/gen_vectors.py</c>; the atomics are in <c>Gpu.Atomics.cs</c>. C# names are the
+/// PascalCase MSL names, except where .NET or HLSL already has a name for the function:
+/// <c>metal::mix</c> is <see cref="Lerp(float, float, float)"/>, <c>popcount</c>, <c>clz</c> and
+/// <c>ctz</c> are <see cref="CountBits(uint)"/>, <see cref="LeadingZeroCount(uint)"/> and
+/// <see cref="TrailingZeroCount(uint)"/>, <c>isinf</c> is <see cref="IsInfinity(float)"/>, and the
+/// unorm8 packing functions are <see cref="PackUnorm4x8(Float4)"/> and <see cref="UnpackUnorm4x8(uint)"/>.
 /// </para>
 /// <para>
 /// The CPU implementations were compared bit for bit against an Apple GPU with the runtime's compile
@@ -20,6 +27,12 @@ namespace SharpCompute;
 /// float/int/uint conversions; Min/Max/Clamp too, except for which zero <c>min(-0, +0)</c> returns
 /// (IEEE leaves this unspecified). Dot, Cross, Reflect and Normalize differ only for results near
 /// the subnormal range.
+/// </para>
+/// <para>
+/// Also bit-exact, and covered by GPU-vs-CPU tests: the bit reinterpretations (AsFloat, AsInt,
+/// AsUInt, which keep NaN payloads and subnormals on the GPU too), CountBits, LeadingZeroCount,
+/// TrailingZeroCount, ReverseBits, Fma, CopySign, IsNaN, IsInfinity, IsFinite, PackUnorm4x8 and
+/// UnpackUnorm4x8. Log10 and Exp10 agree within a few ULP, like the other transcendentals.
 /// </para>
 /// <para>
 /// Where the hardware differs from the textbook definition and the difference is cheap to reproduce,
@@ -173,6 +186,40 @@ public static partial class Gpu
     [MslIntrinsic("metal::log2")]
     public static float Log2(float x) => MathF.Log2(x);
 
+    /// <summary>Base-10 logarithm.</summary>
+    [MslIntrinsic("metal::log10")]
+    public static float Log10(float x) => MathF.Log10(x);
+
+    /// <summary>10 raised to <paramref name="x"/>.</summary>
+    [MslIntrinsic("metal::exp10")]
+    public static float Exp10(float x) => float.Exp10(x);
+
+    // ---- fused multiply-add, sign, classification --------------------------------------------
+
+    /// <summary><c>x * y + z</c> rounded once (IEEE fusedMultiplyAdd); bit-exact with <c>metal::fma</c>.</summary>
+    [MslIntrinsic("metal::fma")]
+    public static float Fma(float x, float y, float z) => MathF.FusedMultiplyAdd(x, y, z);
+
+    /// <summary>
+    /// The magnitude of <paramref name="x"/> with the sign bit of <paramref name="y"/>. Pure bit
+    /// manipulation on both sides: the sign of a zero or NaN <paramref name="y"/> counts, a NaN
+    /// <paramref name="x"/> keeps its payload, and subnormals pass through unflushed.
+    /// </summary>
+    [MslIntrinsic("metal::copysign")]
+    public static float CopySign(float x, float y) => MathF.CopySign(x, y);
+
+    /// <summary>True when <paramref name="x"/> is a NaN (any payload, either sign).</summary>
+    [MslIntrinsic("metal::isnan")]
+    public static bool IsNaN(float x) => float.IsNaN(x);
+
+    /// <summary>True when <paramref name="x"/> is positive or negative infinity.</summary>
+    [MslIntrinsic("metal::isinf")]
+    public static bool IsInfinity(float x) => float.IsInfinity(x);
+
+    /// <summary>True when <paramref name="x"/> is neither infinite nor NaN (zeros and subnormals are finite).</summary>
+    [MslIntrinsic("metal::isfinite")]
+    public static bool IsFinite(float x) => float.IsFinite(x);
+
     // ---- trigonometry ------------------------------------------------------------------------
 
     /// <summary>Sine (radians).</summary>
@@ -244,6 +291,100 @@ public static partial class Gpu
         float t = Clamp((x - edge0) / (edge1 - edge0), 0f, 1f);
         return t * t * (3f - (2f * t));
     }
+
+    // ---- bit reinterpretation -----------------------------------------------------------------
+    // MSL as_type<T>: the same 32 bits under another type. No conversion happens, so every bit
+    // pattern survives a round trip on the GPU too (NaN payloads, -0, subnormals).
+
+    /// <summary>Reinterprets the bits of <paramref name="x"/> as a float (MSL <c>as_type&lt;float&gt;</c>).</summary>
+    [MslIntrinsic("as_type<float>")]
+    public static float AsFloat(int x) => BitConverter.Int32BitsToSingle(x);
+
+    /// <summary>Reinterprets the bits of <paramref name="x"/> as a float (MSL <c>as_type&lt;float&gt;</c>).</summary>
+    [MslIntrinsic("as_type<float>")]
+    public static float AsFloat(uint x) => BitConverter.UInt32BitsToSingle(x);
+
+    /// <summary>Reinterprets the bits of <paramref name="x"/> as an int (MSL <c>as_type&lt;int&gt;</c>).</summary>
+    [MslIntrinsic("as_type<int>")]
+    public static int AsInt(float x) => BitConverter.SingleToInt32Bits(x);
+
+    /// <summary>Reinterprets the bits of <paramref name="x"/> as a uint (MSL <c>as_type&lt;uint&gt;</c>).</summary>
+    [MslIntrinsic("as_type<uint>")]
+    public static uint AsUInt(float x) => BitConverter.SingleToUInt32Bits(x);
+
+    // ---- bit counting ------------------------------------------------------------------------
+    // The result has the type of the argument, as in MSL (BitOperations returns int).
+
+    /// <summary>The number of set bits (MSL <c>popcount</c>).</summary>
+    [MslIntrinsic("metal::popcount")]
+    public static int CountBits(int x) => BitOperations.PopCount((uint)x);
+
+    /// <summary>The number of set bits (MSL <c>popcount</c>).</summary>
+    [MslIntrinsic("metal::popcount")]
+    public static uint CountBits(uint x) => (uint)BitOperations.PopCount(x);
+
+    /// <summary>The number of zero bits above the highest set bit; 32 for 0, and 0 for negative values (MSL <c>clz</c>).</summary>
+    [MslIntrinsic("metal::clz")]
+    public static int LeadingZeroCount(int x) => BitOperations.LeadingZeroCount((uint)x);
+
+    /// <summary>The number of zero bits above the highest set bit; 32 for 0 (MSL <c>clz</c>).</summary>
+    [MslIntrinsic("metal::clz")]
+    public static uint LeadingZeroCount(uint x) => (uint)BitOperations.LeadingZeroCount(x);
+
+    /// <summary>The number of zero bits below the lowest set bit; 32 for 0 (MSL <c>ctz</c>).</summary>
+    [MslIntrinsic("metal::ctz")]
+    public static int TrailingZeroCount(int x) => BitOperations.TrailingZeroCount(x);
+
+    /// <summary>The number of zero bits below the lowest set bit; 32 for 0 (MSL <c>ctz</c>).</summary>
+    [MslIntrinsic("metal::ctz")]
+    public static uint TrailingZeroCount(uint x) => (uint)BitOperations.TrailingZeroCount(x);
+
+    /// <summary>Reverses the order of the 32 bits: bit 0 becomes bit 31 (MSL <c>reverse_bits</c>).</summary>
+    [MslIntrinsic("metal::reverse_bits")]
+    public static int ReverseBits(int x) => (int)ReverseBits((uint)x);
+
+    /// <summary>Reverses the order of the 32 bits: bit 0 becomes bit 31 (MSL <c>reverse_bits</c>).</summary>
+    [MslIntrinsic("metal::reverse_bits")]
+    public static uint ReverseBits(uint x)
+    {
+        // Swap neighbours, pairs and nibbles within each byte, then the bytes.
+        x = ((x >> 1) & 0x55555555u) | ((x & 0x55555555u) << 1);
+        x = ((x >> 2) & 0x33333333u) | ((x & 0x33333333u) << 2);
+        x = ((x >> 4) & 0x0F0F0F0Fu) | ((x & 0x0F0F0F0Fu) << 4);
+        return BinaryPrimitives.ReverseEndianness(x);
+    }
+
+    // ---- unorm8 packing ----------------------------------------------------------------------
+
+    /// <summary>
+    /// Packs four floats into one <c>uint</c> of four unorm8 channels, <c>X</c> in the low byte
+    /// (<c>x | y &lt;&lt; 8 | z &lt;&lt; 16 | w &lt;&lt; 24</c>): the layout of an <see cref="Rgba32"/> in memory. This is
+    /// how to keep 8-bit data in a buffer, whose elements cannot be bytes.
+    /// </summary>
+    /// <remarks>
+    /// Each channel is converted the way the GPU writes a float to a unorm8 texture: NaN and negative
+    /// values give 0, values of 1 and above give 255, and everything between is the integer nearest
+    /// to the exact product <c>value × 255</c>. Verified against <c>metal::pack_float_to_unorm4x8</c>
+    /// on an Apple GPU at all 255 rounding midpoints and their float neighbours.
+    /// </remarks>
+    [MslIntrinsic("metal::pack_float_to_unorm4x8")]
+    public static uint PackUnorm4x8(Float4 x) =>
+        CpuDispatcher.ToUnorm8(x.X) |
+        ((uint)CpuDispatcher.ToUnorm8(x.Y) << 8) |
+        ((uint)CpuDispatcher.ToUnorm8(x.Z) << 16) |
+        ((uint)CpuDispatcher.ToUnorm8(x.W) << 24);
+
+    /// <summary>
+    /// Unpacks four unorm8 channels, <c>X</c> from the low byte: each is <c>byte / 255f</c>, correctly
+    /// rounded, so 0 gives 0 and 255 gives exactly 1. Bit-exact with <c>metal::unpack_unorm4x8_to_float</c>
+    /// for all 256 values, and <c>PackUnorm4x8(UnpackUnorm4x8(x)) == x</c> for every <paramref name="x"/>.
+    /// </summary>
+    [MslIntrinsic("metal::unpack_unorm4x8_to_float")]
+    public static Float4 UnpackUnorm4x8(uint x) => new(
+        (x & 0xFF) / 255f,
+        ((x >> 8) & 0xFF) / 255f,
+        ((x >> 16) & 0xFF) / 255f,
+        (x >> 24) / 255f);
 
     // ---- geometric (non-generated) -----------------------------------------------------------
 

@@ -120,6 +120,14 @@ internal static class DescriptorEmitter
             writer.Line();
         }
 
+        if (model.UsesAtomics)
+        {
+            // Without this member the interface's default (false) applies.
+            writer.Line("/// <summary>The kernel uses atomic operations, so a CPU+GPU split dispatch must not divide it between the two.</summary>");
+            writer.Line($"static bool {contract}.UsesAtomics => true;");
+            writer.Line();
+        }
+
         writer.Line($"static void {contract}.SetArguments(in {model.FullyQualifiedName} shader, ref {Writer} writer)");
         writer.Line("{");
         writer.Indent++;

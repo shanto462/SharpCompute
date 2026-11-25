@@ -31,6 +31,13 @@ internal static class MslNames
     /// </summary>
     public const string SamplerPrefix = "__ms_sampler_";
 
+    /// <summary>
+    /// The prelude's conversions between a boundary type it declares (see
+    /// <c>GpuType.NeedsExplicitPacking</c>) and the native MSL type, overloaded per type.
+    /// </summary>
+    public const string Unpack = "__ms_unpack";
+    public const string Pack = "__ms_pack";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";

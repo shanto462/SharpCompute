@@ -69,7 +69,7 @@ internal static class GeneratorHarness
 }
 
 /// <summary>The static descriptor members of a generated shader, read from the compiled assembly.</summary>
-internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string MslSource, int ThreadGroupSizeX, int ThreadGroupSizeY, int ThreadGroupSizeZ, int GridWindowIndex)
+internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string MslSource, int ThreadGroupSizeX, int ThreadGroupSizeY, int ThreadGroupSizeZ, int GridWindowIndex, bool UsesAtomics)
 {
     /// <summary>
     /// The statements between the braces of the kernel function, without their indentation and without
@@ -301,5 +301,5 @@ internal sealed class GeneratorRun
 
     private static ShaderDescriptor Read<T>()
         where T : struct, IComputeShaderDescriptor<T> =>
-        new(typeof(T), T.EntryPoint, T.MslSource, T.ThreadGroupSizeX, T.ThreadGroupSizeY, T.ThreadGroupSizeZ, T.GridWindowIndex);
+        new(typeof(T), T.EntryPoint, T.MslSource, T.ThreadGroupSizeX, T.ThreadGroupSizeY, T.ThreadGroupSizeZ, T.GridWindowIndex, T.UsesAtomics);
 }

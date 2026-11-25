@@ -162,7 +162,7 @@ internal sealed partial class MslTranslator
         }
 
         _function.Inputs.UsesConstants = true;
-        return new Expr(MslNames.Constants + "." + capture.MslName, Expr.Primary);
+        return BoundaryRead(operation, capture.Type, new Expr(MslNames.Constants + "." + capture.MslName, Expr.Primary));
     }
 
     private Expr Constant(object value, GpuType type, IOperation operation)
@@ -485,15 +485,15 @@ internal sealed partial class MslTranslator
             return TextureWrite(operation, pixel);
         }
 
-        string target = Expression(operation.Target).Operand(Expr.Unary);
-        string value = Expression(operation.Value).Operand(Expr.Assignment);
+        string target = StoreTarget(operation.Target, out bool packed).Operand(Expr.Unary);
+        Expr value = Expression(operation.Value);
 
-        return new Expr(target + " = " + value, Expr.Assignment);
+        return new Expr(target + " = " + (packed ? Call(MslNames.Pack, value.Text).Text : value.Operand(Expr.Assignment)), Expr.Assignment);
     }
 
     private Expr CompoundAssignment(ICompoundAssignmentOperation operation)
     {
-        if (operation.IsLifted || !TryGetBinaryOperator(operation.OperatorKind, out string text, out _))
+        if (operation.IsLifted || !TryGetBinaryOperator(operation.OperatorKind, out string text, out int precedence))
         {
             return Unsupported(operation, Humanize(operation.Syntax));
         }
@@ -508,9 +508,21 @@ internal sealed partial class MslTranslator
             return TextureElementModifiedInPlace(operation);
         }
 
-        Expr target = Expression(operation.Target);
+        Expr target = StoreTarget(operation.Target, out bool packed);
         Expr value = Expression(operation.Value);
         GpuType? targetType = _types.Resolve(operation.Target.Type);
+
+        if (packed)
+        {
+            // Packed storage has no operators: unpack, apply, pack. That names the target twice.
+            if (HasSideEffects(operation.Target))
+            {
+                return Unsupported(operation, $"'{text}=' on a matrix in a buffer or struct field whose expression has side effects");
+            }
+
+            string result = Call(MslNames.Unpack, target.Text).Text + " " + text + " " + BinaryOperand(value, precedence, isRight: true);
+            return new Expr(target.Operand(Expr.Unary) + " = " + Call(MslNames.Pack, result).Text, Expr.Assignment);
+        }
 
         if (operation.OperatorKind == BinaryOperatorKind.Remainder && IsFloating(operation.Target.Type, operation.Value.Type))
         {

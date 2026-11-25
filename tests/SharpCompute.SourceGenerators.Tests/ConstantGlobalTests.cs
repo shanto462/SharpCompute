@@ -60,7 +60,7 @@ public class ConstantGlobalTests
             Normalize("""
             float3 tint = ::Doubled + ::Base;
             int count = ::Count;
-            buffer[0] = tint.x + (::Rotation * float2(1.0f, 0.0f)).y + float(count) + 3.0f;
+            buffer[0] = tint.x + (::Rotation * float2(float2(1.0f, 0.0f))).y + float(count) + 3.0f;
             {
                 float Base = ::Scale;
                 buffer[1] = Base + ::Base.z;
@@ -111,7 +111,7 @@ public class ConstantGlobalTests
         Assert.DoesNotContain("__ms_", descriptor.MslSource);
         Assert.Contains("constant float Remainder = 1.5f;", descriptor.MslSource);
         Assert.Contains("constant float3 Mixed = float3(0.0f, 0.0f, 0.25f) * 2.0f;", descriptor.MslSource);
-        Assert.Contains("constant float3 Product = (float3x3(1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 3.0f) * 2.0f * float3(1.0f, 2.0f, 3.0f));", descriptor.MslSource);
+        Assert.Contains("constant float3 Product = (float3x3(1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 3.0f) * 2.0f * float3(float3(1.0f, 2.0f, 3.0f)));", descriptor.MslSource);
 
         // The folded values are the ones SharpCompute's CPU implementations compute.
         AssertFolded(descriptor, "Direction", Gpu.Normalize(new Float3(1, 2, 3)));

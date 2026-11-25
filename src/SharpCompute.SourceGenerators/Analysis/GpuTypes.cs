@@ -84,6 +84,15 @@ internal sealed class GpuType
     /// </summary>
     public bool HasPackedForm { get; set; }
 
+    /// <summary>
+    /// True when the <c>Packed</c> type is declared by the MSL prelude (its name starts with
+    /// <c>__ms_</c>) instead of by Metal. Metal's own <c>packed_*</c> vectors convert implicitly to
+    /// and from the native type; a prelude type (the packed matrix) is a separate struct, so every
+    /// load goes through the prelude's <c>__ms_unpack</c> and every store through <c>__ms_pack</c>.
+    /// </summary>
+    public bool NeedsExplicitPacking =>
+        Kind == GpuTypeKind.Vector && HasPackedForm && BoundaryName.StartsWith(MslNames.EscapePrefix, StringComparison.Ordinal);
+
     /// <summary>True for vectors of <c>bool</c>, which (like <c>bool</c> itself) may not cross the CPU/GPU boundary.</summary>
     public bool IsBoolean { get; set; }
 

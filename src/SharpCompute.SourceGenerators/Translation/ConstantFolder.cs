@@ -522,13 +522,14 @@ internal sealed class ConstantFolder
     private static string? MathName(IMethodSymbol method) => method.Name switch
     {
         "Abs" or "Min" or "Max" or "Clamp" or "Sqrt" or "Sin" or "Cos" or "Tan" or "Asin" or "Acos" or "Atan" or "Atan2"
-            or "Sinh" or "Cosh" or "Tanh" or "Exp" or "Log" or "Log2" or "Pow" or "Floor" or "Sign" or "CopySign" => "metal::" + method.Name.ToLowerInvariant(),
+            or "Sinh" or "Cosh" or "Tanh" or "Exp" or "Log" or "Log2" or "Log10" or "Pow" or "Floor" or "Sign" or "CopySign" => "metal::" + method.Name.ToLowerInvariant(),
         "Ceiling" => "metal::ceil",
         "Truncate" => "metal::trunc",
         "Round" when method.Parameters.Length == 1 => "metal::rint",
         "FusedMultiplyAdd" => "metal::fma",
         "Lerp" => "metal::mix",
         "Exp2" => "metal::exp2",
+        "Exp10" => "metal::exp10",
         "ReciprocalSqrtEstimate" => "metal::rsqrt",
         _ => null,
     };
@@ -726,6 +727,8 @@ internal sealed class ConstantFolder
         ("exp2", 1) => static a => F(Math.Pow(2, a[0])),
         ("log", 1) => static a => F(Math.Log(a[0])),
         ("log2", 1) => static a => F(Math.Log(a[0]) / Math.Log(2)),
+        ("log10", 1) => static a => F(Math.Log10(a[0])),
+        ("exp10", 1) => static a => F(Math.Pow(10, a[0])),
         ("sin", 1) => static a => F(Math.Sin(a[0])),
         ("cos", 1) => static a => F(Math.Cos(a[0])),
         ("tan", 1) => static a => F(Math.Tan(a[0])),

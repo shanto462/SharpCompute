@@ -63,9 +63,13 @@ here as an original game built on SharpCompute.
   repeat or mirror), `ReadWriteTexture2D<T>` is read and written, in eight pixel formats from 8-bit
   to float. A texture one pass wrote can be sampled by the next.
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
-  `Float2x2`/`Float3x3` with `Gpu.Mul`, `Half`, user structs, and about 40 `Gpu.*` intrinsics (`MathF.*`
-  works too). Static and instance helper methods, local functions, `ref`/`out` parameters, all loops
-  and branches, and compile-time-folded `static readonly` constants.
+  `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
+  intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
+  methods, local functions, `ref`/`out` parameters, all loops and branches, and compile-time-folded
+  `static readonly` constants.
+- **Atomics.** `Gpu.AtomicAdd(ref counts[bin], 1)` and friends on buffer elements, for histograms,
+  counters and stream compaction where many threads write the same element. They are atomic on the
+  CPU too, so `ForCpu` gives the same answer. See the [shader language reference](#shader-language-reference).
 - **Zero-copy buffers.** Buffers live in unified memory, so `AsSpan()` and indexers read GPU
   results directly, and data can be produced straight into GPU memory (an image decoder can write
   into `AsSpan()`). `MapReadOnlyBuffer` puts a file on the GPU without reading it into memory first,
@@ -102,6 +106,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
+| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
 
@@ -345,12 +350,102 @@ device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shad
 ```
 
 Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
-the GPU up to floating-point rounding. Only split shaders whose threads write their own elements.
+the GPU up to floating-point rounding. Only split shaders whose threads write their own elements;
+a shader that uses `Gpu.Atomic*` is never divided (see [Atomics](#shader-language-reference)).
 Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
 every CPU core is busy. The adaptive mode therefore only splits while that measures faster than the
 GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % faster than GPU-only
 ([`benchmarks/RESULTS.md`](benchmarks/RESULTS.md#cpu-execution-and-cpugpu-split)). `ForCpu` is a
 correct fallback and a debugging aid rather than a fast CPU path.
+
+### Shader language reference
+
+What is described here is checked against the GPU by the test suite; the full list of `Gpu.*`
+methods, with the MSL each maps to, is in their doc comments.
+
+**Atomics.** When many threads write the same buffer element, a plain `counts[bin] += 1` loses
+updates. The `Gpu.Atomic*` methods take the element by `ref` and return the value it had *before*
+the operation:
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct LuminanceHistogram(ReadWriteBuffer<uint> image, ReadWriteBuffer<int> counts) : IComputeShader
+{
+    public void Execute()
+    {
+        uint pixel = image[ThreadIds.X]; // packed RGBA, see PackUnorm4x8 below
+        uint luminance = (((pixel & 255u) * 54u) + (((pixel >> 8) & 255u) * 183u) + (((pixel >> 16) & 255u) * 19u)) >> 8;
+
+        Gpu.AtomicAdd(ref counts[(int)luminance], 1);
+    }
+}
+
+using ReadWriteBuffer<int> counts = device.AllocateReadWriteBuffer<int>(256); // zeroed
+device.For(image.Length, new LuminanceHistogram(image, counts));
+```
+
+| C# (`int` and `uint`) | MSL |
+|---|---|
+| `AtomicAdd`, `AtomicSub`, `AtomicMin`, `AtomicMax`, `AtomicAnd`, `AtomicOr`, `AtomicXor` | `metal::atomic_fetch_*_explicit` |
+| `AtomicExchange(ref location, value)` | `metal::atomic_exchange_explicit` |
+| `AtomicCompareExchange(ref location, comparand, value)` | a strong compare-and-swap (a loop over MSL's weak one); returns the original, so it succeeded when that equals `comparand` |
+| `AtomicAdd(ref float, float)` | `metal::atomic_fetch_add_explicit` on `atomic<float>` |
+
+- The location must be an element of a `ReadWriteBuffer<int>`, `<uint>` or `<float>` captured by
+  the shader: `ref buffer[i]`. A local, a `ReadOnlyBuffer` element or a field of a struct element is
+  build error `SCG0034`. A texture pixel has no address, so it cannot be a location either; a shader
+  that captures textures can use atomics on its buffers as usual.
+- The only ordering is relaxed (all MSL has): each operation is atomic by itself, nothing more. Don't
+  also read or write the same element non-atomically in the same dispatch; read the results on the
+  CPU afterwards, or in a later dispatch.
+- On the CPU the same methods are `Interlocked` operations (compare-and-swap loops for min, max, xor
+  and the float add), because `ForCpu` runs shader threads on every core. Final values match the
+  GPU's. The values *returned* to individual threads depend on scheduling on both: n adds of 1
+  return a permutation of 0..n-1, not a fixed assignment. That is why compacting with
+  `output[Gpu.AtomicAdd(ref counter[0], 1)] = i` gives the right elements in an unspecified order.
+  The float add applies every add exactly once, but float addition is not associative, so its sum
+  can depend on the order unless the partial sums are exact.
+- The guarantee holds among the threads of one dispatch on one device, not between a GPU dispatch
+  and CPU code running at the same time: the GPU's atomics and the CPU's `Interlocked` operations
+  do not exclude each other on shared memory, so `ForAsync` next to `ForCpu` on the same buffer
+  loses updates. For the same reason `ForSplit` never divides a shader that uses atomics: a
+  `cpuFraction` strictly between 0 and 1 throws `NotSupportedException`, and the adaptive mode runs
+  the whole grid on the GPU and reports it in `SplitDispatchInfo.SingleDeviceOnly`.
+
+**Bits.** All bit-exact between the GPU and the CPU, including NaN payloads, signed zeros and
+subnormals.
+
+| C# | MSL | Notes |
+|---|---|---|
+| `Gpu.AsFloat(int/uint)`, `Gpu.AsInt(float)`, `Gpu.AsUInt(float)`, and `Float2..4`/`Int2..4`/`UInt2..4` overloads | `as_type<T>` | Reinterprets the 32 bits. Also `BitConverter.SingleToInt32Bits`, `Int32BitsToSingle`, `SingleToUInt32Bits`, `UInt32BitsToSingle` |
+| `Gpu.CountBits` | `metal::popcount` | `int`, `uint` and their vectors; the result has the argument's type |
+| `Gpu.LeadingZeroCount`, `Gpu.TrailingZeroCount` | `metal::clz`, `metal::ctz` | 32 for a zero argument |
+| `Gpu.ReverseBits` | `metal::reverse_bits` | Bit 0 becomes bit 31 |
+| `BitOperations.PopCount`, `LeadingZeroCount`, `TrailingZeroCount` | the same, cast to `int` | The `uint` (and `int` for `TrailingZeroCount`) overloads |
+| `BitOperations.RotateLeft`, `RotateRight` | `metal::rotate` | The count is taken modulo 32, as in C# |
+
+**Float helpers.** `Gpu.Fma` (also `MathF.FusedMultiplyAdd`) and `Gpu.CopySign` are bit-exact;
+`Gpu.IsNaN`, `Gpu.IsInfinity` and `Gpu.IsFinite` take a `float` and return a `bool`; `Gpu.Log10` and
+`Gpu.Exp10` agree within a few ULP, like the other transcendentals. `Fma`, `CopySign`, `Log10` and
+`Exp10` have `Float2..4` overloads.
+
+**unorm8 packing.** Buffers cannot hold bytes (textures can: see [Textures](#textures)), so keep
+8-bit colors in a buffer as one `uint` per pixel:
+`Gpu.PackUnorm4x8(Float4)` (`metal::pack_float_to_unorm4x8`) and `Gpu.UnpackUnorm4x8(uint)`
+(`metal::unpack_unorm4x8_to_float`). `X` goes to the low byte, which is the layout of an `Rgba32` in
+memory. Packing clamps to [0, 1] (NaN gives 0) and rounds the exact product with 255 to the nearest
+integer, exactly what writing a float to an `RGBA8Unorm` texture does; unpacking is `byte / 255f`.
+Both match the GPU bit for bit, at every rounding midpoint.
+
+**Matrices.** `Float2x2`, `Float3x3` and `Float4x4` are built from **rows**, as in HLSL and
+`System.Numerics`: `Gpu.Mul(v, m)` is a row vector times a matrix (`Vector4.Transform(v, m)`),
+`Gpu.Mul(m, v)` a matrix times a column vector, `Gpu.Mul(a, b)` the matrix product (`a * b` for
+`Matrix4x4`). MSL matrices are built from columns, so the MSL value is the transpose and `Mul`
+swaps its operands to compensate; you never transpose by hand. `Gpu.Transpose` and
+`Gpu.Determinant` exist for all three sizes, plus `+`, `-` and `*`, `/` by a scalar.
+`Float4x4` can also be captured as a constant, stored in buffers and used as a struct field: it is 16
+floats with no padding on both sides, in the memory layout of `Matrix4x4`. `Float2x2` and `Float3x3`
+are for locals only, because MSL pads them.
 
 ## Building and testing
 
@@ -365,9 +460,11 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 ## Limitations
 
 - Apple Silicon and macOS 15+ only, for now.
-- No threadgroup shared memory or atomics yet.
+- No threadgroup shared memory yet. Atomics work on buffer elements of `int`, `uint` and (add only)
+  `float`, not on struct fields.
 - Textures are 2D with one mip level; samplers are the six fixed ones.
-- 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`.
+- 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`
+  (`Gpu.PackUnorm4x8` for colors).
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses
   multiply-adds. Transcendental functions agree with the CPU to within a few ULP.
 
@@ -376,7 +473,7 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 - **Vulkan backend** (Windows, Linux, Android; macOS through MoltenVK), then **OpenGL 4.3**
   (Windows, Linux; macOS caps OpenGL at 4.1, which has no compute shaders). The shader authoring
   API stays the same; each backend adds its own shading-language emitter and runtime.
-- Threadgroup memory, atomics.
+- Threadgroup memory (and atomics on it).
 - NuGet packages.
 
 ## License

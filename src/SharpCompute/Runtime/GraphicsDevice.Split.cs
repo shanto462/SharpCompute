@@ -83,6 +83,16 @@ public sealed unsafe partial class GraphicsDevice
     /// threads write is not safe to split, even if it happens to work as one GPU dispatch.
     /// </para>
     /// <para>
+    /// <b>Shaders that use atomics are never divided.</b> <c>Gpu.Atomic*</c> makes a shared element safe
+    /// among the threads of one dispatch on one device, but the GPU's atomics and the CPU's interlocked
+    /// operations do not exclude each other on shared memory: a histogram split between the two loses
+    /// counts. The generator records whether a shader uses atomics
+    /// (<see cref="IComputeShaderDescriptor{TSelf}.UsesAtomics"/>). For such a shader a
+    /// <paramref name="cpuFraction"/> strictly between 0 and 1 throws <see cref="NotSupportedException"/>
+    /// (0 and 1 run on one device and are fine), and the overloads without a fraction run the whole grid
+    /// on the GPU and say so in <see cref="SplitDispatchInfo.SingleDeviceOnly"/>.
+    /// </para>
+    /// <para>
     /// Without <paramref name="cpuFraction"/>, the split adapts per shader type on this device: the CPU's
     /// share comes from running estimates of each side's time per thread, chosen so that both parts
     /// finish together, and the split is only used while it is measured to be faster than running the
@@ -121,7 +131,9 @@ public sealed unsafe partial class GraphicsDevice
     /// </remarks>
     /// <returns>How the grid was divided and how long each part took.</returns>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is negative, or <paramref name="cpuFraction"/> is not in 0..1.</exception>
-    /// <exception cref="NotSupportedException">The shader cannot run a partial grid (see remarks).</exception>
+    /// <exception cref="NotSupportedException">
+    /// The shader cannot run a partial grid, or it uses atomics and <paramref name="cpuFraction"/> is strictly between 0 and 1 (see remarks).
+    /// </exception>
     /// <exception cref="ArgumentNullException">A buffer of <paramref name="shader"/> is null, e.g. for <c>default(T)</c>.</exception>
     /// <exception cref="ArgumentException">A buffer of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device or a buffer of <paramref name="shader"/> has been disposed.</exception>
@@ -148,12 +160,15 @@ public sealed unsafe partial class GraphicsDevice
     /// <param name="cpuFraction">The share of the rows to run on the CPU, 0..1.</param>
     /// <remarks>
     /// The split, its rules and the adaptive share are those of <see cref="ForSplit{T}(int, int, int, in T, double)"/>;
-    /// a pixel shader only writes its own pixel, so it is always safe to split. The CPU converts colors to
+    /// a pixel shader only writes its own pixel, so it is safe to split unless it also updates a buffer
+    /// with atomics, in which case it is never divided, as described there. The CPU converts colors to
     /// <c>RGBA8Unorm</c> as described for <see cref="ForEachCpu{T}"/>.
     /// </remarks>
     /// <returns>How the rows were divided and how long each part took.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="cpuFraction"/> is not in 0..1.</exception>
-    /// <exception cref="NotSupportedException">The shader cannot run a partial grid (a hand-written descriptor).</exception>
+    /// <exception cref="NotSupportedException">
+    /// The shader cannot run a partial grid (a hand-written descriptor), or it uses atomics and <paramref name="cpuFraction"/> is strictly between 0 and 1.
+    /// </exception>
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device, <paramref name="texture"/> or a buffer of <paramref name="shader"/> has been disposed.</exception>
@@ -210,6 +225,16 @@ public sealed unsafe partial class GraphicsDevice
                 $"Shader '{typeof(T)}' cannot run a partial grid, so it cannot be split between the CPU and the GPU. " +
                 "Only generated shaders ([GeneratedComputeShaderDescriptor]) with a free buffer index (at most 30 buffers and constants) can be split.");
         }
+
+        // An explicit share that puts threads on both devices. 0 and 1 run on one device, and the
+        // adaptive mode (no fraction) keeps such a shader on the GPU: see RunSplit.
+        if (T.UsesAtomics && cpuFraction is > 0 and < 1)
+        {
+            throw new NotSupportedException(
+                $"Shader '{typeof(T)}' uses atomic operations (Gpu.Atomic*), so it cannot be split between the CPU and the GPU: " +
+                "atomics are atomic among the threads of one dispatch on one device, and the two parts would lose each other's updates. " +
+                "Run it with For or ForCpu, pass a cpuFraction of 0 or 1, or use the ForSplit overload without a fraction, which runs such a shader on the GPU alone.");
+        }
     }
 
     /// <summary>
@@ -234,7 +259,12 @@ public sealed unsafe partial class GraphicsDevice
 
         long threads = (long)grid.X * grid.Y * grid.Z;
         SplitBalance balance = _splitBalances.GetOrAdd((typeof(T), BitOperations.Log2((ulong)threads)), static _ => new SplitBalance());
-        double fraction = cpuFraction ?? balance.NextCpuFraction();
+
+        // A shader with atomics must stay on one device (ValidateSplit has already refused an explicit
+        // share that would divide it). There is nothing to adapt then: the whole grid goes to the GPU,
+        // and the balance is neither asked nor fed.
+        bool singleDeviceOnly = T.UsesAtomics;
+        double fraction = cpuFraction ?? (singleDeviceOnly ? 0 : balance.NextCpuFraction());
 
         // 0 and 1 are exact (GPU only, CPU only) whatever the grid and threadgroup sizes; anything in
         // between is rounded to a threadgroup boundary.
@@ -312,9 +342,15 @@ public sealed unsafe partial class GraphicsDevice
             }
         }
 
-        balance.Record(cpuExtent * sliceThreads, cpuSeconds, gpuExtent * sliceThreads, gpuSeconds, Stopwatch.GetElapsedTime(dispatchStart).TotalSeconds);
+        if (!singleDeviceOnly)
+        {
+            balance.Record(cpuExtent * sliceThreads, cpuSeconds, gpuExtent * sliceThreads, gpuSeconds, Stopwatch.GetElapsedTime(dispatchStart).TotalSeconds);
+        }
 
-        return new SplitDispatchInfo(axis, cpuExtent, gpuExtent, fraction, TimeSpan.FromSeconds(cpuSeconds), TimeSpan.FromSeconds(gpuSeconds));
+        return new SplitDispatchInfo(axis, cpuExtent, gpuExtent, fraction, TimeSpan.FromSeconds(cpuSeconds), TimeSpan.FromSeconds(gpuSeconds))
+        {
+            SingleDeviceOnly = singleDeviceOnly,
+        };
     }
 
     private static double HostSeconds(long timestamp) => timestamp / (double)Stopwatch.Frequency;
@@ -504,4 +540,14 @@ internal readonly struct GridWindow(Extent3 offset, Extent3 size, Extent3 groupO
 /// <param name="CpuFraction">The CPU share that was requested or chosen (0 when an adaptive split ran GPU-only), before rounding to whole threadgroups.</param>
 /// <param name="CpuTime">Wall time of the CPU part (zero if it was empty).</param>
 /// <param name="GpuTime">Time from commit until the GPU finished its part (zero if it was empty); the GPU's execution time if the host and GPU clocks cannot be related.</param>
-public readonly record struct SplitDispatchInfo(int Axis, int CpuExtent, int GpuExtent, double CpuFraction, TimeSpan CpuTime, TimeSpan GpuTime);
+public readonly record struct SplitDispatchInfo(int Axis, int CpuExtent, int GpuExtent, double CpuFraction, TimeSpan CpuTime, TimeSpan GpuTime)
+{
+    /// <summary>
+    /// True when the shader may not be divided between the CPU and the GPU because it uses atomics
+    /// (<see cref="IComputeShaderDescriptor{TSelf}.UsesAtomics"/>): the whole grid then ran on one
+    /// device (one of the extents is 0), and for a dispatch without an explicit fraction that was not
+    /// a measured choice, the GPU was simply the only option considered. False for every other shader,
+    /// including when the adaptive mode chose to run GPU-only.
+    /// </summary>
+    public bool SingleDeviceOnly { get; init; }
+}

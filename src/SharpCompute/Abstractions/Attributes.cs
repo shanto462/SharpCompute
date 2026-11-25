@@ -48,3 +48,24 @@ public sealed class MslIntrinsicAttribute(string name) : Attribute
 {
     public string Name { get; } = name;
 }
+
+/// <summary>
+/// Maps a static method to an MSL atomic function. The first parameter is the location
+/// (<c>ref T</c>); the generator requires it to be an element of a captured
+/// <see cref="ReadWriteBuffer{T}"/> (<c>ref buffer[i]</c>) and emits
+/// <c>name((device metal::atomic_int*)&amp;(buffer[i]), args...)</c>, with <c>metal::atomic_uint</c>
+/// for <c>uint</c> and <c>metal::atomic&lt;float&gt;</c> for <c>float</c> elements. Anything else as
+/// the location is diagnostic SCG0034.
+/// </summary>
+/// <remarks>
+/// A function whose name ends in <c>_explicit</c> takes a memory order (the C and MSL naming
+/// convention), so <c>metal::memory_order_relaxed</c> is appended for it: the only order MSL has.
+/// The address space (<c>device</c>) comes from where the location lives, not from this attribute,
+/// which is what lets other atomic storage (threadgroup memory) be added without a second set of
+/// methods.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
+public sealed class MslAtomicAttribute(string name) : Attribute
+{
+    public string Name { get; } = name;
+}

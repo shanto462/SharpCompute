@@ -12,7 +12,8 @@ namespace SharpCompute;
 /// <b>columns</b>, so the MSL value is the transpose of this matrix. <see cref="Gpu.Mul(Float3, Float3x3)"/>
 /// compensates by swapping its operands, so every result has HLSL semantics with no explicit transpose.
 /// Locals only in v1: there is no <c>Packed</c> layout, so a matrix in a buffer, the constants or a
-/// struct field is a generator diagnostic. There is no unary minus (invalid MSL; write <c>m * -1f</c>),
+/// struct field is a generator diagnostic.
+/// There is no unary minus (invalid MSL; write <c>m * -1f</c>),
 /// no matrix <c>*</c> operator (HLSL's is componentwise, MSL's is a product; use <c>Gpu.Mul</c>) and
 /// no element access in v1.
 /// </remarks>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ComputeLab: one page per core compute feature (atomics, bit and packing intrinsics, ...), each
+    showing the GPU result, checking it against the CPU and timing both. Original SharpCompute sample (MIT).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpCompute.Samples.ComputeLab</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.ComputeLab</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- For PngEncoder only; the lab code itself is MIT. -->
+    <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
