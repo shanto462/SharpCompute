@@ -136,6 +136,11 @@ internal sealed partial class MslTranslator
             return groupSharedLength;
         }
 
+        if (LocalArrayProperty(operation) is { } localArrayMember)
+        {
+            return localArrayMember;
+        }
+
         if (operation.Instance is null)
         {
             if (TypeResolver.IsSharpComputeType(property.ContainingType, "Sampler"))
@@ -401,7 +406,9 @@ internal sealed partial class MslTranslator
                 continue;
             }
 
-            result.Add((argument.Parameter?.Ordinal ?? result.Count, Expression(argument.Value).Text));
+            // A local array becomes two arguments, the array and its length (see MslTranslator.LocalArrays.cs).
+            string text = IsLocalArrayType(argument.Parameter?.Type) ? LocalArrayArgument(argument, ref ok) : Expression(argument.Value).Text;
+            result.Add((argument.Parameter?.Ordinal ?? result.Count, text));
         }
 
         return result.OrderBy(static a => a.Ordinal).Select(static a => a.Text).ToArray();
@@ -739,6 +746,7 @@ internal sealed partial class MslTranslator
         IDeclarationExpressionOperation { Expression: ILocalReferenceOperation } => true,
         IParameterReferenceOperation parameter => _function.Names.ContainsKey(parameter.Parameter),
         IFieldReferenceOperation { Field.IsStatic: false, Instance: { } instance } when instance is not IInstanceReferenceOperation => IsThreadLocal(instance),
+        IArrayElementReferenceOperation or IPropertyReferenceOperation or IInlineArrayAccessOperation => IsThreadLocalArrayElement(operation),
         _ => false,
     };
 

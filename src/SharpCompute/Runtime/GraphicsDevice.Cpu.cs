@@ -53,7 +53,8 @@ public sealed unsafe partial class GraphicsDevice
     /// </para>
     /// <para>
     /// Differences from the GPU: buffer and texture accesses are bounds-checked (an out-of-range index
-    /// or pixel throws <see cref="ArgumentOutOfRangeException"/> instead of being undefined), integer division by zero
+    /// or pixel throws <see cref="ArgumentOutOfRangeException"/> instead of being undefined), and so are
+    /// the shader's local arrays (<see cref="IndexOutOfRangeException"/>), integer division by zero
     /// throws <see cref="DivideByZeroException"/> and <c>int.MinValue / -1</c> throws
     /// <see cref="OverflowException"/> (the GPU returns -1 and <c>int.MinValue</c> for those), and an exception in any thread stops the dispatch and
     /// is rethrown (the first one, if several threads throw). After an exception the output is

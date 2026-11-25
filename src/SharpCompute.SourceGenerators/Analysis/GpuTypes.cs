@@ -24,13 +24,14 @@ internal enum GpuTypeKind
 /// <summary>A field of a user struct (or of a vector type, for layout purposes).</summary>
 internal sealed class GpuField
 {
-    public GpuField(IFieldSymbol symbol, string csharpName, string mslName, GpuType type, int offset)
+    public GpuField(IFieldSymbol symbol, string csharpName, string mslName, GpuType type, int offset, string? declaration = null)
     {
         Symbol = symbol;
         CSharpName = csharpName;
         MslName = mslName;
         Type = type;
         Offset = offset;
+        Declaration = declaration ?? type.BoundaryName + " " + mslName;
     }
 
     public IFieldSymbol Symbol { get; }
@@ -44,6 +45,12 @@ internal sealed class GpuField
 
     /// <summary>Byte offset in the C# layout.</summary>
     public int Offset { get; }
+
+    /// <summary>
+    /// The member declaration in the MSL struct, without the <c>;</c>: the boundary type and the name,
+    /// or for the element field of an <c>[InlineArray]</c> struct, an MSL array (<c>float e[8]</c>).
+    /// </summary>
+    public string Declaration { get; }
 }
 
 /// <summary>A C# type that has an MSL equivalent, with the layout it has on the C# side.</summary>
@@ -98,8 +105,24 @@ internal sealed class GpuType
 
     public IReadOnlyList<GpuField> Fields { get; set; } = Array.Empty<GpuField>();
 
-    /// <summary>For buffers: the element type.</summary>
+    /// <summary>For buffers and <c>[InlineArray]</c> structs: the element type.</summary>
     public GpuType? Element { get; set; }
+
+    /// <summary>
+    /// For an <c>[InlineArray(N)]</c> struct: N. Such a struct is an MSL struct whose only member is an
+    /// array of N elements (see <see cref="TypeResolver"/>); 0 for every other type.
+    /// </summary>
+    public int ArrayLength { get; set; }
+
+    /// <summary>True for an <c>[InlineArray]</c> struct.</summary>
+    public bool IsInlineArray => ArrayLength > 0;
+
+    /// <summary>
+    /// True for an <c>[InlineArray]</c> struct whose elements cannot cross the CPU/GPU boundary
+    /// (<c>bool</c>, a matrix without a <c>Packed</c> form): its MSL struct holds the native element
+    /// type, which has another layout than C#, so it is limited to locals, parameters and return values.
+    /// </summary>
+    public bool IsLocalOnly { get; set; }
 
     public bool IsReadOnlyBuffer { get; set; }
 
@@ -112,7 +135,8 @@ internal sealed class GpuType
     /// <summary>True when values of this type can be stored in buffers, constants, and struct fields.</summary>
     public bool CanCrossBoundary => Kind switch
     {
-        GpuTypeKind.Scalar or GpuTypeKind.Struct => true,
+        GpuTypeKind.Scalar => true,
+        GpuTypeKind.Struct => !IsLocalOnly,
         GpuTypeKind.Vector => HasPackedForm && !IsBoolean,
         _ => false,
     };
@@ -500,6 +524,11 @@ internal sealed class TypeResolver
             return Fail(out failure, type, "ref structs are not supported");
         }
 
+        if (InlineArrayLength(type) is { } inlineArrayLength)
+        {
+            return CreateInlineArray(type, csharpName, inlineArrayLength, out failure);
+        }
+
         StructLayoutInfo layout = GetLayout(type);
 
         if (layout.Kind == LayoutKind.Explicit)
@@ -589,6 +618,81 @@ internal sealed class TypeResolver
         return result;
     }
 
+    /// <summary>The N of <c>[System.Runtime.CompilerServices.InlineArray(N)]</c> on <paramref name="type"/>, or null.</summary>
+    public static int? InlineArrayLength(INamedTypeSymbol type)
+    {
+        foreach (AttributeData attribute in type.GetAttributes())
+        {
+            if (attribute.AttributeClass is { Name: "InlineArrayAttribute", ContainingNamespace: { Name: "CompilerServices", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } })
+            {
+                return attribute.ConstructorArguments.Length == 1 && attribute.ConstructorArguments[0].Value is int length ? length : 0;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>[InlineArray(N)] struct Float8 { float _e; }</c> → <c>struct Float8 { float _e[8]; };</c>. The CLR
+    /// lays an inline array out as N elements back to back, which is what an MSL array of the boundary
+    /// type is, so such a struct crosses the CPU/GPU boundary (constants, buffer elements, struct fields)
+    /// whenever its element type can; the size assert of the struct guards it like any other. With an
+    /// element that cannot (bool, a matrix without a Packed form), the struct holds the native MSL type
+    /// and is limited to locals, parameters and return values (<see cref="GpuType.IsLocalOnly"/>).
+    /// </summary>
+    private GpuType? CreateInlineArray(INamedTypeSymbol type, string csharpName, int length, out TypeFailure? failure)
+    {
+        failure = null;
+        List<IFieldSymbol> fields = InstanceFields(type).ToList();
+
+        if (fields.Count != 1 || length <= 0)
+        {
+            // The C# compiler requires exactly one instance field and a positive length.
+            SawErrorType = true;
+            return null;
+        }
+
+        IFieldSymbol field = fields[0];
+        string fieldName = field.AssociatedSymbol?.Name ?? field.Name;
+        GpuType? element = Resolve(field.Type, out TypeFailure? elementFailure);
+
+        if (IsStructFailure(elementFailure))
+        {
+            failure = elementFailure;
+            return null;
+        }
+
+        if (element is null || element.Kind is GpuTypeKind.Void or GpuTypeKind.Buffer or GpuTypeKind.Texture)
+        {
+            string reason = elementFailure?.Reason ?? "buffers and textures are kernel arguments, not values";
+            return Fail(out failure, type, $"the element type '{Display(field.Type)}' of this inline array is not supported ({reason})");
+        }
+
+        long size = (long)element.Size * length;
+
+        if (size > int.MaxValue)
+        {
+            return Fail(out failure, type, "this inline array is larger than 2 GB");
+        }
+
+        bool crossesBoundary = element.CanCrossBoundary;
+        string mslName = _globalNames.Allocate(MslNames.Escape(type.Name));
+        string memberName = MslNames.Escape(fieldName);
+        string declaration = (crossesBoundary ? element.BoundaryName : element.MslName) + " " + memberName + "[" + length.ToString(CultureInfo.InvariantCulture) + "]";
+        var gpuField = new GpuField(field, fieldName, memberName, element, 0, declaration);
+
+        var result = new GpuType(GpuTypeKind.Struct, mslName, mslName, csharpName, (int)size, element.Alignment)
+        {
+            Fields = new[] { gpuField },
+            Element = element,
+            ArrayLength = length,
+            IsLocalOnly = !crossesBoundary,
+        };
+
+        _structs.Add(result);
+        return result;
+    }
+
     /// <summary>True for failures that describe a problem with a user struct (SCG0009, SCG0010, SCG0027).</summary>
     public static bool IsStructFailure(TypeFailure? failure) =>
         failure is not null &&
@@ -647,6 +751,11 @@ internal sealed class TypeResolver
         if (type.SpecialType == SpecialType.System_Boolean || resolved is { IsBoolean: true })
         {
             return BoolReason;
+        }
+
+        if (resolved is { IsInlineArray: true, IsLocalOnly: true } && resolved.Fields[0].Symbol.Type is { } element)
+        {
+            return $"its elements of type '{Display(element)}' cannot cross the CPU/GPU boundary ({BoundaryReason(element)}), so the inline array can only be used for locals, parameters, and return values";
         }
 
         if (resolved is { Kind: GpuTypeKind.Vector, HasPackedForm: false })

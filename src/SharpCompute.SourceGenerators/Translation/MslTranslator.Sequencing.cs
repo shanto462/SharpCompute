@@ -155,6 +155,21 @@ internal sealed partial class MslTranslator
 
         foreach (IArgumentOperation argument in invocation.Arguments)
         {
+            if (LocalArrayPassedToHelper(argument, out bool writable) is { } array)
+            {
+                // The helper receives a pointer to the caller's elements: like a `ref` argument, it may
+                // read and (unless the parameter is a ReadOnlySpan) write them after the arguments.
+                arguments = Unsequenced(arguments, Analyze(argument, ref conflict), ref conflict);
+                callee.Reads.Add(array);
+
+                if (writable)
+                {
+                    callee.Writes.Add(array);
+                }
+
+                continue;
+            }
+
             if (argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter)
             {
                 arguments = Unsequenced(arguments, TargetEffects(argument.Value, out ISymbol? stored, ref conflict), ref conflict);
@@ -241,6 +256,20 @@ internal sealed partial class MslTranslator
 
             case IFieldReferenceOperation { Instance: { } instance }:
                 return TargetEffects(instance, out stored, ref conflict);
+
+            case IArrayElementReferenceOperation element:
+                // An element of a local array is part of the array variable, like a field of a struct.
+                Effects elementEffects = TargetEffects(element.ArrayReference, out stored, ref conflict);
+
+                foreach (IOperation index in element.Indices)
+                {
+                    elementEffects = Unsequenced(elementEffects, Analyze(index, ref conflict), ref conflict);
+                }
+
+                return elementEffects;
+
+            case IInlineArrayAccessOperation inlineElement:
+                return Unsequenced(TargetEffects(inlineElement.Instance, out stored, ref conflict), Analyze(inlineElement.Argument, ref conflict), ref conflict);
 
             case IPropertyReferenceOperation { Instance: { } instance } property:
                 Effects result = TargetEffects(instance, out stored, ref conflict);

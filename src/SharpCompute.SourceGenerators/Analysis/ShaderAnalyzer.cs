@@ -1022,11 +1022,19 @@ internal sealed class ShaderAnalyzer
 
                 foreach (GpuField field in type.Fields)
                 {
-                    writer.Line(field.Type.BoundaryName + " " + field.MslName + ";");
+                    writer.Line(field.Declaration + ";");
                 }
 
                 writer.Indent--;
                 writer.Line("};");
+
+                if (!type.CanCrossBoundary)
+                {
+                    // An inline array of bool or of a matrix without a Packed form: MSL lays out its
+                    // native elements differently, which is why it never crosses the boundary.
+                    continue;
+                }
+
                 writer.Line(SizeAssert(type.MslName, type.Size));
 
                 foreach (GpuField field in type.Fields)
