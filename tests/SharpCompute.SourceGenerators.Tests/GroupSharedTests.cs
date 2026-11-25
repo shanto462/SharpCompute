@@ -51,7 +51,7 @@ public class GroupSharedTests
             int local = int(__gtid.x);
             tile[local] = buffer[int(__tid.x)];
             metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-            tile[local] += tile[(local + 1) % 256];
+            tile[local] += tile[(int(uint(local) + 1u)) % 256];
             tile[0]++;
             buffer[int(__tid.x)] = tile[local] * float(256);
             """.ReplaceLineEndings("\n"),
@@ -162,9 +162,9 @@ public class GroupSharedTests
         Assert.Contains("static_assert(sizeof(packed_float3) == 12,", descriptor.MslSource);
         Assert.Contains("static_assert(sizeof(Particle) == 16,", descriptor.MslSource);
         Assert.Contains("vectors[local].y = 5.0f;", descriptor.MslSource);
-        Assert.Contains("particles[local].Weight += 2;", descriptor.MslSource);
+        Assert.Contains("particles[local].Weight = int(uint(particles[local].Weight) + 2u);", descriptor.MslSource);
         Assert.Contains("particles[local].Position.x -= 1.0f;", descriptor.MslSource);
-        Assert.Contains("Particle other = particles[7 - local];", descriptor.MslSource);
+        Assert.Contains("Particle other = particles[int(7u - uint(local))];", descriptor.MslSource);
         Assert.Equal((8 * 4) + (8 * 4) + (8 * 12) + (8 * 8) + (8 * 16), descriptor.ThreadgroupMemoryLength);
     }
 
@@ -205,14 +205,14 @@ public class GroupSharedTests
             matrices[local] = __ms_pack(__ms_unpack(matrices[local]) * 2.0f);
             matrices[local] = __ms_pack(__ms_unpack(matrices[local]) + __ms_unpack(__c.view));
             metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-            float4x4 neighbour = __ms_unpack(matrices[(local + 1) % 8]);
+            float4x4 neighbour = __ms_unpack(matrices[(int(uint(local) + 1u)) % 8]);
             float4 row = (__ms_unpack(matrices[0]) * float4(float4(1.0f, 2.0f, 3.0f, 4.0f)));
             buffer[int(__tid.x)] = __ms_pack((neighbour * __ms_unpack(matrices[local])) * row.x + ::Last(matrices));
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
 
         // Helpers get the packed pointer and unpack there; the prelude declares the type before its first use.
-        Assert.Contains("static float4x4 Last(threadgroup __ms_packed_float4x4* matrices)\n{\n    return metal::transpose(__ms_unpack(matrices[8 - 1]));\n}", descriptor.MslSource);
+        Assert.Contains("static float4x4 Last(threadgroup __ms_packed_float4x4* matrices)\n{\n    return metal::transpose(__ms_unpack(matrices[int(uint(8) - 1u)]));\n}", descriptor.MslSource);
         Assert.Contains("struct __ms_packed_float4x4 { packed_float4 columns[4]; };", descriptor.MslSource);
         Assert.Contains("static_assert(sizeof(__ms_packed_float4x4) == 64,", descriptor.MslSource);
         Assert.Equal(8 * 64, descriptor.ThreadgroupMemoryLength);
@@ -740,10 +740,10 @@ public class GroupSharedTests
             int2 size2 = int2(__gsize.xy);
             int3 groups = int3(__groups.xyz);
             int2 groups2 = int2(__groups.xy);
-            buffer[0] = int(__gsize.x) + int(__gsize.y) + int(__gsize.z) + size.x + size2.y;
+            buffer[0] = int(__gsize.x + __gsize.y + __gsize.z + uint(size.x) + uint(size2.y));
             buffer[1] = int(__gsize.x * __gsize.y * __gsize.z);
             buffer[2] = int(__gindex);
-            buffer[3] = int(__groups.x) + int(__groups.y) + int(__groups.z) + groups.x + groups2.y;
+            buffer[3] = int(__groups.x + __groups.y + __groups.z + uint(groups.x) + uint(groups2.y));
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
     }
@@ -784,7 +784,7 @@ public class GroupSharedTests
 
         Assert.Contains("static int Flat(uint3 __gsize, uint __gindex)", descriptor.MslSource);
         Assert.Contains("static int Groups(uint3 __groups)", descriptor.MslSource);
-        Assert.Contains("buffer[int(__tid.x)] = ::Flat(__gsize, __gindex) + ::Groups(__groups);", descriptor.MslSource);
+        Assert.Contains("buffer[int(__tid.x)] = int(uint(::Flat(__gsize, __gindex)) + uint(::Groups(__groups)));", descriptor.MslSource);
     }
 
     // ---- pixel shaders ----------------------------------------------------------------------------

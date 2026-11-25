@@ -109,7 +109,7 @@ public class PixelShaderTests
                     __output.write(float4(1.0f, 0.0f, 0.0f, 1.0f), __tid.xy);
                     return;
                 }
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < 4; i = int(uint(i) + 1u))
                 {
                     if (::Wave(__c.time + float(i)) > 0.9f)
                     {

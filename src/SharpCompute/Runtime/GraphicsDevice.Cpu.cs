@@ -44,25 +44,21 @@ public sealed unsafe partial class GraphicsDevice
     /// Results match a GPU dispatch up to floating-point rounding: the GPU contracts <c>a * b + c</c>
     /// into fused multiply-adds, flushes subnormals to zero and evaluates transcendental functions to
     /// within a few ULP, so compare float results with a tolerance. Integer results are identical
-    /// (conversions from float saturate, shift counts are masked and unsigned arithmetic wraps on
-    /// both), except for the two divisions below and for signed overflow. Texture reads and writes
-    /// convert pixels as the GPU does;
+    /// (conversions from float saturate, shift counts are masked and arithmetic wraps on both, signed
+    /// and unsigned), except for the two divisions below. Texture reads and writes convert pixels as
+    /// the GPU does;
     /// <see cref="ReadOnlyTexture2D{T}.Sample"/> with a linear filter and reads of <see cref="Rgba32Srgb"/>
     /// are deliberately exact rather than as coarse as the GPU's, so a bilinear sample written to an
     /// 8-bit format can differ by one step between the two, and a point sample with Repeat or Mirror
     /// outside [0, 1) can land on the neighbouring pixel right at a pixel boundary (see those members).
     /// </para>
     /// <para>
-    /// <b>Signed integer overflow is undefined on the GPU</b>, for now. Here, in unchecked C#, a signed
-    /// <c>+</c>, <c>-</c> or <c>*</c> that overflows wraps. In MSL it is undefined, and the Metal
-    /// compiler assumes it does not happen: measured on an Apple GPU with <c>int</c> operands,
-    /// <c>(a * b) / b</c> returns <c>a</c> and <c>a * 2 / 2</c> returns <c>a</c> whatever the product
-    /// was, <c>a + 1 &gt; a</c> is true for <c>int.MaxValue</c>, <c>b &gt; 0 &amp;&amp; (a + b) &lt; a</c> does not
-    /// see the wrap, and <c>(long)(a * b)</c> is the exact 64-bit product rather than the wrapped
-    /// <c>int</c>. An overflowed result that is only stored comes out wrapped in practice, but nothing
-    /// guarantees it. Until the generated MSL makes signed arithmetic wrap, do arithmetic that may
-    /// overflow in the unsigned type, where it wraps on both sides, and convert back:
-    /// <c>(int)((uint)a * (uint)b)</c>, <c>(long)((ulong)a + (ulong)b)</c>.
+    /// <b>Signed integer overflow wraps on both.</b> In unchecked C# a signed <c>+</c>, <c>-</c>,
+    /// <c>*</c> or negation that overflows wraps; in MSL it would be undefined, and the Metal compiler
+    /// would optimize on the assumption that it does not happen (<c>(a * b) / b</c> to <c>a</c>,
+    /// <c>a + 1 &gt; a</c> to true). The generator therefore computes these operators, their compound
+    /// assignments and <c>++</c>/<c>--</c> in the unsigned type of the same width and converts back
+    /// (<c>int(uint(a) * uint(b))</c>), which gives C#'s result bit for bit on the GPU.
     /// </para>
     /// <para>
     /// Differences from the GPU: buffer and texture accesses are bounds-checked (an out-of-range index
