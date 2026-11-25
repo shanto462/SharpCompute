@@ -838,8 +838,11 @@ app.EncodeOverlayAndCommit(commandBuffer);            // the app's last pass, pr
 ```
 
 The app must end its own encoder before calling `EncodeInto` (Metal terminates the process when two
-encoders are open on one command buffer) and must commit the command buffer; one that is already
-committed is rejected.
+encoders are open on one command buffer); a command buffer that is already committed is rejected.
+SharpCompute does not keep the command buffer alive: if the app drops it without committing it (an
+error path, a skipped frame), the work never runs, everything it pinned is released when the command
+buffer is deallocated, and the task faults with "The command buffer was released without being
+committed".
 
 **Native handles.** `device.NativeHandle`, `device.NativeCommandQueueHandle`, `buffer.NativeHandle`
 (with `buffer.NativeByteOffset` for a view) and `texture.NativeHandle` give other Metal code

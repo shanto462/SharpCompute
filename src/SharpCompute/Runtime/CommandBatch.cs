@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpCompute.Interop;
@@ -47,11 +46,13 @@ namespace SharpCompute;
 /// frames (and, for <see cref="CommitAsync"/>, on different threads), so the scoped
 /// <see cref="ObjCHandle.Lease"/> cannot be used. Every handle that is bound is instead leased with
 /// <see cref="ObjCHandle.AddLease"/> and recorded here; the leases are dropped when the command buffer
-/// completes, or when an uncommitted batch is abandoned. Metal's command buffer (created with retained
+/// completes, when an uncommitted batch is abandoned, or when a caller's command buffer it was encoded
+/// into (<see cref="EncodeInto"/>) is deallocated without having been committed. Metal's command buffer (created with retained
 /// references) also retains what is bound to it, but the leases make SharpCompute's own guarantee
 /// explicit: a buffer, texture, pipeline or queue disposed while a batch that uses it is pending keeps
 /// its reference (and its GC memory pressure) until the GPU is done, whatever Metal does internally.
-/// The command buffer and the encoder are autoreleased by Metal and are retained here for the same reason.
+/// A command buffer and the encoders this batch creates are autoreleased by Metal and are retained here
+/// for the same reason; a caller's command buffer is not (see <see cref="EncodeInto"/>).
 /// </para>
 /// <para>
 /// <b>Threading.</b> Not thread-safe: one thread records at a time (<see cref="ComputeContext"/>
@@ -129,8 +130,8 @@ internal sealed unsafe class CommandBatch
 
     // Reached only for a batch that was never committed and was dropped without Abandon (a leaked
     // ComputeContext): it owns no command buffer or encoder, only leases and temporaries, which this
-    // releases. A committed batch is rooted by the wait or by the GCHandle its completion handler
-    // owns, and suppresses finalization once it completes.
+    // releases. A committed (or encoded-into) batch is rooted by the wait or by the GCHandle its
+    // completion handler's block owns, and suppresses finalization once it completes or is dropped.
     ~CommandBatch()
     {
         try
@@ -156,6 +157,14 @@ internal sealed unsafe class CommandBatch
     /// reliably (or politely, on a shared GPU), and everything after the status check is the same.
     /// </summary>
     internal void SimulateGpuError(string description) => _simulatedError = description;
+
+    /// <summary>Tests only: a task for this batch's completion, as <see cref="CommitAsync"/> and <see cref="EncodeInto"/> make one.</summary>
+    internal Task TrackCompletionForTests()
+    {
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _completion = completion;
+        return completion.Task;
+    }
 
     /// <summary>
     /// Records one dispatch. <paramref name="output"/>, when non-null, is bound at texture index 0
@@ -381,7 +390,7 @@ internal sealed unsafe class CommandBatch
             EncodeRecorded();
             ObjC.SendVoid(_commandBuffer, Selectors.Commit);
             ObjC.SendVoid(_commandBuffer, Selectors.WaitUntilCompleted);
-            error = GetError();
+            error = GetError(_commandBuffer);
         }
         finally
         {
@@ -402,7 +411,6 @@ internal sealed unsafe class CommandBatch
     {
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _completion = completion;
-        GCHandle self = default;
 
         try
         {
@@ -410,22 +418,16 @@ internal sealed unsafe class CommandBatch
 
             EncodeRecorded();
 
-            // The handle roots this batch, and through it every leased resource, until the handler
-            // runs; from Attach on, the handler owns it and frees it.
-            self = GCHandle.Alloc(this);
-            CompletionBlock.Attach(_commandBuffer, self);
-            self = default;
+            // From Attach on, the handler's block roots this batch, and through it every leased
+            // resource, until the command buffer has completed (see CompletionBlock).
+            CompletionBlock.Attach(_commandBuffer, this);
             ObjC.SendVoid(_commandBuffer, Selectors.Commit);
         }
         catch
         {
-            // Nothing was committed: free what Attach did not take over and drop the batch, so a
-            // failure here cannot leak the leases or root the batch forever.
-            if (self.IsAllocated)
-            {
-                self.Free();
-            }
-
+            // Nothing was committed: drop the batch, so a failure here cannot leak the leases. If the
+            // handler was attached, releasing the command buffer (the last thing ReleaseResources does)
+            // disposes it, and the batch is reported as dropped, which nobody awaits.
             ReleaseResources();
             throw;
         }
@@ -440,42 +442,46 @@ internal sealed unsafe class CommandBatch
     /// command buffer belongs to the device and can still be encoded into.
     /// </summary>
     /// <remarks>
-    /// The completed handler is attached before anything is encoded. If encoding then fails partway,
-    /// the commands already encoded stay in the command buffer (nothing can take them out again), so
-    /// what they bound must stay leased until it has run: the handler releases the batch either way.
+    /// <para>
+    /// The command buffer is the caller's and is not retained: the caller may release it uncommitted,
+    /// which Metal allows, and then it must be deallocated. Its completed handler then never runs, and
+    /// the block's dispose helper reports the batch as dropped (<see cref="OnDropped"/>) instead, which
+    /// releases everything and faults the task. Either way the batch is released exactly once.
+    /// </para>
+    /// <para>
+    /// The handler is attached before anything is encoded. If encoding then fails partway, the commands
+    /// already encoded stay in the command buffer (nothing can take them out again), so what they bound
+    /// must stay leased until it has run or been dropped.
+    /// </para>
     /// </remarks>
     internal Task EncodeInto(nint commandBuffer)
     {
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _completion = completion;
-        GCHandle self = default;
 
         try
         {
             using AutoreleasePool pool = AutoreleasePool.Push();
-
-            // Retained like one this batch creates: released with the batch, after the handler ran.
-            _commandBuffer = ObjC.Retain(commandBuffer);
-
-            self = GCHandle.Alloc(this);
-            CompletionBlock.Attach(_commandBuffer, self);
-            self = default;
+            CompletionBlock.Attach(commandBuffer, this);
         }
         catch
         {
-            if (self.IsAllocated)
-            {
-                self.Free();
-            }
-
             ReleaseResources();
             throw;
         }
 
-        // From here on the handler owns the batch's release, whether or not the encoding succeeds.
-        using (AutoreleasePool pool = AutoreleasePool.Push())
+        // From here on the handler (or the drop) owns the batch's release, whether or not the encoding
+        // succeeds. The caller holds the command buffer for the length of this call; afterwards this
+        // batch keeps no pointer to it.
+        try
         {
+            using AutoreleasePool pool = AutoreleasePool.Push();
+            _commandBuffer = commandBuffer;
             EncodeCommands();
+        }
+        finally
+        {
+            _commandBuffer = 0;
         }
 
         return completion.Task;
@@ -513,16 +519,39 @@ internal sealed unsafe class CommandBatch
         }
     }
 
-    /// <summary>The completed handler; runs on a Metal completion thread and must not throw.</summary>
-    internal void OnCompleted()
+    /// <summary>
+    /// The completed handler of <paramref name="commandBuffer"/>; runs on a Metal completion thread and
+    /// must not throw. Metal also calls it, from the command buffer's deallocation and on the thread
+    /// that released it, when a command buffer that was never committed is deallocated (measured on
+    /// macOS 27 on an Apple M4 Pro): the status then says the work never ran, and the batch is
+    /// reported as dropped (<see cref="OnDropped"/>) instead.
+    /// </summary>
+    internal void OnCompleted(nint commandBuffer)
     {
+        nuint status;
+
+        try
+        {
+            status = ObjC.SendNUInt(commandBuffer, Selectors.Status);
+        }
+        catch
+        {
+            status = Metal.CommandBufferStatusCompleted;
+        }
+
+        if (status < Metal.CommandBufferStatusCompleted)
+        {
+            OnDropped();
+            return;
+        }
+
         TaskCompletionSource? completion = _completion;
         MetalException? error = null;
 
         try
         {
             using AutoreleasePool pool = AutoreleasePool.Push();
-            error = GetError();
+            error = GetError(commandBuffer);
         }
         catch (Exception e)
         {
@@ -559,6 +588,44 @@ internal sealed unsafe class CommandBatch
         {
             completion?.TrySetException(error);
         }
+    }
+
+    /// <summary>The message of the exception a dropped batch's task faults with.</summary>
+    internal const string DroppedMessage = "The command buffer was released without being committed";
+
+    /// <summary>
+    /// The command buffer this batch was encoded into was deallocated without having been committed,
+    /// so its work never ran: releases everything the batch pinned and faults the task with
+    /// <see cref="InvalidOperationException"/>. Reached from the completed handler, which Metal calls
+    /// with the uncommitted status as the command buffer is deallocated, or, if a Metal version did
+    /// not call it, from the handler block's dispose helper (see <see cref="CompletionBlock"/>). Runs
+    /// on the thread that released the command buffer and must not throw.
+    /// </summary>
+    internal void OnDropped()
+    {
+        TaskCompletionSource? completion = _completion;
+        Exception error = new InvalidOperationException($"{DroppedMessage}, so {Describe()} encoded into it never ran.");
+
+        try
+        {
+            ReleaseResources();
+        }
+        catch (Exception e)
+        {
+            error = new AggregateException(error, e);
+        }
+
+        // As in OnCompleted: only locals from here on, and the task completes whatever happens.
+        try
+        {
+            Recycle();
+        }
+        catch
+        {
+            // The owner's callback must not throw; the task still has to complete.
+        }
+
+        completion?.TrySetException(error);
     }
 
     /// <summary>
@@ -698,14 +765,15 @@ internal sealed unsafe class CommandBatch
         ObjC.Release(encoder);
     }
 
-    private MetalException? GetError()
+    /// <summary>The error of a completed <paramref name="commandBuffer"/>, or null when it ran without one.</summary>
+    private MetalException? GetError(nint commandBuffer)
     {
         string description;
 
-        if (ObjC.SendNUInt(_commandBuffer, Selectors.Status) == Metal.CommandBufferStatusError)
+        if (ObjC.SendNUInt(commandBuffer, Selectors.Status) == Metal.CommandBufferStatusError)
         {
             // `error` is an autoreleased getter; callers hold a pool.
-            description = NSString.DescribeError(ObjC.SendIntPtr(_commandBuffer, Selectors.Error));
+            description = NSString.DescribeError(ObjC.SendIntPtr(commandBuffer, Selectors.Error));
         }
         else if (_simulatedError is not null)
         {
@@ -749,24 +817,36 @@ internal sealed unsafe class CommandBatch
         using AutoreleasePool pool = AutoreleasePool.Push();
 
         EndEncoding();
-        ObjC.Release(_commandBuffer);
+
+        // Set only while this batch holds its own reference: one it created and committed itself
+        // (never the caller's, see EncodeInto). Released last: if its completed handler never ran,
+        // that release disposes the handler, which reports the batch as dropped, and by then
+        // everything else must already be released.
+        nint commandBuffer = _commandBuffer;
         _commandBuffer = 0;
         _queue = 0;
         _commands.Clear();
 
-        if (_temporaries is not null)
+        try
         {
-            foreach (nint temporary in _temporaries)
+            if (_temporaries is not null)
             {
-                ObjC.Release(temporary);
+                foreach (nint temporary in _temporaries)
+                {
+                    ObjC.Release(temporary);
+                }
+
+                _temporaries.Clear();
             }
 
-            _temporaries.Clear();
+            // The last release of a wrapped buffer runs the caller's release callback, possibly on Metal's
+            // completion thread; one that throws must not stop the other leases from being released.
+            GraphicsDevice.ReleaseLeases(_leases);
         }
-
-        // The last release of a wrapped buffer runs the caller's release callback, possibly on Metal's
-        // completion thread; one that throws must not stop the other leases from being released.
-        GraphicsDevice.ReleaseLeases(_leases);
+        finally
+        {
+            ObjC.Release(commandBuffer);
+        }
     }
 
     /// <summary>Hands a released batch to its owner (the recycle callback), if it has one.</summary>
