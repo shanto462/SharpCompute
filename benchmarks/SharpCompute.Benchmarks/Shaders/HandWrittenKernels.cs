@@ -379,8 +379,10 @@ public readonly struct SaxpyFloat4HandWritten(ReadOnlyBuffer<float> x, ReadWrite
 
 /// <summary>
 /// A bandwidth probe: <c>y = x</c> on <c>float4</c>, 16 bytes read and 16 written per thread and no
-/// arithmetic. With <see cref="FillFloat4HandWritten"/>, it measures the rate memory can be moved at,
-/// the ceiling the memory-bound rows are held against.
+/// arithmetic. One of four access mixes (with <see cref="FillFloat4HandWritten"/>,
+/// <see cref="SumFloat4HandWritten"/> and <see cref="SaxpyFloat4HandWritten"/>) that are run over
+/// arrays far larger than the caches; the best of them is the rate memory can be moved at, the
+/// ceiling the memory-bound rows are held against.
 /// </summary>
 public readonly struct CopyFloat4HandWritten(ReadOnlyBuffer<float> x, ReadWriteBuffer<float> y)
     : IComputeShader, IComputeShaderDescriptor<CopyFloat4HandWritten>
@@ -451,6 +453,56 @@ public readonly struct FillFloat4HandWritten(ReadWriteBuffer<float> y)
 
     public static void SetArguments(in FillFloat4HandWritten shader, ref ShaderArgumentWriter writer) =>
         writer.SetBuffer(0, shader._y);
+}
+
+/// <summary>
+/// A bandwidth probe that mostly reads: every thread adds up 16 <c>float4</c> of <c>x</c> (256 bytes)
+/// and writes the one sum (16 bytes), so it shows the read rate nearly on its own.
+/// </summary>
+public readonly struct SumFloat4HandWritten(ReadOnlyBuffer<float> x, ReadWriteBuffer<float> y)
+    : IComputeShader, IComputeShaderDescriptor<SumFloat4HandWritten>
+{
+    /// <summary><c>float4</c> elements each thread reads.</summary>
+    public const int Span = 16;
+
+    private readonly ReadOnlyBuffer<float> _x = x;
+    private readonly ReadWriteBuffer<float> _y = y;
+
+    public static string EntryPoint => "sum_float4_hand_written";
+
+    public static string MslSource => $$"""
+        #include <metal_stdlib>
+        using namespace metal;
+
+        kernel void sum_float4_hand_written(
+            const device float4* x [[buffer(0)]],
+            device float4* y [[buffer(1)]],
+            uint i [[thread_position_in_grid]])
+        {
+            float4 sum = float4(0.0f);
+
+            for (uint q = 0; q < {{Span}}; q++)
+            {
+                sum += x[i * {{Span}} + q];
+            }
+
+            y[i] = sum;
+        }
+        """;
+
+    public static int ThreadGroupSizeX => 256;
+
+    public static int ThreadGroupSizeY => 1;
+
+    public static int ThreadGroupSizeZ => 1;
+
+    public void Execute() => throw new NotSupportedException("Hand-written MSL; dispatch it on the GPU.");
+
+    public static void SetArguments(in SumFloat4HandWritten shader, ref ShaderArgumentWriter writer)
+    {
+        writer.SetBuffer(0, shader._x);
+        writer.SetBuffer(1, shader._y);
+    }
 }
 
 /// <summary>

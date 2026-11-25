@@ -66,7 +66,8 @@ public sealed record NativeBaselineData(
 /// same kernel written by hand in MSL and, for SGEMM, next to Apple's
 /// <c>MPSMatrixMultiplication</c> and a hand-written kernel on Metal's matrix units, timed by the GPU's
 /// own clock, plus probes that measure the machine's FP32 and memory-bandwidth ceilings so that each
-/// row can be placed under them (a roofline).
+/// row can be placed under them (a roofline). The bandwidth probes need
+/// <see cref="BandwidthLength"/> floats twice: 2 GiB of memory while they run.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -98,6 +99,16 @@ public static class NativeBaselines
     public const int HashRoundCount = 64;
     public const int FmaThreads = 1 << 20;
     public const int FmaIterations = 256;
+
+    /// <summary>
+    /// Floats in each of the two arrays of the bandwidth probes: 1 GiB per array. A probe has to be
+    /// bound by memory, not by the caches: the GPU's time for a dispatch ends when its work does, and
+    /// what it wrote last can still be in the caches then, on its way to memory. With an array of
+    /// 64 MB that share was large enough for a fill to measure above the memory's published
+    /// bandwidth in some runs (on an Apple M4 Pro); at 256 MB and at 1 GiB the rates agree, so 1 GiB
+    /// is well past where the size matters.
+    /// </summary>
+    public const int BandwidthLength = 1 << 28;
     public static readonly int[] SgemmSizes = [1024, 2048];
 
     /// <summary>
@@ -178,17 +189,33 @@ public static class NativeBaselines
                 Dispatch(device, () => device.For(FmaThreads, new FmaChainsHandWritten(gpuSeeds, sums, FmaIterations))),
                 Flops: (double)FmaThreads * FmaIterations * FmaChainsHandWritten.FlopsPerIteration));
 
-        using Saxpy saxpy = new(SaxpyLength, device);
+        // Four mixes of reading and writing over the same two arrays; which one moves memory fastest is
+        // for the measurement to say. Both arrays are written from the CPU first, so that every page
+        // is memory of its own before the GPU reads it.
+        const int length = BandwidthLength, vectors = length / 4;
+        using ReadOnlyBuffer<float> x = device.AllocateReadOnlyBuffer<float>(length);
+        using ReadWriteBuffer<float> y = device.AllocateReadWriteBuffer<float>(length);
+        x.AsSpan().Fill(1.5f);
+        y.AsSpan().Fill(0.5f);
+        double bytes = length * (double)sizeof(float);
 
-        Measure("Bandwidth probe", SaxpySize, values,
+        Measure("Bandwidth probe", BandwidthSize, values,
             new Variant(
-                "float4 fill (writes only)", NativeKinds.Probe,
-                Dispatch(device, () => device.For(SaxpyLength / 4, new FillFloat4HandWritten(saxpy.GpuY))),
-                Bytes: SaxpyLength * 4.0),
+                "fill: writes y", NativeKinds.Probe,
+                Dispatch(device, () => device.For(vectors, new FillFloat4HandWritten(y))),
+                Bytes: bytes),
             new Variant(
-                "float4 copy (reads x, writes y)", NativeKinds.Probe,
-                Dispatch(device, () => device.For(SaxpyLength / 4, new CopyFloat4HandWritten(saxpy.GpuX, saxpy.GpuY))),
-                Bytes: SaxpyLength * 8.0));
+                Invariant($"sums of {SumFloat4HandWritten.Span}: reads x, writes a {SumFloat4HandWritten.Span}th of y"), NativeKinds.Probe,
+                Dispatch(device, () => device.For(vectors / SumFloat4HandWritten.Span, new SumFloat4HandWritten(x, y))),
+                Bytes: bytes + (bytes / SumFloat4HandWritten.Span)),
+            new Variant(
+                "copy: reads x, writes y", NativeKinds.Probe,
+                Dispatch(device, () => device.For(vectors, new CopyFloat4HandWritten(x, y))),
+                Bytes: 2 * bytes),
+            new Variant(
+                "y = a·x + y: reads x and y, writes y", NativeKinds.Probe,
+                Dispatch(device, () => device.For(vectors, new SaxpyFloat4HandWritten(x, y, Workloads.Saxpy.A))),
+                Bytes: 3 * bytes));
     }
 
     private static void Sgemm(GraphicsDevice device, int n, List<PassValue> values)
@@ -237,6 +264,8 @@ public static class NativeBaselines
     }
 
     private static string SaxpySize => Invariant($"{SaxpyLength:N0} floats");
+
+    private static string BandwidthSize => Invariant($"float4 arrays of {(long)BandwidthLength * sizeof(float) >> 30} GiB");
 
     /// <summary>
     /// A sample of a SharpCompute kernel: one synchronous dispatch on this thread, its GPU time read

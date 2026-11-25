@@ -16,21 +16,24 @@ public static class NativeBaselinesReport
     /// What others publish for a chip's ceilings, to hold the measured ones against. Only for the
     /// machine RESULTS.md was produced on; on any other the section shows the measured ceilings alone.
     /// </summary>
-    private static readonly (string Gpu, string Flops, string Bandwidth)[] Published =
+    private static readonly (string Gpu, string Flops, string Bandwidth, double BytesPerSecond)[] Published =
     [
         (
             "Apple M4 Pro, 16 cores",
             "6.41 TFLOPS ([cpu-monkey](https://www.cpu-monkey.com/en/igpu-apple_m4_pro_16_core)) to 6.82 TFLOPS "
                 + "([Wikipedia's Apple silicon table, as quoted by Low End Mac](https://lowendmac.com/2025/apple-silicon-m4-pro-chip-specs/)): "
                 + "estimates of ALU count × clock, not Apple's figures",
-            "273 GB/s ([Apple](https://www.apple.com/newsroom/2024/10/apple-introduces-m4-pro-and-m4-max/))"),
+            "273 GB/s ([Apple](https://www.apple.com/newsroom/2024/10/apple-introduces-m4-pro-and-m4-max/))",
+            273e9),
     ];
 
     public static void Append(StringBuilder md, NativeBaselineData data)
     {
         IReadOnlyList<NativeRow> rows = data.Rows;
-        NativeRow? flopPeak = rows.Where(r => r.Flops > 0).MaxBy(r => r.FlopRate);
-        NativeRow? bytePeak = rows.Where(r => r.Bytes > 0).MaxBy(r => r.ByteRate);
+        // The ceilings are the probes' rates, not the best of all rows: a workload must not set the
+        // ceiling it is held against.
+        NativeRow? flopPeak = rows.Where(r => r.IsProbe && r.Flops > 0).MaxBy(r => r.FlopRate);
+        NativeRow? bytePeak = rows.Where(r => r.IsProbe && r.Bytes > 0).MaxBy(r => r.ByteRate);
 
         if (flopPeak is null || bytePeak is null)
         {
@@ -70,19 +73,20 @@ public static class NativeBaselinesReport
             + "Both are measured here by probes, kernels that do nothing else.");
         md.AppendLine();
 
-        (string Gpu, string Flops, string Bandwidth) published = Published.FirstOrDefault(p => machine.Gpu.StartsWith(p.Gpu, StringComparison.Ordinal));
-        string header = published.Gpu is null ? "| Ceiling | Measured | How |" : "| Ceiling | Measured | How | Published for this chip |";
+        (string Gpu, string Flops, string Bandwidth, double BytesPerSecond) published = Published.FirstOrDefault(p => machine.Gpu.StartsWith(p.Gpu, StringComparison.Ordinal));
+        string header = published.Gpu is null ? "| Ceiling | Measured | Passes | How |" : "| Ceiling | Measured | Passes | How | Published for this chip |";
         md.AppendLine(header);
-        md.AppendLine(published.Gpu is null ? "|---|---:|---|" : "|---|---:|---|---|");
-        md.AppendLine(Invariant($"| FP32 arithmetic | **{flopPeak.FlopRate / 1e12:F2} TFLOP/s** | {Kernel(flopPeak)}, {flopPeak.Size} |")
+        md.AppendLine(published.Gpu is null ? "|---|---:|---:|---|" : "|---|---:|---:|---|---|");
+        md.AppendLine(Invariant($"| FP32 arithmetic | **{flopPeak.FlopRate / 1e12:F2} TFLOP/s** | {flopPeak.Flops / flopPeak.GpuHighSeconds / 1e12:F2} – {flopPeak.Flops / flopPeak.GpuLowSeconds / 1e12:F2} | {Kernel(flopPeak)}, {flopPeak.Size} |")
             + (published.Gpu is null ? "" : $" {published.Flops} |"));
-        md.AppendLine(Invariant($"| Memory bandwidth | **{bytePeak.ByteRate / 1e9:F0} GB/s** | {Kernel(bytePeak)}, {bytePeak.Size} |")
+        md.AppendLine(Invariant($"| Memory bandwidth | **{bytePeak.ByteRate / 1e9:F0} GB/s** | {bytePeak.Bytes / bytePeak.GpuHighSeconds / 1e9:F0} – {bytePeak.Bytes / bytePeak.GpuLowSeconds / 1e9:F0} | {Kernel(bytePeak)}, {bytePeak.Size} |")
             + (published.Gpu is null ? "" : $" {published.Bandwidth} |"));
         md.AppendLine();
-        md.AppendLine("The ceilings are the highest rates measured in this run, so no row can exceed 100 %. "
+        md.AppendLine("Each ceiling is the best probe's rate (the median of the passes; **Passes** is the slowest and the fastest pass). "
             + "The FP32 probe counts a fused multiply-add as two operations, as the published estimates do; it reaches its rate only with dozens of independent "
             + "chains per thread (a thread with few chains waits on its own results), so it is the rate of arithmetic that never waits for memory, not a typical one.");
         md.AppendLine();
+        AppendBandwidthProbes(md, rows, bytePeak, published.BytesPerSecond);
 
         md.AppendLine("### Kernels under the ceilings");
         md.AppendLine();
@@ -115,6 +119,36 @@ public static class NativeBaselinesReport
 
         AppendGaps(md, rows);
         AppendCaveats(md, data, flopPeak);
+    }
+
+    /// <summary>What the bandwidth probes are, how each mix came out, and how the ceiling stands to the published figure.</summary>
+    private static void AppendBandwidthProbes(StringBuilder md, IReadOnlyList<NativeRow> rows, NativeRow peak, double publishedBytesPerSecond)
+    {
+        List<NativeRow> probes = [.. rows.Where(r => r.IsProbe && r.Bytes > 0)];
+        string mixes = string.Join("; ", probes.Select(p => Invariant($"{p.Variant.Split(':')[0]} {p.ByteRate / 1e9:F0} GB/s")));
+
+        md.AppendLine(Invariant($"The bandwidth probes are {probes.Count} mixes of reading and writing over {peak.Size}, far larger than any cache, so that what they measure is memory: ")
+            + mixes + ". "
+            + "The arrays have to be that large because the GPU's time for a dispatch ends when its work does, and what it wrote last can still be in the caches then, "
+            + "on its way to memory: on an Apple M4 Pro a fill of 64 MB measured above the memory's published bandwidth in some runs.");
+        md.AppendLine();
+
+        string against = publishedBytesPerSecond > 0
+            ? Invariant($" It is {peak.ByteRate / publishedBytesPerSecond * 100:F0} % of the published figure. ")
+                + "A pass can still come out above that figure, for the reason above (a small part of the last writes is not in memory yet when the time is taken); "
+                + (peak.Bytes / peak.GpuLowSeconds > publishedBytesPerSecond ? "the fastest pass of this run did." : "no pass of this run did.")
+            : string.Empty;
+        // Workload rows that beat the ceiling: possible, because their arrays are smaller than the probes'.
+        List<NativeRow> above = [.. rows.Where(r => !r.IsProbe && r.Bytes > 0 && r.ByteRate > peak.ByteRate)];
+        string over = above.Count == 0
+            ? string.Empty
+            : " A workload on smaller arrays is not held to memory quite as strictly and can come out slightly above 100 %: in this run "
+                + string.Join(", ", above.Select(r => Invariant($"{r.Workload} {r.Variant} ({r.Kind}) at {r.ByteRate / peak.ByteRate * 100:F0} %"))) + ".";
+
+        md.AppendLine(Invariant($"The fastest mix is \"{peak.Variant}\", so that is the ceiling.") + against
+            + " It is also SAXPY's own mix: SAXPY's share of the ceiling below says that SAXPY on its much smaller arrays runs as fast as that mix does on the probes' arrays, "
+            + "which is what being bound by memory means; it is not a second, independent measurement of the ceiling." + over);
+        md.AppendLine();
     }
 
     /// <summary>Each generated kernel against its hand-written twin, and the best generated SGEMM against the native ones.</summary>

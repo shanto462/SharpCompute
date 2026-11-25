@@ -157,9 +157,37 @@ public static class Runner
 
     private static int Render(RunData data, string output)
     {
-        File.WriteAllText(output, Report.Build(data));
+        string report = Report.Build(data);
+        WarnAboutDroppedSections(output, report);
+        File.WriteAllText(output, report);
         Console.WriteLine($"wrote {Path.GetFullPath(output)}");
         return 0;
+    }
+
+    /// <summary>
+    /// Warns when the report about to be overwritten has a section the new one lacks. A section comes
+    /// from the run data, so this is what merging into an older run-data.json than the report was
+    /// rendered from looks like (one saved before the native baselines were measured, say): the
+    /// section would vanish without a word.
+    /// </summary>
+    private static void WarnAboutDroppedSections(string output, string report)
+    {
+        if (!File.Exists(output))
+        {
+            return;
+        }
+
+        HashSet<string> kept = [.. Sections(report)];
+
+        foreach (string section in Sections(File.ReadAllText(output)).Where(s => !kept.Contains(s)))
+        {
+            Console.Error.WriteLine(
+                $"warning: {output} has a section \"{section}\" that the run data being rendered does not produce; it is dropped. " +
+                "Was --merge (or --render) given the run-data.json of the latest run?");
+        }
+
+        static IEnumerable<string> Sections(string markdown) =>
+            markdown.Split('\n').Where(l => l.StartsWith("## ", StringComparison.Ordinal)).Select(l => l[3..].Trim());
     }
 
     private static string? Option(string[] args, string name)

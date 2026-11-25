@@ -171,6 +171,30 @@ public static partial class Verify
 
         device.For(length / 4, new FillFloat4HandWritten(y));
         add(Compare("Probe", size, "GPU float4 fill", "thread index", y.AsSpan(), filled) with { Tolerance = 0 });
+
+        // Sums of 16 float4, lane by lane and in order: the same adds as the kernel's, so the same bits.
+        const int span = SumFloat4HandWritten.Span;
+        int sumCount = length / 4 / span;
+        float[] summed = new float[sumCount * 4];
+        ReadOnlySpan<float> source = x.AsReadOnlySpan();
+
+        for (int i = 0; i < sumCount; i++)
+        {
+            for (int lane = 0; lane < 4; lane++)
+            {
+                float sum = 0f;
+
+                for (int q = 0; q < span; q++)
+                {
+                    sum += source[(((i * span) + q) * 4) + lane];
+                }
+
+                summed[(i * 4) + lane] = sum;
+            }
+        }
+
+        device.For(sumCount, new SumFloat4HandWritten(x, y));
+        add(Compare("Probe", size, "GPU float4 sums of 16", "CPU sums", y.AsSpan()[..summed.Length], summed));
     }
 
     /// <summary>The share of elements that differ, which must be none: integer arithmetic has one right answer.</summary>
