@@ -1076,9 +1076,9 @@ device.Prepare<Blur>(PrepareOptions.IncludeSplit);                       // also
 ```
 
 The first time an application runs on a machine, the first frame of a large shader (a raymarched
-scene of about 300 lines) takes 245 ms without `Prepare` and 12 ms with it, the 236 ms having moved
+scene of about 300 lines) takes 247 ms without `Prepare` and 12 ms with it, the 235 ms having moved
 into `Prepare`. On later launches macOS has the compiled shader in its cache and the first frame
-takes about 10 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
+takes about 14 ms. `Prepare` moves the compile; [precompiling](#precompiled-shaders) removes part of it.
 
 ### Precompiled shaders
 
@@ -1109,32 +1109,34 @@ shader's kernel from the library instead of compiling its MSL.
   MetalToolchain` installs it) the build prints a message, produces no library and succeeds. A
   shader the offline compiler rejects is reported and left to run time.
 - **It is incremental.** Only shaders whose MSL or options changed are compiled, and a build in
-  which the assembly did not change does not start the tool. On an M4 Pro the 15 shaders of the
-  gallery's assembly take 0.5 s to precompile and the 130 of the test project 2.1 s (medians of 3);
-  their libraries are 142 KB and 805 KB.
+  which the assembly did not change does not start the tool. On an M4 Pro the 16 shaders of the
+  benchmark project take 0.3 s to precompile and the 143 of the test project 1.9 s (medians of 3);
+  their libraries are 106 KB and 890 KB.
 - **`device.GetPipelineOrigin<T>()`** says where a shader's pipeline came from
   (`Precompiled`, `CompiledAtRunTime`, or `None` before its first use), for a status line or a log.
   Setting the `AppContext` switch `SharpCompute.UsePrecompiledShaders` to false before a device is
   created makes that device compile everything from source.
 
-What it saves is the first step, on the first launch. First frames at 320 × 180 on an M4 Pro
-(macOS 27.2, median of 7 fresh processes; a first launch is a run from an application bundle macOS
-has never seen, so with an empty shader cache):
+What it saves is the first step, on the first launch. On an M4 Pro (macOS 27.2, median of 7 fresh
+processes; a first launch is a run from an application bundle macOS has never seen, so with an
+empty shader cache), the first frame of a large shader at 320 × 180, and `Prepare` of thirteen
+small kernels (the benchmark suite's own: saxpy, Mandelbrot, the blurs, a matrix product, an
+n-body step):
 
 | | First launch on a machine | Later launches |
 |---|---|---|
-| RaymarchedGarden (about 300 lines), compiled at run time | 245 ms | 14 ms |
-| the same, with `Prepare` first | 236 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 6 ms |
-| RaymarchedGarden, precompiled | 188 ms | 10 ms |
-| the same, with `Prepare` first | 188 ms in `Prepare`, then 13 ms | 4 ms in `Prepare`, then 7 ms |
-| The gallery's 13 shaders, compiled at run time | 1474 ms | 45 ms |
-| The gallery's 13 shaders, precompiled | 752 ms | 45 ms |
+| RaymarchedGarden (about 300 lines), compiled at run time | 247 ms | 14 ms |
+| the same, with `Prepare` first | 235 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 12 ms |
+| RaymarchedGarden, precompiled | 186 ms | 15 ms |
+| the same, with `Prepare` first | 174 ms in `Prepare`, then 12 ms | 3 ms in `Prepare`, then 11 ms |
+| `Prepare` of 13 small kernels, compiled at run time | 146 ms | 7 ms |
+| `Prepare` of 13 small kernels, precompiled | 97 ms | 8 ms |
 
-A steady frame is 2 ms for the one shader and 12 ms for the thirteen. Precompiling takes 57 ms off
-the first frame of the large shader and halves the wait for the gallery; what remains is the GPU
-driver compiling for this machine, which macOS does once and caches, and which `Prepare` moves off
-the first frame. On later launches the cache already holds the result, and precompiling makes no
-difference. (`SharpCompute.Benchmarks --first-frames` prints the full table.)
+A steady frame of the large shader is 2 ms. Precompiling takes 61 ms off its first frame and a
+third off the wait for the thirteen kernels; what remains is the GPU driver compiling for this
+machine, which macOS does once and caches, and which `Prepare` moves off the first frame. On later
+launches the cache already holds the result, and precompiling makes no difference.
+(`SharpCompute.Benchmarks --first-frames` prints the full table.)
 
 Every sample in this repository is built this way, and ComputeLab's FastMath page shows it:
 

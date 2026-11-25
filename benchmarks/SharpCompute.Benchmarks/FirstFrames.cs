@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using SharpCompute.Benchmarks.Shaders;
-using SharpCompute.Samples.Shaders;
 using static System.FormattableString;
 
 namespace SharpCompute.Benchmarks;
@@ -46,9 +45,31 @@ public static partial class FirstFrames
     private const string PrecompiledSwitch = "SharpCompute.UsePrecompiledShaders";
 
     /// <summary>
-    /// One first frame in this process: <c>garden</c> or <c>gallery</c>, <c>none</c> or <c>prepare</c>,
+    /// The set measured next to the one large shader: thirteen small kernels of this project, the
+    /// workloads of the benchmark suite (saxpy, Mandelbrot, the blurs, a matrix product, an n-body
+    /// step and the like), each with a way to ask where its pipeline came from.
+    /// </summary>
+    private static readonly (ShaderReference Reference, Func<GraphicsDevice, PipelineOrigin> Origin)[] s_kernels =
+    [
+        Kernel<SaxpyGenerated>(),
+        Kernel<MandelbrotIterations>(),
+        Kernel<BlurHorizontal>(),
+        Kernel<BlurVertical>(),
+        Kernel<MatMulNaive>(),
+        Kernel<NBodyStep>(),
+        Kernel<BlurRgba8Horizontal>(),
+        Kernel<BlurRgba8Vertical>(),
+        Kernel<BlurFloat4Horizontal>(),
+        Kernel<BlurFloat4Vertical>(),
+        Kernel<StridedPartialSums>(),
+        Kernel<CopyKernel>(),
+        Kernel<TouchInts>(),
+    ];
+
+    /// <summary>
+    /// One first use in this process: <c>garden</c> or <c>kernels</c>, <c>none</c> or <c>prepare</c>,
     /// <c>source</c> or <c>precompiled</c>. Prints the device, prepare, first-frame and steady-frame
-    /// times and where the pipeline came from.
+    /// times and where the pipelines came from.
     /// </summary>
     public static int Child(string[] args)
     {
@@ -62,26 +83,23 @@ public static partial class FirstFrames
         double deviceMs = stopwatch.Elapsed.TotalMilliseconds;
 
         using ReadWriteTexture2D<Rgba32> texture = device.AllocateReadWriteTexture2D<Rgba32>(Width, Height);
-        double prepareMs = 0, firstMs, steadyMs = double.MaxValue;
-        PipelineOrigin origin;
+        double prepareMs = 0, firstMs = 0, steadyMs = double.MaxValue;
+        string origin;
 
-        if (args.Contains("gallery"))
+        if (args.Contains("kernels"))
         {
-            // The first frame of every shader of the gallery, one after the other: what a viewer that
-            // steps through them pays in all. (There is nothing to prepare them with from outside:
-            // the gallery hands out render functions, not shader types.)
+            // What an application with a dozen kernels waits for before all of them can run: the
+            // pipelines of the whole set, one after the other. There is no frame to time.
+            ShaderReference[] references = [.. s_kernels.Select(static kernel => kernel.Reference)];
+
             stopwatch.Restart();
-            Render(device, texture, 1.0f);
-            firstMs = stopwatch.Elapsed.TotalMilliseconds;
+            device.Prepare(references);
+            prepareMs = stopwatch.Elapsed.TotalMilliseconds;
+            steadyMs = 0;
 
-            for (int i = 0; i < 3; i++)
-            {
-                stopwatch.Restart();
-                Render(device, texture, 1.1f + (i * 0.1f));
-                steadyMs = Math.Min(steadyMs, stopwatch.Elapsed.TotalMilliseconds);
-            }
-
-            origin = device.GetPipelineOrigin<HelloWorld>();
+            // One word for the set: the origin they all have, or "Mixed".
+            PipelineOrigin[] origins = [.. s_kernels.Select(kernel => kernel.Origin(device)).Distinct()];
+            origin = origins.Length == 1 ? origins[0].ToString() : "Mixed";
         }
         else
         {
@@ -104,20 +122,15 @@ public static partial class FirstFrames
                 steadyMs = Math.Min(steadyMs, stopwatch.Elapsed.TotalMilliseconds);
             }
 
-            origin = device.GetPipelineOrigin<RaymarchedGarden>();
+            origin = device.GetPipelineOrigin<RaymarchedGarden>().ToString();
         }
 
         Console.WriteLine(Invariant($"{Prefix} {deviceMs:F3} {prepareMs:F3} {firstMs:F3} {steadyMs:F3} {origin}"));
         return 0;
-
-        static void Render(GraphicsDevice device, ReadWriteTexture2D<Rgba32> texture, float time)
-        {
-            foreach (GalleryShader shader in Gallery.All)
-            {
-                shader.Render(device, texture, time);
-            }
-        }
     }
+
+    private static (ShaderReference Reference, Func<GraphicsDevice, PipelineOrigin> Origin) Kernel<T>()
+        where T : struct, IComputeShaderDescriptor<T> => (ShaderReference.Of<T>(), static device => device.GetPipelineOrigin<T>());
 
     public static int Run()
     {
@@ -161,20 +174,19 @@ public static partial class FirstFrames
         }
 
         Console.WriteLine();
-        Console.WriteLine(Invariant($"The {Gallery.All.Count} shaders of the gallery, the first frame of each, in all:"));
-        Console.WriteLine("| Shaders | First launch: first frames | First launch: stall | Later launch: first frames | Later launch: stall | Steady frames |");
-        Console.WriteLine("|---|---|---|---|---|---|");
+        Console.WriteLine(Invariant($"{s_kernels.Length} small kernels (the benchmark suite's workloads), device.Prepare of all of them:"));
+        Console.WriteLine("| Shaders | First launch: Prepare | Later launch: Prepare |");
+        Console.WriteLine("|---|---|---|");
 
         foreach (string origin in new[] { "source", "precompiled" })
         {
-            if (Measure("gallery", "none", origin) is not { } result)
+            if (Measure("kernels", "prepare", origin) is not { } result)
             {
                 precompiled = false;
                 continue;
             }
 
-            Console.WriteLine(Invariant(
-                $"| {Name(origin)} | {result.First.Frame:F0} ms | {result.First.Stall:F0} ms | {result.Later.Frame:F0} ms | {result.Later.Stall:F0} ms | {result.Later.Steady:F0} ms |"));
+            Console.WriteLine(Invariant($"| {Name(origin)} | {result.First.Prepare:F1} ms | {result.Later.Prepare:F1} ms |"));
         }
 
         if (!precompiled)
