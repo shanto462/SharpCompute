@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a shader feature, an API or an improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SharpCompute focuses on running C# compute shaders on the GPU. Ideas that bring a C# or ComputeSharp feature to shaders, or expose a GPU capability, fit best.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to compute, and what stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behaviour
+      description: How you would like to write it in C#. A short shader sketch helps.
+      render: csharp
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What you do instead today, and how ComputeSharp, MSL or other tools handle it, if you know.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
