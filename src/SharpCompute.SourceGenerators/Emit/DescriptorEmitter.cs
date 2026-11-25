@@ -35,6 +35,14 @@ internal static class DescriptorEmitter
             TypeDeclarationInfo type = model.Types[i];
             bool isShader = i == model.Types.Count - 1;
 
+            if (isShader && !model.IsStub)
+            {
+                // The record that build tools find the shader by, in the assembly's metadata (see
+                // GeneratedShaderRecordAttribute). A stub has no MSL to precompile, so it gets none.
+                writer.Line(
+                    $"[global::SharpCompute.GeneratedShaderRecord({Literal(model.EntryPoint)}, (global::SharpCompute.ShaderCompileOptions){model.CompileOptions.ToString(CultureInfo.InvariantCulture)})]");
+            }
+
             writer.Line($"partial {type.Keyword} {type.Name}{(isShader ? " : " + contract : string.Empty)}");
             writer.Line("{");
             writer.Indent++;

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The build tool that precompiles an assembly's shaders into <AssemblyName>.metallib. It is run
+    after the compiler by SharpCompute.Build.targets, as `dotnet exec SharpCompute.Build.dll`, in
+    projects that set SharpComputePrecompileShaders.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpCompute.Build</RootNamespace>
+    <!-- Always started through `dotnet exec`, so no native launcher is needed. -->
+    <UseAppHost>false</UseAppHost>
+    <!-- It formats nothing for a person's culture, and starts faster without ICU. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The one file the tool shares with the runtime: what a precompiled kernel is called and what text it is compiled from. -->
+    <Compile Include="..\SharpCompute\Runtime\PrecompiledShaderContract.cs" Link="PrecompiledShaderContract.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpCompute.Build.Tests" />
+  </ItemGroup>
+</Project>

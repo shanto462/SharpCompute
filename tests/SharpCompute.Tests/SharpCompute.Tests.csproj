@@ -5,6 +5,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- TestProgram.Main replaces the generated empty entry point: window tests launch this assembly to run on a main thread. -->
     <GenerateProgramFile>false</GenerateProgramFile>
+    <!-- The suite runs its generated shaders from the precompiled library; -p:SharpComputePrecompileShaders=false runs it without. -->
+    <SharpComputePrecompileShaders Condition="'$(SharpComputePrecompileShaders)' == ''">true</SharpComputePrecompileShaders>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

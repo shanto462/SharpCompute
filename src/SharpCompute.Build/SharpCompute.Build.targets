@@ -1,0 +1,99 @@
+<Project>
+  <!--
+    Build-time precompiled shaders. Imported by every project that uses SharpCompute (in this
+    repository through Directory.Build.targets); it does nothing unless the project sets
+
+        <SharpComputePrecompileShaders>true</SharpComputePrecompileShaders>
+
+    Then, after the compiler has run, the shaders that the source generator recorded in the assembly
+    are compiled with the Xcode Metal Toolchain and linked into <AssemblyName>.metallib, which is
+    copied to the output and publish directories of the project and of the projects that reference
+    it. At run time GraphicsDevice takes a shader's kernel from that file instead of compiling its MSL.
+
+    The step never fails a build because of the shaders. Without the toolchain it logs a message and
+    produces no library, and the application compiles its shaders at run time as it does without this.
+
+    Properties:
+      SharpComputePrecompileShaders          true to precompile. Default false.
+      SharpComputeXcrunPath                  The xcrun that finds the Metal compiler. Default: xcrun.
+      SharpComputePrecompileMaxParallelism   How many shaders are compiled at once. Default: a quarter of the
+                                             processors, at most 4 (a build already runs several projects at once).
+      SharpComputeBuildToolPath              A built SharpCompute.Build.dll to run. Default: empty, which builds
+                                             the tool from the project next to this file.
+  -->
+  <PropertyGroup>
+    <SharpComputePrecompileShaders Condition="'$(SharpComputePrecompileShaders)' == ''">false</SharpComputePrecompileShaders>
+    <SharpComputeXcrunPath Condition="'$(SharpComputeXcrunPath)' == ''">xcrun</SharpComputeXcrunPath>
+    <_SharpComputeBuildProject>$(MSBuildThisFileDirectory)SharpCompute.Build.csproj</_SharpComputeBuildProject>
+  </PropertyGroup>
+
+  <!--
+    The tool is built before the project that runs it, like any project it references, and its path
+    arrives in @(SharpComputeBuildTool). Nothing of it is referenced or copied. The properties that a
+    publish adds are removed, so that the tool is the same framework-dependent build whatever is
+    being published (a self-contained, single-file or Native AOT application included).
+  -->
+  <ItemGroup Condition="'$(SharpComputePrecompileShaders)' == 'true' and '$(SharpComputeBuildToolPath)' == '' and '$(MSBuildProjectFullPath)' != '$(_SharpComputeBuildProject)'">
+    <ProjectReference Include="$(_SharpComputeBuildProject)"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="SharpComputeBuildTool"
+                      Private="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      UndefineProperties="TargetFramework;RuntimeIdentifier;SelfContained;PublishAot;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishSelfContained" />
+  </ItemGroup>
+
+  <!-- Or the tool is one that is already built: how a consumer outside this repository, or a package, supplies it. -->
+  <ItemGroup Condition="'$(SharpComputePrecompileShaders)' == 'true' and '$(SharpComputeBuildToolPath)' != ''">
+    <SharpComputeBuildTool Include="$(SharpComputeBuildToolPath)" />
+  </ItemGroup>
+
+  <!--
+    Runs the tool on the assembly the compiler just wrote. Incremental: it is skipped while the state
+    file, which the tool rewrites on every run that leaves the library as it should be, is newer than
+    the assembly and the tool. The tool does not write it when the toolchain is missing, so that case
+    is looked at again by every build, and the library appears once the toolchain is installed.
+  -->
+  <Target Name="SharpComputePrecompileShaders"
+          AfterTargets="CoreCompile"
+          DependsOnTargets="ResolveProjectReferences"
+          Condition="'$(SharpComputePrecompileShaders)' == 'true' and '$(DesignTimeBuild)' != 'true' and '@(IntermediateAssembly)' != '' and '$(MSBuildProjectFullPath)' != '$(_SharpComputeBuildProject)'"
+          Inputs="@(IntermediateAssembly);@(SharpComputeBuildTool);$(MSBuildThisFileFullPath)"
+          Outputs="$(IntermediateOutputPath)$(AssemblyName).metallib.state">
+    <PropertyGroup>
+      <_SharpComputeDotNet>$(DOTNET_HOST_PATH)</_SharpComputeDotNet>
+      <_SharpComputeDotNet Condition="'$(_SharpComputeDotNet)' == ''">dotnet</_SharpComputeDotNet>
+      <_SharpComputeIntermediate>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)'))</_SharpComputeIntermediate>
+    </PropertyGroup>
+    <Exec Command="&quot;$(_SharpComputeDotNet)&quot; exec &quot;@(SharpComputeBuildTool->'%(FullPath)')&quot; --assembly &quot;@(IntermediateAssembly->'%(FullPath)')&quot; --output &quot;$(_SharpComputeIntermediate)$(AssemblyName).metallib&quot; --intermediate &quot;$(_SharpComputeIntermediate)sharpcompute-shaders&quot; --state &quot;$(_SharpComputeIntermediate)$(AssemblyName).metallib.state&quot; --xcrun &quot;$(SharpComputeXcrunPath)&quot; --parallelism &quot;$(SharpComputePrecompileMaxParallelism)&quot;"
+          StandardOutputImportance="High"
+          IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <!--
+    Adds the library, when there is one, to what the project copies to its output and publish
+    directories. Those lists are also what a referencing project asks this one for, so the library
+    follows the assembly wherever the assembly is copied. It hooks the three places a list is read
+    because a publish with no-build, or a referencing project that does not build this one, reads
+    them without ever compiling; a target runs once, at whichever comes first. The intermediate
+    files are recorded here, in a target that runs every time, so that an incremental build (which
+    skips the target above) does not take them for leftovers and `dotnet clean` removes them.
+  -->
+  <Target Name="_SharpComputeIncludePrecompiledShaders"
+          AfterTargets="SharpComputePrecompileShaders"
+          BeforeTargets="GetCopyToOutputDirectoryItems;GetCopyToPublishDirectoryItems"
+          Condition="'$(SharpComputePrecompileShaders)' == 'true' and '$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_SharpComputeMetallib>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)'))$(AssemblyName).metallib</_SharpComputeMetallib>
+    </PropertyGroup>
+    <ItemGroup>
+      <ContentWithTargetPath Include="$(_SharpComputeMetallib)"
+                             Condition="Exists('$(_SharpComputeMetallib)')"
+                             TargetPath="$(AssemblyName).metallib"
+                             CopyToOutputDirectory="PreserveNewest"
+                             CopyToPublishDirectory="PreserveNewest" />
+      <FileWrites Include="$(_SharpComputeMetallib)" Condition="Exists('$(_SharpComputeMetallib)')" />
+      <FileWrites Include="$(_SharpComputeMetallib).state" Condition="Exists('$(_SharpComputeMetallib).state')" />
+      <FileWrites Include="$(IntermediateOutputPath)sharpcompute-shaders/**/*" />
+    </ItemGroup>
+  </Target>
+</Project>
