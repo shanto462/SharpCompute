@@ -219,13 +219,11 @@ public sealed class HalfPrecisionPage : ILabPage
 
         for (int repeat = 0; repeat < Repeats; repeat++)
         {
-            long start = Stopwatch.GetTimestamp();
             _device.For(Size, Size, new TentBlurFloat(_source, _float, Padded, radius, 0, 0, Size));
-            fastestFloat = Math.Min(fastestFloat, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            fastestFloat = Math.Min(fastestFloat, _device.LastGpuTime.TotalMilliseconds);
 
-            start = Stopwatch.GetTimestamp();
             _device.For(Size, Size, new TentBlurHalf(_sourceHalf, _half, Padded, radius, 0, 0, Size));
-            fastestHalf = Math.Min(fastestHalf, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            fastestHalf = Math.Min(fastestHalf, _device.LastGpuTime.TotalMilliseconds);
         }
 
         FloatGpuMilliseconds = fastestFloat;

@@ -6,7 +6,7 @@ using static System.FormattableString;
 namespace SharpCompute.Samples.ComputeLab;
 
 /// <summary>GPU and CPU times of a page's feature kernel, for the timing line; null when there is none to show.</summary>
-/// <param name="GpuMilliseconds">The GPU dispatch, commit to completion.</param>
+/// <param name="GpuMilliseconds">The time the GPU spent on the page's dispatches (<c>LastGpuTime</c>), without their submission.</param>
 /// <param name="CpuMilliseconds">The same work on the CPU.</param>
 public readonly record struct LabTiming(double GpuMilliseconds, double CpuMilliseconds)
 {

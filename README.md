@@ -106,6 +106,9 @@ here as an original game built on SharpCompute.
   and `WrapReadWriteBuffer` makes a buffer over page-aligned memory you already own.
 - **Batched and asynchronous dispatch.** A `ComputeContext` runs many dispatches with one commit and
   one wait; `ForAsync`/`ForEachAsync` return a `Task` so the CPU keeps working while the GPU runs.
+- **GPU time of a dispatch.** `device.LastGpuTime` and `context.LastGpuTime` report how long the GPU
+  itself spent on the last dispatch or batch, without the submission and the wait a stopwatch would
+  add. See [GPU time of a dispatch](#gpu-time-of-a-dispatch).
 - **Buffer views, GPU copies and indirect dispatch.** `buffer.Slice(start, length)` binds part of a
   buffer as a buffer of its own. `Copy`, `Fill` and `Clear` run on the GPU, in order with the
   dispatches of a context. `ForIndirect` takes its thread count from a buffer an earlier pass wrote,
@@ -285,6 +288,27 @@ share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01). The matrix
 product is the naive kernel; written with [`WaveMatrix8x8`](#matrix-units) for the GPU's matrix
 units, the same 1024×1024 product takes 0.58 ms instead of 4.51 ms.
+
+Against native Metal on the same GPU, by the GPU's own time for one dispatch
+([`LastGpuTime`](#gpu-time-of-a-dispatch); Apple M4 Pro, medians of 5 passes of 25 dispatches):
+
+| Single-precision matrix multiply, 1024×1024 | Written as | GPU time | TFLOP/s |
+|---|---|---:|---:|
+| `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
+| `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.15 |
+| threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
+| naive | generated from C# | 4.12 ms | 0.52 |
+| naive | hand-written MSL | 4.08 ms | 0.53 |
+
+A generated kernel takes the same GPU time as the same kernel written by hand in MSL, to about
+1 %: the ratio is 1.010 to 1.013 for the naive matrix multiply, 1.000 for an N-body step, 1.001 for
+SAXPY and 1.000 for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written
+kernel next to it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet.
+The same section of the report places every kernel under the machine's measured ceilings:
+6.24 TFLOP/s of FP32 arithmetic, of which MPS reaches 85 %, and 250 GB/s of memory bandwidth (243 to
+255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
+the memory-bandwidth ceiling (within 2 %): it is bound by memory, and no kernel will make it faster.
+See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
 
 Moving and converting data can cost more than the kernel, and unified memory means it can be
 skipped: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
@@ -1103,6 +1127,45 @@ for (int k = 0; k < frameCount; k++)
 Work on one device runs in submission order, so dependent `ForAsync` calls can also be issued back
 to back and awaited once. Measurements are in the "Batching and async" section of
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
+
+### GPU time of a dispatch
+
+A stopwatch around `device.For` times the whole round trip: encoding, the commit, the GPU's work and
+waking the waiting thread. To compare two kernels, or to show what a kernel costs, ask for the GPU's
+own share:
+
+```csharp
+device.For(width, height, new Blur(source, destination, radius));
+TimeSpan kernel = device.LastGpuTime;          // the GPU's time for that dispatch
+
+using ComputeContext context = device.CreateComputeContext();
+context.For(width, height, new BlurHorizontal(source, temp, weights, width, radius));
+context.For(width, height, new BlurVertical(temp, output, weights, width, height, radius));
+context.Execute();
+TimeSpan both = context.LastGpuTime;           // the GPU's time for the batch
+```
+
+Both are the time between Metal's `GPUStartTime` and `GPUEndTime` of the command buffer that ran the
+work, so there is **one time per command buffer**: a synchronous `For`, `ForEach`, `ForIndirect`,
+`Copy`, `Fill` or `Clear` is a command buffer of its own, and a context's batch is one for all its
+dispatches. (Apple GPUs can take a timestamp between encoders but not between the dispatches of
+one, so a batch is not split further; execute a kernel alone to time it alone.)
+
+- `device.LastGpuTime` belongs to the **calling thread**: it is the time of the last synchronous
+  call that thread made on the device, so threads sharing a device never read each other's
+  dispatches. Read it right after the call, on the same thread. `ForAsync` and `ForEachAsync` do not
+  set it; time asynchronous work through a context.
+- `context.LastGpuTime` is set before `Execute()` returns and before the task of `ExecuteAsync()` or
+  `EncodeInto` completes (for `EncodeInto` it is the time of the caller's whole command buffer), and
+  can be read from any thread, also after the context is disposed.
+- Neither allocates, and a call with nothing to do (an empty grid, a context with nothing pending)
+  leaves the previous time in place.
+
+The interval is elapsed time on the GPU, so other GPU work in between (another process, the window
+server) lengthens it, and the first dispatch after an idle spell includes the GPU's ramp-up: take the
+median of a few. ComputeLab's "GPU ms" readouts and the
+[native baselines](benchmarks/RESULTS.md#native-baselines-and-roofline) of the benchmarks are measured
+this way.
 
 ### Buffers and dispatch
 
