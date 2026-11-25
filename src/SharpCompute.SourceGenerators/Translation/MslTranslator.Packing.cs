@@ -64,7 +64,7 @@ internal sealed partial class MslTranslator
 
     /// <summary>True for a struct field whose type is stored through <c>__ms_pack</c>; it has no native lvalue to bind a reference to.</summary>
     private bool IsPackedField(IOperation operation) =>
-        operation is IFieldReferenceOperation or IPropertyReferenceOperation &&
+        operation is IFieldReferenceOperation or IPropertyReferenceOperation or IInlineArrayAccessOperation &&
         _types.Resolve(operation.Type) is { NeedsExplicitPacking: true };
 
     /// <summary>

@@ -82,6 +82,7 @@ public static class LabPages
         new PrivatisedHistogramPage(device),
         new CompactionPage(device),
         new BitsPage(device),
+        new LocalArraysPage(device),
         new IndirectPage(device),
         new FastMathPage(device),
     ];

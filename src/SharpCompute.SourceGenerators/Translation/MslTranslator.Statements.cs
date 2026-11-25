@@ -75,6 +75,11 @@ internal sealed partial class MslTranslator
                 While(whileLoop);
                 break;
 
+            case IForEachLoopOperation forEach:
+                // Only over local arrays, as an index loop (see MslTranslator.LocalArrays.cs).
+                ForEach(forEach);
+                break;
+
             case IBranchOperation { BranchKind: BranchKind.Break }:
                 Writer.Line("break;");
                 break;
@@ -88,6 +93,11 @@ internal sealed partial class MslTranslator
                 HoistDeclarations(value);
                 UseBuiltin(Builtins.ThreadPositionInGrid);
                 Writer.Line(MslNames.Output + ".write(" + FullExpression(value) + ", " + BuiltinInfo.Name(Builtins.ThreadPositionInGrid) + ".xy);");
+                Writer.Line("return;");
+                break;
+
+            case IReturnOperation { Kind: OperationKind.Return, ReturnedValue: not null } when _function.ReturnsLocalArray:
+                // The helper returns a local array, which its signature was reported for; the value would only repeat that.
                 Writer.Line("return;");
                 break;
 
@@ -312,6 +322,13 @@ internal sealed partial class MslTranslator
                     continue;
                 }
 
+                if (IsLocalArrayType(local.Type))
+                {
+                    // `Span<float> taps = stackalloc float[9];` -> `float taps[9] = {};` (see MslTranslator.LocalArrays.cs).
+                    result.Add(DeclareLocalArray(declarator, declaration, local, location));
+                    continue;
+                }
+
                 // Translate the initializer first: if it already explains what is wrong (e.g. a lambda),
                 // an additional "unsupported type" diagnostic for the local would only be noise.
                 int errorsBefore = _diagnostics.ErrorCount;
@@ -333,6 +350,7 @@ internal sealed partial class MslTranslator
                     _failedSymbols.Add(local);
                 }
 
+                CheckInlineArrayLocal(declarator, local, type, location);
                 result.Add(new LocalDeclaration(local.IsConst, type?.MslName ?? "int", DeclareLocal(local), initializerText));
             }
         }
@@ -346,13 +364,16 @@ internal sealed partial class MslTranslator
         private readonly string _type;
         private readonly string _name;
         private readonly string? _initializer;
+        private readonly string _declaratorSuffix;
 
-        public LocalDeclaration(bool isConst, string type, string name, string? initializer)
+        /// <param name="declaratorSuffix">Written after the name: the <c>[N]</c> of a local array, which C++ puts in the declarator.</param>
+        public LocalDeclaration(bool isConst, string type, string name, string? initializer, string declaratorSuffix = "")
         {
             _isConst = isConst;
             _type = type;
             _name = name;
             _initializer = initializer;
+            _declaratorSuffix = declaratorSuffix;
         }
 
         public override string ToString() => ToString(includeType: true);
@@ -360,6 +381,7 @@ internal sealed partial class MslTranslator
         public string ToString(bool includeType) =>
             (includeType ? (_isConst ? "const " : string.Empty) + _type + " " : string.Empty) +
             _name +
+            _declaratorSuffix +
             (_initializer is null ? string.Empty : " = " + _initializer);
     }
 }

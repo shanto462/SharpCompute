@@ -638,9 +638,15 @@ internal sealed partial class MslTranslator
         Location fallback = callSite.Syntax.GetLocation();
         bool failed = false;
 
-        GpuType? returnType = _types.Resolve(method.ReturnType, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
+        GpuType? returnType = ReturnsLocalArray(method, returnTypeSyntax?.GetLocation() ?? fallback)
+            ? null
+            : _types.Resolve(method.ReturnType, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
 
-        if (returnType is null || returnType.IsResource)
+        if (_function.ReturnsLocalArray)
+        {
+            failed = true;
+        }
+        else if (returnType is null || returnType.IsResource)
         {
             if (returnType is { Kind: GpuTypeKind.Buffer })
             {
@@ -676,6 +682,13 @@ internal sealed partial class MslTranslator
                 _diagnostics.Report(DiagnosticDescriptors.UnsupportedSyntax, location, $"the 'params' parameter '{parameter.Name}'");
                 _failedSymbols.Add(parameter);
                 failed = true;
+                continue;
+            }
+
+            if (LocalArrayParameter(parameter, parameterName, parameterSyntax, location, ref failed) is { } arrayParameters)
+            {
+                // `Span<float> values` -> `thread float* values, int __len_values` (see MslTranslator.LocalArrays.cs).
+                parameters.AddRange(arrayParameters);
                 continue;
             }
 
@@ -1017,6 +1030,12 @@ internal sealed partial class MslTranslator
 
         /// <summary>Locals of inline <c>out T x</c> declarations, already declared before their statement.</summary>
         public HashSet<ILocalSymbol> HoistedLocals { get; } = new(SymbolEqualityComparer.Default);
+
+        /// <summary>The local arrays of this function: its array locals, and its array parameters if it is a helper.</summary>
+        public Dictionary<ISymbol, LocalArray> LocalArrays { get; } = new(SymbolEqualityComparer.Default);
+
+        /// <summary>Set for a helper whose return type is a local array type, which was reported at the signature.</summary>
+        public bool ReturnsLocalArray { get; set; }
 
         public HiddenInputs Inputs { get; } = new();
 

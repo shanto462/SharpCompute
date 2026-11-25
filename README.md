@@ -70,6 +70,10 @@ here as an original game built on SharpCompute.
   `WaveActiveBallot`, `WavePrefixSum`, `WaveShuffleUp` and the rest reduce, vote, scan and exchange
   values across the 32 threads of a SIMD group in one step, with no shared memory and no barrier. Such
   shaders run on the CPU too.
+- **Local arrays.** `Span<float> taps = stackalloc float[9];`, `float[] w = new float[9];`,
+  `ReadOnlySpan<int> weights = [1, 4, 6, 4, 1];` and `[InlineArray(N)]` structs become fixed-size
+  arrays of one GPU thread: filter taps and weights, sorting networks, small stacks and histograms.
+  Index them, loop over them with `foreach`, and pass them to helpers. See [Local arrays](#local-arrays).
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
@@ -121,7 +125,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
-| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Histogram: privatised:** the same histogram counted per threadgroup with atomics on `[GroupShared]` memory and merged with one buffer atomic per bin per group, next to the global-atomics version on the same image, with the GPU time of both. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Histogram: privatised:** the same histogram counted per threadgroup with atomics on `[GroupShared]` memory and merged with one buffer atomic per bin per group, next to the global-atomics version on the same image, with the GPU time of both. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **LocalArrays:** a 3 × 3 median filter (a nine-element `stackalloc` array and a sorting network) and a 5 × 5 Gaussian (a `ReadOnlySpan<int>` weight table) on the animated image; N toggles salt-and-pepper noise to show what the median removes, F switches the timed filter. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary<br><a href="docs/screenshots/computelab-local-arrays.png"><img src="docs/screenshots/computelab-local-arrays.png" width="320" alt="ComputeLab's LocalArrays page: a noisy image, its 3 by 3 median and its 5 by 5 Gaussian side by side"></a> |
 | `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
 | `scripts/demo-simdgroups.sh` | **Live window:** SIMD-group operations, three pages, each checked against the CPU and timed. A reduction race (the sum of 16M floats three ways), a stream compaction of 32,768 particles built from `WaveActiveBallot` and `WavePrefixSum` with no atomics, and a signal smoothed inside each SIMD group with `WaveShuffleUp`/`Down`, so the group edges show. `--headless` writes a PNG per page and a summary |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
@@ -490,6 +494,105 @@ checking and debugging a shader, not for bulk work.
 `scripts/demo-simdgroups.sh` shows three uses live: a reduction race over 16M floats, a stream
 compaction built from ballots and prefix sums, and a signal smoothed with shuffles.
 
+### Local arrays
+
+A thread can have small arrays of its own: the taps of a filter, its weights, the values a sorting
+network orders, a stack, a small histogram. Write them the C# way; each becomes a fixed-size array of
+that thread, which the GPU keeps in registers. A 3 × 3 median filter, from ComputeLab's LocalArrays page:
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MedianFilter(ReadWriteBuffer<uint> source, ReadWriteBuffer<uint> destination, int size) : IComputeShader
+{
+    private static void Order(ref Float3 a, ref Float3 b)  // one compare-and-swap, on three channels at once
+    {
+        Float3 low = Gpu.Min(a, b);
+        b = Gpu.Max(a, b);
+        a = low;
+    }
+
+    private static void MedianOfNine(Span<Float3> p)       // MSL: (thread float3* p, int __len_p)
+    {
+        Order(ref p[1], ref p[2]); Order(ref p[4], ref p[5]); Order(ref p[7], ref p[8]);
+        Order(ref p[0], ref p[1]); Order(ref p[3], ref p[4]); Order(ref p[6], ref p[7]);
+        // ... 19 steps in all leave the median in p[4]
+    }
+
+    public void Execute()
+    {
+        int x = ThreadIds.X, y = ThreadIds.Y;
+        Span<Float3> window = stackalloc Float3[9];        // MSL: float3 window[9] = {};
+        int n = 0;
+
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int i = (Gpu.Clamp(y + dy, 0, size - 1) * size) + Gpu.Clamp(x + dx, 0, size - 1);
+                window[n] = Gpu.UnpackUnorm4x8(source[i]).XYZ;
+                n++;
+            }
+        }
+
+        MedianOfNine(window);
+        destination[(y * size) + x] = Gpu.PackUnorm4x8(new Float4(window[4], 1f));
+    }
+}
+```
+
+The page's 5 × 5 Gaussian reads its weights from a constant table:
+
+```csharp
+ReadOnlySpan<int> weights =                                // MSL: const int weights[25] = { 1, 4, ... };
+[
+    1, 4, 6, 4, 1,
+    4, 16, 24, 16, 4,
+    6, 24, 36, 24, 6,
+    4, 16, 24, 16, 4,
+    1, 4, 6, 4, 1,
+];
+
+int w = weights[((dy + 2) * 5) + dx + 2];
+```
+
+| C# | MSL |
+|---|---|
+| `Span<T> a = stackalloc T[N];`, `T[] a = new T[N];` | `T a[N] = {};`, zeroed as in C# |
+| `stackalloc T[] { x, y, z }`, `new T[] { x, y, z }`, `T[] a = [x, y, z];`, `Span<T> a = [x, y, z];` | `T a[3] = { x, y, z };` |
+| `ReadOnlySpan<T> a = [x, y, z];` | `const T a[3] = { x, y, z };` |
+| `a[i]`, `a[i] += v`, `a[i]++`, `ref a[i]` | the same |
+| `a.Length` | the constant `N` |
+| `foreach (T v in a)`, `foreach (ref T v in a)` | `for (int __i_v = 0; __i_v < N; __i_v++) { T v = a[__i_v]; ... }`, with `thread T&` for `ref` |
+| a helper's `Span<T>`, `T[]` or `ReadOnlySpan<T>` parameter | `thread T* a, int __len_a` (`thread const T*` for `ReadOnlySpan<T>`) |
+| `[InlineArray(8)] struct Float8 { float _e; }`, `f[i]` | `struct Float8 { float _e[8]; };`, `f._e[i]` |
+
+- `T` is anything a local can be: scalars, vectors, matrices (`Float3x3` too), `bool`, `Half` and your
+  own structs. `N` is a compile-time constant of at least 1 (`SCG0037`); a length only known at run
+  time has no equivalent, because a thread's arrays are sized when the shader is compiled.
+- A C# array or span is a reference to its elements; a thread's array is the elements. The two agree
+  as long as each array has one name, so a local array can be indexed, looped over and passed to a
+  helper method, but not copied to another variable, reassigned, compared, returned or sliced
+  (`Slice`, ranges, `^`), and the methods of `Span<T>` and arrays are not available (`SCG0039`).
+  Multi-dimensional and jagged arrays are `SCG0036`: index a one-dimensional array as `[y * width + x]`.
+- A helper that takes a span or an array is compiled once for every length: it receives a pointer to
+  the caller's elements and the length, so what it writes reaches the caller's array, as in C#.
+- An `[InlineArray(N)]` struct is a value type in C# too, so it is copied, passed and returned by
+  value, has no `Length`, and crosses the CPU/GPU boundary (a captured constant, a buffer element, a
+  struct field) whenever its element type can, with the same layout asserts as any struct. One of
+  `bool` or `Float3x3` elements is for locals only.
+- **Keep them small.** A thread keeps small arrays in registers and spills larger ones to memory. On an
+  M4 Pro, a kernel that fills its array and reads it back costs about 0.09 ns per element at 1 KB per
+  thread and 0.55 ns at 16 KB, and Metal refuses to create the pipeline once a thread needs 256 KB of
+  stack. Above 16 KB a local array is warning `SCG0038`; use `[GroupShared]` memory or a buffer for
+  data that large.
+- **No bounds checks on the GPU:** an index outside the array reads or writes whatever lies there.
+  `ForCpu` runs the C#, where the same index throws `IndexOutOfRangeException`, so running a shader on
+  the CPU is the way to find such a bug.
+- **On the CPU**, `new T[N]` allocates on the heap every time a thread runs: correct, but slow.
+  `stackalloc`, `ReadOnlySpan<T>` tables of constants (which C# stores as static data) and inline
+  arrays allocate nothing, so prefer them for `ForCpu`. A `stackalloc` inside a loop is warning
+  CA2014 in C#; declare the array before the loop and reuse it, which compiles to the same MSL.
+
 ### Batching and async dispatch
 
 Every `device.For` call is its own command buffer, commit and wait, which costs about 0.1 ms even for
@@ -841,6 +944,9 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
   (a loop iteration some lanes skip, a helper called from two branches). The GPU handles both.
 - Atomics work on elements of `int`, `uint` and (add only) `float`, in buffers and in
   `[GroupShared]` arrays; not on struct fields.
+- Local arrays have a compile-time length and one name: they cannot be sliced, copied to another
+  variable or returned (pass them to a helper instead), and multi-dimensional and jagged arrays are
+  not supported.
 - Textures are 2D with one mip level; samplers are the six fixed ones.
 - 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`
   (`Gpu.PackUnorm4x8` for colors).
