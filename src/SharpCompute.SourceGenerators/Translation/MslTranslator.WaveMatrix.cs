@@ -32,7 +32,7 @@ namespace SharpCompute.SourceGenerators;
 /// <c>a + int(uint(row) * uint(n)) + k</c>, not <c>a + int(uint(row) * uint(n) + uint(k))</c>: the
 /// terms of a sum of ints are added to the pointer one at a time. A 32-bit sum that is then widened
 /// to an address is opaque to the GPU compiler's addressing of the 64 elements; pointer increments
-/// are not, and the difference is 5.1 against 4.4 TFLOP/s for a matrix product (Apple M4 Pro).
+/// are not: as one widened sum a matrix product measured about 15 % slower (Apple M4 Pro).
 /// </para>
 /// <para>
 /// This is the one place where the generator does not make signed arithmetic wrap as C# does

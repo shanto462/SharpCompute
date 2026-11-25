@@ -75,8 +75,9 @@ here as an original game built on SharpCompute.
   shaders run on the CPU too.
 - **Matrix units.** `WaveMatrix8x8` and `WaveMatrixHalf8x8` are 8 × 8 matrices that the lanes of a
   SIMD group hold together, and `MultiplyAccumulate(a, b, c)` multiplies them on the GPU's matrix
-  units: a matrix product written in C# runs at 5 TFLOP/s on an M4 Pro, five times the best scalar
-  kernel and within a few percent of hand-written MSL. See [Matrix units](#matrix-units).
+  units: a matrix product written in C# runs at 5 TFLOP/s on an M4 Pro, almost five times the best
+  scalar kernel and within 2 % of the same kernel in hand-written MSL. See
+  [Matrix units](#matrix-units).
 - **Local arrays.** `Span<float> taps = stackalloc float[9];`, `float[] w = new float[9];`,
   `ReadOnlySpan<int> weights = [1, 4, 6, 4, 1];` and `[InlineArray(N)]` structs become fixed-size
   arrays of one GPU thread: filter taps and weights, sorting networks, small stacks and histograms.
@@ -287,7 +288,7 @@ results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silic
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01). The matrix
 product is the naive kernel; written with [`WaveMatrix8x8`](#matrix-units) for the GPU's matrix
-units, the same 1024×1024 product takes 0.58 ms instead of 4.51 ms.
+units, the same 1024×1024 product takes 0.42 ms of GPU time instead of 4.15 ms (the table below).
 
 Against native Metal on the same GPU, by the GPU's own time for one dispatch
 ([`LastGpuTime`](#gpu-time-of-a-dispatch); Apple M4 Pro, medians of 5 passes of 25 dispatches):
@@ -296,16 +297,18 @@ Against native Metal on the same GPU, by the GPU's own time for one dispatch
 |---|---|---:|---:|
 | `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
 | `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.15 |
+| `simdgroup_matrix`, 2×4 accumulators ([`WaveMatrix8x8`](#matrix-units)) | generated from C# | 0.422 ms | 5.08 |
 | threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
-| naive | generated from C# | 4.12 ms | 0.52 |
-| naive | hand-written MSL | 4.08 ms | 0.53 |
+| naive | generated from C# | 4.15 ms | 0.52 |
+| naive | hand-written MSL | 4.11 ms | 0.52 |
 
 A generated kernel takes the same GPU time as the same kernel written by hand in MSL, to about
-1 %: the ratio is 1.010 to 1.013 for the naive matrix multiply, 1.000 for an N-body step, 1.001 for
-SAXPY and 1.000 for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written
-kernel next to it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet.
-The same section of the report places every kernel under the machine's measured ceilings:
-6.24 TFLOP/s of FP32 arithmetic, of which MPS reaches 85 %, and 250 GB/s of memory bandwidth (243 to
+1 %: the ratio is 1.008 to 1.012 for the naive matrix multiply, 1.013 to 1.014 for the one on the
+matrix units, and 1.000 for an N-body step, for SAXPY and for an integer hash. The scalar kernels'
+5× and 10× to MPS are not the generator's: MPS and the kernels next to it use Metal's matrix units
+(`simdgroup_matrix`), which a C# shader reaches as `WaveMatrix8x8`, and that kernel is within 5 % of
+MPS. The same section of the report places every kernel under the machine's measured ceilings:
+6.22 TFLOP/s of FP32 arithmetic, of which MPS reaches 86 %, and 249 GB/s of memory bandwidth (244 to
 255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
 the memory-bandwidth ceiling (within 2 %): it is bound by memory, and no kernel will make it faster.
 See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
@@ -801,7 +804,8 @@ pinned by the tests:
   to any sum; ComputeLab's `WaveMatMul.Pad` and `Unpad` do that for its kernel.
 - **Offsets are added term by term.** `Load(a, row * n + k, n)` becomes `a + row * n + k` in MSL:
   each term of a sum of `int`s is one pointer addition, which the GPU compiler turns into far better
-  addressing than a 32-bit sum that is then widened (5.1 against 4.4 TFLOP/s for the product below).
+  addressing than a 32-bit sum that is then widened (which measured about 15 % slower for the
+  product below).
   This is the one place where signed arithmetic is not C#'s: every term wraps as usual, but their
   sum is formed in 64 bits and does not. The two differ only where the terms add up to more than an
   `int` holds, which is no valid offset in C# either: a sum past `int.MaxValue` wraps to a negative
@@ -818,35 +822,33 @@ when they bring different arguments, or when fewer than 32 take part, and
 `ArgumentOutOfRangeException` when a load or store reaches outside its buffer or array. It is for
 checking a kernel at small sizes, not for bulk work.
 
-**How fast.** `C = A × B` for random floats, in TFLOP/s (2 n³ operations per product), on an Apple
-M4 Pro (12 CPU cores, 16-core GPU, macOS 27.2):
+**How fast.** `C = A × B` for random floats, by the GPU's own time for one dispatch
+([`LastGpuTime`](#gpu-time-of-a-dispatch)), in TFLOP/s (2 n³ operations per product), on an Apple
+M4 Pro (16-core GPU, macOS 27.2):
 
-| Kernel | 1024 × 1024 | 2048 × 2048 |
-|---|---:|---:|
-| Naive, a thread per element (C#) | 0.46 (4.67 ms) | 0.45 (38.1 ms) |
-| 16 × 16 tiles in shared memory (C#) | 0.92 (2.34 ms) | 0.98 (17.6 ms) |
-| **Wave matrices (C#)**, commit to completion | **4.62** (0.47 ms) | **5.12** (3.35 ms) |
-| **Wave matrices (C#)**, GPU time | **5.08** (0.423 ms) | **5.19** (3.31 ms) |
-| Hand-written MSL with `simdgroup_matrix`, GPU time | 5.13 (0.418 ms) | 5.20 (3.31 ms) |
-| `MPSMatrixMultiplication`, GPU time | 5.33 (0.403 ms) | 5.43 (3.16 ms) |
+| Kernel | Written as | 1024 × 1024 | 2048 × 2048 |
+|---|---|---:|---:|
+| Naive, a thread per element | C# | 0.52 (4.15 ms) | 0.52 (33.1 ms) |
+| 16 × 16 tiles in shared memory | C# | 1.07 (2.01 ms) | 1.08 (15.9 ms) |
+| **Wave matrices, 2 × 4 accumulators** | **C#** | **5.08** (0.422 ms) | **5.19** (3.31 ms) |
+| `simdgroup_matrix`, 2 × 4 accumulators | hand-written MSL | 5.15 (0.417 ms) | 5.27 (3.26 ms) |
+| `MPSMatrixMultiplication` | Apple's kernel | 5.33 (0.403 ms) | 5.51 (3.12 ms) |
 
-The first three rows are ComputeLab's headless summary (the median of five runs, each the median of
-seven timings from commit to completion; the wave-matrix kernel is dispatched four times per command
-buffer, because a product of 0.4 ms is otherwise as short as a command buffer's round trip). The
-GPU times are `gpuEndTime − gpuStartTime` of a command buffer of 10 products (3 at 2048), the median
-of seven runs of seven, read by a small native Metal program that runs the MSL the generator emitted
-for the C# kernel, unchanged, next to a hand-written kernel of the same shape and MPS. In
-`benchmarks/`, the 1024 × 1024 product as one synchronous dispatch takes 576 µs with wave matrices
-and 4.51 ms naive (BenchmarkDotNet, the median of three runs).
+These are the SGEMM rows of the benchmarks' [native baselines](benchmarks/RESULTS.md#native-baselines-and-roofline)
+(`scripts/run-benchmarks.sh --native-baselines`: medians of 5 passes of 25 dispatches, every kernel
+on the same seeded random buffers). The C# kernel takes 1.013 to 1.014 times the GPU time of the
+same kernel written by hand in MSL and 1.05 to 1.06 times that of MPS, and `--verify` finds its
+product bit for bit that of the hand-written kernel and of MPS, and within 4 × 10⁻⁷ of a CPU
+reference that sums in another order.
 
 The kernel is `MatMulWaveMatrix` in
 [`MatrixUnitsPage.cs`](samples/SharpCompute.Samples.ComputeLab/Pages/Simd/MatrixUnitsPage.cs), and
 its shape is what the speed depends on:
 
 - **Eight accumulators per SIMD group** (2 × 4 matrices, a 16 × 32 block of C). Sixteen spill out of
-  the registers: the same kernel with 4 × 4 runs at 0.7 TFLOP/s.
+  the registers: the same kernel with 4 × 4 measured about seven times slower.
 - **Load operands straight from the buffers.** Staging them through `[GroupShared]` memory first,
-  the way the scalar tiled kernel does, made that 4 × 4 kernel slower still: 0.4 TFLOP/s.
+  the way the scalar tiled kernel does, made that 4 × 4 kernel slower again, by almost half.
 - **Four SIMD groups per threadgroup** (128 threads, a 32 × 64 tile of C), and the loop over the
   shared dimension unrolled twice by hand.
 - **Write offsets as sums**, as above.

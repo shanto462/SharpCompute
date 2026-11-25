@@ -59,11 +59,11 @@ namespace SharpCompute;
 /// <b>Speed.</b> Measured on Apple M4 Pro, a matrix product written with these operations reaches the
 /// rate of the hardware (about 5 TFLOP/s, against 1 TFLOP/s for the best scalar kernel), but only in
 /// the right shape. Keep at most <i>eight</i> accumulators live per SIMD group (2 × 4 tiles): sixteen
-/// spill out of the registers, and the kernel runs seven times slower, at 0.7 TFLOP/s. Load operands
+/// spill out of the registers, and the kernel runs about seven times slower. Load operands
 /// <i>directly from the buffers</i>: staging them through <c>[GroupShared]</c> memory first made that
-/// kernel slower still, 0.4 TFLOP/s. And write an offset as a plain sum, <c>row * n + k</c>: the
+/// kernel slower again, by almost half. And write an offset as a plain sum, <c>row * n + k</c>: the
 /// generator adds the terms to the buffer's address one at a time, which the GPU compiler turns into
-/// far better addressing than one 32-bit sum (5.1 against 4.4 TFLOP/s). The price of that is the one
+/// far better addressing than one 32-bit sum (that form measured about 15 % slower). The price of that is the one
 /// place where signed arithmetic is not C#'s on the GPU: each term wraps as usual, but their sum is
 /// formed in 64 bits and does not. The two differ only where the terms add up to more than an
 /// <see cref="int"/> holds, and that is no valid offset in C# either: a sum past
