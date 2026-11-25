@@ -45,18 +45,18 @@ public class ConversionTests
     }
 
     /// <summary>
-    /// Exactly the explicit conversions from the other two element kinds of the same width;
-    /// no implicit conversions and no equality operators (MSL <c>==</c> returns a bool vector).
+    /// Exactly the explicit conversions from the other three element kinds of the same width;
+    /// no implicit conversions and no equality operators (MSL <c>==</c> returns a bool vector, which
+    /// <c>Gpu.Equal</c> and <c>Gpu.NotEqual</c> return instead).
     /// </summary>
     [Theory]
-    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    [MemberData(nameof(VectorTypes.NumericData), MemberType = typeof(VectorTypes))]
     public void ConversionAndEqualityOperatorSurface(Type t)
     {
         MethodInfo[] ops = t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.IsSpecialName).ToArray();
-        Assert.DoesNotContain(ops, m => m.Name is "op_Implicit" or "op_Equality" or "op_Inequality"
-            or "op_LessThan" or "op_GreaterThan" or "op_LessThanOrEqual" or "op_GreaterThanOrEqual");
+        Assert.DoesNotContain(ops, m => m.Name is "op_Implicit" or "op_Equality" or "op_Inequality");
 
-        Type[] expectedSources = new[] { typeof(float), typeof(int), typeof(uint) }
+        Type[] expectedSources = new[] { typeof(float), typeof(Half), typeof(int), typeof(uint) }
             .Where(e => e != VectorTypes.Element(t))
             .Select(e => VectorTypes.Vector(e, VectorTypes.Width(t)))
             .OrderBy(x => x.Name)

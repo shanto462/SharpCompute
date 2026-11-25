@@ -14,6 +14,9 @@ public class ConstructorAndSwizzleTests
         FloatAssert.SameVector(new Float4(2.5f, 2.5f, 2.5f, 2.5f), new Float4(2.5f));
         Assert.Equal(new Int3(-7, -7, -7), new Int3(-7));
         Assert.Equal(new UInt2(9, 9), new UInt2(9));
+        FloatAssert.SameVector(new Half3((Half)2.5f, (Half)2.5f, (Half)2.5f), new Half3((Half)2.5f));
+        Assert.Equal(new Bool4(true, true, true, true), new Bool4(true));
+        Assert.Equal(new Bool2(false, false), new Bool2(false));
     }
 
     [Fact]
@@ -32,6 +35,16 @@ public class ConstructorAndSwizzleTests
         FloatAssert.SameVector(new Float3(1, 2, 3), new Float3(1, new Float2(2, 3)));
         Assert.Equal(new Int4(1, 2, 3, 4), new Int4(new Int3(1, 2, 3), 4));
         Assert.Equal(new UInt3(1, 2, 3), new UInt3(1, new UInt2(2, 3)));
+
+        // No constant converts to Half implicitly, so the readable way to write a half vector is to
+        // convert a float one.
+        var h4 = (Half4)new Float4(1, 2, 3, 4);
+        Assert.Equal(h4, new Half4((Half)1, (Half)2, (Half)3, (Half)4));
+        Assert.Equal(h4, new Half4((Half2)new Float2(1, 2), (Half2)new Float2(3, 4)));
+        Assert.Equal(h4, new Half4((Half)1, (Half3)new Float3(2, 3, 4)));
+        Assert.Equal((Half3)new Float3(1, 2, 3), new Half3((Half2)new Float2(1, 2), (Half)3));
+        Assert.Equal(new Bool4(true, false, false, true), new Bool4(new Bool2(true, false), new Bool2(false, true)));
+        Assert.Equal(new Bool3(true, false, true), new Bool3(true, new Bool2(false, true)));
     }
 
     /// <summary>
@@ -39,7 +52,7 @@ public class ConstructorAndSwizzleTests
     /// vectors of the same element type whose widths sum to the vector width (like MSL).
     /// </summary>
     [Theory]
-    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    [MemberData(nameof(VectorTypes.EveryData), MemberType = typeof(VectorTypes))]
     public void EveryConstructorMatchesAnMslConstructor(Type t)
     {
         int n = VectorTypes.Width(t);
@@ -115,6 +128,16 @@ public class ConstructorAndSwizzleTests
         var u = new UInt3(1, 2, 3);
         u.YZ = u.ZY;
         Assert.Equal(new UInt3(1, 3, 2), u);
+
+        var h = (Half4)new Float4(1, 2, 3, 4);
+        Assert.Equal((Half3)new Float3(4, 4, 1), h.WWX);
+        h.WX = (Half2)new Float2(40, 10);
+        Assert.Equal((Half4)new Float4(10, 2, 3, 40), h);
+
+        var b = new Bool3(true, false, false);
+        Assert.Equal(new Bool2(false, true), b.ZX);
+        b.YZ = new Bool2(true, true);
+        Assert.Equal(new Bool3(true, true, true), b);
     }
 
     /// <summary>
@@ -122,7 +145,7 @@ public class ConstructorAndSwizzleTests
     /// components, and is settable exactly when its components are distinct.
     /// </summary>
     [Theory]
-    [MemberData(nameof(VectorTypes.AllData), MemberType = typeof(VectorTypes))]
+    [MemberData(nameof(VectorTypes.EveryData), MemberType = typeof(VectorTypes))]
     public void AllSwizzlesExistAndRoundTrip(Type t)
     {
         int n = VectorTypes.Width(t);
@@ -182,6 +205,8 @@ public class ConstructorAndSwizzleTests
             Assert.Equal("<1.5, -2, 3>", new Float3(1.5f, -2, 3).ToString());
             Assert.Equal("<1, -2>", new Int2(1, -2).ToString());
             Assert.Equal("<1, 2, 3, 4294967295>", new UInt4(1, 2, 3, uint.MaxValue).ToString());
+            Assert.Equal("<1.5, -2>", new Half2((Half)1.5f, (Half)(-2)).ToString());
+            Assert.Equal("<True, False, True>", new Bool3(true, false, true).ToString());
         }
         finally
         {
