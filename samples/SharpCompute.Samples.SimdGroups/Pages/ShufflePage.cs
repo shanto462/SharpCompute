@@ -44,6 +44,17 @@ public sealed class ShufflePage : ILabPage
     /// <summary>The largest difference from the C# filter that passes the check: both compute in floats, but the GPU may fuse a multiply and an add.</summary>
     public const float Tolerance = 1e-5f;
 
+    /// <summary>
+    /// What <see cref="Check"/> filters again with <c>ForCpu</c>: this many samples (three SIMD groups and
+    /// one of four lanes) for <see cref="CpuPasses"/> passes. On the CPU the lanes of a SIMD group are
+    /// threads that meet at every operation, about a quarter of a millisecond each time, so the check
+    /// takes a sample rather than every pass over the whole signal.
+    /// </summary>
+    public const int CpuSample = 100;
+
+    /// <summary>The passes of the <c>ForCpu</c> sample.</summary>
+    public const int CpuPasses = 4;
+
     private static readonly string[] s_variants = ["3-tap", "5-tap"];
 
     private readonly GraphicsDevice _device;
@@ -56,6 +67,8 @@ public sealed class ShufflePage : ILabPage
     private readonly float[] _global = new float[Count];
     private readonly float[] _expected = new float[Count];
     private readonly float[] _scratch = new float[Count];
+    private readonly ReadWriteBuffer<float> _sampleA;
+    private readonly ReadWriteBuffer<float> _sampleB;
     private ReadWriteBuffer<float> _result;
 
     public ShufflePage(GraphicsDevice device)
@@ -65,6 +78,8 @@ public sealed class ShufflePage : ILabPage
         _a = device.AllocateReadWriteBuffer<float>(Count);
         _b = device.AllocateReadWriteBuffer<float>(Count);
         _plot = device.AllocateReadWriteBuffer<float>(DrawShuffle.Curves * Count);
+        _sampleA = device.AllocateReadWriteBuffer<float>(CpuSample);
+        _sampleB = device.AllocateReadWriteBuffer<float>(CpuSample);
         _result = _a;
 
         // A slow wave, a ripple, grain and a step that starts and ends in the middle of a SIMD group.
@@ -164,11 +179,56 @@ public sealed class ShufflePage : ILabPage
             }
         }
 
-        bool passed = largest <= Tolerance;
+        bool onCpu = SmoothOnCpu() <= Tolerance;
+        bool passed = largest <= Tolerance && onCpu;
         string summary = Invariant(
-            $"{Passes} {PassWord}: equal to the per-group filter in C# within {largest:0.0E+0} (limit {Tolerance:0E+0}; CPU: one core)");
+            $"{Passes} {PassWord} equal the C# per-group filter within {largest:0.0E+0} of {Tolerance:0E+0} (CPU: one core); {(onCpu ? "ForCpu too" : "FORCPU DIFFERS")}");
 
         return new LabCheck(passed, summary, cpuMs);
+    }
+
+    /// <summary>
+    /// Runs <see cref="CpuPasses"/> passes of the active kernel with <c>ForCpu</c> over the first
+    /// <see cref="CpuSample"/> samples and returns the largest difference from the C# filter of the same
+    /// samples. The sample is a grid of its own, so its last SIMD group is the partial one.
+    /// </summary>
+    private float SmoothOnCpu()
+    {
+        ReadWriteBuffer<float> source = _sampleA, target = _sampleB;
+        source.CopyFrom(_signal.AsSpan(0, CpuSample));
+
+        for (int pass = 0; pass < CpuPasses; pass++)
+        {
+            if (Variant == 0)
+            {
+                _device.ForCpu(CpuSample, new SmoothInGroups3(source, target));
+            }
+            else
+            {
+                _device.ForCpu(CpuSample, new SmoothInGroups5(source, target));
+            }
+
+            (source, target) = (target, source);
+        }
+
+        Span<float> expected = stackalloc float[CpuSample];
+        Span<float> scratch = stackalloc float[CpuSample];
+        CpuSmoothing.Run(_signal.AsSpan(0, CpuSample), expected, scratch, CpuPasses, Taps, Lanes);
+
+        ReadOnlySpan<float> result = source.AsReadOnlySpan();
+        float largest = 0f;
+
+        for (int i = 0; i < CpuSample; i++)
+        {
+            float difference = MathF.Abs(result[i] - expected[i]);
+
+            if (!(difference <= largest))
+            {
+                largest = difference;
+            }
+        }
+
+        return largest;
     }
 
     public void Draw(LabCanvas canvas, LabFrame frame)
@@ -238,6 +298,8 @@ public sealed class ShufflePage : ILabPage
         _a.Dispose();
         _b.Dispose();
         _plot.Dispose();
+        _sampleA.Dispose();
+        _sampleB.Dispose();
     }
 
     private int Taps => Variant == 0 ? 3 : 5;

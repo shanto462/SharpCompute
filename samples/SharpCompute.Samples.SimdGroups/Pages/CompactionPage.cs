@@ -42,6 +42,13 @@ public sealed class CompactionPage : ILabPage
     /// <summary>Particle coordinates are fixed-point: this many units per side of the field. Small enough for a squared distance to fit an <see cref="int"/>.</summary>
     public const int Units = 1 << 14;
 
+    /// <summary>
+    /// The particles <see cref="Check"/> compacts again with <c>ForCpu</c>: the first 16 SIMD groups. On the
+    /// CPU the lanes of a SIMD group are threads that meet at every operation, about a quarter of a
+    /// millisecond each time, so the check takes a sample rather than all 1,024 groups.
+    /// </summary>
+    public const int CpuSample = 16 * Lanes;
+
     private static readonly string[] s_variants = ["32 x 32 x 32 particles, small circle", "32 x 32 x 32 particles, large circle"];
 
     private readonly GraphicsDevice _device;
@@ -56,6 +63,15 @@ public sealed class CompactionPage : ILabPage
     private readonly ReadWriteBuffer<Int2> _compacted;
     private readonly ReadWriteBuffer<uint> _field;
     private readonly Int2[] _cpuCompacted = new Int2[Count];
+
+    // The buffers of the ForCpu sample: the same four passes over CpuSample particles.
+    private readonly ReadWriteBuffer<uint> _sampleBallots;
+    private readonly ReadWriteBuffer<int> _sampleCounts;
+    private readonly ReadWriteBuffer<int> _sampleOffsets;
+    private readonly ReadWriteBuffer<int> _sampleBlockTotals;
+    private readonly ReadWriteBuffer<int> _sampleBlockOffsets;
+    private readonly ReadWriteBuffer<int> _sampleKept;
+    private readonly ReadWriteBuffer<Int2> _sampleCompacted;
 
     private Int2 _center;
     private int _radius;
@@ -74,6 +90,13 @@ public sealed class CompactionPage : ILabPage
         _kept = device.AllocateReadWriteBuffer<int>(1);
         _compacted = device.AllocateReadWriteBuffer<Int2>(Count);
         _field = device.AllocateReadWriteBuffer<uint>(DrawCompaction.FieldSize * DrawCompaction.FieldSize);
+        _sampleBallots = device.AllocateReadWriteBuffer<uint>(CpuSample / Lanes);
+        _sampleCounts = device.AllocateReadWriteBuffer<int>(CpuSample / Lanes);
+        _sampleOffsets = device.AllocateReadWriteBuffer<int>(CpuSample / Lanes);
+        _sampleBlockTotals = device.AllocateReadWriteBuffer<int>(1);
+        _sampleBlockOffsets = device.AllocateReadWriteBuffer<int>(1);
+        _sampleKept = device.AllocateReadWriteBuffer<int>(1);
+        _sampleCompacted = device.AllocateReadWriteBuffer<Int2>(CpuSample);
 
         // SIMD group g owns cell (g % 32, g / 32) of a 32 x 32 grid over the field, and its 32
         // particles are scattered inside that cell: the hierarchy of the compaction is visible.
@@ -174,7 +197,8 @@ public sealed class CompactionPage : ILabPage
             }
         }
 
-        bool passed = Kept == count && badBallot < 0 && firstDifference < 0;
+        bool onCpu = CompactOnCpu(expected, radiusSquared);
+        bool passed = Kept == count && badBallot < 0 && firstDifference < 0 && onCpu;
 
         string summary = Kept != count
             ? Invariant($"the GPU kept {Kept:N0} particles, the C# loop {count:N0}")
@@ -182,7 +206,7 @@ public sealed class CompactionPage : ILabPage
                 ? Invariant($"the ballot of SIMD group {badBallot} does not have as many bits as its count")
                 : firstDifference >= 0
                     ? Invariant($"kept {Kept:N0} like the C# loop, but slot {firstDifference:N0} holds a different particle")
-                    : Invariant($"kept {Kept:N0} of {Count:N0}, the same particles in the same order as a C# loop (CPU: one core)");
+                    : Invariant($"kept {Kept:N0} of {Count:N0} like a C# loop, in its order (CPU: one core); {(onCpu ? "ForCpu too" : "FORCPU DIFFERS")}");
 
         return new LabCheck(passed, summary, cpuMs);
     }
@@ -288,6 +312,41 @@ public sealed class CompactionPage : ILabPage
         _kept.Dispose();
         _compacted.Dispose();
         _field.Dispose();
+        _sampleBallots.Dispose();
+        _sampleCounts.Dispose();
+        _sampleOffsets.Dispose();
+        _sampleBlockTotals.Dispose();
+        _sampleBlockOffsets.Dispose();
+        _sampleKept.Dispose();
+        _sampleCompacted.Dispose();
+    }
+
+    /// <summary>
+    /// The four passes again with <c>ForCpu</c>, over the first <see cref="CpuSample"/> particles, compared
+    /// with the start of the C# loop's result (<paramref name="expected"/>): the compaction is in particle
+    /// order, so what the first particles keep is the first of what all of them keep.
+    /// </summary>
+    private bool CompactOnCpu(ReadOnlySpan<Int2> expected, int radiusSquared)
+    {
+        const int Groups = CpuSample / Lanes;
+
+        _device.ForCpu(CpuSample, new VoteInGroups(_particles, _sampleBallots, _sampleCounts, _center.X, _center.Y, radiusSquared));
+        _device.ForCpu(Groups, new ScanCounts(_sampleCounts, _sampleOffsets, _sampleBlockTotals));
+        _device.ForCpu(1, new ScanCounts(_sampleBlockTotals, _sampleBlockOffsets, _sampleKept));
+        _device.ForCpu(CpuSample, new ScatterKept(_particles, _sampleBallots, _sampleOffsets, _sampleBlockOffsets, _sampleCompacted));
+
+        ReadOnlySpan<Int2> particles = _particles.AsReadOnlySpan()[..CpuSample];
+        int count = 0;
+
+        foreach (Int2 particle in particles)
+        {
+            if (IsInside(particle, _center, radiusSquared))
+            {
+                count++;
+            }
+        }
+
+        return _sampleKept[0] == count && _sampleCompacted.AsReadOnlySpan()[..count].SequenceEqual(expected[..count]);
     }
 
     /// <summary>The predicate, as the kernel computes it: a squared distance in integers.</summary>

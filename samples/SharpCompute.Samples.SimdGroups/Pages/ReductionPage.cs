@@ -61,6 +61,10 @@ public sealed class ReductionPage : ILabPage
     // The threads of both dispatches of each method.
     private static readonly int[] s_threads = [Count + Lanes, (Count / LaneStrip) + Lanes, (Count / LoopStrip) + 1];
 
+    // What each method sums again on the CPU for the check: few SIMD groups, because their lanes meet
+    // on real threads there (16 groups, one group of 32 strips, two strips).
+    private static readonly int[] s_cpuSamples = [16 * Lanes, Lanes * LaneStrip, 2 * LoopStrip];
+
     private static readonly string[] s_descriptions =
     [
         "One thread per float: WaveActiveSum adds the 32 lanes -> 524,288 partials -> one SIMD group folds them",
@@ -74,6 +78,8 @@ public sealed class ReductionPage : ILabPage
     private readonly ReadWriteBuffer<float> _partials;
     private readonly ReadWriteBuffer<float> _totals;
     private readonly ReadWriteBuffer<float> _bars;
+    private readonly ReadWriteBuffer<float> _cpuPartials;
+    private readonly ReadWriteBuffer<float> _cpuTotals;
 
     private readonly float[] _sums = new float[Methods];
     private readonly double[] _errors = new double[Methods];
@@ -92,6 +98,8 @@ public sealed class ReductionPage : ILabPage
         _partials = device.AllocateReadWriteBuffer<float>(Count / Lanes);
         _totals = device.AllocateReadWriteBuffer<float>(Methods);
         _bars = device.AllocateReadWriteBuffer<float>(CpuBar + 1);
+        _cpuPartials = device.AllocateReadWriteBuffer<float>(s_cpuSamples[0] / Lanes);
+        _cpuTotals = device.AllocateReadWriteBuffer<float>(1);
 
         // The input never changes: a hash of the index, as 24 random bits in [0, 1).
         Span<float> values = _input.AsSpan();
@@ -162,12 +170,48 @@ public sealed class ReductionPage : ILabPage
 
         double error = _errors[Variant];
         double relative = Math.Abs(error) / Math.Max(1, Math.Abs(reference));
-        bool passed = _hasRun[Variant] && relative <= Tolerance;
+        bool onCpu = SumOnCpu(Variant) <= Tolerance;
+        bool passed = _hasRun[Variant] && relative <= Tolerance && onCpu;
 
         string summary = Invariant(
-            $"{Total:F1} is {error:+0.00;-0.00} off the double sum {reference:F2}: {relative * 1e6:F3} ppm, limit {Tolerance * 1e6:F0} (CPU: one core)");
+            $"{Total:F1} vs {reference:F2} in double: {relative * 1e6:F3} ppm of {Tolerance * 1e6:F0} (CPU: one core); {(onCpu ? "ForCpu too" : "FORCPU DIFFERS")}");
 
         return new LabCheck(passed, summary, cpuMs);
+    }
+
+    /// <summary>The number of floats <see cref="Check"/> sums again with <c>ForCpu</c> for the active method.</summary>
+    public int CpuSample => s_cpuSamples[Variant];
+
+    /// <summary>
+    /// Runs the kernels of <paramref name="method"/> with <c>ForCpu</c> over the first floats of the
+    /// input and returns the relative difference of their sum from the double-precision sum of the same
+    /// floats. On the CPU the lanes of a SIMD group are threads that meet at every operation, about a
+    /// quarter of a millisecond each time, so this is a sample of the input, not the 16.7M floats.
+    /// </summary>
+    private double SumOnCpu(int method)
+    {
+        int sample = s_cpuSamples[method];
+
+        switch (method)
+        {
+            case 0:
+                _device.ForCpu(sample, new SumLanes(_input, _cpuPartials));
+                _device.ForCpu(Lanes, new FoldInOneGroup(_cpuPartials, _cpuTotals, sample / Lanes, 0));
+                break;
+
+            case 1:
+                _device.ForCpu(sample / LaneStrip, new SumStripsAndLanes(_input, _cpuPartials, LaneStrip));
+                _device.ForCpu(Lanes, new FoldInOneGroup(_cpuPartials, _cpuTotals, sample / LaneStrip / Lanes, 0));
+                break;
+
+            default:
+                _device.ForCpu(sample / LoopStrip, new SumStrips(_input, _cpuPartials, LoopStrip));
+                _device.ForCpu(1, new SumSerial(_cpuPartials, _cpuTotals, sample / LoopStrip, 0));
+                break;
+        }
+
+        double reference = CpuReduction.Double(_input.AsReadOnlySpan()[..sample]);
+        return Math.Abs(_cpuTotals[0] - reference) / reference;
     }
 
     public void Draw(LabCanvas canvas, LabFrame frame)
@@ -286,6 +330,8 @@ public sealed class ReductionPage : ILabPage
         _partials.Dispose();
         _totals.Dispose();
         _bars.Dispose();
+        _cpuPartials.Dispose();
+        _cpuTotals.Dispose();
     }
 
     private static uint Hash(uint x)
