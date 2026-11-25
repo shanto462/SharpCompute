@@ -142,6 +142,7 @@ public static class LabPages
         new Simd.ReductionPage(device),
         new Simd.CompactionPage(device),
         new ShufflePage(device),
+        new MatrixUnitsPage(device),
 
         // Dispatch.
         new IndirectPage(device),

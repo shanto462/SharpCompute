@@ -25,6 +25,9 @@ internal sealed class ShaderAnalyzer
 
     private const int MaxThreadsPerThreadgroup = 1024;
 
+    /// <summary>Threads per SIMD group on every Apple GPU (the runtime's <c>CpuSimdGroup.Width</c>), all of which a wave matrix needs.</summary>
+    private const int SimdGroupWidth = 32;
+
     private readonly SemanticModel _semanticModel;
     private readonly TypeDeclarationSyntax _declaration;
     private readonly INamedTypeSymbol _symbol;
@@ -448,6 +451,24 @@ internal sealed class ShaderAnalyzer
             }
         }
 
+        // A wave matrix is held by all 32 lanes of a SIMD group, and a threadgroup that is not a
+        // multiple of 32 threads ends in a group with fewer. Without [ThreadGroupSize] the runtime
+        // picks 256, 16 x 16 or 8 x 8 x 4, which are multiples.
+        int groupThreads = _threadGroupSizeX * _threadGroupSizeY * _threadGroupSizeZ;
+
+        if (types.UsesWaveMatrices && groupThreads % SimdGroupWidth != 0)
+        {
+            diagnostics.Report(
+                DiagnosticDescriptors.WaveMatrixInPartialSimdGroup,
+                TypeResolver.FindAttribute(_symbol, "ThreadGroupSizeAttribute")?.ApplicationSyntaxReference?.GetSyntax(_cancellationToken).GetLocation() ?? _location,
+                _symbol.Name,
+                _threadGroupSizeX.ToString(CultureInfo.InvariantCulture),
+                _threadGroupSizeY.ToString(CultureInfo.InvariantCulture),
+                _threadGroupSizeZ.ToString(CultureInfo.InvariantCulture),
+                groupThreads.ToString(CultureInfo.InvariantCulture),
+                (groupThreads % SimdGroupWidth).ToString(CultureInfo.InvariantCulture));
+        }
+
         if (diagnostics.HasErrors || translator.SawInvalidCode || types.SawErrorType)
         {
             // Either we reported why, or the user's code does not compile and the C# compiler will.
@@ -479,7 +500,10 @@ internal sealed class ShaderAnalyzer
         // The grid window takes the first free buffer index. A shader that uses all of them still
         // works for whole-grid dispatches; it just cannot be split (GraphicsDevice.ForSplit rejects it).
         int gridWindowIndex = boundArguments < MaxBoundArguments ? boundArguments : -1;
-        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Samplers, translator.Globals, types.Structs, buffers, textures, firstTextureIndex, constants, constantsSize, translator.Helpers, groupShared, body, builtins, gridWindowIndex);
+        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Samplers, translator.Globals, types.Structs, buffers, textures, firstTextureIndex, constants, constantsSize, translator.Helpers, groupShared, body, builtins, gridWindowIndex)
+        {
+            UsesWaveMatrices = types.UsesWaveMatrices,
+        };
         string msl = MslSourceBuilder.Build(program);
         string shaderName = TypeName();
 
@@ -665,7 +689,12 @@ internal sealed class ShaderAnalyzer
         {
             GpuType? type = types.Resolve(typeSymbol, out TypeFailure? failure);
 
-            if (type is { IsResource: false, CanCrossBoundary: false })
+            if (TypeResolver.WaveMatrixStorage(typeSymbol, $"captured shader state (the {kind.ToLowerInvariant()} '{symbol.Name}')") is { } matrixCapture)
+            {
+                type = null;
+                failure = matrixCapture;
+            }
+            else if (type is { IsResource: false, CanCrossBoundary: false })
             {
                 // Fine as a local (bool, bool vectors, types without a packed form), but not as state.
                 type = null;
@@ -935,6 +964,9 @@ internal sealed class ShaderAnalyzer
 
         public string EntryPoint { get; }
 
+        /// <summary>True when the shader names a wave matrix type, whose header is then included by name.</summary>
+        public bool UsesWaveMatrices { get; init; }
+
         public bool IsPixelShader { get; }
 
         /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used.</summary>
@@ -980,6 +1012,13 @@ internal sealed class ShaderAnalyzer
             List<ConstantMember> constants = program.Constants;
 
             writer.Line("#include <metal_stdlib>");
+
+            if (program.UsesWaveMatrices)
+            {
+                // metal_stdlib includes it already; naming it says what the shader depends on.
+                writer.Line("#include <metal_simdgroup_matrix>");
+            }
+
             writer.Line();
             writer.Line("using namespace metal;");
 

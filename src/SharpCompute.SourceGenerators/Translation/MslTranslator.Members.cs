@@ -419,6 +419,10 @@ internal sealed partial class MslTranslator
             case GpuTypeKind.Struct when operation.Arguments.Length == 0 && operation.Constructor is null or { IsImplicitlyDeclared: true }:
                 return Zero(type, operation);
 
+            case GpuTypeKind.WaveMatrix when operation.Arguments.Length == 0:
+                // `new WaveMatrix8x8()` is `default`: the zero matrix.
+                return Zero(type, operation);
+
             case GpuTypeKind.Struct when operation.Constructor is { } constructor && UserMethodProblem(constructor) is null:
                 // A constructor declared in source is a function that returns the struct.
                 return UserCall(operation, constructor, receiver: null, operation.Arguments);
@@ -461,6 +465,12 @@ internal sealed partial class MslTranslator
         if (SimdGroupCall(operation, definition) is { } simdGroupCall)
         {
             return simdGroupCall;
+        }
+
+        // The members of the wave matrices, which map to Metal's simdgroup_matrix functions.
+        if (WaveMatrixCall(operation, definition) is { } waveMatrixCall)
+        {
+            return waveMatrixCall;
         }
 
         // Members of textures (Sample) are recognized by name, like the indexers and Width/Height.

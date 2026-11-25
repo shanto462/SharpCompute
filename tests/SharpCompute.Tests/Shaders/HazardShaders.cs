@@ -18,6 +18,23 @@ public readonly partial struct AddReadWrite(ReadWriteBuffer<float> a, ReadWriteB
     }
 }
 
+/// <summary>
+/// <c>destination = left · right</c> for 8×8 matrices at the start of each buffer: a wave matrix's
+/// <c>Load</c> reads two captures and its <c>Store</c>, which names no element, writes the third.
+/// </summary>
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MatrixProductReadWrite(ReadWriteBuffer<float> left, ReadWriteBuffer<float> right, ReadWriteBuffer<float> destination) : IComputeShader
+{
+    public void Execute()
+    {
+        WaveMatrix8x8 a = WaveMatrix8x8.Load(left, 0, 8);
+        WaveMatrix8x8 b = WaveMatrix8x8.Load(right, 0, 8);
+        WaveMatrix8x8 product = WaveMatrix8x8.Multiply(a, b);
+        product.Store(destination, 0, 8);
+    }
+}
+
 /// <summary><c>if (i &lt; extra.Length) extra[i] = data[i] + 1</c>: writes a buffer that may be empty, and then writes nothing.</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct CopyIntoMaybeEmpty(ReadWriteBuffer<float> data, ReadWriteBuffer<float> extra) : IComputeShader

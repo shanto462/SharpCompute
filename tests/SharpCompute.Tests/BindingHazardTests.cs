@@ -108,6 +108,65 @@ public unsafe class BindingHazardTests
         Assert.Equal(Ramp(scale: 2f), sum.ToArray());
     }
 
+    [MetalFact]
+    public void AWaveMatrixStore_WritesItsDestination_AndALoadOnlyReadsItsSource()
+    {
+        // The shader stores no element: `product.Store(destination, …)` is its only write.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+
+        // Small whole numbers, so the product is exact however Metal rounds it.
+        float[] data = Enumerable.Range(0, Length).Select(static i => (float)((i * 7 % 5) - 2)).ToArray();
+        float[] identity = Enumerable.Range(0, Length).Select(static i => i / 8 == i % 8 ? 1f : 0f).ToArray();
+        float[] square = new float[Length];
+
+        for (int row = 0; row < 8; row++)
+        {
+            for (int column = 0; column < 8; column++)
+            {
+                for (int k = 0; k < 8; k++)
+                {
+                    square[(row * 8) + column] += data[(row * 8) + k] * data[(k * 8) + column];
+                }
+            }
+        }
+
+        using ReadWriteBuffer<float> x = device.AllocateReadWriteBuffer<float>(data);
+        using ReadWriteBuffer<float> y = device.AllocateReadWriteBuffer<float>(identity);
+        using ReadWriteBuffer<float> result = device.AllocateReadWriteBuffer<float>(Length);
+
+        // One buffer as the source of a load and the destination of the store: refused, on every path.
+        AssertRefusedEverywhere(device, new MatrixProductReadWrite(x, y, x), "buffer", "The buffer bound at index 2 overlaps the buffer bound at index 0", "the shader writes one of them");
+        AssertRefusedEverywhere(device, new MatrixProductReadWrite(y, x, x), "buffer", "index 2 overlaps the buffer bound at index 1");
+        AssertRefusedEverywhere(device, new MatrixProductReadWrite(x, y, x.Slice(32, 32)), "buffer", "index 2 overlaps the buffer bound at index 0");
+
+        // Nothing ran.
+        Assert.Equal(data, x.ToArray());
+        Assert.Equal(identity, y.ToArray());
+
+        // Loaded from one buffer and stored to another: allowed.
+        device.For(32, new MatrixProductReadWrite(x, y, result));
+        Assert.Equal(data, result.ToArray());
+
+        // A load is a read, so one buffer as the source of both loads is allowed too: x · x.
+        result.AsSpan().Clear();
+        device.For(32, new MatrixProductReadWrite(x, x, result));
+        Assert.Equal(square, result.ToArray());
+
+        result.AsSpan().Clear();
+        device.ForCpu(32, new MatrixProductReadWrite(x, x, result));
+        Assert.Equal(square, result.ToArray());
+
+        result.AsSpan().Clear();
+
+        using (ComputeContext context = device.CreateComputeContext())
+        {
+            context.For(32, new MatrixProductReadWrite(x, x, result));
+        }
+
+        Assert.Equal(square, result.ToArray());
+        Assert.Equal(data, x.ToArray());
+    }
+
     [MetalTheory]
 
     // (start, length) of the view that is read and of the view that is written, in one buffer of 64.

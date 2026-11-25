@@ -1,3 +1,4 @@
+using System;
 using Microsoft.CodeAnalysis;
 
 namespace SharpCompute.SourceGenerators.Tests;
@@ -242,5 +243,103 @@ public class EvaluationOrderTests
     public void OrderIndependentExpressions_AreNotReported(string statements)
     {
         RunBody(statements).Verify("Tests.TestShader");
+    }
+
+    // ---- wave matrices: Load reads its source and Store writes its destination -------------------
+
+    /// <summary>
+    /// Helpers that store a matrix (<c>Save*</c>), load one (<c>Fetch*</c>) and write an element
+    /// (<c>Poke*</c>) of a buffer, a buffer parameter and a <c>[GroupShared]</c> array.
+    /// </summary>
+    private const string MatrixMembers = """
+            public readonly ReadWriteBuffer<float> data;
+            public readonly ReadWriteBuffer<float> result;
+
+            [GroupShared]
+            private static readonly float[] tile = new float[256];
+
+            private int Save(WaveMatrix8x8 m) { m.Store(data, 0, 8); return 1; }
+
+            private static int SaveTile(WaveMatrix8x8 m) { m.Store(tile, 0, 8); return 1; }
+
+            private static int SaveP(ReadWriteBuffer<float> b, WaveMatrix8x8 m) { m.Store(b, 0, 8); return 1; }
+
+            private WaveMatrix8x8 Fetch() => WaveMatrix8x8.Load(data, 0, 8);
+
+            private static WaveMatrix8x8 FetchP(ReadWriteBuffer<float> b) => WaveMatrix8x8.Load(b, 0, 8);
+
+            private int Poke() { data[0] = 5f; return 0; }
+
+            private static int PokeTile() { tile[0] = 5f; return 0; }
+
+            private static int Pair(int a, int b) => (a * 1000) + b;
+        """;
+
+    private static GeneratorRun RunMatrixBody(string body) =>
+        GeneratorHarness.Run(TestSources.Vectors, TestSources.Shader(MatrixMembers + $$"""
+
+                public void Execute()
+                {
+                    WaveMatrix8x8 m = WaveMatrix8x8.Filled(1f);
+                    {{body}}
+                }
+            """, attributes: "[ThreadGroupSize(64)]"));
+
+    [Theory]
+    // A helper stores a matrix where the target's index, an operand or a sibling argument reads: the
+    // GPU stores first (result[7], not result[0], when the matrix is filled with 7).
+    [InlineData("result[(int)data[0]] = Save(m);", "data")]
+    [InlineData("result[0] = Pair((int)data[0], Save(m));", "data")]
+    [InlineData("result[0] = data[0] + Save(m);", "data")]
+    [InlineData("result[(int)data[0]] = SaveP(data, m);", "data")]
+    [InlineData("result[0] = Pair((int)data[0], SaveP(data, m));", "data")]
+    [InlineData("result[(int)tile[0]] = SaveTile(m);", "tile")]
+    [InlineData("tile[(int)tile[0]] = SaveTile(m);", "tile")]
+    // One argument loads what a sibling writes. The calls are on two lines: SCG0035 is about one.
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(WaveMatrix8x8.Load(data, 0, 8),\n WaveMatrix8x8.Load(data, Poke(), 8));", "data")]
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(WaveMatrix8x8.Load(tile, 0, 8),\n WaveMatrix8x8.Load(tile, PokeTile(), 8));", "tile")]
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(WaveMatrix8x8.Load(data, Poke(), 8),\n WaveMatrix8x8.Load(data, 0, 8));", "data")]
+    // The load is in a helper, of the shader's buffer and of a buffer parameter.
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(Fetch(),\n WaveMatrix8x8.Filled(Poke()));", "data")]
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(FetchP(data),\n WaveMatrix8x8.Filled(Poke()));", "data")]
+    // A load beside a direct write of an element.
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(WaveMatrix8x8.Load(data, 0, 8),\n WaveMatrix8x8.Filled(data[0]++));", "data")]
+    public void AMatrixLoadOrStore_ThatDependsOnEvaluationOrder_IsSCG0021(string statement, string resource)
+    {
+        Diagnostic diagnostic = RunMatrixBody(statement).AssertOnlyDiagnostic("SCG0021", statement.TrimEnd(';').Replace("WaveMatrix8x8 p = ", string.Empty, StringComparison.Ordinal));
+        string message = diagnostic.GetMessage();
+
+        Assert.StartsWith($"'{resource}' is modified and used again within one expression; C# evaluates it left to right", message);
+        Assert.Contains($"'{resource}' is GPU memory, and any two of its elements are treated as the same one", message);
+    }
+
+    [Fact]
+    public void TheMessage_ForTwoLoads_SaysToDoTheFirstLoadFirst()
+    {
+        const string Product = "WaveMatrix8x8.Multiply(WaveMatrix8x8.Load(data, 0, 8),\n WaveMatrix8x8.Load(data, Poke(), 8))";
+        Diagnostic diagnostic = RunMatrixBody($"WaveMatrix8x8 p = {Product};").AssertOnlyDiagnostic("SCG0021", Product);
+
+        Assert.EndsWith("evaluate the call into a local first, as in 'var t = WaveMatrix8x8.Load(data, 0, 8);', and use the local in the expression.", diagnostic.GetMessage());
+    }
+
+    [Theory]
+    // The split forms of the refused ones.
+    [InlineData("int at = (int)data[0];\nint saved = Save(m);\nresult[at] = saved;")]
+    [InlineData("WaveMatrix8x8 first = WaveMatrix8x8.Load(data, 0, 8);\nint at = Poke();\nWaveMatrix8x8 second = WaveMatrix8x8.Load(data, at, 8);\nWaveMatrix8x8 p = WaveMatrix8x8.Multiply(first, second);\np.Store(result, 0, 8);")]
+    // A load or store comes after its own arguments, in both languages.
+    [InlineData("m.Store(data, (int)data[0], 8);")]
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Load(data, Poke(), 8);\np.Store(result, 0, 8);")]
+    [InlineData("m.Store(tile, PokeTile(), 8);")]
+    // The store of the assignment comes last in both languages.
+    [InlineData("data[0] = Save(m);")]
+    // Loads only read, and another resource is another variable.
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(WaveMatrix8x8.Load(data, 0, 8),\n WaveMatrix8x8.Load(data, 64, 8));\np.Store(data, 128, 8);")]
+    [InlineData("WaveMatrix8x8 p = WaveMatrix8x8.Multiply(Fetch(),\n FetchP(data));\np.Store(result, 0, 8);")]
+    [InlineData("result[(int)result[0]] = Save(m);")]
+    [InlineData("result[(int)data[0]] = SaveTile(m);")]
+    [InlineData("result[(int)data[0]] = SaveP(result, m);")]
+    public void AMatrixLoadOrStore_ThatIsOrderIndependent_IsNotReported(string statements)
+    {
+        RunMatrixBody(statements).Verify("Tests.TestShader");
     }
 }

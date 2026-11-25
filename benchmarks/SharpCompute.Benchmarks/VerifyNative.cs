@@ -11,8 +11,8 @@ public static partial class Verify
 {
     /// <summary>
     /// The tolerance for a matrix product that is free to take its sums in another order than the CPU
-    /// reference's ascending k: <c>MPSMatrixMultiplication</c> and the <c>simdgroup_matrix</c> kernel
-    /// multiply 8 × 8 blocks, and nothing promises the order inside one. Reordering changes a sum of n
+    /// reference's ascending k: <c>MPSMatrixMultiplication</c> and the <c>simdgroup_matrix</c> kernels
+    /// (the hand-written one and the C# one) multiply 8 × 8 blocks, and nothing promises the order inside one. Reordering changes a sum of n
     /// positive products by up to about n · 2⁻²⁴ of its value (1.2e-4 at n = 2048) in the worst case
     /// and far less in practice; an indexing mistake is off by 1e-2 or more.
     /// </summary>
@@ -54,10 +54,21 @@ public static partial class Verify
         Clear(sgemm);
         sgemm.HandWrittenSimdgroup();
         add(Reordered("GPU hand-written simdgroup"));
+        float[] handWrittenSimdgroup = sgemm.GpuC.ToArray();
 
         Clear(sgemm);
         sgemm.Mps.Run();
         add(Reordered("GPU MPSMatrixMultiplication"));
+        float[] mps = sgemm.GpuC.ToArray();
+
+        // The matrix-unit kernel as a C# shader. Against the CPU like the two above; against its
+        // hand-written twin bit for bit, because the two are the same matrix operations in the same
+        // order; and against MPS, whose order is its own, with the tolerance of a reordered sum.
+        Clear(sgemm);
+        sgemm.GeneratedWaveMatrix();
+        add(Reordered("GPU generated wave matrices"));
+        add(Compare("SGEMM", size, "GPU generated wave matrices", "GPU hand-written simdgroup", sgemm.GpuC.AsSpan(), handWrittenSimdgroup) with { Tolerance = 0 });
+        add(Compare("SGEMM", size, "GPU generated wave matrices", "GPU MPSMatrixMultiplication", sgemm.GpuC.AsSpan(), mps) with { Tolerance = ReorderedSumTolerance });
 
         // Held to the CPU with the looser tolerance; how close it came to the naive kernel is a detail worth seeing.
         Check Reordered(string variant)

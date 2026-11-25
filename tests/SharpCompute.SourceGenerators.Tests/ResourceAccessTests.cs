@@ -51,7 +51,7 @@ public partial class ResourceAccessTests
     /// <summary>Every read-write capture of the test shader, in the order <see cref="NeverWritten"/> lists them.</summary>
     private const string AllReadWrite = "a,b,canvas,cells,counts,paper";
 
-    private static GeneratorRun Run(string body, string extraMembers = "") =>
+    private static GeneratorRun Run(string body, string extraMembers = "", string attributes = "") =>
         GeneratorHarness.Run(TestSources.Vectors, TestSources.Shader($$"""
             {{Captures}}
             {{extraMembers}}
@@ -60,15 +60,15 @@ public partial class ResourceAccessTests
                 {
                     {{body}}
                 }
-            """) + Cell);
+            """, attributes) + Cell);
 
     [GeneratedRegex(@"writer\.Set(?:Buffer|Texture)\(\d+, shader\.(\w+) \?\? throw [^\n]*?(, written: false)?\);")]
     private static partial Regex Binding();
 
     /// <summary>The captures bound with <c>written: false</c>, sorted and comma-separated; every shader here is also compiled by Metal.</summary>
-    private static string NeverWritten(string body, string extraMembers = "")
+    private static string NeverWritten(string body, string extraMembers = "", string attributes = "")
     {
-        GeneratorRun run = Run(body, extraMembers);
+        GeneratorRun run = Run(body, extraMembers, attributes);
         run.Verify(Shader);
 
         MatchCollection bindings = Binding().Matches(run.Source("Tests.TestShader.SharpCompute.g.cs"));
@@ -171,6 +171,56 @@ public partial class ResourceAccessTests
             NeverWritten(
                 "float x = Load(a, 0) + Peek(canvas);",
                 "static float Load(ReadWriteBuffer<float> source, int i) => source[i];\nstatic float Peek(ReadWriteTexture2D<float> source) => source[0, 0].X;"));
+    }
+
+    [Fact]
+    public void AWaveMatrixStore_WritesItsDestination_AndALoadOnlyReadsItsSource()
+    {
+        // A matrix is held by a SIMD group, so these shaders have a threadgroup of 32; two calls of
+        // one matrix operation go on lines of their own (the CPU tells call sites apart by line).
+        static string Matrix(string body, string extraMembers = "") => NeverWritten(body, extraMembers, "[ThreadGroupSize(32)]");
+
+        // The store names no element of `b`, and is the only thing that writes it.
+        Assert.Equal(
+            "a,canvas,cells,counts,paper",
+            Matrix("WaveMatrix8x8 m = WaveMatrix8x8.Load(a, 0, 8); m.Store(b, 0, 8);"));
+
+        Assert.Equal(
+            "b,canvas,cells,counts,paper",
+            Matrix("WaveMatrix8x8.Filled(1f).Store(a, offset: 8, stride: 8, transpose: true);"));
+
+        // Loaded from and stored to one capture: written.
+        Assert.Equal(
+            "b,canvas,cells,counts,paper",
+            Matrix("WaveMatrix8x8 m = WaveMatrix8x8.Load(a, 0, 8); m.Store(a, 64, 8);"));
+
+        // Loads alone leave a read-write buffer unwritten, in the kernel and through a parameter.
+        Assert.Equal(
+            AllReadWrite,
+            Matrix("WaveMatrix8x8 left = WaveMatrix8x8.Load(a, 0, 8);\nWaveMatrix8x8 right = WaveMatrix8x8.Load(b, 0, 8, true);\nWaveMatrix8x8 m = WaveMatrix8x8.Multiply(left, right);"));
+
+        Assert.Equal(
+            AllReadWrite,
+            Matrix("WaveMatrix8x8 m = Take(a);", "static WaveMatrix8x8 Take(ReadWriteBuffer<float> source) => WaveMatrix8x8.Load(source, 0, 8);"));
+
+        // A store in a helper that names the capture marks that capture.
+        Assert.Equal(
+            "a,canvas,cells,counts,paper",
+            Matrix("Keep(WaveMatrix8x8.Load(a, 0, 8));", "void Keep(WaveMatrix8x8 m) { m.Store(b, 0, 8); }"));
+
+        // Through a helper's buffer parameter it could be to any buffer capture, as for an element.
+        Assert.Equal(
+            "canvas,paper",
+            Matrix(
+                "Keep(WaveMatrix8x8.Load(a, 0, 8), b);",
+                "static void Keep(WaveMatrix8x8 m, ReadWriteBuffer<float> target) { m.Store(target, 0, 8); }"));
+
+        // A [GroupShared] array is the threadgroup's memory, not a binding: storing to one marks none.
+        Assert.Equal(
+            AllReadWrite,
+            Matrix(
+                "WaveMatrix8x8 m = WaveMatrix8x8.Load(a, 0, 8);\nm.Store(tile, 0, 8);\nWaveMatrix8x8 back = WaveMatrix8x8.Load(tile, 0, 8);",
+                "[GroupShared] private static readonly float[] tile = new float[64];"));
     }
 
     [Fact]

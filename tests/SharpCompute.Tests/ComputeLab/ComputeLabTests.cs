@@ -198,7 +198,7 @@ public sealed class ComputeLabTests
         "Histogram", "Histogram: privatised", "Compaction",
         "Reduction", "PrefixSum", "MatMul", "Blur",
         "LocalArrays",
-        "SIMD reduction", "SIMD compaction", "SIMD shuffle",
+        "SIMD reduction", "SIMD compaction", "SIMD shuffle", "Matrix units",
         "Indirect",
         "Bits", "FastMath", "Small and wide integers", "Half precision",
         "Shared code",
@@ -209,10 +209,10 @@ public sealed class ComputeLabTests
         "1-histogram.png", "2-histogram-privatised.png", "3-compaction.png",
         "4-reduction.png", "5-prefixsum.png", "6-matmul.png", "7-blur.png",
         "8-localarrays.png",
-        "9-simd-reduction.png", "10-simd-compaction.png", "11-simd-shuffle.png",
-        "12-indirect.png",
-        "13-bits.png", "14-fastmath.png", "15-small-and-wide-integers.png", "16-half-precision.png",
-        "17-shared-code.png",
+        "9-simd-reduction.png", "10-simd-compaction.png", "11-simd-shuffle.png", "12-matrix-units.png",
+        "13-indirect.png",
+        "14-bits.png", "15-fastmath.png", "16-small-and-wide-integers.png", "17-half-precision.png",
+        "18-shared-code.png",
     ];
 
     [MetalFact]
@@ -229,7 +229,7 @@ public sealed class ComputeLabTests
                     "atomics", "threadgroup atomics", "atomics",
                     "tree sum", "Blelloch scan", "tiled product", "tile + apron",
                     "fixed-size local arrays",
-                    "SIMD-group reductions", "ballots and prefix sums", "lane shuffles",
+                    "SIMD-group reductions", "ballots and prefix sums", "lane shuffles", "wave matrices",
                     "indirect dispatch",
                     "bit and packing intrinsics", "per-shader compile options", "8-bit and 64-bit integers", "Half4 and bool vectors",
                     "static helpers and struct methods",
@@ -238,7 +238,7 @@ public sealed class ComputeLabTests
 
             // Topic by topic, in the lab's order, every topic with at least one page.
             Assert.Equal(
-                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 3), LabTopics.Dispatch, .. Enumerable.Repeat(LabTopics.Math, 4), LabTopics.CodeReuse],
+                [.. Enumerable.Repeat(LabTopics.Atomics, 3), .. Enumerable.Repeat(LabTopics.SharedMemory, 4), LabTopics.LocalArrays, .. Enumerable.Repeat(LabTopics.Simd, 4), LabTopics.Dispatch, .. Enumerable.Repeat(LabTopics.Math, 4), LabTopics.CodeReuse],
                 pages.Select(static p => p.Topic));
             Assert.Equal(LabTopics.All, pages.Select(static p => p.Topic).Distinct());
             Assert.Equal(pages.Select(static p => p.Topic), pages.Select(static p => p.Topic).OrderBy(static t => LabTopics.All.ToList().IndexOf(t)));
@@ -250,9 +250,9 @@ public sealed class ComputeLabTests
             // Names, and so the pictures and --page, are unique.
             Assert.Equal(pages.Count, pages.Select(static p => LabPages.Slug(p.Name)).Distinct().Count());
 
-            // Only the privatised page times a second dispatch, and only the matrix product has a rate.
+            // Only the privatised page and the half-precision page time a second dispatch, and only the matrix products have a rate.
             Assert.Equal(pages.Select(static p => p.Name is "Histogram: privatised" or "Half precision"), pages.Select(static p => p.Baseline is not null));
-            Assert.Equal(pages.Select(static p => p.Name == "MatMul"), pages.Select(static p => p is IRatedPage));
+            Assert.Equal(pages.Select(static p => p.Name is "MatMul" or "Matrix units"), pages.Select(static p => p is IRatedPage));
 
             // The CPU side runs on all cores unless the page says otherwise, as its check line does too.
             Assert.Equal(
@@ -275,13 +275,14 @@ public sealed class ComputeLabTests
             Assert.Equal(7, LabPages.Find(pages, "localarrays"));
             Assert.Equal(8, LabPages.Find(pages, "simd-reduction"));
             Assert.Equal(10, LabPages.Find(pages, "SIMD shuffle"));
-            Assert.Equal(12, LabPages.Find(pages, "Bits"));
-            Assert.Equal(13, LabPages.Find(pages, "fastmath"));
-            Assert.Equal(14, LabPages.Find(pages, "small-and-wide-integers"));
-            Assert.Equal(14, LabPages.Find(pages, "Small and wide integers"));
-            Assert.Equal(15, LabPages.Find(pages, "half-precision"));
-            Assert.Equal(15, LabPages.Find(pages, "Half precision"));
-            Assert.Equal(16, LabPages.Find(pages, "shared-code"));
+            Assert.Equal(11, LabPages.Find(pages, "matrix-units"));
+            Assert.Equal(13, LabPages.Find(pages, "Bits"));
+            Assert.Equal(14, LabPages.Find(pages, "fastmath"));
+            Assert.Equal(15, LabPages.Find(pages, "small-and-wide-integers"));
+            Assert.Equal(15, LabPages.Find(pages, "Small and wide integers"));
+            Assert.Equal(16, LabPages.Find(pages, "half-precision"));
+            Assert.Equal(16, LabPages.Find(pages, "Half precision"));
+            Assert.Equal(17, LabPages.Find(pages, "shared-code"));
             Assert.Equal(-1, LabPages.Find(pages, "privatised"));
             Assert.Equal(-1, LabPages.Find(pages, "shuffle"));
         }
@@ -423,8 +424,8 @@ public sealed class ComputeLabTests
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
                 // Every variant of every page: two histograms, compaction, reduction, prefix sum, product, blur, local arrays,
-                // SIMD reduction (3), SIMD compaction, shuffle, indirect (3), bits, fast math, small and wide integers, half precision, shared code.
-                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 3 + 1 + 2 + 1 + 2 + 1;
+                // SIMD reduction (3), SIMD compaction, shuffle, matrix units (6), indirect (3), bits, fast math, small and wide integers, half precision, shared code.
+                int variants = 2 + 2 + 1 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 6 + 3 + 1 + 2 + 1 + 2 + 1;
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal)));
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
@@ -440,19 +441,23 @@ public sealed class ComputeLabTests
                 Assert.Contains("median 3x3 (sorting network)", summary);
                 Assert.Contains("gaussian 5x5 (weight table)", summary);
                 Assert.Equal(variants, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
-                Assert.Equal(2, summary.Split('\n').Count(static line => line.Contains("GFLOP/s   CPU ", StringComparison.Ordinal)));
+                Assert.Equal(2 + 6, summary.Split('\n').Count(static line => line.Contains("GFLOP/s   CPU ", StringComparison.Ordinal))); // MatMul, and the matrix units' kernels at both sizes
+                Assert.Contains("1024 x 1024: wave matrices", summary);
+                Assert.Contains("2048 x 2048: tiles in shared memory", summary);
+                Assert.Contains("32 of 2048 rows match C# doubles", summary);
                 Assert.Equal(1 + 3 + 2 + 2, summary.Split('\n').Count(static line => line.Contains(" ms (one core)", StringComparison.Ordinal))); // the prefix sum, and the SIMD pages' variants
-                Assert.Contains("[9/17] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
+                Assert.Contains("[9/18] SIMD groups / SIMD reduction: SIMD-group reductions", summary);
+                Assert.Contains("[12/18] SIMD groups / Matrix units: wave matrices", summary);
 
-                Assert.Contains("[15/17] Math / Small and wide integers: 8-bit and 64-bit integers", summary);
+                Assert.Contains("[16/18] Math / Small and wide integers: 8-bit and 64-bit integers", summary);
                 Assert.Contains("1,048,576 bytes equalised in place, 1,048,576 64-bit hashes: GPU, ForCpu and plain C# agree", summary);
 
                 // The privatised histogram is also timed against the global-atomics one, at both bin counts.
-                Assert.Contains("[2/17] Atomics / Histogram: privatised: threadgroup atomics", summary);
+                Assert.Contains("[2/18] Atomics / Histogram: privatised: threadgroup atomics", summary);
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("global atomics: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
 
                 // And the half blur against the float blur, at both radii; its CPU time is the float blur's.
-                Assert.Contains("[16/17] Math / Half precision: Half4 and bool vectors", summary);
+                Assert.Contains("[17/18] Math / Half precision: Half4 and bool vectors", summary);
                 Assert.Contains("289 taps (radius 8)", summary);
                 Assert.Contains("81 taps (radius 4)", summary);
                 Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("the same blur in float: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));

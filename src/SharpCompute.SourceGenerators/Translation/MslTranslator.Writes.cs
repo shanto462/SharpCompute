@@ -25,6 +25,12 @@ namespace SharpCompute.SourceGenerators;
 /// reads the value. A pixel is only ever written by assigning <c>texture[x, y]</c>.
 /// </para>
 /// <para>
+/// The one store that names no element is a wave matrix's: <c>matrix.Store(buffer, …)</c> writes 64
+/// elements of the buffer it is given, from inside Metal's function (<see cref="RecordBufferStore"/>).
+/// <c>WaveMatrix8x8.Load(buffer, …)</c> only reads its buffer, and marks nothing. A
+/// <c>[GroupShared]</c> array either of them is given is the threadgroup's own memory, not a binding.
+/// </para>
+/// <para>
 /// A captured resource is known by its capture, in the kernel and in the helpers that use it. One
 /// that reaches the code another way (a helper's buffer or texture parameter, a local) could be any
 /// capture of its kind, so a store through one marks them all, as for the fences
@@ -60,7 +66,18 @@ internal sealed partial class MslTranslator
             return;
         }
 
-        if (CapturedResource(element.Instance) is { IsBuffer: true } capture)
+        RecordBufferStore(element.Instance);
+    }
+
+    /// <summary>
+    /// Records a store to the read-write buffer <paramref name="buffer"/> names: to an element of it,
+    /// or the whole-matrix store of <c>WaveMatrix8x8.Store</c> and <c>WaveMatrixHalf8x8.Store</c>,
+    /// whose destination it is. A capture is marked itself; a helper's buffer parameter could be any
+    /// buffer capture, and marks them all.
+    /// </summary>
+    private void RecordBufferStore(IOperation? buffer)
+    {
+        if (CapturedResource(buffer) is { IsBuffer: true } capture)
         {
             _resourcesWritten.Add(capture);
         }

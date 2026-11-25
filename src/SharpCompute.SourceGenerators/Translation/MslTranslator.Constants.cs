@@ -92,6 +92,13 @@ internal sealed partial class MslTranslator
                 return null;
             }
 
+            if (type is { Kind: GpuTypeKind.WaveMatrix })
+            {
+                // Not a matter of its initializer: there is no SIMD group at program scope to hold one.
+                _diagnostics.Report(DiagnosticDescriptors.WaveMatrixInStaticField, declaration, field.ContainingType.Name + "." + field.Name, TypeResolver.Display(field.Type));
+                return null;
+            }
+
             string reason = failure?.Reason ?? $"its type '{TypeResolver.Display(field.Type)}' is not a scalar, vector, or matrix type";
             ReportNonConstant(declaration, field, reason);
             return null;

@@ -73,6 +73,11 @@ here as an original game built on SharpCompute.
   `WaveActiveBallot`, `WavePrefixSum`, `WaveShuffleUp` and the rest reduce, vote, scan and exchange
   values across the 32 threads of a SIMD group in one step, with no shared memory and no barrier. Such
   shaders run on the CPU too.
+- **Matrix units.** `WaveMatrix8x8` and `WaveMatrixHalf8x8` are 8 × 8 matrices that the lanes of a
+  SIMD group hold together, and `MultiplyAccumulate(a, b, c)` multiplies them on the GPU's matrix
+  units: a matrix product written in C# runs at 5 TFLOP/s on an M4 Pro, almost five times the best
+  scalar kernel and within 2 % of the same kernel in hand-written MSL. See
+  [Matrix units](#matrix-units).
 - **Local arrays.** `Span<float> taps = stackalloc float[9];`, `float[] w = new float[9];`,
   `ReadOnlySpan<int> weights = [1, 4, 6, 4, 1];` and `[InlineArray(N)]` structs become fixed-size
   arrays of one GPU thread: filter taps and weights, sorting networks, small stacks and histograms.
@@ -145,7 +150,7 @@ full size.
 <tr>
 <td width="50%" valign="top">
 <a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab's privatised-histogram page: an animated image, its luminance histogram counted with global atomics, and the same histogram counted per threadgroup, bin for bin identical"></a>
-<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math, the 8-, 16- and 64-bit integers and half precision, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
+<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations and matrix units, indirect dispatch, bits, fast math, the 8-, 16- and 64-bit integers and half precision, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
 <br><code>scripts/demo-computelab.sh [--page &lt;name&gt;] [--headless]</code>
 <br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, R, Up/Down)</sub>
 </td>
@@ -222,9 +227,10 @@ Without a picture, because they print timings or play sound:
 ### ComputeLab pages
 
 `scripts/demo-computelab.sh --page <name>` starts on a page; `--list` shows them all.
-`scripts/demo-groupshared.sh` and `scripts/demo-simdgroups.sh` open the lab on its shared-memory and
-SIMD-group pages. The Indirect and FastMath pages also say whether their kernel was
-[precompiled](#precompiled-shaders) when the lab was built or compiled at run time.
+`scripts/demo-groupshared.sh`, `scripts/demo-simdgroups.sh` and `scripts/demo-matrixunits.sh` open
+the lab on its shared-memory, SIMD-group and matrix-unit pages. The Indirect and FastMath pages also
+say whether their kernel was [precompiled](#precompiled-shaders) when the lab was built or compiled
+at run time.
 
 <table>
 <tr>
@@ -245,17 +251,17 @@ SIMD-group pages. The Indirect and FastMath pages also say whether their kernel 
 <tr>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-compaction.png"><img src="docs/screenshots/thumbs/computelab-simd-compaction.png" width="100%" alt="ComputeLab SIMD compaction page: 32,768 particles, the ones in a circle packed in order by ballots and prefix sums, and one SIMD group's ballot lane by lane"></a><br><b>SIMD groups</b>: SIMD compaction<br><code>--page simd-compaction</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-simd-shuffle.png"><img src="docs/screenshots/thumbs/computelab-simd-shuffle.png" width="100%" alt="ComputeLab SIMD shuffle page: a noisy signal smoothed inside each SIMD group by lane shuffles, the group edges showing as steps"></a><br><b>SIMD groups</b>: SIMD shuffle<br><code>--page simd-shuffle</code></td>
-<td width="33%" valign="top"><a href="docs/screenshots/computelab-indirect.png"><img src="docs/screenshots/thumbs/computelab-indirect.png" width="100%" alt="ComputeLab Indirect page: a compaction pass counts the survivors and the follow-up pass is dispatched over exactly that many"></a><br><b>Dispatch</b>: Indirect<br><code>--page indirect</code></td>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-matrix-units.png"><img src="docs/screenshots/thumbs/computelab-matrix-units.png" width="100%" alt="ComputeLab Matrix units page: a corner of a 1024 by 1024 matrix product under the grid of the 8 by 8 wave matrices that computed it, and GFLOP/s bars for the wave-matrix, shared-memory and naive kernels"></a><br><b>SIMD groups</b>: Matrix units<br><code>--page matrix-units</code><br><sub>V kernel · N size</sub></td>
 </tr>
 <tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-indirect.png"><img src="docs/screenshots/thumbs/computelab-indirect.png" width="100%" alt="ComputeLab Indirect page: a compaction pass counts the survivors and the follow-up pass is dispatched over exactly that many"></a><br><b>Dispatch</b>: Indirect<br><code>--page indirect</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-bits.png"><img src="docs/screenshots/thumbs/computelab-bits.png" width="100%" alt="ComputeLab Bits page: popcount, bit reversal, leading and trailing zeros, float bits and unorm8 packing drawn as patterns"></a><br><b>Math</b>: Bits<br><code>--page bits</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-fastmath.png"><img src="docs/screenshots/thumbs/computelab-fastmath.png" width="100%" alt="ComputeLab FastMath page: a transcendental-heavy field and its error against the CPU, with and without fast math, and whether the kernel was precompiled"></a><br><b>Math</b>: FastMath<br><code>--page fastmath</code></td>
-<td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 </tr>
 <tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-half-precision.png"><img src="docs/screenshots/thumbs/computelab-half-precision.png" width="100%" alt="ComputeLab Half precision page: an image, its 289-tap blur in Half4 arithmetic, the error of that blur against the blur in double, and a mask made with Gpu.Select from a componentwise comparison"></a><br><b>Math</b>: Half precision<br><code>--page half-precision</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-shared-code.png"><img src="docs/screenshots/thumbs/computelab-shared-code.png" width="100%" alt="ComputeLab Shared code page: a path-traced scene of spheres on a checkerboard, the static class and structs its shaders are built from, and the same scene traced by ForCpu at every 8th pixel"></a><br><b>Code reuse</b>: Shared code<br><code>--page shared-code</code></td>
-<td width="33%" valign="top"></td>
 </tr>
 </table>
 
@@ -280,7 +286,9 @@ report, including how each number was measured and the machine load, is in
 How to read this: GPU times are one synchronous dispatch and exclude uploading inputs and reading
 results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silicon's CPU and GPU
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
-generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01).
+generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01). The matrix
+product is the naive kernel; written with [`WaveMatrix8x8`](#matrix-units) for the GPU's matrix
+units, the same 1024×1024 product takes 0.42 ms of GPU time instead of 4.15 ms (the table below).
 
 Against native Metal on the same GPU, by the GPU's own time for one dispatch
 ([`LastGpuTime`](#gpu-time-of-a-dispatch); Apple M4 Pro, medians of 5 passes of 25 dispatches):
@@ -289,16 +297,18 @@ Against native Metal on the same GPU, by the GPU's own time for one dispatch
 |---|---|---:|---:|
 | `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
 | `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.15 |
+| `simdgroup_matrix`, 2×4 accumulators ([`WaveMatrix8x8`](#matrix-units)) | generated from C# | 0.422 ms | 5.08 |
 | threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
-| naive | generated from C# | 4.12 ms | 0.52 |
-| naive | hand-written MSL | 4.08 ms | 0.53 |
+| naive | generated from C# | 4.15 ms | 0.52 |
+| naive | hand-written MSL | 4.11 ms | 0.52 |
 
 A generated kernel takes the same GPU time as the same kernel written by hand in MSL, to about
-1 %: the ratio is 1.010 to 1.013 for the naive matrix multiply, 1.000 for an N-body step, 1.001 for
-SAXPY and 1.000 for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written
-kernel next to it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet.
-The same section of the report places every kernel under the machine's measured ceilings:
-6.24 TFLOP/s of FP32 arithmetic, of which MPS reaches 85 %, and 250 GB/s of memory bandwidth (243 to
+1 %: the ratio is 1.008 to 1.012 for the naive matrix multiply, 1.013 to 1.014 for the one on the
+matrix units, and 1.000 for an N-body step, for SAXPY and for an integer hash. The scalar kernels'
+5× and 10× to MPS are not the generator's: MPS and the kernels next to it use Metal's matrix units
+(`simdgroup_matrix`), which a C# shader reaches as `WaveMatrix8x8`, and that kernel is within 5 % of
+MPS. The same section of the report places every kernel under the machine's measured ceilings:
+6.22 TFLOP/s of FP32 arithmetic, of which MPS reaches 86 %, and 249 GB/s of memory bandwidth (244 to
 255 across the passes; Apple quotes 273), measured on 1 GiB arrays. SAXPY, on 64 MB arrays, runs at
 the memory-bandwidth ceiling (within 2 %): it is bound by memory, and no kernel will make it faster.
 See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
@@ -731,6 +741,131 @@ signal smoothed with shuffles. The reduction, `WaveActiveSum` as above against a
 
 ![ComputeLab's SIMD reduction page: the sum of 16.7 million floats three ways, SIMD only, SIMD after a loop per thread, and loops only, with each method's thread count and rounding error as bars](docs/screenshots/computelab-simd-reduction.png)
 
+### Matrix units
+
+Apple GPUs have hardware for small matrix products, and Metal reaches it through
+`simdgroup_matrix`: an 8 × 8 matrix that the 32 lanes of a SIMD group hold *together* (two elements
+each) and multiply in one step. In SharpCompute that is `WaveMatrix8x8` (`float`) and
+`WaveMatrixHalf8x8` (`Half`). Nothing in the names is Apple's: the same shape exists as a
+cooperative matrix in Vulkan (`KHR_cooperative_matrix`) and as WMMA fragments in CUDA.
+
+```csharp
+// One SIMD group per threadgroup computes an 8 x 8 block of c = a x b, for n x n row-major matrices.
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MatMulBlocks(ReadOnlyBuffer<float> a, ReadOnlyBuffer<float> b, ReadWriteBuffer<float> c, int n) : IComputeShader
+{
+    public void Execute()
+    {
+        int row = ThreadGroupIds.Y * 8;                    // the same in all 32 lanes
+        int column = ThreadGroupIds.X * 8;
+        WaveMatrix8x8 sum = default;                       // the zero matrix
+
+        for (int k = 0; k < n; k += 8)
+        {
+            WaveMatrix8x8 left = WaveMatrix8x8.Load(a, row * n + k, n);       // 8 x 8 of a, rows n apart
+            WaveMatrix8x8 right = WaveMatrix8x8.Load(b, k * n + column, n);
+            sum = WaveMatrix8x8.MultiplyAccumulate(left, right, sum);         // left x right + sum
+        }
+
+        sum.Store(c, row * n + column, n);
+    }
+}
+
+device.For(n / 8 * 32, n / 8, new MatMulBlocks(a, b, c, n)); // a threadgroup (32 threads) per block
+```
+
+| Member | Meaning | Metal |
+|---|---|---|
+| `WaveMatrix8x8.Filled(value)` | every element `value` | `make_filled_simdgroup_matrix<float, 8, 8>(value)` |
+| `WaveMatrix8x8.Diagonal(value)` | `value` on the diagonal, zero elsewhere (`Diagonal(1f)` is the identity) | `simdgroup_float8x8(value)` |
+| `default`, `new WaveMatrix8x8()` | the zero matrix | `make_filled_simdgroup_matrix<float, 8, 8>(0.0f)` |
+| `WaveMatrix8x8.Load(source, offset, stride, transpose = false)` | element (*r*, *c*) is `source[offset + r * stride + c]`; transposed, `source[offset + c * stride + r]` | `simdgroup_load` |
+| `matrix.Store(destination, offset, stride, transpose = false)` | writes the same 64 elements | `simdgroup_store` |
+| `WaveMatrix8x8.Multiply(a, b)` | `a × b` | `simdgroup_multiply` |
+| `WaveMatrix8x8.MultiplyAccumulate(a, b, c)` | `a × b + c` | `simdgroup_multiply_accumulate` |
+
+`WaveMatrixHalf8x8` has the same members on `Half`. What they mean, measured on an Apple M4 Pro and
+pinned by the tests:
+
+- **Load and store** take a `ReadOnlyBuffer<T>` or `ReadWriteBuffer<T>` (or a view of one), which
+  is `device` memory, or a `[GroupShared]` array, which is `threadgroup` memory; a store needs one it
+  can write. `T` is the matrix's element type: `float` for `WaveMatrix8x8`, `Half` for
+  `WaveMatrixHalf8x8` (anything else is build error SCG0049). `stride` is the number of elements
+  from one row to the next, so a matrix can be cut out of a larger one, and `transpose` reads or
+  writes columns as rows.
+- **Mixed precision.** The operands of `Multiply` and `MultiplyAccumulate` may each be either type,
+  and the type the method is called on is the precision of the result, in every combination Metal
+  allows: `WaveMatrix8x8.MultiplyAccumulate(halfA, halfB, floatSum)` multiplies half operands into a
+  float accumulator, which is the useful one (half the memory traffic, no half overflow in the sum).
+- **A matrix belongs to the whole SIMD group.** Every operation has to be reached by all 32 lanes,
+  with the same arguments in each: compute offsets from `ThreadGroupIds`, `SimdGroupIds.Index`,
+  loop counters and constants, never from `ThreadIds` or the lane index. The GPU checks nothing: a
+  group with fewer lanes (a threadgroup or grid that is not a multiple of 32, lanes that returned
+  early) loads and stores only the elements its lanes hold, and lanes that disagree each go their own
+  way. SCG0051 warns about a `[ThreadGroupSize]` that is not a multiple of 32.
+- **A matrix has no layout in memory.** It is a local, a parameter or a return value of a helper
+  (`ref` and `out` included). It cannot be a buffer, `[GroupShared]` or local array element, a field of a struct
+  or of the shader (SCG0048), or a `static readonly` field (SCG0050).
+- **Partial tiles are the caller's job.** A matrix is loaded and stored whole. For sizes that are
+  not a multiple of 8 (or of the tile a kernel works in), pad the data with zeros, which add nothing
+  to any sum; ComputeLab's `WaveMatMul.Pad` and `Unpad` do that for its kernel.
+- **Offsets are added term by term.** `Load(a, row * n + k, n)` becomes `a + row * n + k` in MSL:
+  each term of a sum of `int`s is one pointer addition, which the GPU compiler turns into far better
+  addressing than a 32-bit sum that is then widened (which measured about 15 % slower for the
+  product below).
+  This is the one place where signed arithmetic is not C#'s: every term wraps as usual, but their
+  sum is formed in 64 bits and does not. The two differ only where the terms add up to more than an
+  `int` holds, which is no valid offset in C# either: a sum past `int.MaxValue` wraps to a negative
+  offset, and `ForCpu` refuses that as out of range (`ArgumentOutOfRangeException`). Only a sum that
+  wraps all the way round (below `int.MinValue`, or past 2³²) gives C# an offset inside the buffer
+  that the GPU does not use.
+- **Results** agree with a reference within rounding: the order in which the eight terms of an
+  element are added is the GPU's. Compare with a tolerance.
+
+**On the CPU** (`ForCpu`, `ForSplit`) the lanes of a SIMD group meet at every matrix operation, as
+they do for the `Wave*` operations, and the matrix is storage the group shares. The meeting checks
+what the GPU does not: it throws `NotSupportedException` when the lanes are at different calls,
+when they bring different arguments, or when fewer than 32 take part, and
+`ArgumentOutOfRangeException` when a load or store reaches outside its buffer or array. It is for
+checking a kernel at small sizes, not for bulk work.
+
+**How fast.** `C = A × B` for random floats, by the GPU's own time for one dispatch
+([`LastGpuTime`](#gpu-time-of-a-dispatch)), in TFLOP/s (2 n³ operations per product), on an Apple
+M4 Pro (16-core GPU, macOS 27.2):
+
+| Kernel | Written as | 1024 × 1024 | 2048 × 2048 |
+|---|---|---:|---:|
+| Naive, a thread per element | C# | 0.52 (4.15 ms) | 0.52 (33.1 ms) |
+| 16 × 16 tiles in shared memory | C# | 1.07 (2.01 ms) | 1.08 (15.9 ms) |
+| **Wave matrices, 2 × 4 accumulators** | **C#** | **5.08** (0.422 ms) | **5.19** (3.31 ms) |
+| `simdgroup_matrix`, 2 × 4 accumulators | hand-written MSL | 5.15 (0.417 ms) | 5.27 (3.26 ms) |
+| `MPSMatrixMultiplication` | Apple's kernel | 5.33 (0.403 ms) | 5.51 (3.12 ms) |
+
+These are the SGEMM rows of the benchmarks' [native baselines](benchmarks/RESULTS.md#native-baselines-and-roofline)
+(`scripts/run-benchmarks.sh --native-baselines`: medians of 5 passes of 25 dispatches, every kernel
+on the same seeded random buffers). The C# kernel takes 1.013 to 1.014 times the GPU time of the
+same kernel written by hand in MSL and 1.05 to 1.06 times that of MPS, and `--verify` finds its
+product bit for bit that of the hand-written kernel and of MPS, and within 4 × 10⁻⁷ of a CPU
+reference that sums in another order.
+
+The kernel is `MatMulWaveMatrix` in
+[`MatrixUnitsPage.cs`](samples/SharpCompute.Samples.ComputeLab/Pages/Simd/MatrixUnitsPage.cs), and
+its shape is what the speed depends on:
+
+- **Eight accumulators per SIMD group** (2 × 4 matrices, a 16 × 32 block of C). Sixteen spill out of
+  the registers: the same kernel with 4 × 4 measured about seven times slower.
+- **Load operands straight from the buffers.** Staging them through `[GroupShared]` memory first,
+  the way the scalar tiled kernel does, made that 4 × 4 kernel slower again, by almost half.
+- **Four SIMD groups per threadgroup** (128 threads, a 32 × 64 tile of C), and the loop over the
+  shared dimension unrolled twice by hand.
+- **Write offsets as sums**, as above.
+
+`scripts/demo-matrixunits.sh` opens ComputeLab on the page (V switches the kernel, N the size); in
+the window the bars are the machine's own, in the picture they are the rates above:
+
+![ComputeLab's Matrix units page: a corner of the product under the grid of 8 by 8 wave matrices, SIMD-group blocks and threadgroup tiles that computed it, bars of GFLOP/s for the wave-matrix, shared-memory and naive kernels, and the three operations of the kernel](docs/screenshots/computelab-matrix-units.png)
+
 ### Local arrays
 
 A thread can have small arrays of its own: the taps of a filter, its weights, the values a sorting
@@ -1077,7 +1212,8 @@ rather than run it, on every path (`For`, `ForCpu`, `ForSplit`, `ForAsync`, a `C
 
 "Writes" is what the shader's code does, not the type of the capture: the generator works out which
 captures `Execute` and its helpers store to, so a `ReadWriteBuffer<T>` that is only read can be
-passed twice (`new Blend(layer, layer, ...)`). A hand-written descriptor says it with
+passed twice (`new Blend(layer, layer, ...)`). A wave matrix's `Store` is a store to its destination
+and its `Load` a read of its source. A hand-written descriptor says it with
 `writer.SetBuffer(index, buffer, written: false)`; without that, a read-write buffer or texture
 counts as written. The check compares address ranges and allocates nothing in the steady state:
 recording a dispatch with six buffers into a `ComputeContext` takes about 52 ns with it and 43 ns
@@ -1783,7 +1919,8 @@ so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); da
   `[GroupShared]` array, a buffer or texture parameter of a helper. Reading any element reads it
   and writing any element writes it, whatever the indices: two elements of one resource are taken
   to be possibly the same one. The location of a `Gpu.Atomic*` call is written, and so is a buffer
-  element that a method modifying its struct is called on (`cells[i].Grow()`). A texture local is
+  element that a method modifying its struct is called on (`cells[i].Grow()`). A wave matrix's
+  `Load` reads its source and `Store` writes its destination. A texture local is
   the texture it was initialized from; one that is assigned again may be any texture of its type.
 - **Helpers count at the call**: what a helper reads and writes, and what the helpers it calls do
   (static helpers of any type, struct methods, properties and operators, instance helpers of the
@@ -1829,6 +1966,12 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 - On the CPU, SIMD-group operations need uniform control flow: `ForCpu` refuses lanes that arrive at
   different operations, and cannot tell lanes apart that reach one call site along different paths
   (a loop iteration some lanes skip, a helper called from two branches). The GPU handles both.
+- Wave matrices are 8 × 8 and `float` or `Half`, the one size and the two element types Metal's
+  matrix units have. A matrix needs all 32 lanes of its SIMD group and the same arguments in each;
+  the GPU does not check that, `ForCpu` refuses anything else. Sizes that are not a multiple of 8
+  (of the kernel's tile) are the caller's to pad. The terms of a load's or store's offset are summed
+  without wrapping on the GPU; where C# would wrap the sum, the CPU reports the offset as out of
+  range (see [Matrix units](#matrix-units)).
 - Atomics work on elements of `int`, `uint` and (add only) `float`, in buffers and in
   `[GroupShared]` arrays, and (minimum and maximum only) on `ulong` buffer elements; not on struct
   fields, and not on `long` or the 8- and 16-bit integers, which have no atomics in MSL.
