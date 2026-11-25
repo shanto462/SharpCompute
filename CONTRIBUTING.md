@@ -53,6 +53,9 @@ Match the code around your change:
   `[MetalTheory]`, so they are skipped, not failed, on a machine without a Metal device.
 - Generator changes get tests in `tests/SharpCompute.SourceGenerators.Tests` for the emitted MSL
   and for the diagnostics.
+- Language semantics the GPU must reproduce (scans, evaluation order, compound targets, in-place
+  stores) are pinned in `tests/SharpCompute.Tests/Conformance/Semantics` and
+  `tests/SharpCompute.SourceGenerators.Tests/Conformance`; run them with `--filter Category=Conformance`.
 
 ## Diagnostics
 
