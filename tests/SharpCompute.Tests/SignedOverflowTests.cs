@@ -338,4 +338,53 @@ public class SignedOverflowTests
         Assert.True(expected.SequenceEqual(onCpu), $"CPU: {string.Join(", ", onCpu)}\nC#:  {string.Join(", ", expected)}");
         Assert.True(expected.SequenceEqual(onGpu), $"GPU: {string.Join(", ", onGpu)}\nC#:  {string.Join(", ", expected)}");
     }
+
+    // ---- user code in a target -------------------------------------------------------------------
+
+    [MetalFact]
+    public void AGetterWithSideEffectsInATarget_IsEvaluatedOnce()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        int[] initial = [0, 10, 20, 30, 40, 50, 60, 70, 0, 0, 0, 0, 0, 0, 0, 0];
+        using ReadWriteBuffer<int> gpu = device.AllocateReadWriteBuffer<int>(initial);
+        using ReadWriteBuffer<int> cpu = device.AllocateReadWriteBuffer<int>(initial);
+
+        device.For(1, new GetterInTarget(gpu));
+        device.ForCpu(1, new GetterInTarget(cpu));
+
+        // Next returns 1, 2, 3 and 4: data[1] += 5, data[2]++, data[3] *= 3, q = 7 * 4.
+        int[] expected = [4, 15, 21, 90, 40, 50, 60, 70, 0, 0, 0, 0, 28, 0, 0, 0];
+        Assert.Equal(expected, cpu.ToArray());
+        Assert.Equal(expected, gpu.ToArray());
+    }
+
+    [MetalFact]
+    public void SmallIntegerProducts_InCompoundAssignments_WrapAsInCSharp()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        ushort[] edges = [0, 1, 2, 3, 255, 256, 257, 32767, 32768, 32769, 46341, 65534, 65535, 12345];
+        ushort[] pairs = Pairs(edges);
+        int n = pairs.Length / 2;
+        using ReadOnlyBuffer<ushort> input = device.AllocateReadOnlyBuffer(pairs);
+        using ReadWriteBuffer<ushort> gpu = device.AllocateReadWriteBuffer<ushort>(n * SmallProducts.Slots);
+        using ReadWriteBuffer<ushort> cpu = device.AllocateReadWriteBuffer<ushort>(n * SmallProducts.Slots);
+        using ReadWriteBuffer<short> gpuSigned = device.AllocateReadWriteBuffer<short>(n);
+        using ReadWriteBuffer<short> cpuSigned = device.AllocateReadWriteBuffer<short>(n);
+
+        device.For(n, new SmallProducts(input, gpu, gpuSigned));
+        device.ForCpu(n, new SmallProducts(input, cpu, cpuSigned));
+
+        ushort[] expected = [.. Enumerable.Range(0, n).SelectMany(k => new[]
+        {
+            unchecked((ushort)(pairs[2 * k] * pairs[(2 * k) + 1])),
+            unchecked((ushort)(pairs[2 * k] * pairs[(2 * k) + 1])),
+            unchecked((ushort)(pairs[2 * k] * 65535)),
+        })];
+        short[] expectedSigned = [.. Enumerable.Range(0, n).Select(k => unchecked((short)((short)pairs[2 * k] * (short)pairs[(2 * k) + 1])))];
+
+        Assert.Equal(expected, cpu.ToArray());
+        Assert.Equal(expected, gpu.ToArray());
+        Assert.Equal(expectedSigned, cpuSigned.ToArray());
+        Assert.Equal(expectedSigned, gpuSigned.ToArray());
+    }
 }

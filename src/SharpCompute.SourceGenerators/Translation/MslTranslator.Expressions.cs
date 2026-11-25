@@ -736,9 +736,14 @@ internal sealed partial class MslTranslator
         return false;
     }
 
-    private static bool HasSideEffects(IOperation operation)
+    /// <summary>
+    /// True when evaluating <paramref name="operation"/> may have effects, so that its MSL must not be
+    /// evaluated twice: a call, an assignment, an increment, a construction, or anything else that
+    /// runs code of the user's (see <see cref="CallsUserCode"/>).
+    /// </summary>
+    private bool HasSideEffects(IOperation operation)
     {
-        if (operation is IInvocationOperation or IAssignmentOperation or IIncrementOrDecrementOperation or IObjectCreationOperation)
+        if (operation is IInvocationOperation or IAssignmentOperation or IIncrementOrDecrementOperation or IObjectCreationOperation || CallsUserCode(operation))
         {
             return true;
         }
@@ -753,4 +758,19 @@ internal sealed partial class MslTranslator
 
         return false;
     }
+
+    /// <summary>
+    /// True for an operation that is a function call in MSL although it is no invocation in C#: a
+    /// computed property or indexer (one whose getter has a body, <c>int Next { get { ... } }</c>),
+    /// and an operator or conversion a user type declares. The properties and operators of
+    /// <c>[MslType]</c> vectors and of SharpCompute's own types are native, not user code.
+    /// </summary>
+    private bool CallsUserCode(IOperation operation) => operation switch
+    {
+        IPropertyReferenceOperation { Property: var property } => IsComputedProperty(property) && _types.Resolve(property.ContainingType) is not { IsNumeric: true },
+        IBinaryOperation { OperatorMethod: { } method } => !IsNativeOperator(method),
+        IUnaryOperation { OperatorMethod: { } method } => !IsNativeOperator(method),
+        IConversionOperation { OperatorMethod: { } method } => !IsNativeOperator(method),
+        _ => false,
+    };
 }

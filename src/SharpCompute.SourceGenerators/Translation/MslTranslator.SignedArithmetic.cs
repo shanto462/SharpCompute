@@ -19,7 +19,8 @@ namespace SharpCompute.SourceGenerators;
 /// (<c>IntN</c>). C# has no arithmetic on the 8- and 16-bit integers: it promotes them to
 /// <c>int</c>, so <c>s1 * s2</c> on <c>short</c>s is an <c>int</c> operator and is covered, while
 /// <c>s++</c> on a <c>short</c> is <c>int</c> arithmetic that cannot overflow (MSL promotes the same
-/// way) followed by a truncation, which wraps in both languages and stays native.
+/// way) followed by a truncation, which wraps in both languages and stays native. Their <c>*=</c> is
+/// the exception: see <see cref="SignedCompoundAssignment"/>.
 /// </para>
 /// <para>
 /// A chain stays unsigned: an operand that is itself wrapped arithmetic of the same type is used
@@ -33,8 +34,8 @@ namespace SharpCompute.SourceGenerators;
 /// in the expression has side effects. Otherwise, and for an increment whose value is used, the
 /// native operator is kept on the target viewed as its unsigned type
 /// (<c>reinterpret_cast&lt;device uint&amp;&gt;(counts[Bin(v)]) += 1u</c>): the target is evaluated once,
-/// and the parts are evaluated in the same order as before. The 8- and 16-bit targets stay native
-/// (see <see cref="SignedCompoundAssignment"/>).
+/// and the parts are evaluated in the same order as before. On the 8- and 16-bit targets only
+/// <c>*=</c> can overflow, and it multiplies as <c>uint</c> (see <see cref="SignedCompoundAssignment"/>).
 /// </para>
 /// <para>
 /// The casts cost no instructions: signed and unsigned addition, subtraction and multiplication are
@@ -195,13 +196,26 @@ internal sealed partial class MslTranslator
     /// nothing in it has side effects, <c>x = int(uint(x) + uint(y))</c>. Otherwise the target is
     /// viewed as its unsigned type and the compound operator kept, <c>reinterpret_cast&lt;device
     /// uint&amp;&gt;(counts[Bin(v)]) += uint(Weight(v))</c>, which evaluates the target once and the parts
-    /// in the same order as the native <c>+=</c> did (a signed and an unsigned integer may alias). Null
-    /// for every other compound assignment, including those on the 8- and 16-bit integers: C# only
-    /// lets a value of at most their width be added to them, so their <c>int</c> arithmetic cannot
-    /// overflow, and the truncation back wraps in MSL as in C#.
+    /// in the same order as the native <c>+=</c> did (a signed and an unsigned integer may alias).
     /// </summary>
+    /// <remarks>
+    /// On an 8- or 16-bit target, C# only accepts a value of at most the target's width, and both are
+    /// promoted to <c>int</c>, as in MSL. A sum or difference of two such values cannot overflow an
+    /// <c>int</c>, so <c>+=</c> and <c>-=</c> stay native. A product can: <c>65535 * 65535</c> on
+    /// <c>ushort</c>s is beyond <c>int.MaxValue</c>. So <c>*=</c> keeps the native operator with the
+    /// value converted to <c>uint</c> (<c>u *= uint(v)</c>), which makes the whole product unsigned;
+    /// the truncation back to the target's width then wraps in MSL as in C#. Null for every other
+    /// compound assignment.
+    /// </remarks>
     private Expr? SignedCompoundAssignment(ICompoundAssignmentOperation operation, Expr target, string text, int precedence)
     {
+        if (operation.OperatorKind == BinaryOperatorKind.Multiply && operation.OperatorMethod is null &&
+            _types.Resolve(operation.Target.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: false, Size: < 4 } &&
+            UnsignedArithmeticType(operation.Value.Type) == "uint")
+        {
+            return new Expr(target.Operand(Expr.Unary) + " *= " + UnsignedOperand(operation.Value).Operand(Expr.Assignment), Expr.Assignment);
+        }
+
         if (!IsWrappingOperator(operation.OperatorKind) ||
             _types.Resolve(operation.Target.Type) is not { } targetType ||
             UnsignedArithmeticType(operation.Target.Type) is not { } unsigned)

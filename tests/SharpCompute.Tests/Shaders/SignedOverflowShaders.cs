@@ -395,3 +395,66 @@ public readonly partial struct OverflowingConstants(ReadWriteBuffer<long> output
         output[11] = FoldedVector.Y;
     }
 }
+
+/// <summary>
+/// A target whose index is a property with a getter body that writes the buffer: each compound
+/// assignment and increment must evaluate the getter once, as C# does.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct GetterInTarget(ReadWriteBuffer<int> data) : IComputeShader
+{
+    private int Next
+    {
+        get
+        {
+            data[0] += 1;
+            return data[0];
+        }
+    }
+
+    public void Execute()
+    {
+        if (ThreadIds.X != 0)
+        {
+            return;
+        }
+
+        data[Next] += 5;
+        data[Next]++;
+        data[Next] *= 3;
+        int q = 7;
+        q *= Next;
+        data[12] = q;
+    }
+}
+
+/// <summary>
+/// <c>ushort</c> and <c>short</c> products in compound assignments: C# multiplies the promoted ints,
+/// and 65535 * 65535 does not fit in an int, so the generator multiplies them as uint.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SmallProducts(ReadOnlyBuffer<ushort> pairs, ReadWriteBuffer<ushort> output, ReadWriteBuffer<short> signed) : IComputeShader
+{
+    public const int Slots = 3;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        ushort a = pairs[2 * i];
+        ushort b = pairs[(2 * i) + 1];
+
+        ushort x = a;
+        x *= b;
+        output[Slot(i, 0)] = x;
+        output[Slot(i, 1)] = a;
+        output[Slot(i, 1)] *= b;
+        output[Slot(i, 2)] = a;
+        output[Slot(i, 2)] *= 65535;
+
+        short s = (short)a;
+        s *= (short)b;
+        signed[i] = s;
+    }
+
+    private static int Slot(int thread, int slot) => (thread * Slots) + slot;
+}

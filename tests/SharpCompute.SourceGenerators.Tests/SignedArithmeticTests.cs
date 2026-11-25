@@ -118,15 +118,24 @@ public class SignedArithmeticTests
 
     [Theory]
     [InlineData("short s = (short)a; s += 7; s++; ints[2] = s;", "s += 7;", "s++;")]
-    [InlineData("sbyte s = (sbyte)a; s *= 3; s--; ints[2] = s;", "s *= 3;", "s--;")]
+    [InlineData("sbyte s = (sbyte)a; s *= 3; s--; ints[2] = s;", "s *= 3u;", "s--;")]
     [InlineData("byte s = (byte)a; s -= 1; ++s; ints[2] = s;", "s -= 1;", "++s;")]
-    public void SmallIntegerTargets_StayNative_BecauseTheirIntArithmeticCannotOverflow(string body, string compound, string increment)
+    [InlineData("ushort s = (ushort)a; s -= 2; s--; ints[2] = s;", "s -= 2;", "s--;")]
+    public void SmallIntegerTargets_StayNative_WhereTheirIntArithmeticCannotOverflow(string body, string compound, string increment)
     {
         string[] lines = Translate(body).KernelBody.Split('\n');
 
         Assert.Contains(compound, lines);
         Assert.Contains(increment, lines);
     }
+
+    [Theory]
+    [InlineData("ushort u = (ushort)a; ushort v = (ushort)b; u *= v; ints[2] = u;", "u *= uint(v);")]
+    [InlineData("ushort u = (ushort)a; u *= 65535; ints[2] = u;", "u *= 65535u;")]
+    [InlineData("short u = (short)a; u *= (short)b; ints[2] = u;", "u *= uint(short(b));")]
+    [InlineData("byte u = (byte)a; u *= u; ints[2] = u;", "u *= uint(u);")]
+    public void SmallIntegerProducts_MultiplyAsUint_BecauseTheIntProductCanOverflow(string body, string expected) =>
+        Assert.Contains(expected, Translate(body).KernelBody.Split('\n'));
 
     [Fact]
     public void CompoundAssignments_WithSideEffects_KeepTheNativeOperatorAndItsOrder()
@@ -161,6 +170,78 @@ public class SignedArithmeticTests
         Assert.Contains("reinterpret_cast<threadgroup uint&>(Tile[::Next(i)]) += uint(b);", kernel);
         Assert.Contains("reinterpret_cast<thread uint&>(x) += uint(::Bump(4, ints));", kernel);
     }
+
+    private static GeneratorRun RunUserCode(string body) => GeneratorHarness.Run($$"""
+        using SharpCompute;
+
+        namespace Tests;
+
+        public struct Slot
+        {
+            public int V;
+
+            public static int operator +(Slot slot, int offset) => slot.V + offset;
+
+            public static int operator -(Slot slot) => -slot.V;
+
+            public static implicit operator int(Slot slot) => slot.V;
+        }
+
+        public struct Grid
+        {
+            public int Scale;
+
+            public int this[int i] => i * Scale;
+        }
+
+        [GeneratedComputeShaderDescriptor]
+        public readonly partial struct TestShader(ReadWriteBuffer<int> ints, ReadWriteBuffer<float> floats, ReadWriteBuffer<Float4x4> matrices) : IComputeShader
+        {
+            private int Next
+            {
+                get
+                {
+                    ints[0] += 1;
+                    return ints[0];
+                }
+            }
+
+            public void Execute()
+            {
+                Slot slot = default;
+                slot.V = 3;
+                Grid grid = default;
+                grid.Scale = 2;
+                {{body}}
+            }
+        }
+        """);
+
+    /// <summary>
+    /// Code of the user's runs where C# has no invocation: a property or indexer with a getter body,
+    /// and an operator or conversion a user type declares. Each counts as a side effect, so a target
+    /// that contains one is named once.
+    /// </summary>
+    [Theory]
+    [InlineData("ints[Next] += 5;", "reinterpret_cast<device uint&>(ints[::Next(ints)]) += 5u;")]
+    [InlineData("ints[Next]++;", "reinterpret_cast<device uint&>(ints[::Next(ints)])++;")]
+    [InlineData("int q = 7; q *= Next; ints[12] = q;", "reinterpret_cast<thread uint&>(q) *= uint(::Next(ints));")]
+    [InlineData("ints[grid[1]] -= 2;", "reinterpret_cast<device uint&>(ints[::Grid_Item(grid, 1)]) -= 2u;")]
+    [InlineData("ints[slot + 1] *= 3;", "reinterpret_cast<device uint&>(ints[::Slot_op_Addition(slot, 1)]) *= 3u;")]
+    [InlineData("ints[-slot + 4] += 1;", "reinterpret_cast<device uint&>(ints[int(uint(::Slot_op_UnaryNegation(slot)) + 4u)]) += 1u;")]
+    [InlineData("ints[slot] += 1;", "reinterpret_cast<device uint&>(ints[::Slot_op_Implicit(slot)]) += 1u;")]
+    public void UserCodeInATarget_IsASideEffect_SoTheTargetIsNamedOnce(string body, string expected)
+    {
+        string kernel = RunUserCode(body).Verify(Shader).KernelBody;
+        Assert.Contains(expected, kernel.Split('\n'));
+    }
+
+    [Theory]
+    [InlineData("floats[Next] %= 2;", "floats[Next] %= 2")]
+    [InlineData("floats[slot] %= 2;", "floats[slot] %= 2")]
+    [InlineData("matrices[grid[0]] += new Float4x4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);", "matrices[grid[0]] += new Float4x4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)")]
+    public void UserCodeInATargetThatIsNamedTwice_IsUnsupported(string body, string target) =>
+        RunUserCode(body).AssertOnlyDiagnostic("SCG0012", target);
 
     [Fact]
     public void Increments_WhoseValueIsUsedOrWhoseTargetHasSideEffects_KeepTheNativeOperator()
