@@ -858,15 +858,29 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                 LazyThreadSafetyMode.ExecutionAndPublication),
             this);
 
+        ComputePipeline pipeline;
+
         try
         {
-            return lazy.Value;
+            pipeline = lazy.Value;
         }
         catch (Exception e) when (e is not ShaderCompilationException)
         {
             _pipelines.TryRemove(new(key, lazy));
             throw;
         }
+
+        // Gpu.WaveActiveBallot packs one vote per lane into a uint, and the documented lane layout is
+        // 32 consecutive threads. Every Apple GPU has SIMD groups of 32; refuse a wider one rather than
+        // run a shader whose ballots silently lose lanes.
+        if (T.UsesSimdGroups && pipeline.ThreadExecutionWidth > CpuSimdGroup.Width)
+        {
+            throw new NotSupportedException(
+                $"Shader '{typeof(T)}' uses SIMD-group operations, which SharpCompute supports for SIMD groups of up to " +
+                $"{CpuSimdGroup.Width} threads, but '{Name}' executes it in groups of {pipeline.ThreadExecutionWidth}.");
+        }
+
+        return pipeline;
     }
 
     /// <summary>
@@ -969,7 +983,10 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                     $"Failed to create the compute pipeline for shader '{shaderType}' (entry point '{entryPoint}'): {NSString.DescribeError(error)}", mslSource);
             }
 
-            return new ComputePipeline(new ObjCHandle(state), ObjC.SendNUInt(state, Selectors.MaxTotalThreadsPerThreadgroup));
+            return new ComputePipeline(
+                new ObjCHandle(state),
+                ObjC.SendNUInt(state, Selectors.MaxTotalThreadsPerThreadgroup),
+                ObjC.SendNUInt(state, Selectors.ThreadExecutionWidth));
         }
         finally
         {

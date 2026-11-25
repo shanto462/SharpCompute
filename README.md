@@ -66,13 +66,22 @@ here as an original game built on SharpCompute.
   is memory the threads of a threadgroup share, `Gpu.GroupMemoryBarrierWithGroupSync()` is where they
   meet, and `GroupSize`, `GroupIds.Index` and `ThreadGroupCount` tell a thread where it is: what
   reductions, prefix sums and tiled algorithms are built from. Such shaders run on the CPU too.
+- **SIMD-group operations.** HLSL's wave intrinsics on Apple GPUs: `Gpu.WaveActiveSum`,
+  `WaveActiveBallot`, `WavePrefixSum`, `WaveShuffleUp` and the rest reduce, vote, scan and exchange
+  values across the 32 threads of a SIMD group in one step, with no shared memory and no barrier. Such
+  shaders run on the CPU too.
+- **Local arrays.** `Span<float> taps = stackalloc float[9];`, `float[] w = new float[9];`,
+  `ReadOnlySpan<int> weights = [1, 4, 6, 4, 1];` and `[InlineArray(N)]` structs become fixed-size
+  arrays of one GPU thread: filter taps and weights, sorting networks, small stacks and histograms.
+  Index them, loop over them with `foreach`, and pass them to helpers. See [Local arrays](#local-arrays).
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
   methods, local functions, `ref`/`out` parameters, all loops and branches, and compile-time-folded
   `static readonly` constants.
 - **Atomics.** `Gpu.AtomicAdd(ref counts[bin], 1)` and friends on buffer elements, for histograms,
-  counters and stream compaction where many threads write the same element. They are atomic on the
+  counters and stream compaction where many threads write the same element, and on `[GroupShared]`
+  elements (`int`, `uint` and the `float` add), where only the threads of one threadgroup contend. They are atomic on the
   CPU too, so `ForCpu` gives the same answer. See the [shader language reference](#shader-language-reference).
 - **Zero-copy buffers.** Buffers live in unified memory, so `AsSpan()` and indexers read GPU
   results directly, and data can be produced straight into GPU memory (an image decoder can write
@@ -121,8 +130,9 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
-| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Histogram: privatised:** the same histogram counted per threadgroup with atomics on `[GroupShared]` memory and merged with one buffer atomic per bin per group, next to the global-atomics version on the same image, with the GPU time of both. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **LocalArrays:** a 3 × 3 median filter (a nine-element `stackalloc` array and a sorting network) and a 5 × 5 Gaussian (a `ReadOnlySpan<int>` weight table) on the animated image; N toggles salt-and-pepper noise to show what the median removes, F switches the timed filter. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary<br><a href="docs/screenshots/computelab-local-arrays.png"><img src="docs/screenshots/computelab-local-arrays.png" width="320" alt="ComputeLab's LocalArrays page: a noisy image, its 3 by 3 median and its 5 by 5 Gaussian side by side"></a> |
 | `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-simdgroups.sh` | **Live window:** SIMD-group operations, three pages, each checked against the CPU and timed. A reduction race (the sum of 16M floats three ways), a stream compaction of 32,768 particles built from `WaveActiveBallot` and `WavePrefixSum` with no atomics, and a signal smoothed inside each SIMD group with `WaveShuffleUp`/`Down`, so the group edges show. `--headless` writes a PNG per page and a summary |
 | `scripts/demo-nativeinterop.sh`<br><img src="docs/screenshots/nativeinterop.png" width="240" alt="The native interop demo: a dusk landscape and glowing particle ribbons drawn by a raw Metal host renderer, with SharpCompute's ripple and bloom pass on top"> | **Live window:** SharpCompute inside an app that already renders with Metal. A small host renderer written straight against Metal (its own device, queue, particle buffer, textures and render pipeline) draws a textured quad and an instanced particle field; SharpCompute wraps the host's objects and encodes a particle simulation before the host's scene pass and a post-process (ripples, color split, bloom) after it, into the host's own command buffer. 1 and 2 toggle the two passes, click or drag moves the ripples, S save PNG. The title bar shows fps and the frame's GPU time. `--headless` writes the same frames every run: both passes, each one off, and the host alone |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
@@ -371,6 +381,9 @@ device.For((count + 255) / 256 * 256, new SumBlocks(input, sums, count)); // who
   `SCG0044`.
 - **Threadgroup memory starts out undefined**, on the GPU and on the CPU: a thread may only read what
   a thread of its own group wrote, with a barrier in between.
+- Threads of a group can also update one `int` or `uint` element at the same time, without a barrier
+  between them, with `Gpu.Atomic*(ref tile[i], ...)`: see
+  [atomics on threadgroup memory](#shader-language-reference).
 - **Every thread of a group must call the same barriers.** A barrier inside an `if` or a loop that
   only some threads of the group enter, or after a `return` only some take, is undefined on the GPU,
   and the generator cannot detect it. Put conditions around the work, as above.
@@ -385,6 +398,206 @@ device.For((count + 255) / 256 * 256, new SumBlocks(input, sums, count)); // who
 
 `scripts/demo-groupshared.sh` runs a reduction, a prefix sum, a tiled matrix product and a tiled blur
 built this way, each checked against plain C#.
+
+### SIMD-group operations
+
+An Apple GPU executes a threadgroup 32 threads at a time, in *SIMD groups* whose threads ("lanes")
+run together. The `Gpu.Wave*` methods let the lanes of one group combine or exchange values in a
+single step, without threadgroup memory, barriers or atomics; the `Gpu.Quad*` methods do the same
+among the four lanes of a quad. The names and meanings are those of HLSL's wave and quad
+intrinsics; they map to Metal's `simd_*` and `quad_*` functions.
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SumGroups(ReadOnlyBuffer<float> input, ReadWriteBuffer<float> partials) : IComputeShader
+{
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+
+        if (i >= input.Length)
+        {
+            return;                              // a lane that returned takes no part in what follows
+        }
+
+        float sum = Gpu.WaveActiveSum(input[i]); // the sum over the group's lanes, in every lane
+
+        if (Gpu.WaveIsFirstLane())
+        {
+            partials[i / 32] = sum;              // one lane stores it: nothing to synchronize
+        }
+    }
+}
+
+device.For(count, new SumGroups(input, partials)); // 32 elements become one; repeat on the partials
+```
+
+| | Methods of `Gpu` | Metal |
+|---|---|---|
+| Lanes | `WaveGetLaneIndex()`, `WaveGetLaneCount()`, `WaveIsFirstLane()`, and the built-ins `SimdGroupIds.Index`, `SimdGroupIds.Count` | `thread_index_in_simdgroup`, `threads_per_simdgroup`, `simd_is_first`, `simdgroup_index_in_threadgroup`, `simdgroups_per_threadgroup` |
+| Votes | `WaveActiveAnyTrue(b)`, `WaveActiveAllTrue(b)`, `WaveActiveBallot(b)` (a `uint`, bit *i* = lane *i*), `WaveActiveCountBits(b)`, `WavePrefixCountBits(b)`, `WaveActiveAllEqual(v)` | `simd_any`, `simd_all`, `simd_ballot`, `simd_sum` and `simd_prefix_exclusive_sum` of 0/1, `simd_all(v == simd_broadcast_first(v))` |
+| Reductions | `WaveActiveSum`, `WaveActiveProduct`, `WaveActiveMin`, `WaveActiveMax`; for integers also `WaveActiveBitAnd`, `WaveActiveBitOr`, `WaveActiveBitXor` | `simd_sum`, `simd_product`, `simd_min`, `simd_max`, `simd_and`, `simd_or`, `simd_xor` |
+| Scans | `WavePrefixSum`, `WavePrefixProduct` (exclusive, as in HLSL), `WaveInclusivePrefixSum`, `WaveInclusivePrefixProduct` | `simd_prefix_exclusive_sum`/`_product`, `simd_prefix_inclusive_sum`/`_product` |
+| Exchange | `WaveReadLaneAt(v, lane)`, `WaveReadLaneFirst(v)`, `WaveShuffleUp(v, delta)`, `WaveShuffleDown(v, delta)`, `WaveShuffleXor(v, mask)`, `WaveRotateUp(v, delta)`, `WaveRotateDown(v, delta)`, `WaveShuffleUpAndFill(v, fill, delta)`, `WaveShuffleDownAndFill(v, fill, delta)` | `simd_shuffle`, `simd_broadcast_first`, `simd_shuffle_up`/`_down`/`_xor`, `simd_shuffle_rotate_up`/`_down`, `simd_shuffle_and_fill_up`/`_down` |
+| Quads | `QuadActiveAnyTrue(b)`, `QuadActiveAllTrue(b)`, `QuadActiveBallot(b)`; `QuadActiveSum`, `Product`, `Min`, `Max`, `BitAnd`, `BitOr`, `BitXor`; `QuadPrefixSum`, `QuadPrefixProduct`, `QuadInclusivePrefixSum`, `QuadInclusivePrefixProduct`; `QuadReadAcrossX(v)`, `QuadReadAcrossY(v)`, `QuadReadAcrossDiagonal(v)`, `QuadReadLaneAt(v, lane)` | `quad_any`, `quad_all`, `quad_ballot`; `quad_sum` … `quad_xor`; `quad_prefix_*`; `quad_shuffle_xor` with 1, 2, 3; `quad_shuffle` |
+
+Values are `float`, `int`, `uint` and their 2- to 4-component vectors (componentwise). They work in
+compute and pixel shaders and in helper methods. What they mean, measured on an Apple M4 Pro and
+pinned by the tests:
+
+- **How groups are formed.** The threads of a threadgroup are numbered row by row (`GroupIds.Index`:
+  `(z * sizeY + y) * sizeX + x`, with the real size of a threadgroup cut off at the edge of the
+  grid); lane `index % 32` of SIMD group `index / 32` is thread `index`. A threadgroup of 256 has 8
+  groups; in a 16 × 16 one each group is two rows; 12 × 12 gives four full groups and one of 16 lanes.
+  Metal does not document this layout.
+- **Which lanes take part.** Only *active* lanes: the ones executing this very call. A lane that
+  returned earlier, a lane in the other branch of an `if`, and the lanes a partial group does not
+  have (a grid or threadgroup that is not a multiple of 32) contribute nothing. A scan numbers the
+  active lanes without gaps, and `WaveIsFirstLane` is the lowest active lane.
+- **Shuffles at the edges.** `WaveShuffleUp(v, delta)` gives lane *i* the value of lane *i − delta*;
+  the lowest `delta` lanes get their own value back. `WaveShuffleDown` mirrors that at the top of a
+  full group. The `...AndFill` forms hand those lanes a fill instead, the `fill` argument of the lane
+  32 further on (so pass the same fill everywhere to shift in a constant), and the rotations wrap
+  around the 32 lanes.
+- **Reading a lane that is not active** (the shuffles and rotations, `WaveReadLaneAt`, the quad reads)
+  is undefined in Metal; Apple GPUs return 0. That includes the top of a partial group for
+  `WaveShuffleDown`, so guard it: `lane + delta < Gpu.WaveActiveCountBits(true) ? shuffled : own`.
+- **`WaveActiveBallot` returns a `uint`**, not HLSL's `uint4`: a SIMD group has 32 lanes on every
+  Apple GPU. A dispatch checks the compiled kernel's width and refuses a wider GPU rather than drop votes.
+- **`WaveActiveAllEqual` answers for the whole value**, also for a vector (HLSL answers per component).
+- **Quads** are four consecutive lanes (`x = lane & 1`, `y = (lane >> 1) & 1`): 2 × 2 blocks of the
+  grid in a threadgroup that is 2 threads wide, four threads in a row otherwise.
+- **Float reductions** combine the lanes in an order of the GPU's choosing; compare with a tolerance.
+  Integer results are exact and wrap.
+
+**On the CPU** (`ForCpu`, `ForIndirectCpu`, `ForSplit`) the lanes of a SIMD group run on threads of
+their own, 32 at a
+time, and meet at every operation: a lane waits until every lane of its group that has not returned
+from `Execute` is at the same call, and the result is computed from what they brought, in lane
+order (where reading a lane that takes no part gives 0, as on Apple GPUs). A shader that also uses
+threadgroup memory or barriers runs whole threadgroups instead, and `ForSplit` cuts between
+threadgroups, so a SIMD group is never divided between the devices. This reproduces the GPU when the
+lanes that are still running make the same SIMD-group calls in the same order: calls at the top
+level of `Execute` after any early returns, and calls in loops and branches that every lane takes
+alike. It costs about a quarter of a millisecond per operation and SIMD group, so it is for
+checking and debugging a shader, not for bulk work.
+
+- **Divergent control flow that shows is refused.** If the lanes of a group arrive at different
+  calls (one branch of an `if` calls an operation and the other does not, or calls another), or some
+  wait at an operation while others wait at a barrier, the dispatch throws `NotSupportedException`
+  ("SIMD-group operation in divergent control flow is not supported on the CPU; it is supported on
+  the GPU"). It does not hang, and it does not guess.
+- **Limitation: divergence that does not show.** Lanes that reach the *same* call site along
+  different paths meet as if control flow were uniform, and the result then includes lanes the GPU
+  would have kept apart. That is the case for a call in a loop when lanes are in different
+  iterations (a lane skipped an iteration, or its loop ran longer), and for a helper method that
+  contains the call and is called from both branches of an `if`. `ForCpu` cannot detect this; such
+  shaders are right on the GPU and should be checked there.
+- Every operation ends in two parameters the compiler fills in, `callerFile` and `callerLine` (leave
+  them out). With the operation they are the call site the lanes have to agree on, so keep two calls
+  of the same operation on separate lines (SCG0035 warns otherwise).
+
+`scripts/demo-simdgroups.sh` shows three uses live: a reduction race over 16M floats, a stream
+compaction built from ballots and prefix sums, and a signal smoothed with shuffles.
+
+### Local arrays
+
+A thread can have small arrays of its own: the taps of a filter, its weights, the values a sorting
+network orders, a stack, a small histogram. Write them the C# way; each becomes a fixed-size array of
+that thread, which the GPU keeps in registers. A 3 × 3 median filter, from ComputeLab's LocalArrays page:
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MedianFilter(ReadWriteBuffer<uint> source, ReadWriteBuffer<uint> destination, int size) : IComputeShader
+{
+    private static void Order(ref Float3 a, ref Float3 b)  // one compare-and-swap, on three channels at once
+    {
+        Float3 low = Gpu.Min(a, b);
+        b = Gpu.Max(a, b);
+        a = low;
+    }
+
+    private static void MedianOfNine(Span<Float3> p)       // MSL: (thread float3* p, int __len_p)
+    {
+        Order(ref p[1], ref p[2]); Order(ref p[4], ref p[5]); Order(ref p[7], ref p[8]);
+        Order(ref p[0], ref p[1]); Order(ref p[3], ref p[4]); Order(ref p[6], ref p[7]);
+        // ... 19 steps in all leave the median in p[4]
+    }
+
+    public void Execute()
+    {
+        int x = ThreadIds.X, y = ThreadIds.Y;
+        Span<Float3> window = stackalloc Float3[9];        // MSL: float3 window[9] = {};
+        int n = 0;
+
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int i = (Gpu.Clamp(y + dy, 0, size - 1) * size) + Gpu.Clamp(x + dx, 0, size - 1);
+                window[n] = Gpu.UnpackUnorm4x8(source[i]).XYZ;
+                n++;
+            }
+        }
+
+        MedianOfNine(window);
+        destination[(y * size) + x] = Gpu.PackUnorm4x8(new Float4(window[4], 1f));
+    }
+}
+```
+
+The page's 5 × 5 Gaussian reads its weights from a constant table:
+
+```csharp
+ReadOnlySpan<int> weights =                                // MSL: const int weights[25] = { 1, 4, ... };
+[
+    1, 4, 6, 4, 1,
+    4, 16, 24, 16, 4,
+    6, 24, 36, 24, 6,
+    4, 16, 24, 16, 4,
+    1, 4, 6, 4, 1,
+];
+
+int w = weights[((dy + 2) * 5) + dx + 2];
+```
+
+| C# | MSL |
+|---|---|
+| `Span<T> a = stackalloc T[N];`, `T[] a = new T[N];` | `T a[N] = {};`, zeroed as in C# |
+| `stackalloc T[] { x, y, z }`, `new T[] { x, y, z }`, `T[] a = [x, y, z];`, `Span<T> a = [x, y, z];` | `T a[3] = { x, y, z };` |
+| `ReadOnlySpan<T> a = [x, y, z];` | `const T a[3] = { x, y, z };` |
+| `a[i]`, `a[i] += v`, `a[i]++`, `ref a[i]` | the same |
+| `a.Length` | the constant `N` |
+| `foreach (T v in a)`, `foreach (ref T v in a)` | `for (int __i_v = 0; __i_v < N; __i_v++) { T v = a[__i_v]; ... }`, with `thread T&` for `ref` |
+| a helper's `Span<T>`, `T[]` or `ReadOnlySpan<T>` parameter | `thread T* a, int __len_a` (`thread const T*` for `ReadOnlySpan<T>`) |
+| `[InlineArray(8)] struct Float8 { float _e; }`, `f[i]` | `struct Float8 { float _e[8]; };`, `f._e[i]` |
+
+- `T` is anything a local can be: scalars, vectors, matrices (`Float3x3` too), `bool`, `Half` and your
+  own structs. `N` is a compile-time constant of at least 1 (`SCG0037`); a length only known at run
+  time has no equivalent, because a thread's arrays are sized when the shader is compiled.
+- A C# array or span is a reference to its elements; a thread's array is the elements. The two agree
+  as long as each array has one name, so a local array can be indexed, looped over and passed to a
+  helper method, but not copied to another variable, reassigned, compared, returned or sliced
+  (`Slice`, ranges, `^`), and the methods of `Span<T>` and arrays are not available (`SCG0039`).
+  Multi-dimensional and jagged arrays are `SCG0036`: index a one-dimensional array as `[y * width + x]`.
+- A helper that takes a span or an array is compiled once for every length: it receives a pointer to
+  the caller's elements and the length, so what it writes reaches the caller's array, as in C#.
+- An `[InlineArray(N)]` struct is a value type in C# too, so it is copied, passed and returned by
+  value, has no `Length`, and crosses the CPU/GPU boundary (a captured constant, a buffer element, a
+  struct field) whenever its element type can, with the same layout asserts as any struct. One of
+  `bool` or `Float3x3` elements is for locals only.
+- **Keep them small.** A thread keeps small arrays in registers and spills larger ones to memory. On an
+  M4 Pro, a kernel that fills its array and reads it back costs about 0.09 ns per element at 1 KB per
+  thread and 0.55 ns at 16 KB, and Metal refuses to create the pipeline once a thread needs 256 KB of
+  stack. Above 16 KB a local array is warning `SCG0038`; use `[GroupShared]` memory or a buffer for
+  data that large.
+- **No bounds checks on the GPU:** an index outside the array reads or writes whatever lies there.
+  `ForCpu` runs the C#, where the same index throws `IndexOutOfRangeException`, so running a shader on
+  the CPU is the way to find such a bug.
+- **On the CPU**, `new T[N]` allocates on the heap every time a thread runs: correct, but slow.
+  `stackalloc`, `ReadOnlySpan<T>` tables of constants (which C# stores as static data) and inline
+  arrays allocate nothing, so prefer them for `ForCpu`. A `stackalloc` inside a loop is warning
+  CA2014 in C#; declare the array before the loop and reuse it, which compiles to the same MSL.
 
 ### Batching and async dispatch
 
@@ -566,7 +779,8 @@ device.ForEachSplit(texture, new Gradient(time: 1.5f));            // pixel shad
 
 Both parts see the whole grid (`ThreadIds`, `DispatchSize`, `ThreadIds.Normalized`). Results match
 the GPU up to floating-point rounding. Only split shaders whose threads write their own elements;
-a shader that uses `Gpu.Atomic*` is never divided (see [Atomics](#shader-language-reference)).
+a shader that uses `Gpu.Atomic*` on buffer elements is never divided, while atomics on `[GroupShared]`
+elements stay within one threadgroup and do not prevent a split (see [Atomics](#shader-language-reference)).
 Don't expect much from the split: the CPU runs the shader's scalar C#, and the GPU slows down while
 every CPU core is busy. The adaptive mode therefore only splits while that measures faster than the
 GPU alone, and on the benchmarked workloads it lands between 3 % slower and 9 % faster than GPU-only
@@ -677,12 +891,13 @@ device.For(image.Length, new LuminanceHistogram(image, counts));
 | `AtomicAdd`, `AtomicSub`, `AtomicMin`, `AtomicMax`, `AtomicAnd`, `AtomicOr`, `AtomicXor` | `metal::atomic_fetch_*_explicit` |
 | `AtomicExchange(ref location, value)` | `metal::atomic_exchange_explicit` |
 | `AtomicCompareExchange(ref location, comparand, value)` | a strong compare-and-swap (a loop over MSL's weak one); returns the original, so it succeeded when that equals `comparand` |
-| `AtomicAdd(ref float, float)` | `metal::atomic_fetch_add_explicit` on `atomic<float>` |
+| `AtomicAdd(ref float, float)` | `metal::atomic_fetch_add_explicit` on `atomic<float>` for a buffer element; a compare-and-swap loop over the element's bits for a `[GroupShared]` element |
 
 - The location must be an element of a `ReadWriteBuffer<int>`, `<uint>` or `<float>` captured by
-  the shader: `ref buffer[i]`. A local, a `ReadOnlyBuffer` element or a field of a struct element is
-  build error `SCG0034`. A texture pixel has no address, so it cannot be a location either; a shader
-  that captures textures can use atomics on its buffers as usual.
+  the shader (`ref buffer[i]`), or an element of a `[GroupShared]` array of `int`, `uint` or `float`
+  (`ref tile[i]`, see below). A local, a `ReadOnlyBuffer` element or a field of a struct element is
+  build error `SCG0034`. A texture pixel has no address, so it cannot be a location either; a
+  shader that captures textures can use atomics on its buffers as usual.
 - The only ordering is relaxed (all MSL has): each operation is atomic by itself, nothing more. Don't
   also read or write the same element non-atomically in the same dispatch; read the results on the
   CPU afterwards, or in a later dispatch.
@@ -696,9 +911,64 @@ device.For(image.Length, new LuminanceHistogram(image, counts));
 - The guarantee holds among the threads of one dispatch on one device, not between a GPU dispatch
   and CPU code running at the same time: the GPU's atomics and the CPU's `Interlocked` operations
   do not exclude each other on shared memory, so `ForAsync` next to `ForCpu` on the same buffer
-  loses updates. For the same reason `ForSplit` never divides a shader that uses atomics: a
-  `cpuFraction` strictly between 0 and 1 throws `NotSupportedException`, and the adaptive mode runs
-  the whole grid on the GPU and reports it in `SplitDispatchInfo.SingleDeviceOnly`.
+  loses updates. For the same reason `ForSplit` never divides a shader that uses atomics on buffer
+  elements: a `cpuFraction` strictly between 0 and 1 throws `NotSupportedException`, and the
+  adaptive mode runs the whole grid on the GPU and reports it in `SplitDispatchInfo.SingleDeviceOnly`.
+  A shader whose only atomics are on `[GroupShared]` elements is split like any other: a threadgroup
+  runs entirely on one device, so its atomics never meet the other device's.
+
+**Atomics on threadgroup memory.** The same methods take an element of a `[GroupShared]` array of
+`int`, `uint` or `float` (`threadgroup metal::atomic_int*` in MSL, also inside helpers). Only the threads of
+one threadgroup can reach such an element, so the contention is a threadgroup's worth of threads
+instead of the whole dispatch. A privatised histogram counts per group and merges once per bin per
+group:
+
+```csharp
+[ThreadGroupSize(256)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct PrivatisedHistogram(ReadWriteBuffer<uint> image, ReadWriteBuffer<int> counts) : IComputeShader
+{
+    [GroupShared]
+    private static readonly int[] local = new int[256];
+
+    public void Execute()
+    {
+        int bin = GroupIds.Index;       // thread n of a group clears and merges bin n
+
+        local[bin] = 0;                 // threadgroup memory starts out undefined
+        Gpu.GroupMemoryBarrierWithGroupSync();
+
+        uint pixel = image[ThreadIds.X];
+        uint luminance = (((pixel & 255u) * 54u) + (((pixel >> 8) & 255u) * 183u) + (((pixel >> 16) & 255u) * 19u)) >> 8;
+        Gpu.AtomicAdd(ref local[(int)luminance], 1);   // 256 threads contend, not a million
+
+        Gpu.GroupMemoryBarrierWithGroupSync();
+        Gpu.AtomicAdd(ref counts[bin], local[bin]);    // one buffer atomic per bin per group
+    }
+}
+
+device.For(image.Length / 256 * 256, new PrivatisedHistogram(image, counts)); // whole threadgroups
+```
+
+- Keep plain reads and writes of an element apart from the atomics on it with a barrier, as above:
+  clear, barrier, atomics, barrier, read.
+- `Gpu.AtomicAdd(ref float, float)` works on a `[GroupShared] float[]` element as it does on a
+  buffer. MSL 3.2 has no atomic `float` in threadgroup memory, so there it is a compare-and-swap
+  loop over the element's bits (a prelude helper): every add is applied exactly once and returns
+  the value before it, and as everywhere the sum of floats that do not add exactly depends on the
+  order the threads ran in.
+- On the CPU the threads of a threadgroup run concurrently, so these are real `Interlocked`
+  operations there as well, and the results match the GPU's.
+- They combine with SIMD-group operations: each SIMD group can reduce its lanes with
+  `Gpu.WaveActiveSum` and then make one atomic add per SIMD group to a `[GroupShared]` total,
+  instead of one per thread.
+- The shader above also has an atomic on a buffer (the merge), so `ForSplit` keeps it on one device.
+  One that only writes each group's result to that group's own elements can be split.
+- On an M4 Pro, for a 1024 × 1024 image, the privatised version takes about half the GPU time of
+  the global one with 256 bins and between a quarter and a fifth with 4 bins;
+  `scripts/demo-computelab.sh` shows both live:
+
+![ComputeLab's "Histogram: privatised" page: the generated image on the left, and on the right the luminance histogram counted with global atomics above the same histogram counted per threadgroup in group-shared memory, bin for bin identical](docs/screenshots/computelab-histogram-privatised.png)
 
 **Bits.** All bit-exact between the GPU and the CPU, including NaN payloads, signed zeros and
 subnormals.
@@ -748,8 +1018,14 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 ## Limitations
 
 - Apple Silicon and macOS 15+ only, for now.
-- Atomics work on buffer elements of `int`, `uint` and (add only) `float`, not on struct fields
-  and not on `[GroupShared]` memory.
+- On the CPU, SIMD-group operations need uniform control flow: `ForCpu` refuses lanes that arrive at
+  different operations, and cannot tell lanes apart that reach one call site along different paths
+  (a loop iteration some lanes skip, a helper called from two branches). The GPU handles both.
+- Atomics work on elements of `int`, `uint` and (add only) `float`, in buffers and in
+  `[GroupShared]` arrays; not on struct fields.
+- Local arrays have a compile-time length and one name: they cannot be sliced, copied to another
+  variable or returned (pass them to a helper instead), and multi-dimensional and jagged arrays are
+  not supported.
 - Textures are 2D with one mip level (a wrapped mipmapped texture uses level 0); samplers are the
   six fixed ones.
 - Wrapped Metal resources must use tracked hazard tracking, and `EncodeInto` cannot detect an
@@ -768,7 +1044,6 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 - **Vulkan backend** (Windows, Linux, Android; macOS through MoltenVK), then **OpenGL 4.3**
   (Windows, Linux; macOS caps OpenGL at 4.1, which has no compute shaders). The shader authoring
   API stays the same; each backend adds its own shading-language emitter and runtime.
-- Atomics on threadgroup memory.
 - NuGet packages.
 
 ## License

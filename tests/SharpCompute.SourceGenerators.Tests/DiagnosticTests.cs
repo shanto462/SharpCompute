@@ -574,7 +574,6 @@ public class DiagnosticTests
     [InlineData("var name = nameof(buffer);", "a nameof expression", "nameof(buffer)")]
     [InlineData("var type = typeof(float);", "a typeof expression", "typeof(float)")]
     [InlineData("foreach (var v in new float[2]) { }", "a foreach loop", "foreach")]
-    [InlineData("float[] values = new float[4];", "an array creation", "new float[4]")]
     [InlineData("throw new InvalidOperationException();", "a throw statement", "throw")]
     [InlineData("using (var stream = new System.IO.MemoryStream()) { }", "a using statement", "using")]
     [InlineData("var tuple = (1, 2f);", "a tuple expression", "(1, 2f)")]
@@ -1002,7 +1001,7 @@ public class DiagnosticTests
             .Select(static f => (DiagnosticDescriptor)f.GetValue(null)!)
             .ToArray();
 
-        Assert.Equal(40, descriptors.Length);
+        Assert.Equal(45, descriptors.Length);
         Assert.Equal(descriptors.Length, descriptors.Select(static d => d.Id).Distinct().Count());
         Assert.All(descriptors, static d =>
         {
@@ -1012,6 +1011,8 @@ public class DiagnosticTests
         });
         Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.ShaderShouldBeReadOnly.DefaultSeverity);
         Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.GroupSharedWithoutThreadGroupSize.DefaultSeverity);
-        Assert.All(descriptors.Where(static d => d.Id is not ("SCG0004" or "SCG0044")), static d => Assert.Equal(DiagnosticSeverity.Error, d.DefaultSeverity));
+        Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.SimdGroupCallSitesShareLine.DefaultSeverity);
+        Assert.Equal(DiagnosticSeverity.Warning, DiagnosticDescriptors.LocalArrayTooLarge.DefaultSeverity);
+        Assert.All(descriptors.Where(static d => d.Id is not ("SCG0004" or "SCG0035" or "SCG0038" or "SCG0044")), static d => Assert.Equal(DiagnosticSeverity.Error, d.DefaultSeverity));
     }
 }

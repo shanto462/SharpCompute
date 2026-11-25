@@ -22,6 +22,12 @@ internal enum Builtins
     ThreadsPerThreadgroup = 16,
     ThreadgroupsPerGrid = 32,
     ThreadIndexInThreadgroup = 64,
+
+    // The SIMD-group built-ins, which are scalars (see BuiltinInfo.Type).
+    ThreadIndexInSimdgroup = 128,
+    ThreadsPerSimdgroup = 256,
+    SimdgroupIndexInThreadgroup = 512,
+    SimdgroupsPerThreadgroup = 1024,
 }
 
 internal static class BuiltinInfo
@@ -35,7 +41,15 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerThreadgroup,
         Builtins.ThreadgroupsPerGrid,
         Builtins.ThreadIndexInThreadgroup,
+        Builtins.ThreadIndexInSimdgroup,
+        Builtins.ThreadsPerSimdgroup,
+        Builtins.SimdgroupIndexInThreadgroup,
+        Builtins.SimdgroupsPerThreadgroup,
     };
+
+    /// <summary>The SIMD-group built-ins: scalars, and the same in every part of a windowed dispatch (windows are threadgroup aligned).</summary>
+    public const Builtins SimdGroup =
+        Builtins.ThreadIndexInSimdgroup | Builtins.ThreadsPerSimdgroup | Builtins.SimdgroupIndexInThreadgroup | Builtins.SimdgroupsPerThreadgroup;
 
     public static string Name(Builtins builtin) => builtin switch
     {
@@ -45,11 +59,19 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerThreadgroup => "__gsize",
         Builtins.ThreadgroupsPerGrid => "__groups",
         Builtins.ThreadIndexInThreadgroup => "__gindex",
+        Builtins.ThreadIndexInSimdgroup => "__lane",
+        Builtins.ThreadsPerSimdgroup => "__lanes",
+        Builtins.SimdgroupIndexInThreadgroup => "__sgid",
+        Builtins.SimdgroupsPerThreadgroup => "__sgroups",
         _ => "__gid",
     };
 
-    /// <summary>The MSL type of the built-in: a <c>uint3</c>, except for the flat index in the threadgroup.</summary>
-    public static string Type(Builtins builtin) => builtin == Builtins.ThreadIndexInThreadgroup ? "uint" : "uint3";
+    /// <summary>
+    /// The MSL type of the built-in's kernel argument: a <c>uint3</c>, except for the flat index in the
+    /// threadgroup and the SIMD-group built-ins, which are scalars.
+    /// </summary>
+    public static string Type(Builtins builtin) =>
+        builtin == Builtins.ThreadIndexInThreadgroup || (builtin & SimdGroup) != 0 ? "uint" : "uint3";
 
     /// <summary>
     /// The built-ins a partial-grid (windowed) dispatch has to rebase: the thread and threadgroup
@@ -85,6 +107,10 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerThreadgroup => "threads_per_threadgroup",
         Builtins.ThreadgroupsPerGrid => "threadgroups_per_grid",
         Builtins.ThreadIndexInThreadgroup => "thread_index_in_threadgroup",
+        Builtins.ThreadIndexInSimdgroup => "thread_index_in_simdgroup",
+        Builtins.ThreadsPerSimdgroup => "threads_per_simdgroup",
+        Builtins.SimdgroupIndexInThreadgroup => "simdgroup_index_in_threadgroup",
+        Builtins.SimdgroupsPerThreadgroup => "simdgroups_per_threadgroup",
         _ => "threadgroup_position_in_grid",
     };
 }
@@ -437,13 +463,26 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// True when an <c>[MslAtomic]</c> call was translated, in the kernel or in a helper it reaches
-    /// (helpers are only translated when called). Published on the descriptor so that the runtime
-    /// never divides such a shader between the CPU and the GPU.
+    /// (helpers are only translated when called), on a buffer element or on threadgroup memory.
     /// </summary>
     public bool UsesAtomics { get; private set; }
 
+    /// <summary>
+    /// True when one of those calls is on a buffer element (<c>device</c> memory), which every thread
+    /// of the dispatch shares. Published on the descriptor so that the runtime never divides such a
+    /// shader between the CPU and the GPU; atomics on threadgroup memory stay within one group, which
+    /// runs on one device, and do not set it.
+    /// </summary>
+    public bool UsesDeviceAtomics { get; private set; }
+
     /// <summary>Every local and parameter name that was emitted, used to detect clashes with struct names.</summary>
     public HashSet<string> LocalNames { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when the kernel (or a helper it calls) uses a SIMD-group operation or built-in: its lanes
+    /// compute results together, which the descriptor reports to the runtime.
+    /// </summary>
+    public bool UsesSimdGroups { get; private set; }
 
     /// <summary>Set when the user's code contains compile errors; the generator then stays quiet.</summary>
     public bool SawInvalidCode { get; private set; }
@@ -599,9 +638,15 @@ internal sealed partial class MslTranslator
         Location fallback = callSite.Syntax.GetLocation();
         bool failed = false;
 
-        GpuType? returnType = _types.Resolve(method.ReturnType, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
+        GpuType? returnType = ReturnsLocalArray(method, returnTypeSyntax?.GetLocation() ?? fallback)
+            ? null
+            : _types.Resolve(method.ReturnType, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
 
-        if (returnType is null || returnType.IsResource)
+        if (_function.ReturnsLocalArray)
+        {
+            failed = true;
+        }
+        else if (returnType is null || returnType.IsResource)
         {
             if (returnType is { Kind: GpuTypeKind.Buffer })
             {
@@ -637,6 +682,13 @@ internal sealed partial class MslTranslator
                 _diagnostics.Report(DiagnosticDescriptors.UnsupportedSyntax, location, $"the 'params' parameter '{parameter.Name}'");
                 _failedSymbols.Add(parameter);
                 failed = true;
+                continue;
+            }
+
+            if (LocalArrayParameter(parameter, parameterName, parameterSyntax, location, ref failed) is { } arrayParameters)
+            {
+                // `Span<float> values` -> `thread float* values, int __len_values` (see MslTranslator.LocalArrays.cs).
+                parameters.AddRange(arrayParameters);
                 continue;
             }
 
@@ -978,6 +1030,12 @@ internal sealed partial class MslTranslator
 
         /// <summary>Locals of inline <c>out T x</c> declarations, already declared before their statement.</summary>
         public HashSet<ILocalSymbol> HoistedLocals { get; } = new(SymbolEqualityComparer.Default);
+
+        /// <summary>The local arrays of this function: its array locals, and its array parameters if it is a helper.</summary>
+        public Dictionary<ISymbol, LocalArray> LocalArrays { get; } = new(SymbolEqualityComparer.Default);
+
+        /// <summary>Set for a helper whose return type is a local array type, which was reported at the signature.</summary>
+        public bool ReturnsLocalArray { get; set; }
 
         public HiddenInputs Inputs { get; } = new();
 

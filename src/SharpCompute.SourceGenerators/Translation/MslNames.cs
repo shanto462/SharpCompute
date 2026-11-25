@@ -13,13 +13,19 @@ namespace SharpCompute.SourceGenerators;
 /// <remarks>
 /// The mapping is injective: escaped names always start with <c>__ms_</c> and unescaped names never
 /// start with <c>__</c>, so every other <c>__</c>-prefixed name (<c>__c</c>, <c>__tid</c>,
-/// <c>__Constants</c>, <c>__local_*</c>, <c>__length_*</c>) belongs to the generator alone.
+/// <c>__Constants</c>, <c>__local_*</c>, <c>__length_*</c>, <c>__len_*</c>, <c>__i_*</c>) belongs to the generator alone.
 /// </remarks>
 internal static class MslNames
 {
     public const string EscapePrefix = "__ms_";
     public const string LocalPrefix = "__local_";
     public const string LengthPrefix = "__length_";
+
+    /// <summary>The hidden <c>int</c> parameter that follows a local array parameter of a helper (<c>__len_values</c>).</summary>
+    public const string ArrayLengthPrefix = "__len_";
+
+    /// <summary>The index of the loop a <c>foreach</c> over a local array is lowered to (<c>__i_value</c>).</summary>
+    public const string ForEachIndexPrefix = "__i_";
     public const string Constants = "__c";
     public const string ConstantsStruct = "__Constants";
     public const string Output = "__output";

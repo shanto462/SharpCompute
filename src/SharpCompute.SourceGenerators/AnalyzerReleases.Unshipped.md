@@ -38,7 +38,12 @@ SCG0030 | SharpCompute | Error | Sampler must be a static property of Sampler pa
 SCG0031 | SharpCompute | Error | Texture element is modified in place
 SCG0032 | SharpCompute | Error | Texture is returned or passed by reference
 SCG0033 | SharpCompute | Error | Read-write texture cannot be sampled
-SCG0034 | SharpCompute | Error | Atomic operation needs a buffer element
+SCG0034 | SharpCompute | Error | Atomic operation needs a buffer element or a [GroupShared] element
+SCG0035 | SharpCompute | Warning | SIMD-group operations share a line
+SCG0036 | SharpCompute | Error | Unsupported local array
+SCG0037 | SharpCompute | Error | Local array length must be a positive compile-time constant
+SCG0038 | SharpCompute | Warning | Local array is large
+SCG0039 | SharpCompute | Error | Unsupported use of a local array
 SCG0040 | SharpCompute | Error | Invalid [GroupShared] field
 SCG0041 | SharpCompute | Error | [GroupShared] array length is not a compile-time constant
 SCG0042 | SharpCompute | Error | Unsupported [GroupShared] element type

@@ -71,6 +71,9 @@ internal static class GeneratorHarness
 /// <summary>The static descriptor members of a generated shader, read from the compiled assembly.</summary>
 internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string MslSource, int ThreadGroupSizeX, int ThreadGroupSizeY, int ThreadGroupSizeZ, int GridWindowIndex, bool UsesAtomics)
 {
+    /// <summary>True when one of the kernel's atomics is on a buffer element, which keeps a CPU+GPU split from dividing it.</summary>
+    public bool UsesDeviceAtomics { get; init; }
+
     /// <summary>True when the kernel uses group-shared memory or a barrier, so the CPU runs its threadgroups cooperatively.</summary>
     public bool UsesThreadgroupMemory { get; init; }
 
@@ -312,6 +315,7 @@ internal sealed class GeneratorRun
         where T : struct, IComputeShaderDescriptor<T> =>
         new(typeof(T), T.EntryPoint, T.MslSource, T.ThreadGroupSizeX, T.ThreadGroupSizeY, T.ThreadGroupSizeZ, T.GridWindowIndex, T.UsesAtomics)
         {
+            UsesDeviceAtomics = T.UsesDeviceAtomics,
             UsesThreadgroupMemory = T.UsesThreadgroupMemory,
             ThreadgroupMemoryLength = T.ThreadgroupMemoryLength,
             CompileOptions = T.CompileOptions,

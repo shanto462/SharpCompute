@@ -2,14 +2,17 @@
 # ComputeLab: one page per core compute feature. Every page runs the feature on the GPU, shows the
 # result, checks it against the CPU (ForCpu of the same shader) and shows GPU ms vs CPU ms.
 #   Histogram (atomics): a live 256-bin luminance histogram; C folds it into 4 bins to show contention
+#   Histogram: privatised (threadgroup atomics): the same histogram counted per threadgroup in
+#     [GroupShared] memory and merged, timed against the global-atomics version; C as above
 #   Compaction (atomics): keep the passing elements of 1M through an AtomicAdd counter; Up/Down threshold
 #   Bits: popcount, bit reversal, clz/ctz, float bits and unorm8 packing as patterns
+#   LocalArrays: a 3x3 median (9-element stackalloc array, sorting network) and a 5x5 Gaussian (weight table); F switches, N noise
 #   Indirect (indirect dispatch): compact, then dispatch exactly the survivors; D steps through the full-array alternatives
 #   FastMath (compile options): one kernel with and without [ShaderOptions(FastMath = true)]; F toggles
 #   <-/-> switch page · Space pause · S save PNG · Esc quit
 #
 #   scripts/demo-computelab.sh               # the window
-#   scripts/demo-computelab.sh --page Bits   # start on a page (--list shows them)
+#   scripts/demo-computelab.sh --page histogram-privatised   # start on a page (--list shows them)
 #   scripts/demo-computelab.sh --headless    # no window: a PNG per page and summary.txt in demo-output/computelab/
 source "$(dirname "$0")/_common.sh"
 build samples/SharpCompute.Samples.ComputeLab

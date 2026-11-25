@@ -494,8 +494,10 @@ internal sealed class ShaderAnalyzer
             usesInstanceAccess,
             gridWindowIndex,
             translator.UsesAtomics,
+            translator.UsesDeviceAtomics,
             usesThreadgroupMemory: groupShared.Count > 0 || translator.UsesBarriers,
-            threadgroupMemoryLength: (int)threadgroupMemory);
+            threadgroupMemoryLength: (int)threadgroupMemory,
+            usesSimdGroups: translator.UsesSimdGroups);
 
         return translation;
     }
@@ -825,8 +827,10 @@ internal sealed class ShaderAnalyzer
         bool usesInstanceAccess = false,
         int gridWindowIndex = -1,
         bool usesAtomics = false,
+        bool usesDeviceAtomics = false,
         bool usesThreadgroupMemory = false,
-        int threadgroupMemoryLength = 0)
+        int threadgroupMemoryLength = 0,
+        bool usesSimdGroups = false)
     {
         var types = new List<TypeDeclarationInfo>();
 
@@ -864,9 +868,11 @@ internal sealed class ShaderAnalyzer
             UsesInstanceAccess: usesInstanceAccess,
             GridWindowIndex: gridWindowIndex,
             UsesAtomics: usesAtomics,
+            UsesDeviceAtomics: usesDeviceAtomics,
             UsesThreadgroupMemory: usesThreadgroupMemory,
             ThreadgroupMemoryLength: threadgroupMemoryLength,
-            CompileOptions: _compileOptions);
+            CompileOptions: _compileOptions,
+            UsesSimdGroups: usesSimdGroups);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -1016,11 +1022,19 @@ internal sealed class ShaderAnalyzer
 
                 foreach (GpuField field in type.Fields)
                 {
-                    writer.Line(field.Type.BoundaryName + " " + field.MslName + ";");
+                    writer.Line(field.Declaration + ";");
                 }
 
                 writer.Indent--;
                 writer.Line("};");
+
+                if (!type.CanCrossBoundary)
+                {
+                    // An inline array of bool or of a matrix without a Packed form: MSL lays out its
+                    // native elements differently, which is why it never crosses the boundary.
+                    continue;
+                }
+
                 writer.Line(SizeAssert(type.MslName, type.Size));
 
                 foreach (GpuField field in type.Fields)

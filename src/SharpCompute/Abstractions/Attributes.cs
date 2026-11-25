@@ -157,20 +157,33 @@ public sealed class MslIntrinsicAttribute(string name) : Attribute
 /// <summary>
 /// Maps a static method to an MSL atomic function. The first parameter is the location
 /// (<c>ref T</c>); the generator requires it to be an element of a captured
-/// <see cref="ReadWriteBuffer{T}"/> (<c>ref buffer[i]</c>) and emits
-/// <c>name((device metal::atomic_int*)&amp;(buffer[i]), args...)</c>, with <c>metal::atomic_uint</c>
-/// for <c>uint</c> and <c>metal::atomic&lt;float&gt;</c> for <c>float</c> elements. Anything else as
+/// <see cref="ReadWriteBuffer{T}"/> (<c>ref buffer[i]</c>) or of a <see cref="GroupSharedAttribute"/>
+/// array (<c>ref tile[i]</c>) and emits <c>name((device metal::atomic_int*)&amp;(buffer[i]), args...)</c>,
+/// or <c>name((threadgroup metal::atomic_int*)&amp;(tile[i]), args...)</c>, with <c>metal::atomic_uint</c>
+/// for <c>uint</c> and <c>metal::atomic&lt;float&gt;</c> for <c>float</c> elements of a buffer. A
+/// <c>float</c> element of threadgroup memory needs <see cref="ThreadgroupFloat"/>. Anything else as
 /// the location is diagnostic SCG0034.
 /// </summary>
 /// <remarks>
 /// A function whose name ends in <c>_explicit</c> takes a memory order (the C and MSL naming
 /// convention), so <c>metal::memory_order_relaxed</c> is appended for it: the only order MSL has.
-/// The address space (<c>device</c>) comes from where the location lives, not from this attribute,
-/// which is what lets other atomic storage (threadgroup memory) be added without a second set of
-/// methods.
+/// The address space (<c>device</c> or <c>threadgroup</c>) comes from where the location lives, not
+/// from this attribute, which is why one set of methods serves both kinds of atomic storage. A
+/// prelude function (<c>__ms_*</c>) named here needs an overload per address space.
 /// </remarks>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
 public sealed class MslAtomicAttribute(string name) : Attribute
 {
     public string Name { get; } = name;
+
+    /// <summary>
+    /// The function to call instead of <see cref="Name"/> when the location is a <c>float</c> element
+    /// of a <see cref="GroupSharedAttribute"/> array, or null (the default) when the method cannot be
+    /// used there. MSL 3.2 has no atomic float in the <c>threadgroup</c> address space, so the
+    /// function receives the element as <c>threadgroup metal::atomic_uint*</c>, followed by the other
+    /// arguments, and works on the float's bits: a prelude helper such as
+    /// <c>__ms_atomic_fetch_add_float</c>, a compare-and-swap loop. No memory order is appended for a
+    /// name that does not end in <c>_explicit</c>.
+    /// </summary>
+    public string? ThreadgroupFloat { get; init; }
 }

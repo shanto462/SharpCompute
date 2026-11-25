@@ -118,20 +118,62 @@ public sealed class ComputeLabTests
         Assert.Equal("GPU 0.00 ms   CPU 1.50 ms (all cores)", new LabTiming(0, 1.5).ToString());
     }
 
+    [Fact]
+    public void Timing_ComparesThePagesKernelWithItsBaseline_WhenThereIsOne()
+    {
+        Assert.Null(new LabTiming(0.5, 5).BaselineText);
+
+        LabTiming faster = new(0.5, 5) { Baseline = new LabBaseline("global atomics", 2) };
+        Assert.Equal("global atomics: GPU 2.00 ms   this page's kernel is 4.0x faster", faster.BaselineText);
+        Assert.Equal("GPU 0.50 ms   CPU 5.00 ms (all cores)   GPU is 10.0x faster", faster.ToString()); // the timing line itself is unchanged
+
+        LabTiming slower = new(3, 5) { Baseline = new LabBaseline("global atomics", 1.5) };
+        Assert.Equal("global atomics: GPU 1.50 ms   this page's kernel is 2.0x slower", slower.BaselineText);
+
+        Assert.Equal("other: GPU 0.00 ms", new LabTiming(3, 5) { Baseline = new LabBaseline("other", 0) }.BaselineText);
+    }
+
+    [Fact]
+    public void PageNames_BecomeFileNamesAndCommandLineWords()
+    {
+        Assert.Equal("histogram", LabPages.Slug("Histogram"));
+        Assert.Equal("histogram-privatised", LabPages.Slug("Histogram: privatised"));
+        Assert.Equal("a-b-c9", LabPages.Slug("  A / b -- C9!?"));
+        Assert.Equal(string.Empty, LabPages.Slug(": :"));
+    }
+
     // ---- the pages --------------------------------------------------------------------------------
 
     [MetalFact]
-    public void Pages_AreTheFiveOfThisLab_EachWithAtLeastOneVariant()
+    public void Pages_AreTheSevenOfThisLab_EachWithAtLeastOneVariant()
     {
         List<ILabPage> pages = LabPages.Create(GraphicsDevice.GetDefault());
 
         try
         {
-            Assert.Equal(["Histogram", "Compaction", "Bits", "Indirect", "FastMath"], pages.Select(static p => p.Name));
-            Assert.Equal(["atomics", "atomics", "bit and packing intrinsics", "indirect dispatch", "per-shader compile options"], pages.Select(static p => p.Feature));
+            // The privatised histogram sits next to the one it is compared with.
+            Assert.Equal(["Histogram", "Histogram: privatised", "Compaction", "Bits", "LocalArrays", "Indirect", "FastMath"], pages.Select(static p => p.Name));
+            Assert.Equal(
+                ["atomics", "threadgroup atomics", "atomics", "bit and packing intrinsics", "fixed-size local arrays", "indirect dispatch", "per-shader compile options"],
+                pages.Select(static p => p.Feature));
             Assert.All(pages, static p => Assert.NotEmpty(p.Variants));
             Assert.All(pages, static p => Assert.Equal(0, p.Variant));
-            Assert.Equal(["1-histogram.png", "2-compaction.png", "3-bits.png", "4-indirect.png", "5-fastmath.png"], Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
+            Assert.Equal(
+                ["1-histogram.png", "2-histogram-privatised.png", "3-compaction.png", "4-bits.png", "5-localarrays.png", "6-indirect.png", "7-fastmath.png"],
+                Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
+
+            // Only the privatised page times a second dispatch.
+            Assert.Equal([false, true, false, false, false, false, false], pages.Select(static p => p.Baseline is not null));
+
+            // --page takes the name or the file-name form of it, in any case.
+            Assert.Equal(1, LabPages.Find(pages, "Histogram: privatised"));
+            Assert.Equal(1, LabPages.Find(pages, "histogram-privatised"));
+            Assert.Equal(1, LabPages.Find(pages, "HISTOGRAM-PRIVATISED"));
+            Assert.Equal(0, LabPages.Find(pages, "histogram"));
+            Assert.Equal(3, LabPages.Find(pages, "Bits"));
+            Assert.Equal(4, LabPages.Find(pages, "localarrays"));
+            Assert.Equal(6, LabPages.Find(pages, "fastmath"));
+            Assert.Equal(-1, LabPages.Find(pages, "privatised"));
         }
         finally
         {
@@ -222,7 +264,7 @@ public sealed class ComputeLabTests
                 Assert.Equal(summary, log.ToString());
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
-                Assert.Equal(9, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // histogram and fast math twice, indirect three times
+                Assert.Equal(13, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // both histograms, local arrays and fast math twice, indirect three times
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
                 Assert.Contains("indirect: compact, dispatch the survivors", summary);
@@ -230,9 +272,15 @@ public sealed class ComputeLabTests
                 Assert.Contains("no compaction: every thread tests itself", summary);
                 Assert.Contains("safe math (the default)", summary);
                 Assert.Contains("[ShaderOptions(FastMath = true)]", summary);
-                Assert.Equal(9, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
+                Assert.Contains("median 3x3 (sorting network)", summary);
+                Assert.Contains("gaussian 5x5 (weight table)", summary);
+                Assert.Equal(13, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
 
-                string[] pictures = ["1-histogram.png", "2-compaction.png", "3-bits.png", "4-indirect.png", "5-fastmath.png"];
+                // The privatised histogram is also timed against the global-atomics one, at both bin counts.
+                Assert.Contains("[2/7] Histogram: privatised: threadgroup atomics", summary);
+                Assert.Equal(2, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("global atomics: GPU ", StringComparison.Ordinal) && line.Contains("this page's kernel is ", StringComparison.Ordinal)));
+
+                string[] pictures = ["1-histogram.png", "2-histogram-privatised.png", "3-compaction.png", "4-bits.png", "5-localarrays.png", "6-indirect.png", "7-fastmath.png"];
                 Assert.Equal(pictures.Append("summary.txt").Order(), Directory.GetFiles(directory).Select(Path.GetFileName).Order());
                 Assert.All(pictures, name => Assert.Contains(name, summary));
                 files.Add(pictures.ToDictionary(static name => name, name => File.ReadAllBytes(Path.Combine(directory, name))));
@@ -293,6 +341,126 @@ public sealed class ComputeLabTests
 
         Assert.NotEqual(early, page.Counts.ToArray());
         Assert.True(page.Check().Passed);
+    }
+
+    [MetalFact]
+    public void PrivatisedHistogram_CountsWhatTheGlobalOneCounts_AtBothBinCounts()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using PrivatisedHistogramPage page = new(device);
+        using HistogramPage global = new(device);
+
+        page.Compute(Frame);
+        global.Compute(Frame);
+        int[] fine = page.Counts.ToArray();
+
+        // The same image as the Histogram page, counted per threadgroup and merged: the same bins.
+        Assert.Equal(256, fine.Length);
+        Assert.Equal(PrivatisedHistogramPage.Size * PrivatisedHistogramPage.Size, fine.Sum());
+        Assert.Equal(global.Counts.ToArray(), fine);
+        Assert.Equal(fine, page.GlobalCounts.ToArray());
+
+        // Both dispatches were timed, and the global one is the page's baseline.
+        Assert.True(page.GpuMilliseconds > 0 && page.GlobalGpuMilliseconds > 0);
+        Assert.Equal(new LabBaseline("global atomics", page.GlobalGpuMilliseconds), page.Baseline);
+
+        LabCheck check = page.Check();
+        Assert.True(check.Passed, check.Summary);
+        Assert.Contains("256 bins: privatised = global atomics = CPU", check.Summary);
+        Assert.True(check.CpuMilliseconds > 0);
+
+        // The contention toggle: the same image and the same million adds, on 4 bins.
+        Assert.True(page.OnKeyDown(Key.C));
+        Assert.Equal(4, page.Bins);
+        page.Compute(Frame);
+        int[] coarse = page.Counts.ToArray();
+
+        Assert.Equal(Enumerable.Range(0, 4).Select(b => fine.Skip(b * 64).Take(64).Sum()), coarse);
+        Assert.Equal(coarse, page.GlobalCounts.ToArray());
+        check = page.Check();
+        Assert.True(check.Passed, check.Summary);
+        Assert.Contains("4 bins: privatised", check.Summary);
+
+        Assert.False(page.OnKeyDown(Key.X));
+        Assert.True(page.OnKeyDown(Key.C));
+        Assert.Equal(256, page.Bins);
+
+        // It follows the animation like the page next to it.
+        page.Compute(new LabFrame(4f, Deterministic: false));
+        Assert.NotEqual(fine, page.Counts.ToArray());
+        Assert.True(page.Check().Passed);
+    }
+
+    [MetalFact]
+    public void PrivatisedHistogram_Kernel_HasAtomicsOnBothKindsOfMemory_SoItIsNotSplit()
+    {
+        static (bool Atomics, bool DeviceAtomics, bool Threadgroup) Read<T>()
+            where T : struct, IComputeShaderDescriptor<T> => (T.UsesAtomics, T.UsesDeviceAtomics, T.UsesThreadgroupMemory);
+
+        // The per-group counts are atomics on threadgroup memory; the merge is an atomic on the buffer.
+        Assert.Equal((true, true, true), Read<PrivatisedLuminanceHistogram>());
+        Assert.Equal((true, true, false), Read<LuminanceHistogram>());
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadWriteBuffer<uint> image = device.AllocateReadWriteBuffer<uint>(4096);
+        using ReadWriteBuffer<int> counts = device.AllocateReadWriteBuffer<int>(256);
+
+        Assert.Throws<NotSupportedException>(() => device.ForSplit(4096, new PrivatisedLuminanceHistogram(image, counts, 0), 0.5));
+        Assert.All(counts.ToArray(), static count => Assert.Equal(0, count));
+
+        // Every pixel is 0: luminance 0, so all 4,096 land in bin 0, on the GPU and on the CPU.
+        device.For(4096, new PrivatisedLuminanceHistogram(image, counts, 0));
+        device.ForCpu(4096, new PrivatisedLuminanceHistogram(image, counts, 6));
+        Assert.Equal(8192, counts[0]);
+        Assert.Equal(8192, counts.ToArray().Sum());
+        Assert.Equal(0u, PrivatisedLuminanceHistogram.Luminance(0xFF000000u));
+        Assert.Equal(255u, PrivatisedLuminanceHistogram.Luminance(0x00FFFFFFu));
+    }
+
+    [MetalFact]
+    public void PrivatisedHistogram_ShowsItsTwoTimes_InTheWindowOnly()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        List<ILabPage> pages = LabPages.Create(device);
+        using LabCanvas canvas = new(device);
+
+        try
+        {
+            ILabPage page = pages[1];
+            page.Compute(Frame);
+            LabCheck check = page.Check();
+
+            // The rows above the two descriptions hold the times: text only when the frame may vary.
+            int upper = (DrawPrivatisedHistogram.PanelY - 40) / LabCanvas.CellHeight, lower = (DrawPrivatisedHistogram.LowerChartY - 40) / LabCanvas.CellHeight;
+
+            // Over the charts only: the image on the left runs through the lower of these rows.
+            int DistinctColors(int row)
+            {
+                Rgba32[] pixels = canvas.ToArray();
+                var colors = new HashSet<Rgba32>();
+
+                for (int y = row * LabCanvas.CellHeight; y < (row + 1) * LabCanvas.CellHeight; y++)
+                {
+                    for (int x = DrawPrivatisedHistogram.ChartX; x < DrawPrivatisedHistogram.ChartX + DrawPrivatisedHistogram.ChartWidth; x++)
+                    {
+                        colors.Add(pixels[(y * LabCanvas.Width) + x]);
+                    }
+                }
+
+                return colors.Count;
+            }
+
+            LabView.Compose(canvas, pages, 1, Frame, check, timing: null);
+            Assert.Equal((1, 1), (DistinctColors(upper), DistinctColors(lower)));
+            Assert.True(DistinctColors(upper + 1) > 1 && DistinctColors(lower + 1) > 1, "the descriptions are always there");
+
+            LabView.Compose(canvas, pages, 1, new LabFrame(Headless.Time, Deterministic: false), check, timing: null);
+            Assert.True(DistinctColors(upper) > 1 && DistinctColors(lower) > 1, "the window shows both GPU times");
+        }
+        finally
+        {
+            DisposeAll(pages);
+        }
     }
 
     [MetalFact]
@@ -516,6 +684,67 @@ public sealed class ComputeLabTests
     }
 
     [MetalFact]
+    public void LocalArrays_TheMedianRemovesTheNoise_TheGaussianSmearsIt_BothExactAgainstTheCpu()
+    {
+        using LocalArraysPage page = new(GraphicsDevice.GetDefault());
+        Assert.Equal(["median 3x3 (sorting network)", "gaussian 5x5 (weight table)"], page.Variants);
+        Assert.True(page.Noise);
+
+        page.Compute(Frame);
+        LabCheck median = page.Check();
+        Assert.True(median.Passed, median.Summary);
+        Assert.StartsWith("all 1,048,576 pixels equal ForCpu's", median.Summary);
+
+        // About 6 % of the input are specks; the median leaves almost none of them.
+        Assert.InRange(page.NoisyOff, 0.05, 0.08);
+        Assert.True(page.FilteredOff < page.NoisyOff / 10, $"median: {page.FilteredOff:P2} of the pixels are still off");
+        double medianOff = page.FilteredOff;
+
+        Assert.True(page.OnKeyDown(Key.F));
+        Assert.Equal(1, page.Variant);
+        page.Compute(Frame);
+        LabCheck gaussian = page.Check();
+        Assert.True(gaussian.Passed, gaussian.Summary);
+        Assert.True(page.FilteredOff > medianOff * 10, $"gaussian: only {page.FilteredOff:P2} of the pixels are off");
+
+        // Without noise the input is the clean image, and nothing much is off after either filter.
+        Assert.True(page.OnKeyDown(Key.N));
+        Assert.False(page.Noise);
+        page.Compute(Frame);
+        Assert.True(page.Input.SequenceEqual(page.Clean));
+        Assert.True(page.Check().Passed);
+        Assert.Equal(0, page.NoisyOff);
+        Assert.True(page.FilteredOff < 0.01, $"{page.FilteredOff:P2}");
+
+        Assert.False(page.OnKeyDown(Key.C));
+        Assert.True(page.OnKeyDown(Key.F));
+        Assert.Equal(0, page.Variant);
+    }
+
+    [MetalFact]
+    public void LocalArrays_Filters_AreTheTextbookOnes()
+    {
+        // A white speck on black: the median removes it, the Gaussian spreads 36/256 of it to the centre.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        const int Size = 9;
+        uint[] image = Enumerable.Repeat(0xFF000000u, Size * Size).ToArray();
+        image[(4 * Size) + 4] = 0xFFFFFFFFu;
+
+        using ReadWriteBuffer<uint> source = device.AllocateReadWriteBuffer<uint>(image);
+        using ReadWriteBuffer<uint> median = device.AllocateReadWriteBuffer<uint>(Size * Size);
+        using ReadWriteBuffer<uint> gaussian = device.AllocateReadWriteBuffer<uint>(Size * Size);
+
+        device.For(Size, Size, new MedianFilter(source, median, Size));
+        device.For(Size, Size, new GaussianFilter(source, gaussian, Size));
+
+        Assert.All(median.ToArray(), static p => Assert.Equal(0xFF000000u, p));
+        uint centre = gaussian[(4 * Size) + 4];
+        Assert.Equal(0xFF000000u | (36u << 16) | (36u << 8) | 36u, centre); // round(255 * 36 / 256)
+        Assert.Equal(0xFF000000u | (1u << 16) | (1u << 8) | 1u, gaussian[(2 * Size) + 2]); // round(255 / 256)
+        Assert.Equal(0xFF000000u, gaussian[0]);
+    }
+
+    [MetalFact]
     public void TheWindowView_ShowsTimings_ThePictureDoesNot()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
@@ -524,7 +753,7 @@ public sealed class ComputeLabTests
 
         try
         {
-            LabCheck check = Headless.Measure(pages[2], Frame, out LabTiming timing);
+            LabCheck check = Headless.Measure(pages[3], Frame, out LabTiming timing);
             Assert.True(check.Passed);
             Assert.True(timing.GpuMilliseconds > 0 && timing.CpuMilliseconds > 0);
 
@@ -544,14 +773,14 @@ public sealed class ComputeLabTests
                 return count;
             }
 
-            LabView.Compose(canvas, pages, 2, Frame, check, timing: null);
+            LabView.Compose(canvas, pages, 3, Frame, check, timing: null);
             Assert.Equal(0, TextPixelsInRow(2));
 
-            LabView.Compose(canvas, pages, 2, Frame, check, timing);
+            LabView.Compose(canvas, pages, 3, Frame, check, timing);
             Assert.True(TextPixelsInRow(2) > 300);
 
             // Before the first check there is a placeholder instead of a result.
-            LabView.Compose(canvas, pages, 2, Frame, check: null, timing: null, paused: true);
+            LabView.Compose(canvas, pages, 3, Frame, check: null, timing: null, paused: true);
             Assert.True(TextPixelsInRow(0) > 300);
         }
         finally

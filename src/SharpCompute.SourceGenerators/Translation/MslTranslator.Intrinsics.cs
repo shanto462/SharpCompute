@@ -18,18 +18,22 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// Where an atomic operation's location lives. The address space decides the pointer type the
-    /// MSL atomic functions are overloaded on; today the only atomic storage is a buffer element
-    /// (<c>device</c>). Threadgroup memory slots in here as a second producer of this value, with
-    /// <c>threadgroup</c> as its address space: nothing else in <see cref="AtomicCall"/> depends on
-    /// where the location is.
+    /// MSL atomic functions are overloaded on: <c>device</c> for a buffer element, <c>threadgroup</c>
+    /// for an element of a <c>[GroupShared]</c> array. Nothing else in <see cref="AtomicCall"/>
+    /// depends on where the location is, except what it records for the descriptor: a device atomic
+    /// is shared by the whole dispatch, a threadgroup atomic only by the threads of one group.
     /// </summary>
     private readonly struct AtomicLocation
     {
-        public AtomicLocation(string addressSpace, string atomicType, string lvalue)
+        public const string Device = "device";
+        public const string Threadgroup = "threadgroup";
+
+        public AtomicLocation(string addressSpace, string atomicType, string lvalue, bool isFloatBits = false)
         {
             AddressSpace = addressSpace;
             AtomicType = atomicType;
             LValue = lvalue;
+            IsFloatBits = isFloatBits;
         }
 
         public string AddressSpace { get; }
@@ -40,13 +44,28 @@ internal sealed partial class MslTranslator
         /// <summary>The MSL lvalue of the element, e.g. <c>counts[bin]</c>.</summary>
         public string LValue { get; }
 
-        /// <summary><c>(device metal::atomic_int*)&amp;(counts[bin])</c>: the element viewed as an atomic object.</summary>
+        /// <summary>
+        /// True when the element is a float viewed as <c>metal::atomic_uint</c>: threadgroup memory,
+        /// where MSL has no atomic float. The call then goes to the method's
+        /// <c>[MslAtomic(ThreadgroupFloat = ...)]</c> function, which works on the bits.
+        /// </summary>
+        public bool IsFloatBits { get; }
+
+        /// <summary>True for a buffer element, false for an element of threadgroup memory.</summary>
+        public bool IsDeviceMemory => AddressSpace == Device;
+
+        /// <summary>
+        /// <c>(device metal::atomic_int*)&amp;(counts[bin])</c>, or <c>(threadgroup metal::atomic_int*)&amp;(tile[i])</c>:
+        /// the element viewed as an atomic object. The same text is right in a helper, where a buffer is
+        /// a <c>device T*</c> parameter and a group-shared array a <c>threadgroup T*</c> one.
+        /// </summary>
         public string Pointer => "(" + AddressSpace + " " + AtomicType + "*)&(" + LValue + ")";
     }
 
     /// <summary>
     /// <c>[MslAtomic(name)]</c>: <c>Gpu.AtomicAdd(ref counts[bin], 1)</c> becomes
-    /// <c>metal::atomic_fetch_add_explicit((device metal::atomic_int*)&amp;(counts[bin]), 1, metal::memory_order_relaxed)</c>.
+    /// <c>metal::atomic_fetch_add_explicit((device metal::atomic_int*)&amp;(counts[bin]), 1, metal::memory_order_relaxed)</c>,
+    /// and the same with <c>threadgroup</c> for an element of a <c>[GroupShared]</c> array.
     /// The location (the first, <c>ref</c> parameter) must be atomic storage, or it is SCG0034.
     /// </summary>
     private Expr AtomicCall(IInvocationOperation operation, AttributeData attribute)
@@ -97,12 +116,21 @@ internal sealed partial class MslTranslator
             return Expr.Error;
         }
 
-        if (AtomicTarget(target.Value, method) is not { } location)
+        // The function for a float element of threadgroup memory, if the method has one.
+        string? threadgroupFloat = attribute.NamedArguments.FirstOrDefault(static a => a.Key == "ThreadgroupFloat").Value.Value as string;
+
+        if (AtomicTarget(target.Value, method, threadgroupFloat is { Length: > 0 }) is not { } location)
         {
             return Expr.Error;
         }
 
+        if (location.IsFloatBits)
+        {
+            name = threadgroupFloat!;
+        }
+
         UsesAtomics = true;
+        UsesDeviceAtomics |= location.IsDeviceMemory;
 
         var arguments = new List<string> { location.Pointer };
         arguments.AddRange(values.OrderBy(static v => v.Ordinal).Select(v => Expression(v.Argument.Value).Text));
@@ -123,11 +151,15 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// Resolves the location argument of an atomic operation, or reports SCG0034 and returns null.
-    /// Only an element of a <c>ReadWriteBuffer&lt;T&gt;</c> with <c>T</c> = int, uint or float qualifies:
-    /// a local is private to its thread (and lives in the <c>thread</c> address space, which has no
-    /// atomics), captured constants are read-only, and a field of a struct element is left for later.
+    /// An element of a <c>ReadWriteBuffer&lt;T&gt;</c> with <c>T</c> = int, uint or float qualifies, and
+    /// an element of a <c>[GroupShared]</c> array of int or uint. A float element of a
+    /// <c>[GroupShared]</c> array qualifies when <paramref name="hasThreadgroupFloat"/> is true: MSL 3.2
+    /// has no atomic float in the threadgroup address space, so the element is then viewed as an
+    /// <c>atomic_uint</c> for the method's bit-level replacement. A local is private to its thread (and
+    /// lives in the <c>thread</c> address space, which has no atomics), captured constants are
+    /// read-only, and a field of a struct element is left for later.
     /// </summary>
-    private AtomicLocation? AtomicTarget(IOperation target, IMethodSymbol method)
+    private AtomicLocation? AtomicTarget(IOperation target, IMethodSymbol method, bool hasThreadgroupFloat)
     {
         if (target is IPropertyReferenceOperation { Property.IsIndexer: true, Arguments.Length: 1, Instance: { } buffer } element &&
             TypeResolver.IsBufferType(buffer.Type, out bool isReadOnly))
@@ -146,21 +178,49 @@ internal sealed partial class MslTranslator
                     : InvalidAtomicTarget(target, method, $"its type '{TypeResolver.Display(element.Property.Type)}' has no MSL equivalent");
             }
 
-            string? atomicType = elementType is { Kind: GpuTypeKind.Scalar } ? elementType.MslName switch
-            {
-                "int" => "metal::atomic_int",
-                "uint" => "metal::atomic_uint",
-                "float" => "metal::atomic<float>",
-                _ => null,
-            } : null;
-
-            if (atomicType is null)
+            if (AtomicType(elementType) is not { } atomicType)
             {
                 return InvalidAtomicTarget(target, method, $"MSL has no atomic type for '{TypeResolver.Display(element.Property.Type)}' elements (only for int, uint and float)");
             }
 
             Expr lvalue = Expression(target);
-            return new AtomicLocation("device", atomicType, lvalue.Text);
+            return new AtomicLocation(AtomicLocation.Device, atomicType, lvalue.Text);
+        }
+
+        if (target is IArrayElementReferenceOperation { Indices.Length: 1 } shared && GroupSharedReference(shared.ArrayReference) is { } sharedField)
+        {
+            // A field that cannot be used at all (its declaration is invalid, or it belongs to another
+            // type) is reported once by FindGroupShared, or was where it is declared.
+            if (FindGroupShared(sharedField, shared.ArrayReference) is not { } groupShared)
+            {
+                return null;
+            }
+
+            string display = sharedField.Type is IArrayTypeSymbol { ElementType: { } sharedElement } ? TypeResolver.Display(sharedElement) : groupShared.Element.MslName;
+
+            if (AtomicType(groupShared.Element) is not { } atomicType)
+            {
+                return InvalidAtomicTarget(target, method, $"MSL has no atomic type for '{display}' elements (only for int, uint and float)");
+            }
+
+            // metal_atomic only defines the float atomics for threadgroup memory under
+            // __HAVE_ATOMIC_THREADGROUP_FLOAT__, which MSL 3.2 (the version the runtime compiles with)
+            // does not set: the direct call would not compile. A method that names a replacement
+            // working on the bits (Gpu.AtomicAdd does) gets the element as an atomic_uint instead.
+            bool isFloatBits = groupShared.Element.MslName == "float";
+
+            if (isFloatBits && !hasThreadgroupFloat)
+            {
+                return InvalidAtomicTarget(
+                    target,
+                    method,
+                    "it is a float element of a [GroupShared] array, where MSL 3.2 has no atomic float: only an add is available there (Gpu.AtomicAdd, a compare-and-swap loop over the element's bits)");
+            }
+
+            // The element as an lvalue, exactly as a plain read or write of it is translated (which also
+            // makes the array an input of the helper this is in): `tile[i]`.
+            Expr lvalue = Expression(target);
+            return new AtomicLocation(AtomicLocation.Threadgroup, isFloatBits ? "metal::atomic_uint" : atomicType, lvalue.Text, isFloatBits);
         }
 
         if (ContainsInvalid(target))
@@ -181,17 +241,22 @@ internal sealed partial class MslTranslator
         {
             _ when IsThreadLocal(target) => "it is a local, which is private to one GPU thread and never shared",
             IFieldReferenceOperation field when IsBufferElementField(field) => "it is a field of a struct element, and only whole elements can be atomic; keep the value in its own buffer of int or uint",
-
-            // TODO: atomics on threadgroup memory. An int, uint or float element of a [GroupShared]
-            // array could be returned above as an AtomicLocation in the "threadgroup" address space.
-            IArrayElementReferenceOperation array when GroupSharedReference(array.ArrayReference) is not null =>
-                "it is an element of a [GroupShared] array, and atomics on threadgroup memory are not supported yet; within a group, share it across a barrier instead",
+            IFieldReferenceOperation field when IsGroupSharedElementField(field) => "it is a field of a struct element, and only whole elements can be atomic; keep the value in its own [GroupShared] array of int or uint",
             IFieldReferenceOperation { Instance: IInstanceReferenceOperation } or IParameterReferenceOperation => "captured shader state is read-only on the GPU",
-            _ => "it is not an element of a buffer",
+            _ => "it is not an element of a buffer or of a [GroupShared] array",
         };
 
         return InvalidAtomicTarget(target, method, reason);
     }
+
+    /// <summary>The MSL atomic type that overlays an element of <paramref name="element"/>'s type, or null when there is none.</summary>
+    private static string? AtomicType(GpuType element) => element is { Kind: GpuTypeKind.Scalar } ? element.MslName switch
+    {
+        "int" => "metal::atomic_int",
+        "uint" => "metal::atomic_uint",
+        "float" => "metal::atomic<float>",
+        _ => null,
+    } : null;
 
     private AtomicLocation? InvalidAtomicTarget(IOperation target, IMethodSymbol method, string reason)
     {
@@ -205,6 +270,20 @@ internal sealed partial class MslTranslator
         for (IOperation? instance = field.Instance; instance is not null; instance = (instance as IFieldReferenceOperation)?.Instance)
         {
             if (instance is IPropertyReferenceOperation { Property.IsIndexer: true, Instance.Type: { } type } && TypeResolver.IsBufferType(type, out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>True for <c>tile[i].Field</c> on a <c>[GroupShared]</c> array (and nested fields of it).</summary>
+    private static bool IsGroupSharedElementField(IFieldReferenceOperation field)
+    {
+        for (IOperation? instance = field.Instance; instance is not null; instance = (instance as IFieldReferenceOperation)?.Instance)
+        {
+            if (instance is IArrayElementReferenceOperation array && GroupSharedReference(array.ArrayReference) is not null)
             {
                 return true;
             }

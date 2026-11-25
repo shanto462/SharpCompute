@@ -10,6 +10,29 @@ namespace SharpCompute.Samples.ComputeLab;
 /// <param name="CpuMilliseconds">The same work on the CPU.</param>
 public readonly record struct LabTiming(double GpuMilliseconds, double CpuMilliseconds)
 {
+    /// <summary>The dispatch the page compares its feature kernel with (<see cref="ILabPage.Baseline"/>), timed the same way, or null.</summary>
+    public LabBaseline? Baseline { get; init; }
+
+    /// <summary>"global atomics: GPU 1.90 ms   this page's kernel is 4.6x faster", or slower; null without a <see cref="Baseline"/>.</summary>
+    public string? BaselineText
+    {
+        get
+        {
+            if (Baseline is not { } baseline)
+            {
+                return null;
+            }
+
+            string ratio = GpuMilliseconds <= 0 || baseline.GpuMilliseconds <= 0
+                ? string.Empty
+                : GpuMilliseconds <= baseline.GpuMilliseconds
+                    ? Invariant($"   this page's kernel is {baseline.GpuMilliseconds / GpuMilliseconds:F1}x faster")
+                    : Invariant($"   this page's kernel is {GpuMilliseconds / baseline.GpuMilliseconds:F1}x slower");
+
+            return Invariant($"{baseline.Name}: GPU {baseline.GpuMilliseconds:F2} ms{ratio}");
+        }
+    }
+
     /// <summary>"GPU 0.41 ms   CPU 2.75 ms   GPU is 6.7x faster", or the other way round.</summary>
     public override string ToString()
     {

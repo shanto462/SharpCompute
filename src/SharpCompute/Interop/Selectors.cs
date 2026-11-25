@@ -65,6 +65,7 @@ internal static class Selectors
 
     // MTLComputePipelineState
     public static readonly nint MaxTotalThreadsPerThreadgroup = ObjC.GetSelector("maxTotalThreadsPerThreadgroup");
+    public static readonly nint ThreadExecutionWidth = ObjC.GetSelector("threadExecutionWidth");
 
     // MTLBuffer
     public static readonly nint Contents = ObjC.GetSelector("contents");

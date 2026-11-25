@@ -273,13 +273,53 @@ internal static class DiagnosticDescriptors
 
     public static readonly DiagnosticDescriptor InvalidAtomicTarget = new(
         id: "SCG0034",
-        title: "Atomic operation needs a buffer element",
-        messageFormat: "'{0}' cannot be the target of the atomic operation '{1}': {2}. Pass an element of a captured ReadWriteBuffer<int>, ReadWriteBuffer<uint> or ReadWriteBuffer<float> by reference, as in 'ref buffer[i]'.",
+        title: "Atomic operation needs a buffer element or a [GroupShared] element",
+        messageFormat: "'{0}' cannot be the target of the atomic operation '{1}': {2}. Pass an element of a captured ReadWriteBuffer<int>, ReadWriteBuffer<uint> or ReadWriteBuffer<float>, or an element of a [GroupShared] array of int, uint or float, by reference, as in 'ref buffer[i]'.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // SCG0035 to SCG0039 are left free: the threadgroup diagnostics are a block of their own.
+    public static readonly DiagnosticDescriptor SimdGroupCallSitesShareLine = new(
+        id: "SCG0035",
+        title: "SIMD-group operations share a line",
+        messageFormat: "'{0}' is called more than once on line {1}. When the shader runs on the CPU, the lanes of a SIMD group meet at a call site, which is the operation plus the file and line of the call, so these calls cannot be told apart there (and lanes in two branches would be taken for lanes in one); put each call on a line of its own.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    // SCG0036 to SCG0039: fixed-size local arrays (stackalloc, array locals and [InlineArray] structs).
+
+    public static readonly DiagnosticDescriptor InvalidLocalArray = new(
+        id: "SCG0036",
+        title: "Unsupported local array",
+        messageFormat: "'{0}' cannot be a local array in a shader: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor LocalArrayLengthNotConstant = new(
+        id: "SCG0037",
+        title: "Local array length must be a positive compile-time constant",
+        messageFormat: "The length of local array '{0}' must be a compile-time constant of at least 1: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor LocalArrayTooLarge = new(
+        id: "SCG0038",
+        title: "Local array is large",
+        messageFormat: "Local array '{0}' takes {1} bytes per thread, more than {2}: a GPU thread keeps small arrays in registers and spills larger ones to memory, which makes the shader several times slower, and Metal refuses a kernel whose threads need about 256 KB of stack; use a [GroupShared] array or a buffer for data this large",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InvalidLocalArrayUse = new(
+        id: "SCG0039",
+        title: "Unsupported use of a local array",
+        messageFormat: "'{0}' cannot be used this way in a shader: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 
     public static readonly DiagnosticDescriptor InvalidGroupSharedField = new(
         id: "SCG0040",

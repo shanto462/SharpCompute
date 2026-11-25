@@ -4,8 +4,9 @@ using Microsoft.CodeAnalysis;
 namespace SharpCompute.SourceGenerators.Tests;
 
 /// <summary>
-/// <c>Gpu.Atomic*</c> (<c>[MslAtomic]</c>): the MSL each operation maps to, and SCG0034 for every
-/// location that is not an element of a <c>ReadWriteBuffer&lt;int/uint/float&gt;</c>.
+/// <c>Gpu.Atomic*</c> (<c>[MslAtomic]</c>) on buffer elements: the MSL each operation maps to, and
+/// SCG0034 for every location that is not atomic storage. Atomics on threadgroup memory are in
+/// <see cref="ThreadgroupAtomicTests"/>.
 /// </summary>
 public class AtomicTests
 {
@@ -146,13 +147,17 @@ public class AtomicTests
     [Fact]
     public void TheDescriptor_SaysWhetherTheShaderUsesAtomics()
     {
-        // The runtime reads this to keep a CPU+GPU split from dividing the shader. It is a static
-        // virtual with a default of false, so the member is only emitted when it is true.
+        // The runtime reads UsesDeviceAtomics to keep a CPU+GPU split from dividing the shader. UsesAtomics
+        // is a static virtual with a default of false, so the member is only emitted when it is true;
+        // UsesDeviceAtomics defaults to UsesAtomics, which is right for atomics on buffers, so it is
+        // not emitted here at all.
         const string Member = "static bool global::SharpCompute.IComputeShaderDescriptor<global::Tests.TestShader>.UsesAtomics => true;";
 
         GeneratorRun direct = Run("Gpu.AtomicAdd(ref counts[0], 1);");
         Assert.True(direct.Verify(Shader).UsesAtomics);
+        Assert.True(direct.Verify(Shader).UsesDeviceAtomics);
         Assert.Contains(Member, direct.Source("TestShader.SharpCompute.g.cs"));
+        Assert.DoesNotContain("UsesDeviceAtomics", direct.Source("TestShader.SharpCompute.g.cs"));
 
         // An atomic in a helper, two calls down, counts as well.
         GeneratorRun viaHelpers = Run(
@@ -163,6 +168,7 @@ public class AtomicTests
             private int Inner(int value) => (int)Gpu.AtomicCompareExchange(ref flags[0], 0u, (uint)value);
             """);
         Assert.True(viaHelpers.Verify(Shader).UsesAtomics);
+        Assert.True(viaHelpers.Verify(Shader).UsesDeviceAtomics);
         Assert.Contains(Member, viaHelpers.Source("TestShader.SharpCompute.g.cs"));
 
         // No atomic: the default applies, also when a helper with an atomic exists but is never called.
@@ -170,7 +176,9 @@ public class AtomicTests
             "counts[ThreadIds.X] += 1;",
             "private void Unused() => Gpu.AtomicAdd(ref counts[0], 1);");
         Assert.False(without.Verify(Shader).UsesAtomics);
+        Assert.False(without.Verify(Shader).UsesDeviceAtomics);
         Assert.DoesNotContain("UsesAtomics", without.Source("TestShader.SharpCompute.g.cs"));
+        Assert.DoesNotContain("UsesDeviceAtomics", without.Source("TestShader.SharpCompute.g.cs"));
     }
 
     [Fact]
@@ -309,7 +317,7 @@ public class AtomicTests
 
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
         Assert.Contains($"'{expectedText}' cannot be the target of the atomic operation 'AtomicAdd': {expectedReason}", diagnostic.GetMessage());
-        Assert.Contains("as in 'ref buffer[i]'", diagnostic.GetMessage());
+        Assert.Contains("or an element of a [GroupShared] array of int, uint or float, by reference, as in 'ref buffer[i]'", diagnostic.GetMessage());
         Assert.Contains("This shader has SharpCompute errors", Assert.Single(run.Sources).SourceText.ToString());
     }
 

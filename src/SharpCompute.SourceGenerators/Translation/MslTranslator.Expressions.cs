@@ -45,6 +45,12 @@ internal sealed partial class MslTranslator
             return groupSharedElement;
         }
 
+        // Local arrays: their elements, inline array elements, and everything a local array cannot do.
+        if (LocalArrayExpression(operation) is { } localArray)
+        {
+            return localArray;
+        }
+
         if (DescribeUnsupported(operation) is { } construct)
         {
             return Unsupported(operation, construct);
@@ -597,6 +603,9 @@ internal sealed partial class MslTranslator
                     return ReportReadOnly(target, parameter.Parameter.Name);
                 case IFieldReferenceOperation field:
                     current = field.Instance;
+                    break;
+                case IInlineArrayAccessOperation element:
+                    current = element.Instance;
                     break;
                 case IPropertyReferenceOperation { Property.IsIndexer: true } indexer when TypeResolver.IsBufferType(indexer.Instance?.Type, out _):
                     // Writing to a buffer element is what shaders are for.

@@ -95,6 +95,11 @@ internal sealed partial class MslTranslator
         IPropertySymbol property = operation.Property;
         Location location = operation.Syntax.GetLocation();
 
+        if (SimdGroupProperty(operation) is { } simdGroup)
+        {
+            return simdGroup;
+        }
+
         if (TryGetNormalized(property, out string normalizedSwizzle))
         {
             return NormalizedThreadId(operation, normalizedSwizzle);
@@ -129,6 +134,11 @@ internal sealed partial class MslTranslator
         if (GroupSharedLength(operation) is { } groupSharedLength)
         {
             return groupSharedLength;
+        }
+
+        if (LocalArrayProperty(operation) is { } localArrayMember)
+        {
+            return localArrayMember;
         }
 
         if (operation.Instance is null)
@@ -396,7 +406,9 @@ internal sealed partial class MslTranslator
                 continue;
             }
 
-            result.Add((argument.Parameter?.Ordinal ?? result.Count, Expression(argument.Value).Text));
+            // A local array becomes two arguments, the array and its length (see MslTranslator.LocalArrays.cs).
+            string text = IsLocalArrayType(argument.Parameter?.Type) ? LocalArrayArgument(argument, ref ok) : Expression(argument.Value).Text;
+            result.Add((argument.Parameter?.Ordinal ?? result.Count, text));
         }
 
         return result.OrderBy(static a => a.Ordinal).Select(static a => a.Text).ToArray();
@@ -407,6 +419,12 @@ internal sealed partial class MslTranslator
         IMethodSymbol method = operation.TargetMethod;
         IMethodSymbol definition = (method.ReducedFrom ?? method).OriginalDefinition;
         Location location = operation.Syntax.GetLocation();
+
+        // The SIMD-group (wave and quad) operations of Gpu, which map to Metal's simd_* and quad_* functions.
+        if (SimdGroupCall(operation, definition) is { } simdGroupCall)
+        {
+            return simdGroupCall;
+        }
 
         // Members of textures (Sample) are recognized by name, like the indexers and Width/Height.
         if (TypeResolver.IsSharpComputeType(definition.ContainingType, "Texture2D", "ReadOnlyTexture2D", "ReadWriteTexture2D"))
@@ -728,6 +746,7 @@ internal sealed partial class MslTranslator
         IDeclarationExpressionOperation { Expression: ILocalReferenceOperation } => true,
         IParameterReferenceOperation parameter => _function.Names.ContainsKey(parameter.Parameter),
         IFieldReferenceOperation { Field.IsStatic: false, Instance: { } instance } when instance is not IInstanceReferenceOperation => IsThreadLocal(instance),
+        IArrayElementReferenceOperation or IPropertyReferenceOperation or IInlineArrayAccessOperation => IsThreadLocalArrayElement(operation),
         _ => false,
     };
 

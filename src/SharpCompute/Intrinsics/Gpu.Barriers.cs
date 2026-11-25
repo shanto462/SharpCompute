@@ -58,9 +58,4 @@ public static partial class Gpu
     /// </summary>
     /// <inheritdoc cref="GroupMemoryBarrierWithGroupSync" path="/exception"/>
     public static void AllMemoryBarrierWithGroupSync() => CpuThread.Current.Barrier();
-
-    // TODO: atomics on [GroupShared] memory. Gpu.Atomic*(ref name[i], value) already works on the CPU
-    // (it is an interlocked operation on the array element); the generator rejects it (SCG0034) until
-    // it emits the atomic for the threadgroup address space, see MslTranslator.GroupShared.cs. Until
-    // then the threads of a group can only share an element across a barrier.
 }
