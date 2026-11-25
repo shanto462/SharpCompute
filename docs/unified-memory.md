@@ -82,20 +82,20 @@ Unified memory doesn't remove that cost. A `ComputeContext` pays it once for man
 |---|---:|
 | Another `device.For` | ~100 µs |
 | Another `ForAsync`, issued back to back | ~9 µs |
-| **Another dispatch in the same `ComputeContext`** | **~1.8 µs** |
+| **Another dispatch in the same `ComputeContext`** | **~1.9 µs** |
 
 100 chained small dispatches drop from about 10 ms to about 0.28 ms. A two-pass 4K blur gains only
-12 %, because its kernels dominate the total.
+7 %, because its kernels dominate the total.
 
 ### 5. Overlap CPU and GPU work
 
 Because the CPU reads GPU output in place, the CPU can process frame N while the GPU computes frame
 N + 1. Use `ForAsync` with two buffers:
 
-| 8 frames: GPU render (8.2 ms) + CPU analysis (25.9 ms) | Time |
+| 8 frames: GPU render (8.2 ms) + CPU analysis (26.0 ms) | Time |
 |---|---:|
-| Synchronous: render, wait, analyze | 38.2 ms |
-| **Double-buffered `ForAsync`** | **27.8 ms (1.37×)**, 7.5 % above the ideal max(GPU, CPU) |
+| Synchronous: render, wait, analyze | 38.7 ms |
+| **Double-buffered `ForAsync`** | **28.0 ms (1.38×)**, 8 % above the ideal max(GPU, CPU) |
 
 The `Pipeline` sample (`scripts/demo-pipeline.sh`) runs the same pattern on heavier frames and prints
 its own sync and async throughput. Overlap can never beat the slower of the two sides, so it only pays when both sides have real
