@@ -6,8 +6,9 @@ using System.Runtime.InteropServices;
 namespace SharpCompute.Tests.Intrinsics;
 
 /// <summary>
-/// Half vectors on the GPU against the CPU (<c>ForCpu</c> of the same shader). The arithmetic, the
-/// conversions and every function that is not transcendental must match bit for bit, half
+/// Half vectors on the GPU against the CPU (<c>ForCpu</c> of the same shader), pinned to what an
+/// Apple M4 Pro was measured to compute: a GPU that rounds halves differently fails here. The
+/// arithmetic, the conversions and every function that is not transcendental must match bit for bit, half
 /// subnormals included; the transcendental functions within one half ULP; and an <c>a * b + c</c>
 /// the GPU may contract must be either the fused or the unfused result, nothing else. The inputs
 /// cover all 65,536 halves in the first component, and zeros, infinities, NaN, subnormals and

@@ -9,7 +9,8 @@ namespace SharpCompute.Tests.Intrinsics;
 /// Bool vectors on the GPU against the CPU (<c>ForCpu</c> of the same shader) and against plain C#:
 /// the comparisons of every numeric vector, <c>Gpu.Equal</c>/<c>NotEqual</c>, the vector
 /// classifications, the logical operators, <c>Any</c>/<c>All</c> and <c>Select</c>. Everything here
-/// is exact, so everything must match bit for bit.
+/// is exact, so everything must match bit for bit (as it does on the Apple M4 Pro this was written
+/// on, a NaN's payload through <c>Select</c> included).
 /// </summary>
 public class VectorMaskTests
 {

@@ -29,8 +29,8 @@ namespace SharpCompute.Samples.ComputeLab.Pages;
 /// GPU bit for bit, and so must the half blur on a <see cref="Tile"/> × <see cref="Tile"/> tile. Both
 /// kernels are compiled with <c>[ShaderOptions(FpContract = false)]</c>, so that the GPU rounds the
 /// product and the sum of every tap separately, as C# does; half arithmetic is then the same on both
-/// sides, bit for bit. The half blur is only repeated on a tile because the CPU has no half
-/// arithmetic of its own (<see cref="Half"/> computes in <c>float</c> and rounds), which makes it
+/// sides, bit for bit (measured on an Apple M4 Pro, which does IEEE half arithmetic). The half blur
+/// is only repeated on a tile because the CPU has no half arithmetic of its own (<see cref="Half"/> computes in <c>float</c> and rounds), which makes it
 /// some fifty times slower than the float blur there; the CPU time the page shows is the float blur.
 /// The mask is repeated with <c>ForCpu</c> over the whole image and must match exactly as well.
 /// </para>

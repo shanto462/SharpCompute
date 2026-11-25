@@ -633,8 +633,9 @@ device.For(count, new SumGroups(input, partials)); // 32 elements become one; re
 | Exchange | `WaveReadLaneAt(v, lane)`, `WaveReadLaneFirst(v)`, `WaveShuffleUp(v, delta)`, `WaveShuffleDown(v, delta)`, `WaveShuffleXor(v, mask)`, `WaveRotateUp(v, delta)`, `WaveRotateDown(v, delta)`, `WaveShuffleUpAndFill(v, fill, delta)`, `WaveShuffleDownAndFill(v, fill, delta)` | `simd_shuffle`, `simd_broadcast_first`, `simd_shuffle_up`/`_down`/`_xor`, `simd_shuffle_rotate_up`/`_down`, `simd_shuffle_and_fill_up`/`_down` |
 | Quads | `QuadActiveAnyTrue(b)`, `QuadActiveAllTrue(b)`, `QuadActiveBallot(b)`; `QuadActiveSum`, `Product`, `Min`, `Max`, `BitAnd`, `BitOr`, `BitXor`; `QuadPrefixSum`, `QuadPrefixProduct`, `QuadInclusivePrefixSum`, `QuadInclusivePrefixProduct`; `QuadReadAcrossX(v)`, `QuadReadAcrossY(v)`, `QuadReadAcrossDiagonal(v)`, `QuadReadLaneAt(v, lane)` | `quad_any`, `quad_all`, `quad_ballot`; `quad_sum` … `quad_xor`; `quad_prefix_*`; `quad_shuffle_xor` with 1, 2, 3; `quad_shuffle` |
 
-Values are `float`, `int`, `uint` and their 2- to 4-component vectors (componentwise). They work in
-compute and pixel shaders and in helper methods. What they mean, measured on an Apple M4 Pro and
+Values are `float`, `int`, `uint`, `Half` and their 2- to 4-component vectors (componentwise; the
+bitwise reductions take the integers only). They work in compute and pixel shaders and in helper
+methods. What they mean, measured on an Apple M4 Pro and
 pinned by the tests:
 
 - **How groups are formed.** The threads of a threadgroup are numbered row by row (`GroupIds.Index`:
@@ -1513,8 +1514,9 @@ in the table is exact, and identical on the GPU and the CPU.
 
 `Half2`, `Half3` and `Half4` are MSL's `half2`, `half3` and `half4`, with the surface of the float
 vectors: constructors, every swizzle, `+ - * / %`, the comparisons, conversions to and from the
-float and integer vectors, and every `Gpu.*` function MSL defines for halves (`Gpu.Sqrt`, `Lerp`,
-`Dot`, `Normalize`, `Sin`, `Pow` and the rest). A half has 11 significant bits, about 3 decimal
+float and integer vectors, every `Gpu.*` function the float vectors have (`Gpu.Sqrt`, `Lerp`,
+`Dot`, `Normalize`, `Sin`, `Pow`, `Radians` and the rest), and the
+[SIMD-group operations](#simd-group-operations). A half has 11 significant bits, about 3 decimal
 digits, and reaches from 6e-8 to 65504. A half vector is half the bytes of a float vector wherever
 it is stored: a `Half3` in a buffer, a constant, a struct field or a `[GroupShared]` array is the
 6 bytes of a `packed_half3`, aligned to 2.
@@ -1561,6 +1563,22 @@ convert a whole vector, `(Half3)new Float3(...)`.
   above about 255.9 (its square does not fit) and `Normalize` of a zero vector is NaN; a zero
   remainder from `%` and `Fmod` is `+0` also for a negative dividend; and `Sin`, `Tan` and `Asin`
   of `-0` are `+0`.
+- `Gpu.Radians` and `Gpu.Degrees` of a half are one half multiplication by the constant rounded
+  to half (0.017456055 and 57.28125), bit for bit on both sides and within about one half ULP of
+  the exact product.
+- The SIMD-group operations take a `Half` and half vectors like they take floats
+  (`Gpu.WaveActiveSum`, the scans, the shuffles, the quad operations and the rest). The exchanges,
+  minima and maxima are bit for bit; a sum or a product is too when its partial results are all
+  halves, and otherwise shows the order of the lanes, which is the GPU's own (the CPU's is lane
+  order): sums of 32 values of magnitude up to 4 came out up to 3/64 apart, products up to 4 half
+  ULP. An exclusive scan of sums starts from `-0`.
+
+A few functions take a scalar `Half`: `Gpu.Radians`, `Gpu.Degrees`, the SIMD-group operations, and
+the bit casts `Gpu.AsUShort(h)`, `Gpu.AsShort(h)` and `Gpu.AsHalf(bits)` (MSL's `as_type`, also
+written `BitConverter.HalfToUInt16Bits`, `HalfToInt16Bits`, `UInt16BitsToHalf` and
+`Int16BitsToHalf`), which keep every bit pattern, NaN payloads included. Where a float or int
+overload exists as well, that one is preferred, so `Gpu.Radians(90)` and a SIMD-group operation on
+a `byte` mean what they meant before. The other math functions take half vectors only.
 
 **What it buys** depends on what limits the kernel. Each kernel below was written once on `Float4`
 and once on `Half4` (`SharpCompute.Benchmarks --half-precision`; Apple M4 Pro, GPU time from commit
@@ -1595,6 +1613,7 @@ subnormals.
 | C# | MSL | Notes |
 |---|---|---|
 | `Gpu.AsFloat(int/uint)`, `Gpu.AsInt(float)`, `Gpu.AsUInt(float)`, and `Float2..4`/`Int2..4`/`UInt2..4` overloads | `as_type<T>` | Reinterprets the 32 bits. Also `BitConverter.SingleToInt32Bits`, `Int32BitsToSingle`, `SingleToUInt32Bits`, `UInt32BitsToSingle` |
+| `Gpu.AsHalf(ushort/short)`, `Gpu.AsUShort(Half)`, `Gpu.AsShort(Half)` | `as_type<T>` | Reinterprets the 16 bits of a half. Also `BitConverter.UInt16BitsToHalf`, `Int16BitsToHalf`, `HalfToUInt16Bits`, `HalfToInt16Bits` |
 | `Gpu.CountBits` | `metal::popcount` | Every integer type, and the `int` and `uint` vectors; the result has the argument's type |
 | `Gpu.LeadingZeroCount`, `Gpu.TrailingZeroCount` | `metal::clz`, `metal::ctz` | The width of the type for a zero argument: 32 for an `int`, 8 for a `byte`, 64 for a `long`. `LeadingZeroCount((byte)1)` is 7 |
 | `Gpu.ReverseBits` | `metal::reverse_bits` | Within the width of the type: bit 0 becomes bit 31, 7, 15 or 63 |
@@ -1676,17 +1695,17 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
 - Wrapped Metal resources must use tracked hazard tracking, and `EncodeInto` cannot detect an
   encoder the app left open on its command buffer.
 - The 8-, 16- and 64-bit integers are scalars only: there are no vectors of them, the SIMD-group
-  operations take `float`, `int` and `uint`, and a `static readonly` initializer can use their
+  operations take `float`, `int`, `uint` and `Half`, and a `static readonly` initializer can use their
   operators and literals but not call an intrinsic on them.
 - Signed integer overflow is undefined on the GPU for now, where C# wraps: an expression that
   depends on the wrap (`a + 1 > a`, `(a * b) / b`, `(long)(a * b)`) can give another result than on
   the CPU. Unsigned arithmetic wraps on both; use `(int)((uint)a * (uint)b)` (see **Scalar types**).
-- Half precision: the `Gpu.*` functions take half *vectors*; for a scalar `Half`, convert to
-  `float` or put it in a vector (a `Gpu.Sqrt(Half)` next to `Gpu.Sqrt(float)` would make
-  `Gpu.Sqrt(2)` ambiguous). `Gpu.Radians`/`Degrees`, the bit reinterpretations and the SIMD-group
-  operations have no half overloads. A `static readonly` half or bool vector can be initialized
-  with constructors, casts and operators, but not with a function call (`SCG0024`): the compile-time
-  evaluation only does 32-bit arithmetic.
+- Half precision: the math functions of `Gpu.*` take half *vectors*; for a scalar `Half`, convert
+  to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the
+  bit casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
+  scalars, so there is no vector form of that. A `static readonly` half or bool value can be
+  initialized with constructors, casts and operators, but not with a function call (`SCG0024`):
+  the compile-time evaluation only does 32-bit arithmetic.
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero and fuses
   multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
   Transcendental functions agree with the CPU to within a few ULP.

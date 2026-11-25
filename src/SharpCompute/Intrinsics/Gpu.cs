@@ -49,11 +49,15 @@ namespace SharpCompute;
 /// ULP only (up to 4 ULP for tan on Apple GPUs).
 /// </para>
 /// <para>
-/// Half precision: the functions MSL defines for halves have <see cref="Half2"/>, <see cref="Half3"/>
-/// and <see cref="Half4"/> overloads (not scalar <see cref="Half"/> ones: next to the float overload
-/// they would make <c>Gpu.Sqrt(2)</c> ambiguous). They were measured the same way, every function of
-/// one argument over all 65,536 halves, and the CPU returns what the GPU does bit for bit for
-/// everything but the transcendental functions, which agree within one half ULP. Half arithmetic on
+/// Half precision: the functions have <see cref="Half2"/>, <see cref="Half3"/> and <see cref="Half4"/>
+/// overloads (not scalar <see cref="Half"/> ones: next to the float overload they would make
+/// <c>Gpu.Sqrt(2)</c> ambiguous). The scalar overloads there are, <see cref="Radians(Half)"/>,
+/// <see cref="Degrees(Half)"/> and the SIMD-group operations, have a lower overload priority than
+/// their float and integer siblings, so a call both accept keeps meaning the sibling; the bit casts
+/// <see cref="AsUShort(Half)"/>, <see cref="AsShort(Half)"/> and <see cref="AsHalf(ushort)"/> have
+/// none. All of it was measured the same way on an Apple M4 Pro, every function of one argument
+/// over all 65,536 halves, and the CPU returns what the GPU does bit for bit for everything but the
+/// transcendental functions, which agree within one half ULP. Half arithmetic on
 /// an Apple GPU is IEEE half arithmetic, one rounding per operation, and it keeps subnormals. The
 /// geometric functions of half vectors are not rescaled (<see cref="Length(Half3)"/> overflows above
 /// 255.9, <see cref="Normalize(Half3)"/> of a zero vector is NaN), a zero remainder of

@@ -20,8 +20,9 @@ namespace SharpCompute;
 /// Half precision: 11 significant bits (about 3 decimal digits) and magnitudes from about 6e-8 up
 /// to 65504. On the CPU every operator is one correctly rounded IEEE half operation
 /// (<see cref="System.Half"/> computes in <c>float</c> and rounds, which for <c>+ - * /</c> is the same
-/// result), and that is bit for bit what an Apple GPU computes, subnormals included: unlike floats,
-/// half subnormals are not flushed to zero. What differs is contraction: the GPU fuses <c>a * b + c</c>
+/// result), and that is bit for bit what an Apple GPU computes (measured on an M4 Pro), subnormals
+/// included: unlike floats, half subnormals are not flushed to zero. What differs is contraction:
+/// the GPU fuses <c>a * b + c</c>
 /// into one half fused multiply-add unless the shader turns that off
 /// (<see cref="ShaderOptionsAttribute.FpContract"/>). See <see cref="Gpu"/> for the intrinsics.
 /// </para>
