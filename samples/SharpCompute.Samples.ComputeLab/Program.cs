@@ -36,7 +36,7 @@ public static class Program
         --list      the pages, by topic: atomics (Histogram, Histogram: privatised, Compaction), shared
                     memory (Reduction, PrefixSum, MatMul, Blur), local arrays (LocalArrays), SIMD groups
                     (SIMD reduction, SIMD compaction, SIMD shuffle), dispatch (Indirect) and math (Bits,
-                    FastMath, Small and wide integers)
+                    FastMath, Small and wide integers, Half precision)
         """;
 
     // Must stay synchronous: MetalWindow needs the process main thread, which only a synchronous Main keeps.
