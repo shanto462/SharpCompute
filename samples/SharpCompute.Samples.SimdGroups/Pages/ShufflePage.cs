@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using SharpCompute.Presentation;
+using SharpCompute.Samples.ComputeLab;
+using SharpCompute.Samples.ComputeLab.Pages;
 using static System.FormattableString;
 
 namespace SharpCompute.Samples.SimdGroups.Pages;

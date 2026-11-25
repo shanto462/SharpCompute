@@ -1,36 +1,34 @@
 // Original SharpCompute sample (MIT).
 using System.Collections.Generic;
-using SharpCompute.Samples.SimdGroups.Pages;
+using SharpCompute.Samples.ComputeLab;
+using SharpCompute.Samples.ComputeLab.Pages;
 using static System.FormattableString;
 
 namespace SharpCompute.Samples.SimdGroups;
 
-/// <summary>GPU and CPU times of a page's feature kernel, for the timing line; null when there is none to show.</summary>
-/// <param name="GpuMilliseconds">The GPU dispatch, commit to completion.</param>
-/// <param name="CpuMilliseconds">The same work on the CPU.</param>
-public readonly record struct LabTiming(double GpuMilliseconds, double CpuMilliseconds)
-{
-    /// <summary>"GPU 0.41 ms   CPU 2.75 ms   GPU is 6.7x faster", or the other way round. What the CPU ran is in the page's check line.</summary>
-    public override string ToString()
-    {
-        string ratio = GpuMilliseconds <= 0 || CpuMilliseconds <= 0
-            ? string.Empty
-            : GpuMilliseconds <= CpuMilliseconds
-                ? Invariant($"   GPU is {CpuMilliseconds / GpuMilliseconds:F1}x faster")
-                : Invariant($"   CPU is {GpuMilliseconds / CpuMilliseconds:F1}x faster");
-
-        return Invariant($"GPU {GpuMilliseconds:F2} ms   CPU {CpuMilliseconds:F2} ms{ratio}");
-    }
-}
-
 /// <summary>
-/// Puts one page on the canvas with the lab's own text around it: the title, the check result, the
+/// Puts one page on the canvas with the sample's own text around it: the title, the check result, the
 /// timings and the help line. Shared by the window and the headless mode, so both show the same thing.
 /// </summary>
-public static class LabView
+/// <remarks>
+/// ComputeLab's own <see cref="LabView"/> is not used because it names ComputeLab in the title and says
+/// "all cores" after the CPU time, and the reduction's reference here runs on one core.
+/// </remarks>
+public static class SimdGroupsView
 {
-    /// <summary>The first text row a page may use; rows 0..2 are the title, the check and the timings.</summary>
-    public const int FirstPageRow = 3;
+    /// <summary>
+    /// "GPU 0.41 ms   CPU 2.75 ms   GPU is 6.7x faster", or the other way round. What the CPU ran (one
+    /// core or all) is in the page's check line.
+    /// </summary>
+    public static string Describe(LabTiming timing)
+    {
+        (double gpu, double cpu) = (timing.GpuMilliseconds, timing.CpuMilliseconds);
+        string ratio = gpu <= 0 || cpu <= 0
+            ? string.Empty
+            : gpu <= cpu ? Invariant($"   GPU is {cpu / gpu:F1}x faster") : Invariant($"   CPU is {gpu / cpu:F1}x faster");
+
+        return Invariant($"GPU {gpu:F2} ms   CPU {cpu:F2} ms{ratio}");
+    }
 
     /// <summary>
     /// Draws <paramref name="pages"/>[<paramref name="index"/>] and the surrounding text into
@@ -57,7 +55,7 @@ public static class LabView
 
         if (timing is { } times)
         {
-            canvas.Text(1, 2, times.ToString(), TextColor.Cool);
+            canvas.Text(1, 2, Describe(times), TextColor.Cool);
         }
 
         string own = page.Help.Length == 0 ? string.Empty : page.Help + "   ";

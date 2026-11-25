@@ -2,14 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using SharpCompute.Samples.ComputeLab;
+using SharpCompute.Samples.ComputeLab.Pages;
 using SharpCompute.Samples.SimdGroups;
 using SharpCompute.Samples.SimdGroups.Pages;
+
+// ComputeLab has a CompactionPage (compaction by an atomic counter) and a Program of its own; these tests mean this sample's.
+using CompactionPage = SharpCompute.Samples.SimdGroups.Pages.CompactionPage;
+using Program = SharpCompute.Samples.SimdGroups.Program;
 
 namespace SharpCompute.Tests.SimdGroups;
 
 /// <summary>
 /// The SimdGroups demo: every page's GPU result against its CPU reference for every variant, the
-/// properties that make each page's picture what it claims to be, and the headless mode.
+/// properties that make each page's picture what it claims to be, and the headless mode. The pages
+/// are ComputeLab pages; its canvas and font are covered by the ComputeLab tests.
 /// </summary>
 public class SimdGroupsDemoTests
 {
@@ -23,10 +30,18 @@ public class SimdGroupsDemoTests
         }
     }
 
+    [Fact]
+    public void TimingLine_SaysWhichSideIsFaster_AndLeavesTheCoresToTheCheckLine()
+    {
+        Assert.Equal("GPU 0.50 ms   CPU 5.00 ms   GPU is 10.0x faster", SimdGroupsView.Describe(new LabTiming(0.5, 5)));
+        Assert.Equal("GPU 3.00 ms   CPU 1.50 ms   CPU is 2.0x faster", SimdGroupsView.Describe(new LabTiming(3, 1.5)));
+        Assert.Equal("GPU 0.00 ms   CPU 1.50 ms", SimdGroupsView.Describe(new LabTiming(0, 1.5)));
+    }
+
     [MetalFact]
     public void EveryPage_EveryVariant_MatchesItsCpuReference()
     {
-        List<ILabPage> pages = LabPages.Create(GraphicsDevice.GetDefault());
+        List<ILabPage> pages = SimdGroupsPages.Create(GraphicsDevice.GetDefault());
 
         try
         {
@@ -41,7 +56,7 @@ public class SimdGroupsDemoTests
                 {
                     page.Variant = variant;
 
-                    foreach (float time in new[] { 0f, Headless.Time, 7.25f })
+                    foreach (float time in new[] { 0f, SimdGroupsHeadless.Time, 7.25f })
                     {
                         page.Compute(Frame(time));
                         LabCheck check = page.Check();
@@ -118,7 +133,7 @@ public class SimdGroupsDemoTests
         Assert.True(page.Check().Passed);
         float[] onePass = page.Result.ToArray();
 
-        page.Compute(Frame(Headless.Time));
+        page.Compute(Frame(SimdGroupsHeadless.Time));
         Assert.True(page.Check().Passed);
         Assert.True(page.Passes > 100);
         float[] manyPasses = page.Result.ToArray();
@@ -154,17 +169,17 @@ public class SimdGroupsDemoTests
         string root = Path.Combine(Path.GetTempPath(), "sharpcompute-simdgroups-" + Guid.NewGuid().ToString("N"));
         string first = Path.Combine(root, "a"), second = Path.Combine(root, "b");
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        List<ILabPage> pages = LabPages.Create(device);
+        List<ILabPage> pages = SimdGroupsPages.Create(device);
 
         try
         {
             using StringWriter log = new();
 
-            Assert.True(Headless.Run(device, pages, first, log));
-            Assert.True(Headless.Run(device, pages, second, TextWriter.Null));
+            Assert.True(SimdGroupsHeadless.Run(device, pages, first, log));
+            Assert.True(SimdGroupsHeadless.Run(device, pages, second, TextWriter.Null));
 
             string[] pictures = ["1-reduction.png", "2-compaction.png", "3-shuffle.png"];
-            Assert.Equal(pictures, Enumerable.Range(0, pages.Count).Select(i => Headless.FileName(pages, i)));
+            Assert.Equal(pictures, Enumerable.Range(0, pages.Count).Select(i => SimdGroupsHeadless.FileName(pages, i)));
             Assert.Equal([.. pictures, "summary.txt"], Directory.GetFiles(first).Select(Path.GetFileName).Order());
 
             foreach (string name in pictures)

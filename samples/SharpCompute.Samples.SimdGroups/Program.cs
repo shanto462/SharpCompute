@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using SharpCompute.Presentation;
+using SharpCompute.Samples.ComputeLab;
+using SharpCompute.Samples.ComputeLab.Pages;
 using SharpCompute.Samples.SimdGroups.Pages;
 using SharpCompute.Samples.Shaders;
 using static System.FormattableString;
@@ -76,7 +78,7 @@ public static class Program
         }
 
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        List<ILabPage> pages = LabPages.Create(device);
+        List<ILabPage> pages = SimdGroupsPages.Create(device);
 
         try
         {
@@ -100,7 +102,7 @@ public static class Program
 
             if (headless)
             {
-                return Headless.Run(device, pages, output, Console.Out) ? 0 : 2;
+                return SimdGroupsHeadless.Run(device, pages, output, Console.Out) ? 0 : 2;
             }
 
             if (!MetalWindow.IsSupported)
@@ -110,7 +112,7 @@ public static class Program
             }
 
             using MetalWindow window = new(device, "SharpCompute SimdGroups", LabCanvas.Width, LabCanvas.Height);
-            using LabApp app = new(window, device, pages, index, frames);
+            using SimdGroupsApp app = new(window, device, pages, index, frames);
 
             Console.WriteLine("<-/-> switch page · Space pause · S save PNG · Esc quit");
             window.Run(app.OnFrame);
@@ -135,7 +137,7 @@ public static class Program
 }
 
 /// <summary>The headless mode: every page once, at a fixed time, into PNGs and a summary.</summary>
-public static class Headless
+public static class SimdGroupsHeadless
 {
     /// <summary>The animation time of the headless pictures.</summary>
     public const float Time = 2.5f;
@@ -179,11 +181,11 @@ public static class Headless
 
                 summary.AppendLine(Invariant($"  {page.Variants[variant]}"));
                 summary.AppendLine(Invariant($"    {(check.Passed ? "PASS" : "FAIL")}  {check.Summary}"));
-                summary.AppendLine(Invariant($"    {timing}"));
+                summary.AppendLine(Invariant($"    {SimdGroupsView.Describe(timing)}"));
 
                 if (variant == 0)
                 {
-                    LabView.Compose(canvas, pages, index, frame, check, timing: null);
+                    SimdGroupsView.Compose(canvas, pages, index, frame, check, timing: null);
                     string path = Path.Combine(directory, FileName(pages, index));
                     PngEncoder.Write(path, canvas.ToArray(), LabCanvas.Width, LabCanvas.Height);
                     summary.AppendLine(Invariant($"    {Path.GetFileName(path)}"));
@@ -223,7 +225,7 @@ public static class Headless
 }
 
 /// <summary>Per-frame logic and input handling for the lab's window.</summary>
-internal sealed class LabApp : IDisposable
+internal sealed class SimdGroupsApp : IDisposable
 {
     // The CPU side of a check keeps every core busy for a few milliseconds, so it runs on a timer
     // rather than every frame; the GPU side runs every frame.
@@ -248,7 +250,7 @@ internal sealed class LabApp : IDisposable
     private double _statsStart;
     private int _statsFrames;
 
-    public LabApp(MetalWindow window, GraphicsDevice device, IReadOnlyList<ILabPage> pages, int index, int frameLimit = 0)
+    public SimdGroupsApp(MetalWindow window, GraphicsDevice device, IReadOnlyList<ILabPage> pages, int index, int frameLimit = 0)
     {
         _window = window;
         _pages = pages;
@@ -285,7 +287,7 @@ internal sealed class LabApp : IDisposable
         }
 
         LabTiming? timing = _check is null ? null : new LabTiming(_gpuMs, _cpuMs);
-        LabView.Compose(_canvas, _pages, _index, labFrame, _check, timing, _paused);
+        SimdGroupsView.Compose(_canvas, _pages, _index, labFrame, _check, timing, _paused);
         _window.Present(_canvas.ToTexture());
 
         _statsFrames++;
