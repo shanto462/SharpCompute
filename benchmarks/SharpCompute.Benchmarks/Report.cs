@@ -352,7 +352,8 @@ public static class Report
         "Gaussian blur" => "Separable, radius 8 (17 taps, σ = 4), single-channel float, 3840×2160. Horizontal pass into a temp buffer, then vertical, "
             + "clamped edges. Baseline: CPU scalar (1 thread).",
         "Matrix multiply" => "Naive `C = A·B`, 1024×1024 float, row-major; the GPU runs one thread per output element and reads B column-wise. "
-            + "Baseline: CPU Parallel.For (a scalar single thread is about 1 s per run and adds nothing).",
+            + "The wave-matrix row is the same product on the GPU's matrix units (`WaveMatrix8x8`): a SIMD group accumulates 8×8 products, "
+            + "2×4 of them per group. Baseline: CPU Parallel.For (a scalar single thread is about 1 s per run and adds nothing).",
         "N-body" => "One O(n²) step with softening (ε² = 0.01), positions `Float4` (xyz + mass) and velocities `Float4`; reads the current "
             + "state and writes the next into separate buffers. Baseline: CPU Parallel.For (scalar single thread is too slow at 16K bodies).",
         "Image pipeline" => "Zero-copy data paths. A decoded 3840×2160 RGBA8 image (one `uint` per pixel) blurred (radius 8, separable, clamped) into "
