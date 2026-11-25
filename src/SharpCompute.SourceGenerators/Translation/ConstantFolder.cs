@@ -532,13 +532,17 @@ internal sealed class ConstantFolder
 
     private static string? MathName(IMethodSymbol method) => method.Name switch
     {
-        "Abs" or "Min" or "Max" or "Clamp" or "Sqrt" or "Sin" or "Cos" or "Tan" or "Asin" or "Acos" or "Atan" or "Atan2"
+        // .NET's Min, Max and Clamp, as in shader code (MslNames.MathMin); Gpu.Min/Max/Clamp are metal::.
+        "Min" => MslNames.MathMin,
+        "Max" => MslNames.MathMax,
+        "Clamp" => method.ContainingType.Name == "Single" ? MslNames.NumberClamp : MslNames.MathClamp,
+        "Abs" or "Sqrt" or "Sin" or "Cos" or "Tan" or "Asin" or "Acos" or "Atan" or "Atan2"
             or "Sinh" or "Cosh" or "Tanh" or "Exp" or "Log" or "Log2" or "Log10" or "Pow" or "Floor" or "Sign" or "CopySign" => "metal::" + method.Name.ToLowerInvariant(),
         "Ceiling" => "metal::ceil",
         "Truncate" => "metal::trunc",
         "Round" when method.Parameters.Length == 1 => "metal::rint",
         "FusedMultiplyAdd" => "metal::fma",
-        "Lerp" => "metal::mix",
+        "Lerp" => MslNames.NumberLerp,
         "Exp2" => "metal::exp2",
         "Exp10" => "metal::exp10",
         "ReciprocalSqrtEstimate" => "metal::rsqrt",
@@ -758,6 +762,11 @@ internal sealed class ConstantFolder
         ("isnan", 1) => static a => double.IsNaN(a[0]) ? 1 : 0,
         ("isinf", 1) => static a => double.IsInfinity(a[0]) ? 1 : 0,
         ("isfinite", 1) => static a => !double.IsNaN(a[0]) && !double.IsInfinity(a[0]) ? 1 : 0,
+        (MslNames.MathMin, 2) => static a => Math.Min(a[0], a[1]),
+        (MslNames.MathMax, 2) => static a => Math.Max(a[0], a[1]),
+        (MslNames.MathClamp, 3) => static a => DotNetClamp(a[0], a[1], a[2]),
+        (MslNames.NumberClamp, 3) => static a => Math.Min(Math.Max(a[0], a[1]), a[2]),
+        (MslNames.NumberLerp, 3) => static a => Fma(a[0], F(1 - a[2]), F(a[1] * a[2])),
         ("__ms_radians", 1) => static a => F(a[0] * (float)0.017453292519943295),
         ("__ms_degrees", 1) => static a => F(a[0] * (float)57.29577951308232),
         _ => null,
@@ -769,8 +778,17 @@ internal sealed class ConstantFolder
         ("min", 2) => static a => Math.Min(a[0], a[1]),
         ("max", 2) => static a => Math.Max(a[0], a[1]),
         ("clamp", 3) => static a => Math.Min(Math.Max(a[0], a[1]), a[2]),
+        (MslNames.MathMin, 2) => static a => Math.Min(a[0], a[1]),
+        (MslNames.MathMax, 2) => static a => Math.Max(a[0], a[1]),
+        (MslNames.MathClamp, 3) => static a => DotNetClamp(a[0], a[1], a[2]),
         _ => null,
     };
+
+    /// <summary>
+    /// <c>Math.Clamp</c> without its throw for inverted bounds: the prelude's <c>__ms_math_clamp</c>.
+    /// Math.Min and Math.Max of doubles already have .NET's float semantics (NaN propagates, -0 &lt; +0).
+    /// </summary>
+    private static double DotNetClamp(double x, double lo, double hi) => x < lo ? lo : x > hi ? hi : x;
 
     /// <summary>Rounds to float, as every float operation on the GPU does.</summary>
     private static double F(double value) => (float)value;

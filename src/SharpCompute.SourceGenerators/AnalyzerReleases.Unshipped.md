@@ -56,4 +56,5 @@ SCG0048 | SharpCompute | Error | Wave matrix cannot be stored
 SCG0049 | SharpCompute | Error | Wave matrix cannot be loaded from or stored to this memory
 SCG0050 | SharpCompute | Error | Wave matrix in a static field
 SCG0051 | SharpCompute | Warning | Wave matrix in a threadgroup that is not a multiple of 32 threads
+SCG0052 | SharpCompute | Error | Checked arithmetic in a shader
 SCG9999 | SharpCompute | Error | Internal generator error
