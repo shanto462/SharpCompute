@@ -22,7 +22,9 @@ namespace SharpCompute.Interop;
 /// Metal invokes a completed handler exactly once, so the <see cref="GCHandle"/> is freed inside the
 /// invoke function rather than by a dispose helper: the heap copy is then just bytes that Metal frees
 /// with <c>Block_release</c>. The handle must therefore only be attached to a command buffer that is
-/// committed (a never-committed buffer never calls its handlers, which would leak the handle).
+/// committed (a never-committed buffer never calls its handlers, which would leak the handle). For a
+/// command buffer SharpCompute commits itself that is guaranteed; for one the caller owns
+/// (<see cref="ComputeContext.EncodeInto"/>), committing it is part of that method's contract.
 /// </para>
 /// </remarks>
 internal static unsafe class CompletionBlock

@@ -21,8 +21,9 @@ namespace SharpCompute;
 /// <para>
 /// <b>Ordering.</b> Dispatches are encoded with <c>computeCommandEncoder</c>, whose dispatch type is
 /// <c>MTLDispatchTypeSerial</c>: each dispatch finishes, and its writes are visible, before the next
-/// one starts. Every SharpCompute resource is shared storage with the default (tracked) hazard mode,
-/// so command buffers committed to the same queue are ordered the same way.
+/// one starts. Every SharpCompute resource uses the default (tracked) hazard mode (wrapped native
+/// resources are checked for it), so command buffers committed to the same queue are ordered the same
+/// way, and so is the work <see cref="EncodeInto"/> puts between a caller's own passes.
 /// </para>
 /// <para>
 /// <b>Encoders.</b> A command buffer has one open encoder at a time, and copies and fills need a blit
@@ -276,7 +277,7 @@ internal sealed unsafe class CommandBatch
     }
 
     /// <summary>
-    /// Records <c>copyFromTexture:toTexture:</c> between two textures of the same size and format.
+    /// Records a copy of mipmap level 0 between two textures of the same size and format.
     /// Both textures and the buffers behind them are leased now.
     /// </summary>
     internal void RecordCopy<T>(Texture2D<T> source, Texture2D<T> destination)
@@ -432,6 +433,54 @@ internal sealed unsafe class CommandBatch
         return completion.Task;
     }
 
+    /// <summary>
+    /// Encodes the batch into a command buffer someone else created and will commit (see
+    /// <see cref="ComputeContext.EncodeInto"/>), and returns a task that completes when that command
+    /// buffer has completed and the batch has released everything. The caller has checked that the
+    /// command buffer belongs to the device and can still be encoded into.
+    /// </summary>
+    /// <remarks>
+    /// The completed handler is attached before anything is encoded. If encoding then fails partway,
+    /// the commands already encoded stay in the command buffer (nothing can take them out again), so
+    /// what they bound must stay leased until it has run: the handler releases the batch either way.
+    /// </remarks>
+    internal Task EncodeInto(nint commandBuffer)
+    {
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _completion = completion;
+        GCHandle self = default;
+
+        try
+        {
+            using AutoreleasePool pool = AutoreleasePool.Push();
+
+            // Retained like one this batch creates: released with the batch, after the handler ran.
+            _commandBuffer = ObjC.Retain(commandBuffer);
+
+            self = GCHandle.Alloc(this);
+            CompletionBlock.Attach(_commandBuffer, self);
+            self = default;
+        }
+        catch
+        {
+            if (self.IsAllocated)
+            {
+                self.Free();
+            }
+
+            ReleaseResources();
+            throw;
+        }
+
+        // From here on the handler owns the batch's release, whether or not the encoding succeeds.
+        using (AutoreleasePool pool = AutoreleasePool.Push())
+        {
+            EncodeCommands();
+        }
+
+        return completion.Task;
+    }
+
     /// <summary>Drops an uncommitted batch: releases everything without running it.</summary>
     internal void Abandon() => ReleaseResources();
 
@@ -528,7 +577,12 @@ internal sealed unsafe class CommandBatch
 
         // Autoreleased; retained so they outlive the caller's pool until the batch is released.
         _commandBuffer = ObjC.Retain(commandBuffer);
+        EncodeCommands();
+    }
 
+    /// <summary>Replays the recorded commands into <see cref="_commandBuffer"/> and ends the last encoder, also on failure.</summary>
+    private void EncodeCommands()
+    {
         try
         {
             fixed (byte* constants = _constants)
@@ -608,7 +662,9 @@ internal sealed unsafe class CommandBatch
                 ObjC.SendVoid(encoder, Selectors.FillBufferRangeValue, blit.Destination, new NSRange(blit.DestinationOffset, blit.Size), blit.Value);
                 break;
             case BlitKind.CopyTexture:
-                ObjC.SendVoid(encoder, Selectors.CopyFromTextureToTexture, blit.Source, blit.Destination);
+                // Level 0 and slice 0 only, the whole of what a Texture2D is: a wrapped native texture
+                // can have mipmaps, which copyFromTexture:toTexture: would copy as well (and require of both).
+                ObjC.SendVoid(encoder, Selectors.CopyFromTextureToTextureLevels, blit.Source, 0, 0, blit.Destination, 0, 0, 1, 1);
                 break;
             case BlitKind.CopyBufferToTexture:
             {

@@ -7,7 +7,8 @@ using SharpCompute.Interop;
 namespace SharpCompute;
 
 /// <summary>
-/// A GPU buffer backed by an <c>MTLBuffer</c> in <c>MTLStorageModeShared</c> (unified memory, zero-copy).
+/// A GPU buffer backed by an <c>MTLBuffer</c>, in <c>MTLStorageModeShared</c> (unified memory, zero-copy)
+/// unless it wraps a native buffer in another storage mode.
 /// </summary>
 /// <remarks>
 /// The memory is shared with the GPU, not copied: spans and element references point straight into
@@ -19,6 +20,15 @@ namespace SharpCompute;
 /// Most buffers own their memory. <see cref="GraphicsDevice.WrapReadWriteBuffer{T}"/> and
 /// <see cref="GraphicsDevice.MapReadOnlyBuffer{T}"/> make buffers over existing memory (caller-owned
 /// pages or a memory-mapped file) without copying it.
+/// </para>
+/// <para>
+/// <b>Native buffers.</b> <see cref="GraphicsDevice.WrapNativeReadWriteBuffer{T}"/> and
+/// <see cref="GraphicsDevice.WrapNativeReadOnlyBuffer{T}"/> make a buffer over an <c>MTLBuffer</c>
+/// that other Metal code created, in any storage mode. A buffer in private (GPU-only) storage works
+/// with shaders, <c>Copy</c>, <c>Fill</c> and <c>Clear</c>, but has no CPU access:
+/// <see cref="IsCpuAccessible"/> is false and the CPU accessors and <c>ForCpu</c> throw
+/// <see cref="NotSupportedException"/>. <see cref="NativeHandle"/> and <see cref="NativeByteOffset"/>
+/// hand the <c>MTLBuffer</c> of any buffer to other Metal code.
 /// </para>
 /// <para>
 /// <b>Views.</b> <see cref="ReadWriteBuffer{T}.Slice(int, int)"/> and
@@ -39,7 +49,12 @@ public abstract unsafe class Buffer<T> : IDisposable
     private readonly ObjCHandle _handle;
     private readonly T* _contents;
     private readonly int _length;
-    private readonly bool _isCpuWritable;
+
+    // False for memory this process maps read-only (MapReadOnlyBuffer): neither the CPU nor the GPU may write it.
+    private readonly bool _isMemoryWritable;
+
+    // False for a native buffer in private storage: the CPU has no access, and _contents is null.
+    private readonly bool _isCpuAccessible;
 
     // The buffer that owns the memory: this object, or for a view (Slice) the buffer at the root of
     // the chain of slices it was made from. _start is this buffer's first element in the root.
@@ -86,23 +101,28 @@ public abstract unsafe class Buffer<T> : IDisposable
         Device = device;
         _length = length;
         _accessibleLength = length;
-        _isCpuWritable = true;
+        _isMemoryWritable = true;
+        _isCpuAccessible = true;
         _root = this;
     }
 
     /// <summary>
     /// Wraps an existing <c>MTLBuffer</c> whose CPU address is <paramref name="contents"/> and takes
-    /// ownership of <paramref name="handle"/>. <paramref name="isCpuWritable"/> is false when the
+    /// ownership of <paramref name="handle"/>. <paramref name="isMemoryWritable"/> is false when the
     /// memory is mapped read-only, so <see cref="AsSpan"/> must not hand out a writable view.
+    /// <paramref name="contents"/> is null for a buffer the CPU cannot access (private storage).
     /// </summary>
-    private protected Buffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length, bool isCpuWritable)
+    private protected Buffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length, bool isMemoryWritable)
     {
         Device = device;
         _handle = handle;
         _contents = contents;
         _length = length;
-        _accessibleLength = length;
-        _isCpuWritable = isCpuWritable;
+        _isMemoryWritable = isMemoryWritable;
+        _isCpuAccessible = contents != null;
+
+        // 0 makes the indexers reject every index of a buffer the CPU cannot access, at no extra cost.
+        _accessibleLength = _isCpuAccessible ? length : 0;
         _root = this;
     }
 
@@ -131,10 +151,11 @@ public abstract unsafe class Buffer<T> : IDisposable
 
         Device = source.Device;
         _handle = source._handle;
-        _contents = source._contents + start;
+        _contents = source._contents == null ? null : source._contents + start;
         _length = length;
-        _accessibleLength = length;
-        _isCpuWritable = source._isCpuWritable;
+        _isMemoryWritable = source._isMemoryWritable;
+        _isCpuAccessible = source._isCpuAccessible;
+        _accessibleLength = _isCpuAccessible ? length : 0;
         _root = source._root;
         _start = source._start + start;
 
@@ -185,18 +206,64 @@ public abstract unsafe class Buffer<T> : IDisposable
     /// <summary>
     /// False for a buffer over read-only memory (<see cref="GraphicsDevice.MapReadOnlyBuffer{T}"/>):
     /// its contents can be read with <see cref="AsReadOnlySpan"/>, the indexer and the copy methods,
-    /// but <see cref="AsSpan"/> and <see cref="CopyFrom"/> throw, since writing would fault.
+    /// but <see cref="AsSpan"/> and <see cref="CopyFrom"/> throw, since writing would fault. Also
+    /// false when the CPU has no access at all (<see cref="IsCpuAccessible"/>).
     /// </summary>
-    public bool IsCpuWritable => _isCpuWritable;
+    public bool IsCpuWritable => _isMemoryWritable && _isCpuAccessible;
+
+    /// <summary>
+    /// False for a native buffer in private (GPU-only) storage (<see cref="GraphicsDevice.WrapNativeReadWriteBuffer{T}"/>):
+    /// shaders, <c>Copy</c>, <c>Fill</c> and <c>Clear</c> work, but the spans, indexers, copy methods
+    /// and <c>ForCpu</c> throw <see cref="NotSupportedException"/>. True for every buffer SharpCompute allocates.
+    /// </summary>
+    public bool IsCpuAccessible => _isCpuAccessible;
+
+    /// <summary>
+    /// The <c>id&lt;MTLBuffer&gt;</c>, for other Metal code: for a view (<c>Slice</c>), the buffer that
+    /// owns the memory, with the view starting <see cref="NativeByteOffset"/> bytes into it.
+    /// </summary>
+    /// <remarks>
+    /// The reference is not owned by the caller: it is valid while this buffer (for a view, the buffer
+    /// that owns the memory) is not disposed, and for as long as GPU work that uses it is pending.
+    /// Code that keeps it longer must retain it (<c>[buffer retain]</c>) and release it when done.
+    /// The memory behind a buffer made by <see cref="GraphicsDevice.WrapReadWriteBuffer{T}"/> is freed
+    /// when this buffer releases it, retained or not.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">The buffer has been disposed.</exception>
+    public nint NativeHandle
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _handle.DangerousGetHandle();
+        }
+    }
+
+    /// <summary>
+    /// Where this buffer starts in <see cref="NativeHandle"/>, in bytes: 0 unless it is a view, and
+    /// then <c>start * sizeof(T)</c> from the buffer that owns the memory. Bind it at this offset
+    /// (<c>setBuffer:offset:atIndex:</c>) to see what this buffer sees.
+    /// </summary>
+    public nuint NativeByteOffset => ByteOffset;
+
+    /// <summary>
+    /// False only for memory this process maps read-only (<see cref="GraphicsDevice.MapReadOnlyBuffer{T}"/>),
+    /// which the GPU must not write either. A private native buffer is writable by the GPU.
+    /// </summary>
+    internal bool IsMemoryWritable => _isMemoryWritable;
 
     /// <summary>Direct view of the shared memory. Do not use while a dispatch that writes it is in flight.</summary>
     /// <exception cref="ObjectDisposedException">The buffer has been disposed.</exception>
-    /// <exception cref="NotSupportedException">The buffer maps read-only memory (<see cref="IsCpuWritable"/> is false); use <see cref="AsReadOnlySpan"/>.</exception>
+    /// <exception cref="NotSupportedException">
+    /// The buffer maps read-only memory (<see cref="IsCpuWritable"/> is false; use <see cref="AsReadOnlySpan"/>),
+    /// or is GPU-only (<see cref="IsCpuAccessible"/> is false).
+    /// </exception>
     public Span<T> AsSpan()
     {
         ThrowIfDisposed();
+        ThrowIfNotCpuAccessible();
 
-        if (!_isCpuWritable)
+        if (!_isMemoryWritable)
         {
             throw new NotSupportedException("This buffer maps read-only memory (a memory-mapped file); use AsReadOnlySpan() to read it.");
         }
@@ -206,9 +273,11 @@ public abstract unsafe class Buffer<T> : IDisposable
 
     /// <summary>Direct read-only view of the shared memory. Do not use while a dispatch that writes it is in flight.</summary>
     /// <exception cref="ObjectDisposedException">The buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException">The buffer is GPU-only (<see cref="IsCpuAccessible"/> is false).</exception>
     public ReadOnlySpan<T> AsReadOnlySpan()
     {
         ThrowIfDisposed();
+        ThrowIfNotCpuAccessible();
         return new ReadOnlySpan<T>(_contents, _length);
     }
 
@@ -302,9 +371,21 @@ public abstract unsafe class Buffer<T> : IDisposable
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(IsDisposed, this);
 
+    /// <summary>The exception for CPU access to a GPU-only buffer, which every CPU accessor and <c>ForCpu</c> throw.</summary>
+    internal void ThrowIfNotCpuAccessible()
+    {
+        if (!_isCpuAccessible)
+        {
+            throw new NotSupportedException(
+                "This buffer is in private (GPU-only) storage, so the CPU cannot read or write it, and ForCpu cannot use it. " +
+                "Shaders, Copy, Fill and Clear work on it; to read it on the CPU, Copy it into a buffer SharpCompute allocated.");
+        }
+    }
+
     private void ThrowIndexFailure(int index)
     {
         ThrowIfDisposed();
+        ThrowIfNotCpuAccessible();
 
         throw new ArgumentOutOfRangeException(
             nameof(index), index, $"Index must be non-negative and less than the buffer length ({_length}).");
@@ -394,7 +475,7 @@ public sealed class ReadWriteBuffer<T> : Buffer<T>
     }
 
     internal unsafe ReadWriteBuffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length)
-        : base(device, handle, contents, length, isCpuWritable: true)
+        : base(device, handle, contents, length, isMemoryWritable: true)
     {
     }
 
@@ -453,8 +534,8 @@ public sealed class ReadOnlyBuffer<T> : Buffer<T>
     {
     }
 
-    internal unsafe ReadOnlyBuffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length, bool isCpuWritable)
-        : base(device, handle, contents, length, isCpuWritable)
+    internal unsafe ReadOnlyBuffer(GraphicsDevice device, ObjCHandle handle, T* contents, int length, bool isMemoryWritable)
+        : base(device, handle, contents, length, isMemoryWritable)
     {
     }
 

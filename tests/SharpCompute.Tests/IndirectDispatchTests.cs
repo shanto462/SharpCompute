@@ -412,7 +412,7 @@ public class IndirectDispatchTests
     public void InvalidArguments_AreRejected_AndRecordNothing()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<int> counter = device.AllocateReadWriteBuffer<int>(1);
         using ReadWriteBuffer<int> stats = device.AllocateReadWriteBuffer<int>(2);
         using ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>(2);

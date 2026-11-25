@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SharpCompute inside an app that already renders with Metal: a small host renderer, written
+    straight against Metal through objc_msgSend, owns the device, queue, particle buffer and textures;
+    SharpCompute wraps them and encodes a particle simulation and a post-process pass into the host's
+    own command buffer. Original SharpCompute sample (MIT).
+    Run with scripts/demo-nativeinterop.sh from a desktop session (add the headless switch for PNGs only).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>SharpCompute.Samples.NativeInterop</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.NativeInterop</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- For PngEncoder only; the sample itself is MIT. -->
+    <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

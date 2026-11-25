@@ -94,7 +94,7 @@ public class GraphicsDeviceTests
     [MetalFact]
     public void BufferFromAnotherDevice_IsRejected()
     {
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<float> foreign = other.AllocateReadWriteBuffer<float>([1, 2, 3]);
 
         GraphicsDevice device = GraphicsDevice.GetDefault();

@@ -24,6 +24,9 @@ internal static unsafe partial class ObjC
     [LibraryImport(LibObjC, EntryPoint = "sel_registerName", StringMarshalling = StringMarshalling.Utf8)]
     private static partial nint sel_registerName(string name);
 
+    [LibraryImport(LibObjC, EntryPoint = "objc_getProtocol", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial nint objc_getProtocol(string name);
+
     [LibraryImport(LibObjC, EntryPoint = "objc_autoreleasePoolPush")]
     internal static partial nint AutoreleasePoolPush();
 
@@ -45,6 +48,18 @@ internal static unsafe partial class ObjC
 
     /// <summary>Registers (or looks up) a selector. Selectors are process-global and never freed.</summary>
     internal static nint GetSelector(string name) => sel_registerName(name);
+
+    /// <summary>
+    /// Looks up a protocol by name, or returns 0 when no loaded image declares it. A protocol is only
+    /// registered once a class that adopts it (or code that names it) is loaded.
+    /// </summary>
+    internal static nint GetProtocol(string name) => objc_getProtocol(name);
+
+    /// <summary>
+    /// <c>[obj conformsToProtocol:protocol]</c>, the check that an <c>id</c> handed in by a caller
+    /// really is, say, an <c>id&lt;MTLBuffer&gt;</c> before any of that protocol's methods is sent to it.
+    /// </summary>
+    internal static bool ConformsTo(nint obj, nint protocol) => SendByte(obj, Selectors.ConformsToProtocol, protocol) != 0;
 
     // id f(id, SEL) — property getters and no-argument factories.
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
@@ -151,6 +166,25 @@ internal static unsafe partial class ObjC
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial void SendVoid(
         nint receiver, nint selector, nint arg0, nuint arg1, nuint arg2, MTLOrigin arg3, MTLSize arg4, nint arg5, nuint arg6, nuint arg7, nuint arg8);
+
+    // BOOL f(id, SEL, id) — conformsToProtocol:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial byte SendByte(nint receiver, nint selector, nint arg0);
+
+    // void f(id, SEL, void*, NSUInteger, MTLRegion, NSUInteger) — getBytes:bytesPerRow:fromRegion:mipmapLevel:
+    // MTLRegion is 48 bytes, so like MTLSize it goes by reference to a caller-owned copy (see above).
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(nint receiver, nint selector, void* arg0, nuint arg1, MTLRegion arg2, nuint arg3);
+
+    // void f(id, SEL, MTLRegion, NSUInteger, const void*, NSUInteger) — replaceRegion:mipmapLevel:withBytes:bytesPerRow:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(nint receiver, nint selector, MTLRegion arg0, nuint arg1, void* arg2, nuint arg3);
+
+    // void f(id, SEL, id, NSUInteger, NSUInteger, id, NSUInteger, NSUInteger, NSUInteger, NSUInteger)
+    // — copyFromTexture:sourceSlice:sourceLevel:toTexture:destinationSlice:destinationLevel:sliceCount:levelCount:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(
+        nint receiver, nint selector, nint arg0, nuint arg1, nuint arg2, nint arg3, nuint arg4, nuint arg5, nuint arg6, nuint arg7);
 
     /// <summary><c>[obj retain]</c>; nil-safe.</summary>
     internal static nint Retain(nint obj) => SendIntPtr(obj, Selectors.Retain);

@@ -106,7 +106,11 @@ public sealed unsafe partial class GraphicsDevice
     /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device or a buffer or texture of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The shader's <see cref="ThreadGroupSizeAttribute"/> is invalid.</exception>
-    /// <exception cref="NotSupportedException">The shader uses threadgroup memory or barriers and its threadgroups have more than 1024 threads, or it uses SIMD-group operations in divergent control flow (see remarks).</exception>
+    /// <exception cref="NotSupportedException">
+    /// The shader uses threadgroup memory or barriers and its threadgroups have more than 1024 threads, uses
+    /// SIMD-group operations in divergent control flow (see remarks), or binds a native buffer or texture
+    /// the CPU cannot access (<see cref="Buffer{T}.IsCpuAccessible"/>, <see cref="Texture2D{T}.IsCpuAccessible"/>).
+    /// </exception>
     public void ForCpu<T>(int x, int y, int z, in T shader)
         where T : struct, IComputeShader, IComputeShaderDescriptor<T> => DispatchCpu(x, y, z, in shader);
 
@@ -124,7 +128,10 @@ public sealed unsafe partial class GraphicsDevice
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device, <paramref name="texture"/> or a buffer of <paramref name="shader"/> has been disposed.</exception>
-    /// <exception cref="NotSupportedException">The shader uses SIMD-group operations in divergent control flow (see <see cref="ForCpu{T}(int, int, int, in T)"/>).</exception>
+    /// <exception cref="NotSupportedException">
+    /// The shader uses SIMD-group operations in divergent control flow (see <see cref="ForCpu{T}(int, int, int, in T)"/>),
+    /// or <paramref name="texture"/> or a resource of <paramref name="shader"/> is a native one the CPU cannot access.
+    /// </exception>
     public void ForEachCpu<T>(ReadWriteTexture2D<Rgba32> texture, in T shader)
         where T : struct, IComputeShader<Float4>, IComputeShaderDescriptor<T>
     {
@@ -148,11 +155,14 @@ public sealed unsafe partial class GraphicsDevice
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         ObjectDisposedException.ThrowIf(texture.IsDisposed, texture);
 
-        if (!ReferenceEquals(texture.Device, this))
+        if (!IsSameDevice(texture.Device))
         {
             throw new ArgumentException(
                 "The texture was allocated from a different GraphicsDevice than the one dispatching the shader.", nameof(texture));
         }
+
+        // The CPU writes the pixels straight into the texture's memory.
+        texture.ThrowIfNotCpuAccessible();
     }
 
     private void DispatchCpu<T>(int x, int y, int z, in T shader)

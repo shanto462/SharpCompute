@@ -370,7 +370,7 @@ public class SplitDispatchTests
 
         Assert.Throws<ArgumentNullException>(() => device.ForSplit(64, default(RecordBuiltins1D)));
 
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<int> foreign = other.AllocateReadWriteBuffer<int>(64 * 4);
         Assert.Throws<ArgumentException>(() => device.ForSplit(64, new RecordBuiltins1D(foreign, normalized), 0.5));
 

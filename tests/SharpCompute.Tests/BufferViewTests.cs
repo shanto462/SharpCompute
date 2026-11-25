@@ -488,7 +488,7 @@ public class BufferViewTests
     public void Slice_FromAnotherDevice_IsRejected()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<int> foreign = other.AllocateReadWriteBuffer<int>(64);
         ReadWriteBuffer<int> view = foreign.Slice(8, 8);
 

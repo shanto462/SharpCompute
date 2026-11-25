@@ -449,7 +449,7 @@ public class GpuCopyTests
     public void BuffersOfAnotherDevice_AreRejected()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<int> mine = device.AllocateReadWriteBuffer<int>(16);
         using ReadWriteBuffer<int> foreign = other.AllocateReadWriteBuffer<int>(16);
 
@@ -687,7 +687,7 @@ public class GpuCopyTests
     public void TextureCopies_RejectMismatchedOrForeignResources()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteTexture2D<Rgba32> texture = device.AllocateReadWriteTexture2D<Rgba32>(8, 4);
         using ReadWriteTexture2D<Rgba32> wide = device.AllocateReadWriteTexture2D<Rgba32>(9, 4);
         using ReadWriteTexture2D<Rgba32> foreign = other.AllocateReadWriteTexture2D<Rgba32>(8, 4);

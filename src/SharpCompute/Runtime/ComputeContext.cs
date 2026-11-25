@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpCompute.Interop;
 
 namespace SharpCompute;
 
@@ -22,7 +23,7 @@ namespace SharpCompute;
 /// <para>
 /// <b>Recording.</b> <c>For</c>, <c>ForEach</c>, <c>ForIndirect</c>, <c>Copy</c>, <c>Fill</c> and
 /// <c>Clear</c> only record: nothing runs on the GPU until
-/// <see cref="Execute"/>, <see cref="ExecuteAsync"/>, <see cref="Dispose"/> or <see cref="DisposeAsync"/>.
+/// <see cref="Execute"/>, <see cref="ExecuteAsync"/>, <see cref="EncodeInto"/>, <see cref="Dispose"/> or <see cref="DisposeAsync"/>.
 /// Consecutive dispatches share one compute encoder; the pipeline is switched per dispatch when the shader changes.
 /// Shader constants are copied when the dispatch is recorded, so changing the shader struct (or
 /// reusing it with other values) afterwards does not affect recorded work.
@@ -476,6 +477,64 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Encodes everything recorded so far into <paramref name="mtlCommandBuffer"/>, a command buffer
+    /// the caller created and will commit, without committing it: the recorded dispatches, copies and
+    /// fills then run in order with the caller's own passes in that command buffer, in one submission.
+    /// </summary>
+    /// <param name="mtlCommandBuffer">An <c>id&lt;MTLCommandBuffer&gt;</c> of this context's device that has not been committed.</param>
+    /// <returns>
+    /// A task that completes when the command buffer has completed (continuations run asynchronously),
+    /// and faults with <see cref="MetalException"/> when it failed. An already completed task when
+    /// nothing is pending, in which case nothing is encoded.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Order.</b> The work is encoded right away, after whatever the caller encoded into the command
+    /// buffer before this call and before whatever it encodes after it, and runs in that order with
+    /// Metal's guarantees for tracked resources (the only kind SharpCompute wraps): a render pass
+    /// encoded after this call sees what the recorded dispatches wrote. The caller must have ended its
+    /// own encoder before the call (<c>endEncoding</c>): Metal terminates the process when a second
+    /// encoder is opened while one is still encoding, and that cannot be detected beforehand. The
+    /// context can record again as soon as this returns, and encoding into the same command buffer
+    /// more than once appends each batch after the previous one.
+    /// </para>
+    /// <para>
+    /// <b>Lifetime.</b> Everything the recorded work uses stays leased until the command buffer
+    /// completes, as with <see cref="ExecuteAsync"/>, even if the caller created it with unretained
+    /// references. The caller must commit the command buffer: one that is never committed never
+    /// completes, so what was leased for it is never released. The same holds if this method throws
+    /// once encoding has begun (Metal failing to create an encoder): what was already encoded stays
+    /// in the command buffer, and stays leased until it completes.
+    /// </para>
+    /// <para>
+    /// Results are not visible on the CPU until the command buffer has completed: wait for the task,
+    /// or for the command buffer (<c>waitUntilCompleted</c>), before reading them.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="mtlCommandBuffer"/> is 0, not an <c>id&lt;MTLCommandBuffer&gt;</c>, or belongs to another <c>MTLDevice</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// The command buffer has already been committed (its <c>status</c> is past <c>MTLCommandBufferStatusEnqueued</c>),
+    /// so nothing can be encoded into it, or the context is being used concurrently from another thread.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The context or its device has been disposed.</exception>
+    public Task EncodeInto(nint mtlCommandBuffer)
+    {
+        Enter();
+
+        try
+        {
+            ValidateCommandBuffer(mtlCommandBuffer);
+            return TakeBatch()?.EncodeInto(mtlCommandBuffer) ?? Task.CompletedTask;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
     /// <summary>Runs whatever is still pending, waits for it, then disposes the context.</summary>
     /// <exception cref="MetalException">The GPU failed to execute the pending batch. The context is disposed regardless.</exception>
     public void Dispose()
@@ -510,6 +569,27 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         finally
         {
             Exit();
+        }
+    }
+
+    /// <summary>The preconditions of <see cref="EncodeInto"/>, each of which Metal would otherwise answer by terminating the process.</summary>
+    private void ValidateCommandBuffer(nint commandBuffer)
+    {
+        const string parameter = "mtlCommandBuffer";
+        ObjectDisposedException.ThrowIf(Device.IsDisposed, Device);
+
+        using AutoreleasePool pool = AutoreleasePool.Push();
+
+        GraphicsDevice.ThrowIfNot(commandBuffer, MetalProtocols.CommandBuffer, "id<MTLCommandBuffer>", parameter);
+        Device.ThrowIfOtherDevice(commandBuffer, "command buffer", parameter);
+
+        nuint status = ObjC.SendNUInt(commandBuffer, Selectors.Status);
+
+        if (status > Metal.CommandBufferStatusEnqueued)
+        {
+            throw new InvalidOperationException(
+                $"The command buffer has already been committed (MTLCommandBufferStatus {status}), so nothing more can be encoded into it. " +
+                "Call EncodeInto before committing it.");
         }
     }
 

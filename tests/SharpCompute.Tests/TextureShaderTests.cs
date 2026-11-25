@@ -1052,7 +1052,7 @@ public unsafe class TextureShaderTests
     public void TextureFromAnotherDevice_IsRejected_OnEveryDispatchPath()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadOnlyTexture2D<Rgba32> foreign = other.AllocateReadOnlyTexture2D<Rgba32>(4, 4);
         using ReadWriteTexture2D<float> foreignTarget = other.AllocateReadWriteTexture2D<float>(4, 4);
         using ReadOnlyTexture2D<float> foreignView = foreignTarget.AsReadOnly();

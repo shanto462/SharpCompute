@@ -105,6 +105,25 @@ internal static unsafe class TextureFormats
     }
 
     /// <summary>
+    /// A pixel format for a message: its Metal name and the element type that uses it when it is one
+    /// of the supported formats, the common formats of render targets by name, anything else by number.
+    /// </summary>
+    internal static string Describe(nuint pixelFormat) => pixelFormat switch
+    {
+        Metal.PixelFormatRGBA8Unorm => "RGBA8Unorm (Rgba32)",
+        RGBA8UnormSrgb => "RGBA8Unorm_sRGB (Rgba32Srgb)",
+        R8Unorm => "R8Unorm (R8)",
+        RG8Unorm => "RG8Unorm (Rg16)",
+        R16Float => "R16Float (Half)",
+        RGBA16Float => "RGBA16Float (Rgba16Float)",
+        R32Float => "R32Float (float)",
+        RGBA32Float => "RGBA32Float (Float4)",
+        80 => "BGRA8Unorm, which no texture element type matches",
+        81 => "BGRA8Unorm_sRGB, which no texture element type matches",
+        _ => $"MTLPixelFormat {pixelFormat}, which no texture element type matches",
+    };
+
+    /// <summary>
     /// What a shader's <c>read</c> returns for the pixel at <paramref name="pixel"/>. Unorm channels are
     /// <c>c / 255</c> and float channels are widened, both exactly as on the GPU; missing channels read
     /// as <c>(0, 0, 1)</c>. sRGB channels go through the exact transfer function, which the GPU only

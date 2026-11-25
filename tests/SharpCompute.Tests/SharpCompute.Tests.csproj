@@ -29,6 +29,8 @@
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.GroupShared\SharpCompute.Samples.GroupShared.csproj" />
     <!-- An Exe too; its pages and its headless mode are tested directly. -->
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.SimdGroups\SharpCompute.Samples.SimdGroups.csproj" />
+    <!-- An Exe as well; the interop demo's frames and its headless mode are tested directly. -->
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.NativeInterop\SharpCompute.Samples.NativeInterop.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>

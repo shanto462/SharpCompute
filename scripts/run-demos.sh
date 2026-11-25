@@ -108,6 +108,9 @@ dotnet run -c Release --no-build --project samples/SharpCompute.Samples.GroupSha
 step "SimdGroups: a reduction race, a stream compaction and a shuffle filter, each checked against the CPU (headless)"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.SimdGroups -- --headless --out "$OUT/simdgroups"
 
+step "NativeInterop: a raw Metal host renderer with SharpCompute's particle sim and post-process in its command buffer (headless)"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.NativeInterop -- --headless --out "$OUT/nativeinterop"
+
 step "Done: $OUT"
 find "$OUT" -maxdepth 2 \( -name '*.png' -o -name '*.mp4' -o -name '*.txt' \) -not -path '*/video/*/*' | sed "s#^$OUT/#  #" | sort
 

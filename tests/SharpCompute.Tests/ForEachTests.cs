@@ -75,7 +75,7 @@ public class ForEachTests
     public void ForEach_TextureFromAnotherDevice_Throws()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteTexture2D<Rgba32> foreign = other.AllocateReadWriteTexture2D<Rgba32>(8, 8);
         using ReadWriteBuffer<uint> stats = device.AllocateReadWriteBuffer<uint>(4);
 
@@ -99,7 +99,7 @@ public class ForEachTests
         // The texture is valid but SetArguments fails after it was bound: the encoder must still be
         // ended (Metal aborts the process otherwise) and the command buffer dropped.
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using GraphicsDevice other = GraphicsDevice.CreateSystemDefault();
+        using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteTexture2D<Rgba32> texture = device.AllocateReadWriteTexture2D<Rgba32>(8, 8);
         using ReadWriteBuffer<uint> foreignStats = other.AllocateReadWriteBuffer<uint>(4);
 
