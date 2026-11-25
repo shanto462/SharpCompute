@@ -71,6 +71,8 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     private CommandBatch? _spare;
     private int _busy;
     private bool _disposed;
+    // Written by the thread that completes a batch (possibly Metal's), read by anyone.
+    private long _lastGpuTimeTicks;
 
     internal ComputeContext(GraphicsDevice device)
     {
@@ -88,6 +90,42 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// recorded operations with nothing to do (an empty grid, a copy of 0 elements).
     /// </summary>
     public int PendingCount => Volatile.Read(ref _batch)?.OperationCount ?? 0;
+
+    /// <summary>
+    /// How long the GPU spent executing the batch this context most recently ran: the time between
+    /// Metal's <c>GPUStartTime</c> and <c>GPUEndTime</c> of its command buffer. It leaves out what a
+    /// stopwatch around <see cref="Execute"/> includes (encoding, the commit, scheduling, and waking
+    /// the waiting thread), so it is the number to compare kernels by.
+    /// </summary>
+    /// <value>
+    /// <see cref="TimeSpan.Zero"/> until a batch has run. Set before <see cref="Execute"/> and
+    /// <see cref="Dispose"/> return, and before the task of <see cref="ExecuteAsync"/>,
+    /// <see cref="DisposeAsync"/> or <see cref="EncodeInto"/> completes; it can still be read after the
+    /// context is disposed. An execution with nothing pending, and a batch that never ran (its command
+    /// buffer was dropped uncommitted), leave it unchanged.
+    /// </value>
+    /// <remarks>
+    /// <para>
+    /// <b>One time per command buffer.</b> The time covers everything the batch recorded, dispatches,
+    /// copies and fills together; to time one kernel, execute it alone. (Apple GPUs can sample a
+    /// timestamp only between encoders, not between the dispatches of one, so a finer split would
+    /// change how a batch is encoded.) After <see cref="EncodeInto"/> it is the time of the caller's
+    /// whole command buffer, their own passes included. For a batch the GPU failed, it is whatever
+    /// interval Metal recorded, possibly zero.
+    /// </para>
+    /// <para>
+    /// The interval is elapsed time on the GPU, not time that was exclusively this batch's: other
+    /// work the GPU runs meanwhile (another process, the window server) lengthens it, and a first
+    /// execution after an idle spell includes the GPU's ramp-up, so time a few executions and take
+    /// the median.
+    /// </para>
+    /// <para>
+    /// <b>Threading.</b> Safe to read from any thread, and reading never allocates. With several
+    /// batches of one context in flight (<see cref="ExecuteAsync"/> without awaiting), it is the
+    /// time of whichever completed last; await each task before reading to pair a time with its batch.
+    /// </para>
+    /// </remarks>
+    public TimeSpan LastGpuTime => new(Volatile.Read(ref _lastGpuTimeTicks));
 
     /// <summary>Records a dispatch of <paramref name="x"/> threads.</summary>
     /// <inheritdoc cref="For{T}(int, int, int, in T)" path="/exception"/>
@@ -672,11 +710,19 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// The recycle callback of this context's batches; may run on a Metal thread. Keeps at most one
-    /// spare, never an oversized one, and none once the context is disposed.
+    /// The recycle callback of this context's batches; may run on a Metal thread. Takes the GPU time of
+    /// a batch that ran, then keeps at most one spare, never an oversized one, and none once the
+    /// context is disposed.
     /// </summary>
     private void Recycle(CommandBatch batch)
     {
+        // First, and whatever becomes of the batch: the time is read after Dispose too, and Execute,
+        // or the task of an asynchronous execution, must not finish before it is set.
+        if (batch.GpuTimeTicks != CommandBatch.NotRun)
+        {
+            Volatile.Write(ref _lastGpuTimeTicks, batch.GpuTimeTicks);
+        }
+
         if (batch.IsOversized || Volatile.Read(ref _disposed))
         {
             return;

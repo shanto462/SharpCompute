@@ -1,0 +1,7 @@
+# Text files are stored and checked out with LF line endings; the scripts need them to run.
+* text=auto eol=lf
+
+*.png binary
+*.gif binary
+*.jpg binary
+*.metallib binary

@@ -75,9 +75,8 @@ public sealed class PrefixSumPage : ILabPage
     {
         _device.For(Size, Size, new GenerateScanField(_source, _flags, Size, frame.Time, Cutoff));
 
-        long start = Stopwatch.GetTimestamp();
         Kept = _scan.Run(_flags, _offsets, Count);
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _scan.LastGpuMilliseconds;
 
         // Every kept element knows its slot; no two share one, so the scatter needs no atomics.
         _device.For(Count, new ScatterKept(_flags, _offsets, _output));
@@ -198,6 +197,9 @@ public sealed class GpuScan : IDisposable
 
     public int Capacity { get; }
 
+    /// <summary>The GPU time of the last <see cref="Run"/>: the sum over its dispatches, each a command buffer of its own.</summary>
+    public double LastGpuMilliseconds { get; private set; }
+
     private static int Blocks(int count) => (count + BlockSize - 1) / BlockSize;
 
     /// <summary>
@@ -208,6 +210,8 @@ public sealed class GpuScan : IDisposable
     public int Run(ReadWriteBuffer<int> input, ReadWriteBuffer<int> output, int count)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(count, Capacity);
+
+        LastGpuMilliseconds = 0;
 
         if (count <= 0)
         {
@@ -222,6 +226,7 @@ public sealed class GpuScan : IDisposable
         {
             int blocks = Blocks(n);
             _device.For(blocks * BlockSize, new ScanBlocks(source, scan, _totals[level], n));
+            LastGpuMilliseconds += _device.LastGpuTime.TotalMilliseconds;
             levels.Add((scan, n));
 
             if (blocks == 1)
@@ -236,6 +241,7 @@ public sealed class GpuScan : IDisposable
         for (int level = levels.Count - 1; level > 0; level--)
         {
             _device.For(levels[level - 1].Count, new AddBlockOffsets(levels[level - 1].Scan, levels[level].Scan));
+            LastGpuMilliseconds += _device.LastGpuTime.TotalMilliseconds;
         }
 
         return _totals[levels.Count - 1][0];

@@ -82,24 +82,26 @@ public sealed class BlurPage : ILabPage
         _variantMilliseconds[Variant] = GpuMilliseconds;
     }
 
-    /// <summary>Rows into the intermediate image, then columns into the result.</summary>
+    /// <summary>Rows into the intermediate image, then columns into the result. Returns the GPU time of the two passes together.</summary>
     private double Blur(int variant)
     {
-        long start = Stopwatch.GetTimestamp();
+        double rowsMs;
 
         if (variant == 0)
         {
             int padded = (Size + BlurRowsShared.Group - 1) / BlurRowsShared.Group * BlurRowsShared.Group;
             _device.For(padded, Size, new BlurRowsShared(_image, _rows, Size, Size, Radius));
+            rowsMs = _device.LastGpuTime.TotalMilliseconds;
             _device.For(Size, padded, new BlurColumnsShared(_rows, _blurred, Size, Size, Radius));
         }
         else
         {
             _device.For(Size, Size, new BlurNaive(_image, _rows, Size, Size, Radius, 1, 0));
+            rowsMs = _device.LastGpuTime.TotalMilliseconds;
             _device.For(Size, Size, new BlurNaive(_rows, _blurred, Size, Size, Radius, 0, 1));
         }
 
-        return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        return rowsMs + _device.LastGpuTime.TotalMilliseconds;
     }
 
     public LabCheck Check()

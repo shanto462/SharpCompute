@@ -58,9 +58,8 @@ public sealed class BitsPage : ILabPage
         // The patterns scroll; the headless picture is the unscrolled one.
         _tick = frame.Deterministic ? 0 : (int)(frame.Time * 24f);
 
-        long start = Stopwatch.GetTimestamp();
         _device.For(LabCanvas.Width, LabCanvas.Height, new BitPatterns(_gpu, LabCanvas.Width, _tick));
-        GpuMilliseconds = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        GpuMilliseconds = _device.LastGpuTime.TotalMilliseconds;
     }
 
     public LabCheck Check()
