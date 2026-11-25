@@ -1128,6 +1128,33 @@ public sealed class TextureDemoTests
         }
     }
 
+    [MetalFact]
+    public void Headless_Record_AlsoWritesEveryPingPongFrame_TheLastOneBeingThePicture()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "sharpcompute-textures-record-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            Assert.Equal(0, Program.Main(["--headless", "--out", root, "--size", "320x200", "--record"]));
+
+            string[] frames = [.. Enumerable.Range(1, Program.HeadlessPingPongFrames).Select(static i => $"pingpong-{i:D4}.png")];
+            string[] stills = [.. Enumerable.Range(0, 8).Select(Program.HeadlessFileName), "pingpong.png"];
+            Assert.Equal(frames.Concat(stills).Order(), Directory.GetFiles(root).Select(Path.GetFileName).Order());
+
+            // The simulation moves between frames, and its picture is its last frame.
+            byte[] last = File.ReadAllBytes(Path.Combine(root, frames[^1]));
+            Assert.True(last.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(root, "pingpong.png"))));
+            Assert.False(last.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(root, frames[^2]))));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     [MetalTheory]
     [InlineData(0, "--help")]
     [InlineData(1, "--headless")]

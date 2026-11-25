@@ -17,7 +17,8 @@ public enum TextColor
 
 /// <summary>
 /// What every page draws into: a fixed 1280 × 720 frame of packed RGBA pixels in a
-/// <c>ReadWriteBuffer&lt;uint&gt;</c>, plus a grid of text cells drawn over it.
+/// <c>ReadWriteBuffer&lt;uint&gt;</c>, plus a grid of text cells drawn over it, <see cref="TextTop"/>
+/// pixels below the top edge.
 /// </summary>
 /// <remarks>
 /// The frame is a buffer rather than a texture because compute shaders can read and write buffers
@@ -38,8 +39,20 @@ public sealed class LabCanvas : IDisposable
     public const int CellWidth = (PixelFont.GlyphWidth + 1) * TextScale;
     public const int CellHeight = (PixelFont.GlyphHeight + 1) * TextScale;
 
+    /// <summary>
+    /// The pixel row where the text grid starts: one cell height, kept free above the first text row
+    /// and below the last. A glyph fills its cell to the top, so a grid that started at pixel row 0
+    /// would put the title against the edge of the window, where it reads as cut off. A whole cell
+    /// keeps every row on the 16-pixel lines the pages' pixel layouts are drawn on, so
+    /// <see cref="Label"/> puts a label where it always went.
+    /// </summary>
+    public const int TextTop = CellHeight;
+
     public const int Columns = Width / CellWidth;
-    public const int Rows = Height / CellHeight;
+    public const int Rows = (Height - (2 * TextTop)) / CellHeight;
+
+    /// <summary>The top pixel row of text row <paramref name="row"/>.</summary>
+    public static int RowY(int row) => TextTop + (row * CellHeight);
 
     private readonly GraphicsDevice _device;
     private readonly ReadWriteBuffer<uint> _cells;
@@ -85,8 +98,12 @@ public sealed class LabCanvas : IDisposable
         }
     }
 
-    /// <summary>Text at a pixel position, snapped to the cell grid (for labels next to what a page drew).</summary>
-    public void Label(int x, int y, string text, TextColor color = TextColor.Dim) => Text(x / CellWidth, y / CellHeight, text, color);
+    /// <summary>
+    /// Text at a pixel position, snapped to the cell grid (for labels next to what a page drew): the
+    /// text goes into the cell that contains (<paramref name="x"/>, <paramref name="y"/>).
+    /// </summary>
+    public void Label(int x, int y, string text, TextColor color = TextColor.Dim) =>
+        Text(x / CellWidth, y < TextTop ? -1 : (y - TextTop) / CellHeight, text, color);
 
     /// <summary>
     /// The text in the cell grid as it stands, one string per row without the blanks at either end
@@ -176,13 +193,21 @@ public readonly partial struct DrawText(ReadWriteBuffer<uint> pixels, ReadWriteB
     {
         int x = ThreadIds.X;
         int y = ThreadIds.Y;
-        uint cell = cells[((y / LabCanvas.CellHeight) * columns) + (x / LabCanvas.CellWidth)];
+        int ty = y - LabCanvas.TextTop;
+
+        // The margins above and below the grid (and the columns right of it) have no cells.
+        if (ty < 0 || ty >= LabCanvas.Rows * LabCanvas.CellHeight || x >= columns * LabCanvas.CellWidth)
+        {
+            return;
+        }
+
+        uint cell = cells[((ty / LabCanvas.CellHeight) * columns) + (x / LabCanvas.CellWidth)];
 
         if (cell != 0u)
         {
             int i = (y * width) + x;
             int gx = (x % LabCanvas.CellWidth) / LabCanvas.TextScale;
-            int gy = (y % LabCanvas.CellHeight) / LabCanvas.TextScale;
+            int gy = (ty % LabCanvas.CellHeight) / LabCanvas.TextScale;
             bool lit = false;
 
             if (gx < PixelFont.GlyphWidth && gy < PixelFont.GlyphHeight)

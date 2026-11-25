@@ -55,6 +55,9 @@ public sealed class CompactionPage : ILabPage
 
     public string Feature => "atomics";
 
+
+    public string Topic => LabTopics.Atomics;
+
     public string Help => "Up/Down threshold";
 
     public IReadOnlyList<string> Variants => s_variants;

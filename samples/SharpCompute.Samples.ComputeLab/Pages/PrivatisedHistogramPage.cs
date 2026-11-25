@@ -68,6 +68,9 @@ public sealed class PrivatisedHistogramPage : ILabPage
 
     public string Feature => "threadgroup atomics";
 
+
+    public string Topic => LabTopics.Atomics;
+
     public string Help => "C contention (256 / 4 bins)";
 
     public IReadOnlyList<string> Variants => s_variants;

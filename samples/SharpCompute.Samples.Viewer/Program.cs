@@ -16,8 +16,8 @@ namespace SharpCompute.Samples.Viewer;
 /// </summary>
 /// <remarks>
 /// Hidden test hook: with <c>SHARPCOMPUTE_VIEWER_SCREENSHOT=path.png</c> the viewer renders
-/// <c>SHARPCOMPUTE_VIEWER_FRAMES</c> frames (default 120), saves the last frame it presented to the
-/// PNG, prints timing to stdout and exits. Pick the demo with <c>--shader</c>.
+/// <c>SHARPCOMPUTE_VIEWER_FRAMES</c> frames (default 120) at a fixed 1/60 s each, saves the last
+/// frame it presented to the PNG, prints timing to stdout and exits. Pick the demo with <c>--shader</c>.
 /// </remarks>
 public static class Program
 {
@@ -223,8 +223,11 @@ internal sealed class ViewerApp : IDisposable
             _target = _device.AllocateReadWriteTexture2D<Rgba32>(width, height);
         }
 
-        // Clamp the step so a stall (a window drag, a breakpoint) doesn't make simulations jump.
-        double dt = _paused ? 0 : Math.Min(frame.DeltaTime, 0.1);
+        // Clamp the step so a stall (a window drag, a breakpoint) doesn't make simulations jump. A
+        // screenshot run steps a fixed 1/60 s per frame instead, so that its picture depends on the
+        // number of frames and not on the frame rate: the same on every run.
+        double step = _screenshot is null ? Math.Min(frame.DeltaTime, 0.1) : 1.0 / 60;
+        double dt = _paused ? 0 : step;
         _time += dt;
 
         long start = Stopwatch.GetTimestamp();

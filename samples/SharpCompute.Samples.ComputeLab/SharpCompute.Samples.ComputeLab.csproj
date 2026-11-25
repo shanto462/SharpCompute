@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    ComputeLab: one page per core compute feature (atomics on buffers and on threadgroup memory, bit
-    and packing intrinsics, ...), each showing the GPU result, checking it against the CPU and timing
-    both. Original SharpCompute sample (MIT).
+    ComputeLab: one page per core compute feature, by topic (atomics, threadgroup shared memory,
+    SIMD-group operations, dispatch, math), each showing the GPU result, checking it against the CPU
+    and timing both. Original SharpCompute sample (MIT).
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
