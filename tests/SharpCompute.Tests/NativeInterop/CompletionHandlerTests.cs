@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpCompute.Interop;
@@ -296,6 +297,48 @@ public sealed class CompletionHandlerTests
         {
             ObjC.Release(mtlBuffer);
         }
+    }
+
+    [MetalFact]
+    public async Task CommandBufferDroppedWhileAttaching_IsFreedAndFaultedExactlyOnce()
+    {
+        // The block is copied and its copy already disposed (the batch dropped, the handle freed) before
+        // Attach checks whether Metal kept it. Attach must neither free the handle again nor throw.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+
+        for (int i = 0; i < 50; i++)
+        {
+            ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(Length);
+            nint mtlBuffer = ObjC.Retain(buffer.Handle.DangerousGetHandle());
+
+            try
+            {
+                int liveBefore = CompletionBlock.LiveAttachments;
+                CommandBatch batch = new(device, commandCapacity: 4);
+                GraphicsDevice.RecordFill(batch, buffer, 1);
+                Task done = batch.TrackCompletionForTests();
+                int faults = 0;
+                Task counted = done.ContinueWith(_ => Interlocked.Increment(ref faults), TaskContinuationOptions.OnlyOnFaulted);
+
+                buffer.Dispose();
+                CompletionBlock.AttachAndDropForTests(batch);
+
+                InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() => done.WaitAsync(Watchdog));
+                Assert.StartsWith("The command buffer was released without being committed", error.Message);
+                await counted.WaitAsync(Watchdog);
+                Assert.Equal(1, faults);
+                Assert.Equal(liveBefore, CompletionBlock.LiveAttachments);
+                Assert.Equal(1u, NativeMetal.RetainCount(mtlBuffer));
+            }
+            finally
+            {
+                ObjC.Release(mtlBuffer);
+            }
+        }
+
+        // The GC handle table is intact: allocating and freeing handles still works.
+        GCHandle probe = GCHandle.Alloc(new object());
+        probe.Free();
     }
 
     [MetalFact]

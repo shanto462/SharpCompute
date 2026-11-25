@@ -54,7 +54,16 @@ internal static unsafe partial class CompletionBlock
     /// (and through it every leased resource) until one of the two has run.
     /// </summary>
     /// <exception cref="InvalidOperationException">Metal did not keep the handler (it always does); nothing is attached then.</exception>
-    internal static void Attach(nint commandBuffer, CommandBatch batch)
+    internal static void Attach(nint commandBuffer, CommandBatch batch) => Attach(commandBuffer, batch, dropWhileAttachingForTests: false);
+
+    /// <summary>
+    /// Tests only: <see cref="Attach(nint, CommandBatch)"/> where the block is copied, as Metal copies it,
+    /// and then released before Attach looks at it, as a caller releasing its command buffer on another
+    /// thread during <see cref="ComputeContext.EncodeInto"/> would make happen.
+    /// </summary>
+    internal static void AttachAndDropForTests(CommandBatch batch) => Attach(0, batch, dropWhileAttachingForTests: true);
+
+    private static void Attach(nint commandBuffer, CommandBatch batch, bool dropWhileAttachingForTests)
     {
         Attachment attachment = new(batch);
         GCHandle handle = GCHandle.Alloc(attachment);
@@ -68,11 +77,21 @@ internal static unsafe partial class CompletionBlock
             Target = GCHandle.ToIntPtr(handle),
         };
 
-        ObjC.SendVoid(commandBuffer, Selectors.AddCompletedHandler, (nint)(&block));
+        if (dropWhileAttachingForTests)
+        {
+            BlockRelease(BlockCopy((nint)(&block)));
+        }
+        else
+        {
+            ObjC.SendVoid(commandBuffer, Selectors.AddCompletedHandler, (nint)(&block));
+        }
 
         // Metal copies an escaping block before addCompletedHandler: returns. Had it not, no dispose
-        // would ever free the handle, and no handler would ever release the batch.
-        if (Volatile.Read(ref attachment.Copies) == 0)
+        // would ever free the handle, and no handler would ever release the batch. The question is
+        // whether a copy was ever made, not how many are alive now: a caller that released the command
+        // buffer on another thread meanwhile may already have had the copy disposed, the handle freed
+        // and the batch dropped, and the handle must not be freed a second time.
+        if (!attachment.WasCopied)
         {
             handle.Free();
             throw new InvalidOperationException("Metal did not keep the command buffer's completed handler.");
@@ -81,7 +100,7 @@ internal static unsafe partial class CompletionBlock
 
     /// <summary>
     /// Tests only: what happens if Metal releases a handler without ever calling it. The block is built
-    /// exactly as <see cref="Attach"/> builds it, copied with <c>_Block_copy</c> as Metal copies it,
+    /// exactly as <see cref="Attach(nint, CommandBatch)"/> builds it, copied with <c>_Block_copy</c> as Metal copies it,
     /// then released with <c>_Block_release</c> without being invoked, so libclosure runs the dispose
     /// helper. (Metal itself calls the handler of a command buffer deallocated uncommitted, so this
     /// path cannot be reached through it.)
@@ -138,6 +157,8 @@ internal static unsafe partial class CompletionBlock
         try
         {
             Attachment attachment = (Attachment)GCHandle.FromIntPtr(destination->Target).Target!;
+
+            attachment.MarkCopied();
 
             if (Interlocked.Increment(ref attachment.Copies) == 1)
             {
@@ -218,6 +239,12 @@ internal static unsafe partial class CompletionBlock
         public readonly CommandBatch Batch = batch;
         public int Copies;
         private int _claimed;
+        private int _copied;
+
+        /// <summary>True once the block has ever been copied, whether or not that copy is still alive.</summary>
+        public bool WasCopied => Volatile.Read(ref _copied) != 0;
+
+        public void MarkCopied() => Interlocked.Exchange(ref _copied, 1);
 
         /// <summary>True for the first caller only: the one that finishes the batch.</summary>
         public bool TryClaim() => Interlocked.Exchange(ref _claimed, 1) == 0;
