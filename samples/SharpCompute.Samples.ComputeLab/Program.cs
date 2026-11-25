@@ -211,6 +211,11 @@ public static class Headless
                 summary.AppendLine(Invariant($"    {(check.Passed ? "PASS" : "FAIL")}  {check.Summary}"));
                 summary.AppendLine(Invariant($"    {LabView.TimingLine(page, timing)}"));
 
+                if (page.KernelOrigin != PipelineOrigin.None)
+                {
+                    summary.AppendLine(Invariant($"    {LabView.Describe(page.KernelOrigin)}"));
+                }
+
                 if (timing.BaselineText is { } baseline)
                 {
                     summary.AppendLine(Invariant($"    {baseline}"));

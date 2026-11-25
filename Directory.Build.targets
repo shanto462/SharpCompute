@@ -1,0 +1,4 @@
+<Project>
+  <!-- Build-time precompiled shaders, for the projects that set SharpComputePrecompileShaders. -->
+  <Import Project="$(MSBuildThisFileDirectory)src/SharpCompute.Build/SharpCompute.Build.targets" />
+</Project>

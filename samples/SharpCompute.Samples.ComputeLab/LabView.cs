@@ -90,6 +90,17 @@ public static class LabView
     }
 
     /// <summary>
+    /// A page's <see cref="ILabPage.KernelOrigin"/> for a label or the summary: "kernel: precompiled"
+    /// (when the lab was built), "kernel: compiled at run time", or an empty string for a page that does not say.
+    /// </summary>
+    public static string Describe(PipelineOrigin origin) => origin switch
+    {
+        PipelineOrigin.Precompiled => "kernel: precompiled",
+        PipelineOrigin.CompiledAtRunTime => "kernel: compiled at run time",
+        _ => string.Empty,
+    };
+
+    /// <summary>
     /// Draws <paramref name="pages"/>[<paramref name="index"/>] and the surrounding text into
     /// <paramref name="canvas"/>. <paramref name="check"/> is the latest comparison with the CPU (null
     /// before the first one); <paramref name="timing"/> is left out of pictures that must be reproducible.

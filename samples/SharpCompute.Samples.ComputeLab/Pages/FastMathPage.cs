@@ -71,6 +71,12 @@ public sealed class FastMathPage : ILabPage
     /// <summary>The bound the active variant is checked against.</summary>
     public float Bound => Variant == 0 ? SafeBound : FastBound;
 
+    /// <summary>
+    /// The two variants are two kernels in the precompiled library, each compiled at build time with
+    /// its own options, exactly as the runtime would compile it.
+    /// </summary>
+    public PipelineOrigin KernelOrigin => Variant == 0 ? _device.GetPipelineOrigin<WaveField>() : _device.GetPipelineOrigin<WaveFieldFast>();
+
     public void Compute(LabFrame frame)
     {
         _time = frame.Time;
@@ -137,6 +143,7 @@ public sealed class FastMathPage : ILabPage
         canvas.Label(DrawFastMath.ErrorX, labelY, "|GPU - CPU| at the last check");
         canvas.Label(DrawFastMath.FieldX, below, Variant == 0 ? "default: IEEE-safe, precise functions" : "[ShaderOptions(FastMath = true)]", TextColor.Cool);
         canvas.Label(DrawFastMath.ErrorX, below, Invariant($"white = {MaxError:E1}, the largest error"), TextColor.Accent);
+        canvas.Label(DrawFastMath.FieldX, below + 16, LabView.Describe(KernelOrigin), KernelOrigin == PipelineOrigin.Precompiled ? TextColor.Good : TextColor.Dim);
     }
 
     public bool OnKeyDown(Key key)

@@ -71,6 +71,14 @@ public interface ILabPage : IDisposable
     /// </summary>
     string CpuNote => "all cores";
 
+    /// <summary>
+    /// Where the pipeline of the active variant's feature kernel came from: the library the build
+    /// precompiled the lab's shaders into, or a compile at run time
+    /// (<see cref="GraphicsDevice.GetPipelineOrigin{T}()"/>). <see cref="PipelineOrigin.None"/>, the
+    /// default, for a page that does not show it.
+    /// </summary>
+    PipelineOrigin KernelOrigin => PipelineOrigin.None;
+
     /// <summary>Prepares this frame's inputs and runs the feature kernel on the GPU.</summary>
     void Compute(LabFrame frame);
 

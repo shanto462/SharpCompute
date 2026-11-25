@@ -1,0 +1,11 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!--
+      Every sample has its shaders compiled at build time (src/SharpCompute.Build): the first frame
+      does not wait for the Metal compiler. Without the Metal toolchain the build says so and the
+      samples compile their shaders at run time. -p:SharpComputePrecompileShaders=false turns it off.
+    -->
+    <SharpComputePrecompileShaders Condition="'$(SharpComputePrecompileShaders)' == ''">true</SharpComputePrecompileShaders>
+  </PropertyGroup>
+</Project>

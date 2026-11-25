@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    A small application with precompiled shaders, built by BuildTargetTests. $(SharpComputeTestBinaries)
+    is the test output folder, which the test writes into Directory.Build.props next to this file.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Fixture</AssemblyName>
+    <RootNamespace>Fixture</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SharpComputePrecompileShaders Condition="'$(SharpComputePrecompileShaders)' == ''">true</SharpComputePrecompileShaders>
+    <SharpComputeBuildToolPath>$(SharpComputeTestBinaries)SharpCompute.Build.dll</SharpComputeBuildToolPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Reference Include="SharpCompute" HintPath="$(SharpComputeTestBinaries)SharpCompute.dll" />
+    <Analyzer Include="$(SharpComputeTestBinaries)SharpCompute.SourceGenerators.dll" />
+    <ProjectReference Include="Library\Fixture.Library.csproj" />
+  </ItemGroup>
+  <Import Project="$(SharpComputeTestBinaries)SharpCompute.Build.targets" />
+</Project>

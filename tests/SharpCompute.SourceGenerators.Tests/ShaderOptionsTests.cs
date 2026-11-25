@@ -54,7 +54,9 @@ public class ShaderOptionsTests
         GeneratorRun run = Run(attributes);
 
         Assert.Equal(ShaderCompileOptions.None, run.Verify(Shader).CompileOptions);
-        Assert.DoesNotContain("CompileOptions", run.Source("TestShader.SharpCompute.g.cs"));
+
+        // (The shader's record names the options type too, with the value 0: see ShaderRecordTests.)
+        Assert.DoesNotContain(">.CompileOptions", run.Source("TestShader.SharpCompute.g.cs"));
     }
 
     [Fact]

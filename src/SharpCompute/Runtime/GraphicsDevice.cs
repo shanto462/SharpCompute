@@ -50,6 +50,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     private GraphicsDevice(nint device, bool isDefault, nint queue = 0, nint identity = 0)
     {
         _isDefault = isDefault;
+        _usePrecompiledShaders = PrecompiledShadersEnabled;
         _device = new ObjCHandle(device);
         Identity = identity == 0 ? device : identity;
 
@@ -425,6 +426,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
 
         _pipelines.Clear();
+        DisposePrecompiledLibraries();
         _queue.Dispose();
         _device.Dispose();
     }
@@ -850,11 +852,14 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         // Lazy makes concurrent first uses of a shader (dispatches, Prepare) compile it once. A compile
         // error is cached, which is right because the source is a constant of the type; any other
         // failure (out of memory, a dispose race) evicts the entry so a later dispatch can retry.
+        // The pipeline comes from the assembly's precompiled library when that holds this very
+        // shader, and from its MSL otherwise (GraphicsDevice.Precompiled.cs).
         PipelineKey key = new(typeof(T), windowed, T.CompileOptions);
         Lazy<ComputePipeline> lazy = _pipelines.GetOrAdd(
             key,
             static (key, device) => new Lazy<ComputePipeline>(
-                () => device.CompilePipeline(T.MslSource, T.EntryPoint, key.Shader, key.Windowed, key.Options),
+                () => device.TryCreatePrecompiledPipeline(T.MslSource, T.EntryPoint, key.Shader, key.Windowed, key.Options)
+                    ?? device.CompilePipeline(T.MslSource, T.EntryPoint, key.Shader, key.Windowed, key.Options),
                 LazyThreadSafetyMode.ExecutionAndPublication),
             this);
 
@@ -895,7 +900,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     internal int PipelineCompileCount => Volatile.Read(ref _pipelineCompileCount);
 
     /// <summary>The line the runtime puts ahead of a shader's MSL for <see cref="ShaderCompileOptions.NoFpContract"/>.</summary>
-    internal const string FpContractOffPragma = "#pragma clang fp contract(off)\n";
+    internal const string FpContractOffPragma = PrecompiledShaderContract.FpContractOffPragma;
 
     /// <summary>
     /// Compiles <paramref name="mslSource"/> and builds a pipeline for <paramref name="entryPoint"/>.
@@ -927,13 +932,11 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
         Interlocked.Increment(ref _pipelineCompileCount);
 
-        if ((options & ShaderCompileOptions.NoFpContract) != 0)
-        {
-            mslSource = FpContractOffPragma + mslSource;
-        }
+        // The same text the build tool precompiles: the pragma goes ahead of the source.
+        mslSource = PrecompiledShaderContract.CompiledSource(mslSource, (int)options);
 
         bool fastMath = (options & ShaderCompileOptions.FastMath) != 0;
-        nint source = 0, compileOptions = 0, library = 0, functionName = 0, function = 0, constantValues = 0;
+        nint source = 0, compileOptions = 0, library = 0;
 
         try
         {
@@ -958,45 +961,93 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                     $"Failed to compile the MSL for shader '{shaderType}': {NSString.DescribeError(error)}", mslSource);
             }
 
-            functionName = NSString.Create(entryPoint);
+            return BuildPipeline(device.Pointer, library, entryPoint, windowed, isPrecompiled: false, out PipelineStage failed, out string description) ?? throw new ShaderCompilationException(
+                failed == PipelineStage.Function
+                    // A missing entry point also lands here (as an error rather than a nil-without-error).
+                    ? $"The MSL for shader '{shaderType}' compiled, but no function named '{entryPoint}' could be specialized from it: {description}"
+                    : $"Failed to create the compute pipeline for shader '{shaderType}' (entry point '{entryPoint}'): {description}",
+                mslSource);
+        }
+        finally
+        {
+            ObjC.Release(library);
+            ObjC.Release(compileOptions);
+            ObjC.Release(source);
+        }
+    }
+
+    /// <summary>
+    /// Specializes <paramref name="functionName"/> of <paramref name="library"/> with
+    /// <paramref name="windowed"/> as bool function constant 0 and builds its pipeline state. Returns
+    /// null when Metal refuses, with the step that <paramref name="failed"/> and Metal's
+    /// <paramref name="description"/> of why. The caller holds an autorelease pool.
+    /// </summary>
+    /// <remarks>
+    /// The library is one compiled from source just now or one loaded from a precompiled file: from
+    /// here on the two are handled alike, which is why a kernel's windowed specialization needs
+    /// nothing of its own in a precompiled library. Function constants are resolved here, not when
+    /// the MSL is compiled.
+    /// </remarks>
+    private static ComputePipeline? BuildPipeline(
+        nint device, nint library, string functionName, bool windowed, bool isPrecompiled, out PipelineStage failed, out string description)
+    {
+        nint name = 0, function = 0, constantValues = 0;
+
+        try
+        {
+            name = NSString.Create(functionName);
             constantValues = ObjC.SendIntPtr(ObjC.SendIntPtr(FunctionConstantValuesClass.Value, Selectors.Alloc), Selectors.Init);
 
             byte windowedValue = windowed ? (byte)1 : (byte)0;
             ObjC.SendVoid(constantValues, Selectors.SetConstantValueTypeAtIndex, &windowedValue, Metal.DataTypeBool, (nuint)0);
 
-            error = 0;
-            function = ObjC.SendIntPtr(library, Selectors.NewFunctionWithNameConstantValuesError, functionName, constantValues, &error);
+            nint error = 0;
+            function = ObjC.SendIntPtr(library, Selectors.NewFunctionWithNameConstantValuesError, name, constantValues, &error);
 
             if (function == 0)
             {
-                // A missing entry point also lands here (as an error rather than a nil-without-error).
-                throw new ShaderCompilationException(
-                    $"The MSL for shader '{shaderType}' compiled, but no function named '{entryPoint}' could be specialized from it: {NSString.DescribeError(error)}", mslSource);
+                failed = PipelineStage.Function;
+                description = NSString.DescribeError(error);
+                return null;
             }
 
             error = 0;
-            nint state = ObjC.SendIntPtr(device.Pointer, Selectors.NewComputePipelineStateWithFunctionError, function, &error);
+            nint state = ObjC.SendIntPtr(device, Selectors.NewComputePipelineStateWithFunctionError, function, &error);
 
             if (state == 0)
             {
-                throw new ShaderCompilationException(
-                    $"Failed to create the compute pipeline for shader '{shaderType}' (entry point '{entryPoint}'): {NSString.DescribeError(error)}", mslSource);
+                failed = PipelineStage.State;
+                description = NSString.DescribeError(error);
+                return null;
             }
+
+            failed = PipelineStage.None;
+            description = string.Empty;
 
             return new ComputePipeline(
                 new ObjCHandle(state),
                 ObjC.SendNUInt(state, Selectors.MaxTotalThreadsPerThreadgroup),
-                ObjC.SendNUInt(state, Selectors.ThreadExecutionWidth));
+                ObjC.SendNUInt(state, Selectors.ThreadExecutionWidth),
+                isPrecompiled);
         }
         finally
         {
             ObjC.Release(function);
             ObjC.Release(constantValues);
-            ObjC.Release(functionName);
-            ObjC.Release(library);
-            ObjC.Release(compileOptions);
-            ObjC.Release(source);
+            ObjC.Release(name);
         }
+    }
+
+    /// <summary>The step of <see cref="BuildPipeline"/> that Metal refused.</summary>
+    private enum PipelineStage
+    {
+        None,
+
+        /// <summary><c>newFunctionWithName:constantValues:error:</c>: the library has no such function, or it cannot be specialized.</summary>
+        Function,
+
+        /// <summary><c>newComputePipelineStateWithFunction:error:</c>.</summary>
+        State,
     }
 
     /// <summary>What identifies a cached pipeline: the shader, whether it is the windowed specialization, and how it is compiled.</summary>

@@ -12,9 +12,11 @@ using SharpCompute.Benchmarks.Shaders;
 //   --msl               print the generated MSL of every benchmark shader
 //   --runtime-features  quick Stopwatch measurements of GPU copies, FP contraction off and pipeline
 //                       warm-up (a few seconds; not part of the report)
-//   --first-frame cold|prepared cached|uncached
-//                       time the first frame of a large shader (RaymarchedGarden) in this fresh process, without or
-//                       with GraphicsDevice.Prepare (--runtime-features spawns these)
+//   --first-frames      time the first frame of a large shader (RaymarchedGarden) and the pipelines of thirteen
+//                       small kernels, compiled at run time, prepared and precompiled, on a first launch (an empty
+//                       system shader cache) and on a later one (under a minute; the last part of --runtime-features)
+//   --first-frame garden|kernels none|prepare source|precompiled
+//                       one such first frame in this fresh process (--first-frames spawns these)
 //   --run [--quick] [--out RESULTS.md] [--filter <glob>] [--merge <run-data.json>]
 //                       verify, measure first dispatch, run BenchmarkDotNet, write the report
 //   --render <run-data.json> [--out RESULTS.md]
@@ -29,7 +31,12 @@ if (args.Contains("--first-dispatch"))
 
 if (args.Contains("--first-frame"))
 {
-    return RuntimeFeatures.FirstFrame(args);
+    return FirstFrames.Child(args);
+}
+
+if (args.Contains("--first-frames"))
+{
+    return FirstFrames.Run();
 }
 
 if (!GraphicsDevice.IsSupported)

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- The build tool, referenced as a library: the tests call the reader and the precompiler directly. -->
+    <ProjectReference Include="..\..\src\SharpCompute.Build\SharpCompute.Build.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      The fixture is a project of its own that BuildTargetTests builds with `dotnet build` in a
+      temporary folder: its sources are copied to the output, not compiled into this assembly. It
+      uses the targets file, the tool, the generator and SharpCompute.dll from this output folder,
+      so those tests need nothing of the repository at run time.
+    -->
+    <Compile Remove="Fixture\**" />
+    <None Include="Fixture\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\SharpCompute.Build\SharpCompute.Build.targets" Link="SharpCompute.Build.targets" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- The generator is an analyzer here, which is not copied; the fixture needs the file. -->
+  <Target Name="CopyGeneratorForTheFixture" AfterTargets="Build">
+    <Copy SourceFiles="@(Analyzer->WithMetadataValue('Filename', 'SharpCompute.SourceGenerators'))" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

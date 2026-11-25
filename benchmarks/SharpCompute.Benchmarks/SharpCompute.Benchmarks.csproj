@@ -5,6 +5,8 @@
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ServerGarbageCollection>false</ServerGarbageCollection>
+    <!-- Precompiled shaders, so that the first-frame mode can time them against run-time compilation. -->
+    <SharpComputePrecompileShaders Condition="'$(SharpComputePrecompileShaders)' == ''">true</SharpComputePrecompileShaders>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.16.0-preview.2" />

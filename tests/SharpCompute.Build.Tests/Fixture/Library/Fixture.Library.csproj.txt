@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A class library with a shader: its .metallib has to follow it into the application's output. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Fixture.Library</AssemblyName>
+    <RootNamespace>Fixture.Library</RootNamespace>
+    <SharpComputePrecompileShaders Condition="'$(SharpComputePrecompileShaders)' == ''">true</SharpComputePrecompileShaders>
+    <SharpComputeBuildToolPath>$(SharpComputeTestBinaries)SharpCompute.Build.dll</SharpComputeBuildToolPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      Not copied to this project's output: the application would otherwise resolve its own reference to
+      SharpCompute from there on its second build, and compile again because the path changed.
+    -->
+    <Reference Include="SharpCompute" HintPath="$(SharpComputeTestBinaries)SharpCompute.dll" Private="false" />
+    <Analyzer Include="$(SharpComputeTestBinaries)SharpCompute.SourceGenerators.dll" />
+  </ItemGroup>
+  <Import Project="$(SharpComputeTestBinaries)SharpCompute.Build.targets" />
+</Project>

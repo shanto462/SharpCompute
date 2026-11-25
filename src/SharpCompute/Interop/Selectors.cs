@@ -15,6 +15,9 @@ internal static class Selectors
     public static readonly nint InitWithCharactersLength = ObjC.GetSelector("initWithCharacters:length:");
     public static readonly nint GetCharactersRange = ObjC.GetSelector("getCharacters:range:");
 
+    // NSURL
+    public static readonly nint FileURLWithPath = ObjC.GetSelector("fileURLWithPath:");
+
     // NSError
     public static readonly nint LocalizedDescription = ObjC.GetSelector("localizedDescription");
 
@@ -27,6 +30,7 @@ internal static class Selectors
     public static readonly nint NewBufferWithBytesLengthOptions = ObjC.GetSelector("newBufferWithBytes:length:options:");
     public static readonly nint NewBufferWithBytesNoCopyLengthOptionsDeallocator = ObjC.GetSelector("newBufferWithBytesNoCopy:length:options:deallocator:");
     public static readonly nint NewLibraryWithSourceOptionsError = ObjC.GetSelector("newLibraryWithSource:options:error:");
+    public static readonly nint NewLibraryWithURLError = ObjC.GetSelector("newLibraryWithURL:error:");
     public static readonly nint NewComputePipelineStateWithFunctionError = ObjC.GetSelector("newComputePipelineStateWithFunction:error:");
     public static readonly nint MinimumLinearTextureAlignmentForPixelFormat = ObjC.GetSelector("minimumLinearTextureAlignmentForPixelFormat:");
 
