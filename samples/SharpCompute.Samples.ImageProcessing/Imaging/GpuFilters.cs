@@ -15,6 +15,7 @@ public sealed class GpuFilters : IDisposable
     private readonly Dictionary<int, ReadOnlyBuffer<float>> _weights = [];
     private ReadWriteBuffer<Float4>? _scratch;
     private ReadWriteBuffer<Float4>? _scratch2;
+    private ReadOnlyTexture2D<Float4>? _texture;
 
     public GpuFilters(GraphicsDevice device, int width, int height)
     {
@@ -93,6 +94,13 @@ public sealed class GpuFilters : IDisposable
                 _device.For(PixelCount, new PointFilter(source, destination, 2, 0f));
                 break;
 
+            case FilterKind.Lens:
+                // Shaders sample textures, not buffers: a GPU blit puts the pixels in one first.
+                ReadOnlyTexture2D<Float4> texture = SourceTexture;
+                _device.Copy(source, texture);
+                _device.For(Width, Height, new LensDistortion(texture, destination, Width, Height, filter[0], filter[1]));
+                break;
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(filter), filter.Kind, "Unknown filter.");
         }
@@ -102,6 +110,7 @@ public sealed class GpuFilters : IDisposable
     {
         _scratch?.Dispose();
         _scratch2?.Dispose();
+        _texture?.Dispose();
 
         foreach (ReadOnlyBuffer<float> weights in _weights.Values)
         {
@@ -114,6 +123,8 @@ public sealed class GpuFilters : IDisposable
     private ReadWriteBuffer<Float4> Scratch => _scratch ??= _device.AllocateReadWriteBuffer<Float4>(PixelCount);
 
     private ReadWriteBuffer<Float4> Scratch2 => _scratch2 ??= _device.AllocateReadWriteBuffer<Float4>(PixelCount);
+
+    private ReadOnlyTexture2D<Float4> SourceTexture => _texture ??= _device.AllocateReadOnlyTexture2D<Float4>(Width, Height);
 
     private void Blur(ReadWriteBuffer<Float4> source, ReadWriteBuffer<Float4> destination, int radius)
     {

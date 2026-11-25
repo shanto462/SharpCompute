@@ -19,8 +19,8 @@ public static class Program
     private const string Usage = """
         SharpCompute textures demo
 
-          SharpCompute.Samples.Textures [--mode samplers|pingpong] [--format <1-8>] [--frames <n>]
-          SharpCompute.Samples.Textures --headless --out <dir> [--size <W>x<H>] [--record]
+          SharpCompute.Samples.Textures [--mode samplers|pingpong] [--format <1-8>] [--image <path>] [--frames <n>]
+          SharpCompute.Samples.Textures --headless --out <dir> [--size <W>x<H>] [--image <path>] [--record]
 
         Keys: Tab switches between the sampler explorer and the ping-pong simulation · S saves a PNG · Esc quits
           Both:      the scroll wheel (or a two-finger scroll) zooms around the pointer · + / - zoom
@@ -32,6 +32,8 @@ public static class Program
         --headless  no window: writes one PNG per format of the sampler explorer and one of the
                     ping-pong simulation to --out (the same pixels every run)
         --record    with --headless: also writes every frame of the ping-pong run, pingpong-0001.png ...
+        --image     explore your own picture (PNG, JPEG, HEIC, ...) instead of the generated tile,
+                    loaded into each texture format with SharpCompute.Imaging
         --frames    exit after that many frames (for scripted runs)
         """;
 
@@ -44,6 +46,7 @@ public static class Program
         DemoMode mode = DemoMode.Samplers;
         int format = 0;
         int frames = 0;
+        string? image = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -57,6 +60,9 @@ public static class Program
                     break;
                 case "--out" when i + 1 < args.Length:
                     output = args[++i];
+                    break;
+                case "--image" when i + 1 < args.Length:
+                    image = args[++i];
                     break;
                 case "--size" when i + 1 < args.Length && TryParseSize(args[i + 1], out size):
                     i++;
@@ -96,7 +102,7 @@ public static class Program
                 return 1;
             }
 
-            return RunHeadless(output, size.Width, size.Height, record);
+            return WithImageErrors(() => RunHeadless(output, size.Width, size.Height, record, image));
         }
 
         if (!MetalWindow.IsSupported)
@@ -105,30 +111,48 @@ public static class Program
             return 1;
         }
 
-        GraphicsDevice device = GraphicsDevice.GetDefault();
-        using TextureDemo demo = new(device) { Mode = mode };
-        demo.Explorer.Format = format;
+        return WithImageErrors(() =>
+        {
+            GraphicsDevice device = GraphicsDevice.GetDefault();
+            using TextureDemo demo = new(device, image) { Mode = mode };
+            demo.Explorer.Format = format;
 
-        using MetalWindow window = new(device, "SharpCompute Textures", size.Width, size.Height);
-        using TexturesApp app = new(window, device, demo, frames);
+            using MetalWindow window = new(device, "SharpCompute Textures", size.Width, size.Height);
+            using TexturesApp app = new(window, device, demo, frames);
 
-        Console.WriteLine(Usage);
-        window.Run(app.OnFrame);
-        return 0;
+            Console.WriteLine(Usage);
+            window.Run(app.OnFrame);
+            return 0;
+        });
+    }
+
+    /// <summary>Runs <paramref name="run"/>, reporting an <c>--image</c> that can't be loaded as an error message and exit code 1.</summary>
+    private static int WithImageErrors(Func<int> run)
+    {
+        try
+        {
+            return run();
+        }
+        catch (Exception e) when (e is FileNotFoundException or InvalidDataException or NotSupportedException)
+        {
+            Console.Error.WriteLine($"--image: {e.Message}");
+            return 1;
+        }
     }
 
     /// <summary>
     /// Writes <c>samplers-&lt;format&gt;.png</c> for each of the eight formats and <c>pingpong.png</c>
     /// to <paramref name="directory"/>, and with <paramref name="record"/> also every frame of the
     /// ping-pong run as <c>pingpong-0001.png</c> and on (for a GIF of the simulation). Nothing depends
-    /// on time or input, so every run writes the same pixels.
+    /// on time or input, so every run writes the same pixels. With <paramref name="imagePath"/>, the
+    /// sampler explorer shows that image instead of its generated tile.
     /// </summary>
-    public static int RunHeadless(string directory, int width, int height, bool record = false)
+    public static int RunHeadless(string directory, int width, int height, bool record = false, string? imagePath = null)
     {
         Directory.CreateDirectory(directory);
 
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        using TextureDemo demo = new(device);
+        using TextureDemo demo = new(device, imagePath);
         using ReadWriteTexture2D<Rgba32> target = device.AllocateReadWriteTexture2D<Rgba32>(width, height);
 
         for (int format = 0; format < SourceImage.Formats.Length; format++)

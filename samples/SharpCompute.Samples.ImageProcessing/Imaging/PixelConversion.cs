@@ -5,46 +5,12 @@ using System.Threading.Tasks;
 namespace SharpCompute.Samples.Imaging;
 
 /// <summary>
-/// Conversions between the filters' premultiplied <see cref="Float4"/> pixels and 8-bit RGBA:
-/// premultiplied bytes for CoreGraphics, straight (unpremultiplied) <see cref="Rgba32"/> for PNG.
+/// Conversions between the filters' premultiplied <see cref="Float4"/> pixels and straight-alpha
+/// (unpremultiplied) <see cref="Rgba32"/>, what PNG stores and what SharpCompute.Imaging loads and saves.
 /// </summary>
 public static class PixelConversion
 {
     private const int ParallelThreshold = 1 << 16;
-
-    /// <summary>Premultiplied RGBA8 bytes (CoreGraphics' <c>kCGImageAlphaPremultipliedLast</c>) to premultiplied floats.</summary>
-    public static Float4[] FromPremultipliedRgba8(ReadOnlySpan<byte> bytes)
-    {
-        if (bytes.Length % 4 != 0)
-        {
-            throw new ArgumentException("RGBA8 data must be a whole number of 4-byte pixels.", nameof(bytes));
-        }
-
-        Float4[] pixels = new Float4[bytes.Length / 4];
-
-        for (int i = 0; i < pixels.Length; i++)
-        {
-            pixels[i] = Unpack(bytes.Slice(i * 4, 4));
-        }
-
-        return pixels;
-    }
-
-    /// <summary>Like <see cref="FromPremultipliedRgba8(ReadOnlySpan{byte})"/>, in parallel, into an existing array of <c>bytes.Length / 4</c> pixels.</summary>
-    public static void FromPremultipliedRgba8(byte[] bytes, Float4[] pixels)
-    {
-        ArgumentNullException.ThrowIfNull(bytes);
-        ArgumentNullException.ThrowIfNull(pixels);
-
-        if (bytes.Length != pixels.Length * 4)
-        {
-            throw new ArgumentException($"Expected {pixels.Length * 4} bytes for {pixels.Length} pixels, got {bytes.Length}.", nameof(bytes));
-        }
-
-        For(pixels.Length, i => pixels[i] = Unpack(bytes.AsSpan(i * 4, 4)));
-    }
-
-    private static Float4 Unpack(ReadOnlySpan<byte> p) => new(p[0] / 255f, p[1] / 255f, p[2] / 255f, p[3] / 255f);
 
     /// <summary>Straight-alpha RGBA8 (PNG's encoding) to premultiplied floats.</summary>
     public static Float4[] FromStraightRgba32(ReadOnlySpan<Rgba32> source)
@@ -53,44 +19,30 @@ public static class PixelConversion
 
         for (int i = 0; i < pixels.Length; i++)
         {
-            Rgba32 p = source[i];
-            float a = p.A / 255f;
-            pixels[i] = new Float4(p.R / 255f * a, p.G / 255f * a, p.B / 255f * a, a);
+            pixels[i] = FromStraight(source[i]);
         }
 
         return pixels;
     }
 
-    /// <summary>Premultiplied floats to premultiplied RGBA8 bytes, rounding to nearest.</summary>
-    public static byte[] ToPremultipliedRgba8(Float4[] pixels)
+    private static Float4 FromStraight(Rgba32 p)
     {
-        ArgumentNullException.ThrowIfNull(pixels);
-        byte[] bytes = new byte[pixels.Length * 4];
-        ToPremultipliedRgba8(pixels, bytes);
-        return bytes;
+        float a = p.A / 255f;
+        return new Float4(p.R / 255f * a, p.G / 255f * a, p.B / 255f * a, a);
     }
 
-    /// <summary>Like <see cref="ToPremultipliedRgba8(Float4[])"/>, into an existing array of <c>4 * pixels.Length</c> bytes.</summary>
-    public static void ToPremultipliedRgba8(Float4[] pixels, byte[] bytes)
+    /// <summary>Like <see cref="FromStraightRgba32(ReadOnlySpan{Rgba32})"/>, in parallel, into an existing array of the same length.</summary>
+    public static void FromStraightRgba32(Rgba32[] source, Float4[] pixels)
     {
+        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(pixels);
-        ArgumentNullException.ThrowIfNull(bytes);
 
-        if (bytes.Length != pixels.Length * 4)
+        if (source.Length != pixels.Length)
         {
-            throw new ArgumentException($"Expected {pixels.Length * 4} bytes for {pixels.Length} pixels, got {bytes.Length}.", nameof(bytes));
+            throw new ArgumentException($"Expected {pixels.Length} pixels, got {source.Length}.", nameof(source));
         }
 
-        For(pixels.Length, i =>
-        {
-            Float4 p = pixels[i];
-            float a = Gpu.Saturate(p.W);
-            int b = i * 4;
-            bytes[b] = Quantize(Math.Min(p.X, a));
-            bytes[b + 1] = Quantize(Math.Min(p.Y, a));
-            bytes[b + 2] = Quantize(Math.Min(p.Z, a));
-            bytes[b + 3] = Quantize(a);
-        });
+        For(pixels.Length, i => pixels[i] = FromStraight(source[i]));
     }
 
     /// <summary>Premultiplied floats to straight-alpha <see cref="Rgba32"/> (what PNG stores), rounding to nearest.</summary>
