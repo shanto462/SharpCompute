@@ -109,7 +109,12 @@ public sealed class HalfPrecisionPage : ILabPage
 
     public string Feature => "Half4 and bool vectors";
 
+    public string Topic => LabTopics.Math;
+
     public string Help => "R radius (8 / 4)";
+
+    /// <summary>The CPU time is the float blur's: see the remarks of the class.</summary>
+    public string CpuNote => "all cores, the float blur";
 
     public IReadOnlyList<string> Variants => s_variants;
 
@@ -471,8 +476,8 @@ public readonly partial struct TentBlurFloat(
 
 /// <summary>
 /// <see cref="TentBlurFloat"/> on half pixels: the same statements with <see cref="Half4"/> and
-/// <see cref="Half"/> for <see cref="Float4"/> and <c>float</c> (a shader can only call its own
-/// methods, so the body is repeated). Every operation rounds to a half.
+/// <see cref="Half"/> for <see cref="Float4"/> and <c>float</c> (the two differ in their types, so
+/// the body is written twice rather than shared). Every operation rounds to a half.
 /// </summary>
 [ShaderOptions(FpContract = false)]
 [GeneratedComputeShaderDescriptor]

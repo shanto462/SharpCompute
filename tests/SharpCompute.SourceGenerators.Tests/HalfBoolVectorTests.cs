@@ -744,6 +744,55 @@ public class HalfBoolVectorTests
             descriptor.KernelBody);
     }
 
+    /// <summary>
+    /// Half and bool vectors in a thread's own arrays and in code a shader shares with others: a
+    /// <c>stackalloc</c> array of either (native types, since nothing crosses the boundary) and a
+    /// static helper of another class that takes and returns them.
+    /// </summary>
+    [Fact]
+    public void HalfAndBoolVectors_InLocalArraysAndSharedHelpers()
+    {
+        ShaderDescriptor descriptor = GeneratorHarness.Run(
+            """
+            using System;
+            using SharpCompute;
+
+            public static class Tone
+            {
+                public static Half3 Knee(Half3 color, Half knee) => Gpu.Select(color > knee, new Half3(knee), color);
+
+                public static Bool3 Clipped(Half3 color) => color >= (Half)1f | Gpu.IsNaN(color);
+            }
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct Grade(ReadWriteBuffer<Half3> colors, Half knee) : IComputeShader
+            {
+                public void Execute()
+                {
+                    Span<Half3> taps = stackalloc Half3[3];
+                    Span<Bool3> clipped = stackalloc Bool3[3];
+
+                    for (int i = 0; i < taps.Length; i++)
+                    {
+                        taps[i] = Tone.Knee(colors[ThreadIds.X + i], knee);
+                        clipped[i] = Tone.Clipped(taps[i]);
+                    }
+
+                    Bool3 any = clipped[0] | clipped[1] | clipped[2];
+                    colors[ThreadIds.X] = Gpu.Select(any, new Half3((Half)0f), (taps[0] + taps[1] + taps[2]) / (Half)3);
+                }
+            }
+            """).Verify("Grade");
+
+        Assert.Contains("half3 Tone_Knee(half3 color, half knee)", descriptor.MslSource);
+        Assert.Contains("return metal::select(color, half3(knee), color > knee);", descriptor.MslSource);
+        Assert.Contains("bool3 Tone_Clipped(half3 color)", descriptor.MslSource);
+        Assert.Contains("return (color >= half(1.0f)) | metal::isnan(color);", descriptor.MslSource);
+        Assert.Contains("half3 taps[3]", descriptor.KernelBody);
+        Assert.Contains("bool3 clipped[3]", descriptor.KernelBody);
+        Assert.Contains("bool3 any = clipped[0] | clipped[1] | clipped[2];", descriptor.KernelBody);
+    }
+
     // ---- bool vectors: diagnostics -----------------------------------------------------------------
 
     private const string BoolReason = "'bool' has no stable layout across the CPU/GPU boundary; use an 'int' or 'uint' instead";

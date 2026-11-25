@@ -143,9 +143,9 @@ full size.
 <tr>
 <td width="50%" valign="top">
 <a href="docs/screenshots/computelab-histogram-privatised.png"><img src="docs/screenshots/thumbs/computelab-histogram-privatised.png" width="100%" alt="ComputeLab's privatised-histogram page: an animated image, its luminance histogram counted with global atomics, and the same histogram counted per threadgroup, bin for bin identical"></a>
-<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math and the 8-, 16- and 64-bit integers, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
+<br><b>ComputeLab</b>: one page per core compute feature, by topic: atomics, threadgroup shared memory, local arrays, SIMD-group operations, indirect dispatch, bits, fast math, the 8-, 16- and 64-bit integers and half precision, shared shader code. Each page runs the feature on the GPU, checks it against the CPU and shows GPU ms against CPU ms. <a href="#computelab-pages">All pages below</a>.
 <br><code>scripts/demo-computelab.sh [--page &lt;name&gt;] [--headless]</code>
-<br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, Up/Down)</sub>
+<br><sub>←/→ page · Space pause · S save PNG · Esc quit; each page lists its own keys (C, V, D, F, R, Up/Down)</sub>
 </td>
 <td width="50%" valign="top">
 <a href="docs/screenshots/textures-samplers.png"><img src="docs/screenshots/thumbs/textures-samplers.png" width="100%" alt="The Textures demo's sampler explorer: one small picture magnified through the six samplers, point and linear filtering in rows, clamp, repeat and mirror addressing in columns"></a>
@@ -251,8 +251,8 @@ SIMD-group pages. The Indirect and FastMath pages also say whether their kernel 
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-small-and-wide-integers.png"><img src="docs/screenshots/thumbs/computelab-small-and-wide-integers.png" width="100%" alt="ComputeLab Small and wide integers page: an 8-bit image from a buffer of bytes, the same image equalised in place, and a 64-bit hash per pixel, with their histograms and hash bits below"></a><br><b>Math</b>: Small and wide integers<br><code>--page small-and-wide-integers</code></td>
 </tr>
 <tr>
+<td width="33%" valign="top"><a href="docs/screenshots/computelab-half-precision.png"><img src="docs/screenshots/thumbs/computelab-half-precision.png" width="100%" alt="ComputeLab Half precision page: an image, its 289-tap blur in Half4 arithmetic, the error of that blur against the blur in double, and a mask made with Gpu.Select from a componentwise comparison"></a><br><b>Math</b>: Half precision<br><code>--page half-precision</code></td>
 <td width="33%" valign="top"><a href="docs/screenshots/computelab-shared-code.png"><img src="docs/screenshots/thumbs/computelab-shared-code.png" width="100%" alt="ComputeLab Shared code page: a path-traced scene of spheres on a checkerboard, the static class and structs its shaders are built from, and the same scene traced by ForCpu at every 8th pixel"></a><br><b>Code reuse</b>: Shared code<br><code>--page shared-code</code></td>
-<td width="33%" valign="top"></td>
 <td width="33%" valign="top"></td>
 </tr>
 </table>
