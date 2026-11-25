@@ -88,6 +88,30 @@ public sealed class LabCanvas : IDisposable
     /// <summary>Text at a pixel position, snapped to the cell grid (for labels next to what a page drew).</summary>
     public void Label(int x, int y, string text, TextColor color = TextColor.Dim) => Text(x / CellWidth, y / CellHeight, text, color);
 
+    /// <summary>
+    /// The text in the cell grid as it stands, one string per row without the blanks at either end
+    /// (in upper case: the font has one case). What a page wrote, without reading it off the pixels.
+    /// </summary>
+    public string[] TextLines()
+    {
+        ReadOnlySpan<uint> cells = _cells.AsReadOnlySpan();
+        string[] lines = new string[Rows];
+        Span<char> line = stackalloc char[Columns];
+
+        for (int row = 0; row < Rows; row++)
+        {
+            for (int column = 0; column < Columns; column++)
+            {
+                uint cell = cells[(row * Columns) + column];
+                line[column] = (cell & (1u << 16)) == 0 ? ' ' : PixelFont.Character((int)(cell & 255u));
+            }
+
+            lines[row] = new string(line).Trim();
+        }
+
+        return lines;
+    }
+
     /// <summary>Draws the text cells over the pixels, on the GPU.</summary>
     public void ComposeText() => _device.For(Width, Height, new DrawText(Pixels, _cells, _glyphs, Width, Columns));
 

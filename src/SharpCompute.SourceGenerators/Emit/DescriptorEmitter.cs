@@ -143,6 +143,27 @@ internal static class DescriptorEmitter
             writer.Line();
         }
 
+        if (model.CompileOptions != 0)
+        {
+            // Without this member the interface's default (None) applies.
+            const string Options = "global::SharpCompute.ShaderCompileOptions";
+            var flags = new System.Collections.Generic.List<string>();
+
+            if ((model.CompileOptions & ShaderModel.FastMath) != 0)
+            {
+                flags.Add(Options + ".FastMath");
+            }
+
+            if ((model.CompileOptions & ShaderModel.NoFpContract) != 0)
+            {
+                flags.Add(Options + ".NoFpContract");
+            }
+
+            writer.Line("/// <summary>How the runtime compiles the kernel, from the shader's [ShaderOptions] attribute.</summary>");
+            writer.Line($"static {Options} {contract}.CompileOptions => {string.Join(" | ", flags)};");
+            writer.Line();
+        }
+
         writer.Line($"static void {contract}.SetArguments(in {model.FullyQualifiedName} shader, ref {Writer} writer)");
         writer.Line("{");
         writer.Indent++;

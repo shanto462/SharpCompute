@@ -91,6 +91,9 @@ public static class PixelFont
     /// <summary>The glyph index of <paramref name="c"/> (letters case-insensitive); 0, a blank, for anything unknown.</summary>
     public static int Index(char c) => Math.Max(0, Characters.IndexOf(char.ToUpperInvariant(c), StringComparison.Ordinal));
 
+    /// <summary>The character a glyph index stands for (upper case for letters); a blank for an index that is no glyph.</summary>
+    public static char Character(int glyph) => (uint)glyph < (uint)Characters.Length ? Characters[glyph] : ' ';
+
     /// <summary>The 35-bit mask of a glyph, for tests and CPU-side drawing.</summary>
     public static ulong Mask(int glyph) => Masks[glyph * 2] | ((ulong)Masks[(glyph * 2) + 1] << 32);
 

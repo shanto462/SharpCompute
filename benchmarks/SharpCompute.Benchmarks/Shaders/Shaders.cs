@@ -154,3 +154,67 @@ public readonly partial struct NBodyStep(
         nextPositions[i] = new Float4(np, self.W);
     }
 }
+
+// The shaders of the --runtime-features measurements.
+
+/// <summary><see cref="SaxpyGenerated"/> compiled with FP contraction off: a multiply, then an add, as on the CPU.</summary>
+[ThreadGroupSize(256)]
+[ShaderOptions(FpContract = false)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SaxpyNoContract(ReadOnlyBuffer<float> x, ReadWriteBuffer<float> y, float a) : IComputeShader
+{
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        y[i] = (a * x[i]) + y[i];
+    }
+}
+
+/// <summary><see cref="MandelbrotIterations"/> compiled with FP contraction off.</summary>
+[ShaderOptions(FpContract = false)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MandelbrotIterationsNoContract(
+    ReadWriteBuffer<uint> pixels, int width, int height, int maxIterations, Float2 center, float step) : IComputeShader
+{
+    public void Execute()
+    {
+        int px = ThreadIds.X;
+        int py = ThreadIds.Y;
+
+        float cx = center.X + ((px - (width * 0.5f)) * step);
+        float cy = center.Y + ((py - (height * 0.5f)) * step);
+
+        float x = 0f;
+        float y = 0f;
+        float x2 = 0f;
+        float y2 = 0f;
+        int n = 0;
+
+        while (n < maxIterations && x2 + y2 <= 4f)
+        {
+            y = (2f * x * y) + cy;
+            x = x2 - y2 + cx;
+            x2 = x * x;
+            y2 = y * y;
+            n++;
+        }
+
+        uint count = (uint)n;
+        uint shade = n < maxIterations ? 255u - ((count * 8u) & 255u) : 0u;
+        pixels[(py * width) + px] = (count & 0xFFFFu) | (shade << 16) | (255u << 24);
+    }
+}
+
+/// <summary><c>destination[i] = source[i]</c>: a buffer copy as a compute kernel, to compare with a blit.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct CopyKernel(ReadOnlyBuffer<uint> source, ReadWriteBuffer<uint> destination) : IComputeShader
+{
+    public void Execute() => destination[ThreadIds.X] = source[ThreadIds.X];
+}
+
+/// <summary>A tiny dispatch to put on either side of a copy.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct TouchInts(ReadWriteBuffer<int> data) : IComputeShader
+{
+    public void Execute() => data[ThreadIds.X] += 1;
+}

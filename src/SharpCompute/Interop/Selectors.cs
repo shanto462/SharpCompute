@@ -59,6 +59,7 @@ internal static class Selectors
     // MTLCommandQueue / MTLCommandBuffer
     public static readonly nint CommandBuffer = ObjC.GetSelector("commandBuffer");
     public static readonly nint ComputeCommandEncoder = ObjC.GetSelector("computeCommandEncoder");
+    public static readonly nint BlitCommandEncoder = ObjC.GetSelector("blitCommandEncoder");
     public static readonly nint Commit = ObjC.GetSelector("commit");
     public static readonly nint WaitUntilCompleted = ObjC.GetSelector("waitUntilCompleted");
     public static readonly nint Status = ObjC.GetSelector("status");
@@ -73,5 +74,15 @@ internal static class Selectors
     public static readonly nint SetBytesLengthAtIndex = ObjC.GetSelector("setBytes:length:atIndex:");
     public static readonly nint SetTextureAtIndex = ObjC.GetSelector("setTexture:atIndex:");
     public static readonly nint DispatchThreadsThreadsPerThreadgroup = ObjC.GetSelector("dispatchThreads:threadsPerThreadgroup:");
+    public static readonly nint DispatchThreadgroupsWithIndirectBuffer = ObjC.GetSelector("dispatchThreadgroupsWithIndirectBuffer:indirectBufferOffset:threadsPerThreadgroup:");
     public static readonly nint EndEncoding = ObjC.GetSelector("endEncoding");
+
+    // MTLBlitCommandEncoder
+    public static readonly nint CopyFromBufferToBuffer = ObjC.GetSelector("copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:");
+    public static readonly nint FillBufferRangeValue = ObjC.GetSelector("fillBuffer:range:value:");
+    public static readonly nint CopyFromTextureToTexture = ObjC.GetSelector("copyFromTexture:toTexture:");
+    public static readonly nint CopyFromBufferToTexture = ObjC.GetSelector(
+        "copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:");
+    public static readonly nint CopyFromTextureToBuffer = ObjC.GetSelector(
+        "copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:");
 }

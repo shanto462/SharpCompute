@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.MemoryMappedFiles;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using SharpCompute.Interop;
@@ -24,11 +23,14 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
     private readonly ObjCHandle _device;
     private readonly ObjCHandle _queue;
-    private readonly ConcurrentDictionary<Type, Lazy<ComputePipeline>> _pipelines = new();
 
-    // The windowed specializations (function constant 0 = true) used by the GPU part of ForSplit.
-    private readonly ConcurrentDictionary<Type, Lazy<ComputePipeline>> _windowedPipelines = new();
+    // One pipeline per shader type, specialization and compile options. The windowed specializations
+    // (function constant 0 = true) are the ones the GPU part of ForSplit uses. The options are a
+    // constant of the shader type today; they are in the key so that the cache stays right if the
+    // same source is ever compiled two ways.
+    private readonly ConcurrentDictionary<PipelineKey, Lazy<ComputePipeline>> _pipelines = new();
     private readonly bool _isDefault;
+    private int _pipelineCompileCount;
     private int _disposed;
 
     private GraphicsDevice(nint device, bool isDefault)
@@ -284,7 +286,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// <inheritdoc cref="AllocateReadWriteTexture2D{T}(int, int)" path="/exception"/>
     /// <exception cref="ArgumentException"><paramref name="pixels"/> is longer than <c>width * height</c>.</exception>
     public ReadWriteTexture2D<T> AllocateReadWriteTexture2D<T>(ReadOnlySpan<T> pixels, int width, int height)
-        where T : unmanaged => Fill(new ReadWriteTexture2D<T>(this, width, height), pixels);
+        where T : unmanaged => WithPixels(new ReadWriteTexture2D<T>(this, width, height), pixels);
 
     /// <summary>
     /// Allocates a zero-filled <paramref name="width"/> × <paramref name="height"/> texture that shaders
@@ -308,7 +310,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// <inheritdoc cref="AllocateReadOnlyTexture2D{T}(int, int)" path="/exception"/>
     /// <exception cref="ArgumentException"><paramref name="pixels"/> is longer than <c>width * height</c>.</exception>
     public ReadOnlyTexture2D<T> AllocateReadOnlyTexture2D<T>(ReadOnlySpan<T> pixels, int width, int height)
-        where T : unmanaged => Fill(new ReadOnlyTexture2D<T>(this, width, height), pixels);
+        where T : unmanaged => WithPixels(new ReadOnlyTexture2D<T>(this, width, height), pixels);
 
     /// <summary>
     /// Runs a pixel shader once per pixel of <paramref name="texture"/> and waits for completion.
@@ -355,8 +357,10 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
 
         // A dispatch that is already past its disposed check holds leases on the handles it uses,
         // so these releases are deferred until it finishes.
-        foreach (Lazy<ComputePipeline> pipeline in _pipelines.Values.Concat(_windowedPipelines.Values))
+        foreach (Lazy<ComputePipeline> pipeline in _pipelines.Values)
         {
+            // A pipeline that is still compiling (PrepareAsync) is not waited for: its handle is
+            // released by its finalizer. One whose compilation failed has no value to dispose.
             if (pipeline.IsValueCreated)
             {
                 pipeline.Value.Dispose();
@@ -364,7 +368,6 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
 
         _pipelines.Clear();
-        _windowedPipelines.Clear();
         _queue.Dispose();
         _device.Dispose();
     }
@@ -428,7 +431,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     }
 
     /// <summary>Copies the initial pixels into a new texture, releasing it if they do not fit.</summary>
-    private static TTexture Fill<TTexture, T>(TTexture texture, ReadOnlySpan<T> pixels)
+    private static TTexture WithPixels<TTexture, T>(TTexture texture, ReadOnlySpan<T> pixels)
         where TTexture : Texture2D<T>
         where T : unmanaged
     {
@@ -589,9 +592,19 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// CPU part of a split) runs on this thread between commit and wait; the GPU is waited for even when
     /// it throws, and its exception then wins over a GPU error.
     /// </summary>
+    /// <remarks>
+    /// With <paramref name="indirect"/>, the threadgroup counts come from that buffer when the dispatch
+    /// runs and <paramref name="grid"/> is ignored (see <c>ForIndirect</c>).
+    /// </remarks>
     /// <returns>The command buffer's <c>GPUStartTime</c>/<c>GPUEndTime</c> when <paramref name="whileGpuRuns"/> is set, otherwise zeros.</returns>
     private (double GpuStart, double GpuEnd) Run<T>(
-        MTLSize grid, int rank, ReadWriteTexture2D<Rgba32>? output, in T shader, GridWindow? window = null, Action? whileGpuRuns = null)
+        MTLSize grid,
+        int rank,
+        ReadWriteTexture2D<Rgba32>? output,
+        in T shader,
+        GridWindow? window = null,
+        Action? whileGpuRuns = null,
+        IndirectArguments indirect = default)
         where T : struct, IComputeShaderDescriptor<T>
     {
         ComputePipeline pipeline = window is null ? GetPipeline<T>() : GetWindowedPipeline<T>();
@@ -609,12 +622,26 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         using ObjCHandle.Lease outputTexture = output is null ? default : output.Handle.Acquire(output);
         using ObjCHandle.Lease outputStorage = output is null ? default : output.BufferHandle.Acquire(output);
 
+        // The GPU reads the indirect arguments when the dispatch runs, so they are leased like a bound buffer.
+        using ObjCHandle.Lease indirectArguments = indirect.Handle is null ? default : indirect.Handle.Acquire(indirect.Owner!);
+
         // Every bound buffer and texture stays leased until the GPU is done with it (see ShaderArgumentWriter.SetBuffer).
         List<ObjCHandle> leased = [];
 
         try
         {
-            return Encode(grid, threadsPerThreadgroup, queue.Pointer, state.Pointer, output is null ? 0 : outputTexture.Pointer, leased, in shader, window, whileGpuRuns);
+            return Encode(
+                grid,
+                threadsPerThreadgroup,
+                queue.Pointer,
+                state.Pointer,
+                output is null ? 0 : outputTexture.Pointer,
+                leased,
+                in shader,
+                window,
+                whileGpuRuns,
+                indirect.Handle is null ? 0 : indirectArguments.Pointer,
+                indirect.Offset);
         }
         finally
         {
@@ -655,7 +682,17 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     /// <paramref name="whileGpuRuns"/> in between (see <see cref="Run{T}"/>).
     /// </summary>
     private (double GpuStart, double GpuEnd) Encode<T>(
-        MTLSize grid, MTLSize threadsPerThreadgroup, nint queue, nint state, nint outputTexture, List<ObjCHandle> leased, in T shader, GridWindow? window, Action? whileGpuRuns)
+        MTLSize grid,
+        MTLSize threadsPerThreadgroup,
+        nint queue,
+        nint state,
+        nint outputTexture,
+        List<ObjCHandle> leased,
+        in T shader,
+        GridWindow? window,
+        Action? whileGpuRuns,
+        nint indirectArguments,
+        nuint indirectOffset)
         where T : struct, IComputeShaderDescriptor<T>
     {
         nint commandBuffer = ObjC.SendIntPtr(queue, Selectors.CommandBuffer);
@@ -689,7 +726,14 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                 writer.SetBytes(T.GridWindowIndex, in gridWindow);
             }
 
-            ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, grid, threadsPerThreadgroup);
+            if (indirectArguments != 0)
+            {
+                ObjC.SendVoid(encoder, Selectors.DispatchThreadgroupsWithIndirectBuffer, indirectArguments, indirectOffset, threadsPerThreadgroup);
+            }
+            else
+            {
+                ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, grid, threadsPerThreadgroup);
+            }
         }
         finally
         {
@@ -723,13 +767,13 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     }
 
     private ComputePipeline GetPipeline<T>()
-        where T : struct, IComputeShaderDescriptor<T> => GetPipeline<T>(_pipelines, windowed: false);
+        where T : struct, IComputeShaderDescriptor<T> => GetPipeline<T>(windowed: false);
 
     /// <summary>The specialization that reads the grid window; compiled on the first split dispatch of <typeparamref name="T"/>.</summary>
     private ComputePipeline GetWindowedPipeline<T>()
-        where T : struct, IComputeShaderDescriptor<T> => GetPipeline<T>(_windowedPipelines, windowed: true);
+        where T : struct, IComputeShaderDescriptor<T> => GetPipeline<T>(windowed: true);
 
-    private ComputePipeline GetPipeline<T>(ConcurrentDictionary<Type, Lazy<ComputePipeline>> cache, bool windowed)
+    private ComputePipeline GetPipeline<T>(bool windowed)
         where T : struct, IComputeShaderDescriptor<T>
     {
         // Checked before compiling, so that the error names the shader's [GroupShared] total and the
@@ -741,15 +785,16 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
                 $"but '{Name}' supports at most {MaxThreadgroupMemoryLength} bytes per kernel.");
         }
 
-        // Lazy makes concurrent first dispatches of a shader compile it once. A compile error is
-        // cached, which is right because the source is a constant of the type; any other failure
-        // (out of memory, a dispose race) evicts the entry so a later dispatch can retry.
-        Lazy<ComputePipeline> lazy = cache.GetOrAdd(
-            typeof(T),
-            static (type, state) => new Lazy<ComputePipeline>(
-                () => state.Device.CompilePipeline(T.MslSource, T.EntryPoint, type, state.Windowed),
+        // Lazy makes concurrent first uses of a shader (dispatches, Prepare) compile it once. A compile
+        // error is cached, which is right because the source is a constant of the type; any other
+        // failure (out of memory, a dispose race) evicts the entry so a later dispatch can retry.
+        PipelineKey key = new(typeof(T), windowed, T.CompileOptions);
+        Lazy<ComputePipeline> lazy = _pipelines.GetOrAdd(
+            key,
+            static (key, device) => new Lazy<ComputePipeline>(
+                () => device.CompilePipeline(T.MslSource, T.EntryPoint, key.Shader, key.Windowed, key.Options),
                 LazyThreadSafetyMode.ExecutionAndPublication),
-            (Device: this, Windowed: windowed));
+            this);
 
         try
         {
@@ -757,41 +802,78 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
         catch (Exception e) when (e is not ShaderCompilationException)
         {
-            cache.TryRemove(new(typeof(T), lazy));
+            _pipelines.TryRemove(new(key, lazy));
             throw;
         }
     }
 
     /// <summary>
-    /// Compiles <paramref name="mslSource"/> with the fixed compile options and builds a pipeline for
-    /// <paramref name="entryPoint"/>. Not cached: callers that are not shader descriptors (the
-    /// presentation kernel) own the returned pipeline.
+    /// True when the pipeline of <typeparamref name="T"/> (with <paramref name="windowed"/>, its split
+    /// specialization) has been compiled and is cached, not merely being compiled.
+    /// </summary>
+    internal bool IsPipelineCached<T>(bool windowed = false)
+        where T : struct, IComputeShaderDescriptor<T> =>
+        _pipelines.TryGetValue(new PipelineKey(typeof(T), windowed, T.CompileOptions), out Lazy<ComputePipeline>? lazy) && lazy.IsValueCreated;
+
+    /// <summary>Tests only: how many times this device has compiled MSL into a pipeline (successfully or not).</summary>
+    internal int PipelineCompileCount => Volatile.Read(ref _pipelineCompileCount);
+
+    /// <summary>The line the runtime puts ahead of a shader's MSL for <see cref="ShaderCompileOptions.NoFpContract"/>.</summary>
+    internal const string FpContractOffPragma = "#pragma clang fp contract(off)\n";
+
+    /// <summary>
+    /// Compiles <paramref name="mslSource"/> and builds a pipeline for <paramref name="entryPoint"/>.
+    /// Not cached: callers that are not shader descriptors (the presentation kernel) own the returned
+    /// pipeline.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <paramref name="windowed"/> is the value of bool function constant 0, which generated kernels that
     /// read grid positions declare to select the partial-grid (windowed) code. Such a kernel cannot be
     /// built unspecialized, so the function is always specialized; Metal ignores the value for kernels
     /// that declare no constant.
+    /// </para>
+    /// <para>
+    /// <paramref name="options"/> are the shader's own (<see cref="ShaderOptionsAttribute"/>). Without
+    /// any, the compile options are fixed: MSL 3.2, <c>mathMode = Safe</c> and precise math functions.
+    /// <see cref="ShaderCompileOptions.FastMath"/> switches both of those to Metal's fast variants.
+    /// <see cref="ShaderCompileOptions.NoFpContract"/> has no <c>MTLCompileOptions</c> property, so it is
+    /// a pragma on a line put ahead of the source; the pragma holds to the end of the translation unit,
+    /// and a compile error then reports the source as it was compiled, pragma included, so its line
+    /// numbers match.
+    /// </para>
     /// </remarks>
-    internal ComputePipeline CompilePipeline(string mslSource, string entryPoint, Type shaderType, bool windowed = false)
+    internal ComputePipeline CompilePipeline(
+        string mslSource, string entryPoint, Type shaderType, bool windowed = false, ShaderCompileOptions options = ShaderCompileOptions.None)
     {
         using AutoreleasePool pool = AutoreleasePool.Push();
         using ObjCHandle.Lease device = _device.Acquire(this);
 
-        nint source = 0, options = 0, library = 0, functionName = 0, function = 0, constantValues = 0;
+        Interlocked.Increment(ref _pipelineCompileCount);
+
+        if ((options & ShaderCompileOptions.NoFpContract) != 0)
+        {
+            mslSource = FpContractOffPragma + mslSource;
+        }
+
+        bool fastMath = (options & ShaderCompileOptions.FastMath) != 0;
+        nint source = 0, compileOptions = 0, library = 0, functionName = 0, function = 0, constantValues = 0;
 
         try
         {
             source = NSString.Create(mslSource);
 
-            options = ObjC.SendIntPtr(ObjC.SendIntPtr(CompileOptionsClass.Value, Selectors.Alloc), Selectors.Init);
-            ObjC.SendVoid(options, Selectors.SetLanguageVersion, Metal.LanguageVersion3_2);
-            ObjC.SendVoid(options, Selectors.SetMathMode, Metal.MathModeSafe);
-            ObjC.SendVoid(options, Selectors.SetMathFloatingPointFunctions, Metal.MathFloatingPointFunctionsPrecise);
+            compileOptions = ObjC.SendIntPtr(ObjC.SendIntPtr(CompileOptionsClass.Value, Selectors.Alloc), Selectors.Init);
+            ObjC.SendVoid(compileOptions, Selectors.SetLanguageVersion, Metal.LanguageVersion3_2);
+            ObjC.SendVoid(compileOptions, Selectors.SetMathMode, fastMath ? Metal.MathModeFast : Metal.MathModeSafe);
+            ObjC.SendVoid(
+                compileOptions,
+                Selectors.SetMathFloatingPointFunctions,
+                fastMath ? Metal.MathFloatingPointFunctionsFast : Metal.MathFloatingPointFunctionsPrecise);
 
             // NSError out-parameters are autoreleased, so they are read before the pool drains.
             nint error = 0;
-            library = ObjC.SendIntPtr(device.Pointer, Selectors.NewLibraryWithSourceOptionsError, source, options, &error);
+            library = ObjC.SendIntPtr(device.Pointer, Selectors.NewLibraryWithSourceOptionsError, source, compileOptions, &error);
 
             // A non-nil library with a non-nil error means "compiled with warnings".
             if (library == 0)
@@ -833,9 +915,26 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
             ObjC.Release(constantValues);
             ObjC.Release(functionName);
             ObjC.Release(library);
-            ObjC.Release(options);
+            ObjC.Release(compileOptions);
             ObjC.Release(source);
         }
+    }
+
+    /// <summary>What identifies a cached pipeline: the shader, whether it is the windowed specialization, and how it is compiled.</summary>
+    private readonly record struct PipelineKey(Type Shader, bool Windowed, ShaderCompileOptions Options);
+
+    /// <summary>
+    /// The buffer an indirect dispatch reads its threadgroup counts from: the handle to lease (under
+    /// <paramref name="owner"/>, for the error message) and the byte offset of the counts in it.
+    /// The default value means a direct dispatch.
+    /// </summary>
+    private readonly struct IndirectArguments(ObjCHandle handle, object owner, nuint offset)
+    {
+        public ObjCHandle? Handle { get; } = handle;
+
+        public object? Owner { get; } = owner;
+
+        public nuint Offset { get; } = offset;
     }
 
     private static class CompileOptionsClass

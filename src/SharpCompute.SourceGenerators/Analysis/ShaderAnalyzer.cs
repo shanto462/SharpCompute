@@ -35,6 +35,7 @@ internal sealed class ShaderAnalyzer
     private int _threadGroupSizeX;
     private int _threadGroupSizeY;
     private int _threadGroupSizeZ;
+    private int _compileOptions;
     private bool _isPixelShader;
 
     private ShaderAnalyzer(GeneratorAttributeSyntaxContext context, CancellationToken cancellationToken)
@@ -73,6 +74,7 @@ internal sealed class ShaderAnalyzer
     {
         bool implementsInterface = CheckDeclaration();
         ReadThreadGroupSize();
+        ReadShaderOptions();
 
         if (!implementsInterface)
         {
@@ -266,6 +268,36 @@ internal sealed class ShaderAnalyzer
         _threadGroupSizeX = x;
         _threadGroupSizeY = y;
         _threadGroupSizeZ = z;
+    }
+
+    /// <summary>
+    /// Reads <c>[ShaderOptions]</c> into the bits of <c>ShaderCompileOptions</c>. The options do not
+    /// change the MSL: the runtime applies them when it compiles the kernel, so all the generator does
+    /// is pass them on through the descriptor.
+    /// </summary>
+    private void ReadShaderOptions()
+    {
+        if (TypeResolver.FindAttribute(_symbol, "ShaderOptionsAttribute") is not { } attribute)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
+        {
+            if (argument.Value.Value is not bool value)
+            {
+                continue;
+            }
+
+            if (argument.Key == "FastMath" && value)
+            {
+                _compileOptions |= ShaderModel.FastMath;
+            }
+            else if (argument.Key == "FpContract" && !value)
+            {
+                _compileOptions |= ShaderModel.NoFpContract;
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -833,7 +865,8 @@ internal sealed class ShaderAnalyzer
             GridWindowIndex: gridWindowIndex,
             UsesAtomics: usesAtomics,
             UsesThreadgroupMemory: usesThreadgroupMemory,
-            ThreadgroupMemoryLength: threadgroupMemoryLength);
+            ThreadgroupMemoryLength: threadgroupMemoryLength,
+            CompileOptions: _compileOptions);
     }
 
     // ---------------------------------------------------------------------------------------------

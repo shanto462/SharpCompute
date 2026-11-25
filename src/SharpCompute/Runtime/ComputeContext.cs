@@ -5,9 +5,9 @@ using System.Threading.Tasks;
 namespace SharpCompute;
 
 /// <summary>
-/// Records several dispatches into one Metal command buffer and runs them with a single commit and
-/// a single wait, instead of one round trip per <c>For</c>. Created by
-/// <see cref="GraphicsDevice.CreateComputeContext"/>.
+/// Records several dispatches, and GPU copies and fills between them, into one Metal command buffer
+/// and runs them with a single commit and a single wait, instead of one round trip per <c>For</c>.
+/// Created by <see cref="GraphicsDevice.CreateComputeContext"/>.
 /// </summary>
 /// <example>
 /// <code>
@@ -20,18 +20,22 @@ namespace SharpCompute;
 /// </example>
 /// <remarks>
 /// <para>
-/// <b>Recording.</b> <c>For</c> and <c>ForEach</c> only encode: nothing runs on the GPU until
+/// <b>Recording.</b> <c>For</c>, <c>ForEach</c>, <c>ForIndirect</c>, <c>Copy</c>, <c>Fill</c> and
+/// <c>Clear</c> only record: nothing runs on the GPU until
 /// <see cref="Execute"/>, <see cref="ExecuteAsync"/>, <see cref="Dispose"/> or <see cref="DisposeAsync"/>.
-/// All dispatches share one compute encoder; the pipeline is switched per dispatch when the shader changes.
+/// Consecutive dispatches share one compute encoder; the pipeline is switched per dispatch when the shader changes.
 /// Shader constants are copied when the dispatch is recorded, so changing the shader struct (or
 /// reusing it with other values) afterwards does not affect recorded work.
 /// </para>
 /// <para>
-/// <b>Ordering.</b> Dispatches run in the order they were recorded, and each one sees every write of
-/// the dispatches before it (Metal's serial dispatch type), so dependent passes such as the two halves
-/// of a separable blur need no barrier. Separate executions of a context, and work committed to the
+/// <b>Ordering.</b> Operations run in the order they were recorded, and each one sees every write of
+/// the operations before it, so dependent passes such as the two halves of a separable blur need no
+/// barrier. That holds across kinds: a copy recorded between two dispatches copies what the first one
+/// wrote, and the second one reads the copy. (Dispatches use Metal's serial dispatch type; a copy or
+/// fill runs in a blit encoder between two compute encoders of the same command buffer, which Metal
+/// executes in order.) Separate executions of a context, and work committed to the
 /// device by other means, run in the order they were submitted; recorded work is submitted when the
-/// context executes, not when <c>For</c> is called.
+/// context executes, not when it is recorded.
 /// </para>
 /// <para>
 /// <b>Lifetime.</b> Every buffer, texture and pipeline a recorded dispatch binds stays alive until the
@@ -76,8 +80,13 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// <summary>The device this context dispatches on.</summary>
     public GraphicsDevice Device { get; }
 
-    /// <summary>The number of dispatches recorded since the context last executed.</summary>
-    public int PendingCount => Volatile.Read(ref _batch)?.DispatchCount ?? 0;
+    /// <summary>
+    /// The number of operations recorded since the last execution: every dispatch (direct or indirect,
+    /// and each <c>WriteDispatchArguments</c>, which is a one-thread dispatch), copy and fill that is
+    /// waiting for <see cref="Execute"/>. 0 right after an execution, and for a context that only
+    /// recorded operations with nothing to do (an empty grid, a copy of 0 elements).
+    /// </summary>
+    public int PendingCount => Volatile.Read(ref _batch)?.OperationCount ?? 0;
 
     /// <summary>Records a dispatch of <paramref name="x"/> threads.</summary>
     /// <inheritdoc cref="For{T}(int, int, int, in T)" path="/exception"/>
@@ -126,6 +135,307 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
             Exit();
         }
     }
+
+    /// <summary>
+    /// Records an indirect dispatch of <paramref name="shader"/>: its threadgroup counts are read from
+    /// <paramref name="arguments"/>[0] on the GPU when the dispatch runs.
+    /// </summary>
+    /// <inheritdoc cref="ForIndirect{T}(Buffer{DispatchArguments}, int, in T)" path="/remarks"/>
+    /// <inheritdoc cref="ForIndirect{T}(Buffer{DispatchArguments}, int, in T)" path="/exception"/>
+    public void ForIndirect<T>(Buffer<DispatchArguments> arguments, in T shader)
+        where T : struct, IComputeShader, IComputeShaderDescriptor<T> => ForIndirect(arguments, 0, in shader);
+
+    /// <summary>
+    /// Records an indirect dispatch of <paramref name="shader"/>: its threadgroup counts are read from
+    /// <paramref name="arguments"/>[<paramref name="argumentsIndex"/>] on the GPU when the dispatch runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Because the counts are read when the dispatch runs, an operation recorded earlier in the same
+    /// context can produce them, and one execution then does the whole chain on the GPU:
+    /// </para>
+    /// <code>
+    /// context.Clear(counter);
+    /// context.For(n, new CompactAbove(source, survivors, counter, cutoff)); // counts with Gpu.AtomicAdd
+    /// context.WriteDispatchArguments&lt;Shade&gt;(counter, arguments);            // count -&gt; threadgroups
+    /// context.ForIndirect(arguments, new Shade(survivors, counter, output)); // runs over the survivors only
+    /// </code>
+    /// <para>
+    /// The grid is a whole number of threadgroups, so the shader must check its index against the real
+    /// count itself; the threadgroup size is the shader's <see cref="ThreadGroupSizeAttribute"/>, or
+    /// 256 × 1 × 1 without one. See
+    /// <see cref="GraphicsDevice.ForIndirect{T}(Buffer{DispatchArguments}, int, in T)"/> for both.
+    /// </para>
+    /// <para>If this throws, nothing of this dispatch is recorded and earlier operations are unaffected.</para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentsIndex"/> is not an element of <paramref name="arguments"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="arguments"/> or a bound resource belongs to a different device.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device, <paramref name="arguments"/> or a bound resource has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    /// <exception cref="ShaderCompilationException">The shader failed to compile.</exception>
+    public void ForIndirect<T>(Buffer<DispatchArguments> arguments, int argumentsIndex, in T shader)
+        where T : struct, IComputeShader, IComputeShaderDescriptor<T>
+    {
+        Enter();
+
+        try
+        {
+            nuint offset = Device.ValidateIndirectArguments(arguments, argumentsIndex);
+            Device.EncodeIndirect(GetOrBeginBatch(), arguments, offset, in shader);
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records the conversion of the element count in <paramref name="count"/>[0] into the threadgroup
+    /// counts of a one-dimensional indirect dispatch of <typeparamref name="T"/>, written to
+    /// <paramref name="arguments"/>[0].
+    /// </summary>
+    /// <inheritdoc cref="WriteDispatchArguments{T}(Buffer{int}, int, Buffer{DispatchArguments}, int)" path="/remarks"/>
+    /// <inheritdoc cref="WriteDispatchArguments{T}(Buffer{int}, int, Buffer{DispatchArguments}, int)" path="/exception"/>
+    public void WriteDispatchArguments<T>(Buffer<int> count, Buffer<DispatchArguments> arguments)
+        where T : struct, IComputeShaderDescriptor<T> => RecordDispatchArguments<T, int>(count, 0, arguments, 0);
+
+    /// <summary>
+    /// Records the conversion of the element count in <paramref name="count"/>[<paramref name="countIndex"/>]
+    /// into the threadgroup counts of a one-dimensional indirect dispatch of <typeparamref name="T"/>,
+    /// written to <paramref name="arguments"/>[<paramref name="argumentsIndex"/>].
+    /// </summary>
+    /// <typeparam name="T">The shader that will be dispatched with the arguments; its threadgroup size is what the count is divided by.</typeparam>
+    /// <remarks>
+    /// A one-thread dispatch (it counts in <see cref="PendingCount"/>) that reads the count on the GPU
+    /// in recorded order, so the count can come from a dispatch recorded just before it. See
+    /// <see cref="GraphicsDevice.WriteDispatchArguments{T}(Buffer{int}, int, Buffer{DispatchArguments}, int)"/>.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">An index is not an element of its buffer.</exception>
+    /// <exception cref="ArgumentException">A buffer belongs to a different device.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device or a buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="arguments"/> maps read-only memory.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The threadgroup size of <typeparamref name="T"/> is not one-dimensional, or the context is being used concurrently from another thread.
+    /// </exception>
+    /// <exception cref="ShaderCompilationException"><typeparamref name="T"/> failed to compile.</exception>
+    public void WriteDispatchArguments<T>(Buffer<int> count, int countIndex, Buffer<DispatchArguments> arguments, int argumentsIndex)
+        where T : struct, IComputeShaderDescriptor<T> => RecordDispatchArguments<T, int>(count, countIndex, arguments, argumentsIndex);
+
+    /// <inheritdoc cref="WriteDispatchArguments{T}(Buffer{int}, Buffer{DispatchArguments})"/>
+    public void WriteDispatchArguments<T>(Buffer<uint> count, Buffer<DispatchArguments> arguments)
+        where T : struct, IComputeShaderDescriptor<T> => RecordDispatchArguments<T, uint>(count, 0, arguments, 0);
+
+    /// <inheritdoc cref="WriteDispatchArguments{T}(Buffer{int}, int, Buffer{DispatchArguments}, int)"/>
+    public void WriteDispatchArguments<T>(Buffer<uint> count, int countIndex, Buffer<DispatchArguments> arguments, int argumentsIndex)
+        where T : struct, IComputeShaderDescriptor<T> => RecordDispatchArguments<T, uint>(count, countIndex, arguments, argumentsIndex);
+
+    /// <summary>Records a GPU copy of the whole of <paramref name="source"/> to the start of <paramref name="destination"/>.</summary>
+    /// <inheritdoc cref="Copy{T}(Buffer{T}, int, Buffer{T}, int, int)" path="/remarks"/>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="destination"/> is shorter than <paramref name="source"/>, a buffer belongs to a
+    /// different device, or the two ranges overlap (they are the same buffer or overlapping views of one).
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The context, the device or a buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="destination"/> maps read-only memory.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    public void Copy<T>(Buffer<T> source, Buffer<T> destination)
+        where T : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            if (Device.ValidateCopy(source, destination))
+            {
+                GraphicsDevice.RecordCopy(GetOrBeginBatch(), source, 0, destination, 0, source.Length);
+            }
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records a GPU copy of <paramref name="count"/> elements of <paramref name="source"/> from
+    /// <paramref name="sourceOffset"/> to <paramref name="destination"/> at <paramref name="destinationOffset"/>.
+    /// </summary>
+    /// <remarks>
+    /// The copy runs in recorded order with the context's dispatches: it copies what the operations
+    /// recorded before it wrote, and those recorded after it see the copy. Offsets and
+    /// <paramref name="count"/> are in elements, relative to each buffer (so to a view's start). The two
+    /// ranges must not overlap; they may be disjoint ranges of one buffer. Both buffers stay alive until
+    /// the GPU has finished, even if they are disposed in between. A copy of 0 elements records nothing.
+    /// If this throws, nothing is recorded and earlier operations are unaffected.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">An offset or <paramref name="count"/> is negative, or a range is not inside its buffer.</exception>
+    /// <exception cref="ArgumentException">A buffer belongs to a different device, or the two ranges overlap.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device or a buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="destination"/> maps read-only memory.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    public void Copy<T>(Buffer<T> source, int sourceOffset, Buffer<T> destination, int destinationOffset, int count)
+        where T : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            if (Device.ValidateCopy(source, sourceOffset, destination, destinationOffset, count))
+            {
+                GraphicsDevice.RecordCopy(GetOrBeginBatch(), source, sourceOffset, destination, destinationOffset, count);
+            }
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records a GPU copy of every pixel of <paramref name="source"/> to <paramref name="destination"/>,
+    /// a texture of the same size; see <see cref="GraphicsDevice.Copy{T}(Texture2D{T}, Texture2D{T})"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">The textures differ in size, belong to a different device, or are the same texture.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device or a texture has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    public void Copy<T>(Texture2D<T> source, Texture2D<T> destination)
+        where T : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            Device.ValidateCopy(source, destination);
+            GetOrBeginBatch().RecordCopy(source, destination);
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records a GPU copy of the first <c>Width × Height</c> elements of <paramref name="source"/>, as
+    /// tightly packed row-major pixels, into <paramref name="destination"/>; see
+    /// <see cref="GraphicsDevice.Copy{T}(Buffer{T}, Texture2D{T})"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="source"/> holds fewer than <c>Width × Height</c> elements, or a resource belongs to a different device.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device, the buffer or the texture has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    public void Copy<T>(Buffer<T> source, Texture2D<T> destination)
+        where T : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            Device.ValidateCopy(source, destination);
+            GetOrBeginBatch().RecordCopy(source.Handle, source, source.ByteOffset, destination);
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records a GPU copy of every pixel of <paramref name="source"/> to the start of
+    /// <paramref name="destination"/>, as tightly packed row-major pixels; see
+    /// <see cref="GraphicsDevice.Copy{T}(Texture2D{T}, Buffer{T})"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="destination"/> holds fewer than <c>Width × Height</c> elements, or a resource belongs to a different device.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device, the texture or the buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="destination"/> maps read-only memory.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    public void Copy<T>(Texture2D<T> source, Buffer<T> destination)
+        where T : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            Device.ValidateCopy(source, destination);
+            GetOrBeginBatch().RecordCopy(source, destination.Handle, destination, destination.ByteOffset);
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records a GPU fill that sets every <b>byte</b> of <paramref name="buffer"/> to
+    /// <paramref name="value"/>, in recorded order with the context's dispatches.
+    /// </summary>
+    /// <remarks>
+    /// The value is a byte pattern, not an element; see <see cref="GraphicsDevice.Fill{T}"/>. A view is
+    /// filled over its own range only, and an empty buffer records nothing. The buffer stays alive until
+    /// the GPU has finished, even if it is disposed in between.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="buffer"/> belongs to a different device.</exception>
+    /// <exception cref="ObjectDisposedException">The context, the device or the buffer has been disposed.</exception>
+    /// <exception cref="NotSupportedException"><paramref name="buffer"/> maps read-only memory.</exception>
+    /// <exception cref="InvalidOperationException">The context is being used concurrently from another thread.</exception>
+    public void Fill<T>(Buffer<T> buffer, byte value)
+        where T : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            if (Device.ValidateFill(buffer))
+            {
+                GraphicsDevice.RecordFill(GetOrBeginBatch(), buffer, value);
+            }
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Records a GPU zero-fill of <paramref name="buffer"/>: <c>Fill(buffer, 0)</c>. The way to reset a
+    /// counter or an accumulator between the passes of one execution.
+    /// </summary>
+    /// <inheritdoc cref="Fill{T}" path="/exception"/>
+    public void Clear<T>(Buffer<T> buffer)
+        where T : unmanaged => Fill(buffer, 0);
 
     /// <summary>Runs everything recorded so far and waits for the GPU. No-op when nothing is pending.</summary>
     /// <exception cref="MetalException">The GPU failed to execute the batch; the message names its shaders.</exception>
@@ -226,6 +536,28 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         }
     }
 
+    private void RecordDispatchArguments<T, TCount>(Buffer<TCount> count, int countIndex, Buffer<DispatchArguments> arguments, int argumentsIndex)
+        where T : struct, IComputeShaderDescriptor<T>
+        where TCount : unmanaged
+    {
+        Enter();
+
+        try
+        {
+            ObjectDisposedException.ThrowIf(Device.IsDisposed, Device);
+            Device.EncodeDispatchArguments<T, TCount>(GetOrBeginBatch(), count, countIndex, arguments, argumentsIndex);
+        }
+        catch
+        {
+            DropEmptyBatch();
+            throw;
+        }
+        finally
+        {
+            Exit();
+        }
+    }
+
     /// <summary>Tests only: true when a completed batch is kept for the next recording.</summary>
     internal bool HasSpareBatch => Volatile.Read(ref _spare) is not null;
 
@@ -275,11 +607,11 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
         return batch;
     }
 
-    // When the first dispatch of a batch fails to record, drop the empty batch right away, returning
+    // When the first operation of a batch fails to record, drop the empty batch right away, returning
     // the leases it took (the device's queue) instead of keeping them until the next execution.
     private void DropEmptyBatch()
     {
-        if (_batch is { DispatchCount: 0 } empty)
+        if (_batch is { OperationCount: 0 } empty)
         {
             _batch = null;
             empty.AbandonAndRecycle();

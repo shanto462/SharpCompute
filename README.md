@@ -80,9 +80,15 @@ here as an original game built on SharpCompute.
   and `WrapReadWriteBuffer` makes a buffer over page-aligned memory you already own.
 - **Batched and asynchronous dispatch.** A `ComputeContext` runs many dispatches with one commit and
   one wait; `ForAsync`/`ForEachAsync` return a `Task` so the CPU keeps working while the GPU runs.
+- **Buffer views, GPU copies and indirect dispatch.** `buffer.Slice(start, length)` binds part of a
+  buffer as a buffer of its own. `Copy`, `Fill` and `Clear` run on the GPU, in order with the
+  dispatches of a context. `ForIndirect` takes its thread count from a buffer an earlier pass wrote,
+  so the GPU decides how much work the next pass does. `device.Prepare<T>()` compiles a shader
+  before its first frame. See [Buffers and dispatch](#buffers-and-dispatch).
 - **CPU execution and CPU+GPU split.** The same shader also runs as C# on all CPU cores
   (`device.ForCpu`), or split between the CPU and the GPU in one dispatch (`device.ForSplit`).
-- **Correct by default.** Shaders compile with IEEE-safe math and precise functions, and every
+- **Correct by default.** Shaders compile with IEEE-safe math and precise functions (a shader opts
+  into fast math, or out of fused multiply-adds, with `[ShaderOptions]`), and every
   shader that passes structs or constants carries `static_assert` layout guards. The CPU
   implementations of `Gpu.*` were measured against Apple GPU results: bit-for-bit for arithmetic,
   rounding functions, `sqrt` and `fmod`, and within a few ULP for transcendentals.
@@ -110,7 +116,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
-| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
 | `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
@@ -419,6 +425,125 @@ Work on one device runs in submission order, so dependent `ForAsync` calls can a
 to back and awaited once. Measurements are in the "Batching and async" section of
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
 
+### Buffers and dispatch
+
+**Views.** `Slice` makes a buffer over part of another one. Nothing is copied: it is the same
+`MTLBuffer` bound at an offset, and it can go wherever a buffer can (a shader on the GPU, the CPU or
+both, `AsSpan`, `Copy`). Index 0 is the view's first element and `Length` is its own length, in C#
+and inside the shader:
+
+```csharp
+using ReadWriteBuffer<float> particles = device.AllocateReadWriteBuffer<float>(1_000_000);
+
+device.For(250_000, new Integrate(particles.Slice(500_000, 250_000), dt)); // touches only that quarter
+```
+
+A view owns no memory: it is disposed with the buffer it came from, and a dispatch that binds it
+keeps that buffer's memory alive until the GPU is done.
+
+**Copy, fill, clear.** `Copy`, `Fill` and `Clear` run on the GPU as blits. On the device they are
+one command buffer each; in a `ComputeContext` they run in recorded order with the dispatches, which
+is the point: a copy sees what the pass before it wrote, without the CPU waiting in between.
+
+```csharp
+using (ComputeContext context = device.CreateComputeContext())
+{
+    context.Clear(counter);                        // reset an accumulator between passes
+    context.For(count, new Step(current, next));
+    context.Copy(next, current);                   // whole buffer; ranges and views work too
+    context.Copy(next, 0, history, frame * count, count);
+}
+
+device.Copy(simulation, texture); // buffer -> texture, texture -> buffer and texture -> texture too
+```
+
+Offsets and counts are in elements; source and destination must not overlap. `Fill` takes a byte,
+so only 0 is the same element for every type. Buffers are unified memory, so when nothing on the GPU
+is pending a span copy is faster than `device.Copy` (0.02 ms against about 0.13 ms for 1 MB on an
+M4 Pro; at 64 MB the GPU is ahead, about 0.8 ms against 1.05 ms).
+
+**Indirect dispatch.** `ForIndirect` reads its threadgroup counts from a buffer when the dispatch
+runs, so a pass recorded just before it can produce them. A compaction pass counts its survivors,
+`WriteDispatchArguments` turns the count into threadgroups, and the follow-up pass runs over exactly
+that many, all in one execution with nothing read back:
+
+```csharp
+using ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>(1);
+
+using (ComputeContext context = device.CreateComputeContext())
+{
+    context.Clear(counter);
+    context.For(count, new CompactAbove(source, survivors, counter, cutoff)); // Gpu.AtomicAdd on counter[0]
+    context.WriteDispatchArguments<Shade>(counter, arguments);                // count -> threadgroups, on the GPU
+    context.ForIndirect(arguments, new Shade(survivors, counter, output));
+}
+
+[ThreadGroupSize(256)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Shade(ReadWriteBuffer<uint> survivors, ReadWriteBuffer<int> counter, ReadWriteBuffer<float> output) : IComputeShader
+{
+    public void Execute()
+    {
+        if (ThreadIds.X < counter[0]) // required: see below
+        {
+            output[(int)survivors[ThreadIds.X]] = 1f;
+        }
+    }
+}
+```
+
+The counts are threadgroups, not threads: Metal has no indirect dispatch of an exact grid. The
+dispatch runs up to one threadgroup more than the count, and `DispatchSize` is groups × threadgroup
+size, so **the shader must check its index against the count itself**, as above. A shader can also
+write `DispatchArguments` like any struct (for a 2D or 3D grid, for example), and
+`device.ForIndirectCpu` runs the same dispatch on the CPU. Whole threadgroups are what a shader with
+`[GroupShared]` memory wants anyway, so those dispatch indirectly without a second thought.
+
+ComputeLab's Indirect page does one job three ways on a million elements, a quarter of which survive:
+
+| | GPU time |
+|---|---|
+| Compact, then `ForIndirect` over the survivors | 0.42 ms |
+| Compact, then dispatch the full array (each thread checks the count) | 0.42 ms |
+| No compaction: one pass in which every thread tests its own element | 0.55 ms |
+
+The speed-up comes from compaction; indirect dispatch's gain is no CPU read-back. Threads that stop
+at their bounds check cost almost nothing, so a full-array dispatch over the compacted list is as
+fast, but it has to be sized for the whole array; the indirect one follows the count the GPU just
+produced.
+
+**Compile options.** Every shader is compiled with IEEE-safe math, precise math functions and
+Metal's default contraction. `[ShaderOptions]` changes that for one shader:
+
+```csharp
+[ShaderOptions(FastMath = true)]     // MTLMathModeFast: faster sin/exp/pow, no NaN or infinity
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Glow(...) : IComputeShader { ... }
+
+[ShaderOptions(FpContract = false)]  // a * b + c is a multiply and an add, as in C#: no fused multiply-add
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Orbit(...) : IComputeShader { ... }
+```
+
+Fast math makes a kernel that is mostly `sin`, `cos`, `exp` and `pow` about three times faster
+(ComputeLab's FastMath page: 0.39 ms against 1.2 ms, with a 3.6e-6 error against the CPU where safe
+math has 3.3e-6), but a comparison such as `x != x` is compiled away. With `FpContract = false`, arithmetic that uses only `+ - * /`
+and `Gpu.Sqrt` gives the same bits on the GPU as on the CPU (subnormal results aside, which the GPU
+flushes to zero); the unfused Mandelbrot kernel is 12 % slower, and saxpy is unchanged.
+
+**Warm-up.** A shader is compiled the first time it is dispatched. `Prepare` does it ahead of time,
+so the first frame doesn't stall:
+
+```csharp
+device.Prepare<Blur>();                                                  // now
+await device.PrepareAsync(ShaderReference.Of<Blur>(), ShaderReference.Of<Sharpen>()); // in parallel, off this thread
+device.Prepare<Blur>(PrepareOptions.IncludeSplit);                       // also the pipeline ForSplit runs on the GPU
+```
+
+For a large shader macOS has not seen before (a raymarched scene of about 300 lines), the compile is
+about 80 ms: the first frame takes 88 ms without `Prepare` and 12 ms with it. Once the system shader
+cache has the shader, the compile is 2 to 3 ms.
+
 ### On the CPU, or on both
 
 The C# of a shader is real code: `ForCpu` runs it on all CPU cores, with `ThreadIds`,
@@ -550,7 +675,11 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 - 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`
   (`Gpu.PackUnorm4x8` for colors).
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses
-  multiply-adds. Transcendental functions agree with the CPU to within a few ULP.
+  multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
+  Transcendental functions agree with the CPU to within a few ULP.
+- An indirect dispatch runs whole threadgroups, so `DispatchSize` is a multiple of the threadgroup
+  size and the shader has to check its index against the real count. `Prepare` compiles at run
+  time; shaders are not precompiled into a `.metallib` at build time.
 
 ## Roadmap
 
