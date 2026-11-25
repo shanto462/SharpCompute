@@ -1818,6 +1818,13 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   API stays the same; each backend adds its own shading-language emitter and runtime.
 - NuGet packages.
 
+## Contributing and security
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for the build, test and pull
+request workflow, and [SUPPORT.md](SUPPORT.md) for where to ask questions. Everyone taking part
+follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately, as described
+in [SECURITY.md](SECURITY.md), not in public issues.
+
 ## License
 
 [MIT](LICENSE), except the Shadertoy shader ports in `samples/SharpCompute.Samples.Shaders`
