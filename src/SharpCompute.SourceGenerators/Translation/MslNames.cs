@@ -53,6 +53,12 @@ internal static class MslNames
     /// </summary>
     public const string FloatToLong = "__ms_float_to_long";
 
+    /// <summary>
+    /// The prelude's negation of an integer vector, overloaded per type, which stands for <c>-v</c>:
+    /// the Metal compiler miscompiles that operator (see <c>MslTranslator.VectorNegation</c>).
+    /// </summary>
+    public const string Negate = "__ms_neg";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";

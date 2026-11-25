@@ -420,6 +420,15 @@ internal sealed partial class MslTranslator
             return OperatorCall(operation, userOperator, operation.Operand) ?? Expr.Error;
         }
 
+        if (VectorNegation(operation) is { } negation)
+        {
+            // `-v` on an integer vector: `__ms_neg(v)`. The Metal compiler miscompiles the native
+            // operator when a lane of its result is unused and `v` is subtracted elsewhere (see
+            // MslTranslator.VectorNegation). A negation the generator cannot see, such as `~v + 1`,
+            // is still exposed to that bug until Apple fixes it.
+            return negation;
+        }
+
         if (SignedArithmetic(operation) is { } wrapped)
         {
             // `-a` on a signed integer: `int(-uint(a))`, which wraps for MinValue as C# does.
@@ -508,6 +517,13 @@ internal sealed partial class MslTranslator
         {
             // In MSL, comparing vectors yields a bool vector, not the single bool that C# computed.
             return Unsupported(operation, $"a '{text}' comparison of vectors that returns 'bool' (MSL compares component-wise; compare the components or use an intrinsic such as all/any)");
+        }
+
+        if (VectorNegation(operation) is { } negation)
+        {
+            // `0 - v`, `v * -1` and `v / -1` on an integer vector are negations as well, which the
+            // Metal compiler turns into the `-v` it miscompiles: `__ms_neg(v)`.
+            return negation;
         }
 
         if (SignedArithmetic(operation) is { } wrapped)
@@ -616,6 +632,12 @@ internal sealed partial class MslTranslator
         }
 
         Expr target = StoreTarget(operation.Target, out bool packed);
+
+        if (!packed && NegatingCompoundAssignment(operation, target) is { } negation)
+        {
+            // `v *= -1` on an integer vector: `v = __ms_neg(v)`.
+            return negation;
+        }
 
         if (!packed && SignedCompoundAssignment(operation, target, text, precedence) is { } wrapped)
         {

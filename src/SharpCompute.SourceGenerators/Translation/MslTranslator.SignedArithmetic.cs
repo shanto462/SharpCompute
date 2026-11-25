@@ -12,6 +12,8 @@ namespace SharpCompute.SourceGenerators;
 /// type of the same width, whose arithmetic is defined modulo 2^n, and converted back:
 /// <c>a * b + c</c> on <c>int</c>s is <c>int(uint(a) * uint(b) + uint(c))</c>. The conversion back
 /// keeps the bits (Apple GPUs are two's complement, as C# is), so the result is C#'s, bit for bit.
+/// The negation of a vector is the exception: it goes through the prelude's <c>__ms_neg</c>, inside
+/// a chain as <c>__ms_neg(uint3(v))</c> (see <c>MslTranslator.VectorNegation</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -88,6 +90,14 @@ internal sealed partial class MslTranslator
     /// </summary>
     private Expr? UnsignedArithmetic(IOperation operation, string unsigned)
     {
+        if (UnsignedArithmeticType(operation.Type) == unsigned && VectorNegation(operation, unsigned) is { } negation)
+        {
+            // A negation of an int vector inside a chain: `__ms_neg(uint3(v))`, never `-uint3(v)`,
+            // which the Metal compiler miscompiles like any other negation of an integer vector (see
+            // MslTranslator.VectorNegation).
+            return negation;
+        }
+
         switch (operation)
         {
             case IBinaryOperation binary
@@ -101,7 +111,8 @@ internal sealed partial class MslTranslator
                 return new Expr(BinaryOperand(left, precedence, isRight: false) + " " + text + " " + BinaryOperand(right, precedence, isRight: true), precedence);
             }
 
-            // `-5` is a constant that C# has already negated; it stays a literal.
+            // `-5` is a constant that C# has already negated; it stays a literal. Only a scalar gets
+            // here: the negation of a vector was taken above.
             case IUnaryOperation { OperatorKind: UnaryOperatorKind.Minus } unary
                 when !unary.IsLifted && IsNativeArithmetic(unary.OperatorMethod) && UnaryOperandIsNotALiteral(unary) &&
                      UnsignedArithmeticType(unary.Type) == unsigned:

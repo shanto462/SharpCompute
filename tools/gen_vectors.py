@@ -702,6 +702,19 @@ PRELUDE_FLOAT_TO_LONG = "__ms_float_to_long"
 PRELUDE_ROTATE_LEFT = "__ms_rotate_left"
 PRELUDE_ROTATE_RIGHT = "__ms_rotate_right"
 
+# The negation of an integer vector, which the generator emits instead of `-v`. Apple's Metal
+# compiler miscompiles `-v` on an integer vector (silently, at -O1 and above, in every math mode)
+# when one lane of the result is never read and the same `v` is subtracted in an add/sub/mul chain
+# elsewhere, as in `t += C; t *= 3; t -= v`: the optimizer marks the unread lane of the negation as
+# poison, then reuses that instruction as "-v" for the chain, and the chain's result loses the lane
+# (its store is deleted). Negating each lane as a scalar and building the vector from the results
+# leaves no vector negation for the optimizer to reuse. Floats and halves are not affected.
+#
+# Each lane is negated in the unsigned type of its width, so that the negation of MinValue wraps as
+# it does in C# instead of being undefined (for the 8- and 16-bit lanes, which MSL promotes to int,
+# the negation cannot overflow at all and the conversion back truncates).
+PRELUDE_NEGATE = "__ms_neg"
+
 
 @dataclass(frozen=True)
 class IntegerType:
@@ -713,6 +726,10 @@ class IntegerType:
     @property
     def unsigned_scalar(self) -> str:
         return {"sbyte": "byte", "short": "ushort", "int": "uint", "long": "ulong"}.get(self.scalar, self.scalar)
+
+    @property
+    def unsigned_msl(self) -> str:
+        return {"char": "uchar", "short": "ushort", "int": "uint", "long": "ulong"}.get(self.msl, self.msl)
 
 
 BYTE = IntegerType("byte", "uchar", 8, False)
@@ -728,6 +745,28 @@ SMALL_AND_WIDE = (BYTE, SBYTE, SHORT, USHORT, LONG, ULONG)
 
 # Rotates are new for every integer type, int and uint included.
 ROTATE_TYPES = (BYTE, SBYTE, SHORT, USHORT, IntegerType("int", "int", 32, True), IntegerType("uint", "uint", 32, False), LONG, ULONG)
+
+# Every integer type MSL has vectors of. SharpCompute's own vectors are int and uint; a vector of
+# another integer type is one a user declares with [MslType].
+NEGATE_TYPES = (SBYTE, BYTE, SHORT, USHORT, IntegerType("int", "int", 32, True), IntegerType("uint", "uint", 32, False), LONG, ULONG)
+
+
+def negate_msl() -> list[str]:
+    """The prelude's integer vector negations (see PRELUDE_NEGATE): one overload per type and width."""
+    lines = []
+    for t in NEGATE_TYPES:
+        for n in (2, 3, 4):
+            v = f"{t.msl}{n}"
+            if t.signed:
+                lanes = [f"{t.msl}(-{t.unsigned_msl}(x.{c}))" for c in COMPONENTS[:n]]
+            elif t.bits < 32:
+                # `-x.x` on a uchar or ushort is an int: convert it back explicitly.
+                lanes = [f"{t.msl}(-x.{c})" for c in COMPONENTS[:n]]
+            else:
+                lanes = [f"-x.{c}" for c in COMPONENTS[:n]]
+            lines.append(f"inline {v} {PRELUDE_NEGATE}({v} x) {{ return {v}({', '.join(lanes)}); }}")
+    return lines
+
 
 PRELUDE_ATOMICS = tuple(
     (space, t, atomic)
@@ -759,6 +798,7 @@ def prelude_msl() -> list[str]:
         mask = f"{t.bits - 1}u"
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_RIGHT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}((0u - uint(count)) & {mask})); }}")
+    lines.extend(negate_msl())
     for n, packed in PACKED_MATRICES.items():
         msl, column = f"float{n}x{n}", f"float{n}"
         # The boundary form of a matrix: its columns as packed vectors, so the struct has the
@@ -1623,6 +1663,13 @@ def gen_msl_probe() -> str:
             lines.append(f"    acc += float({f.msl}(s{kind.msl}));")
             for n in WIDTHS:
                 lines.append(f"    acc += float({f.msl}(v{kind.msl_vec(n)}).x);")
+    # The negation the generator emits for an integer vector (`-v`), from the native and from the
+    # packed type: one overload per integer type and width must be the best match for both.
+    for t in NEGATE_TYPES:
+        for n in (2, 3, 4):
+            v = f"{t.msl}{n}"
+            lines.append(f"    {v} neg{v} = {v}({t.msl}(tid)); packed_{v} pneg{v} = neg{v};")
+            lines.append(f"    neg{v} = {PRELUDE_NEGATE}(neg{v}); pneg{v} = {PRELUDE_NEGATE}(pneg{v}); acc += float(neg{v}.x) + float(pneg{v}.y);")
     # The bits of a half (Gpu.AsUShort, AsShort, AsHalf and the BitConverter methods they stand for).
     lines.append("    ushort hbits = as_type<ushort>(shalf); short hsigned = as_type<short>(shalf);")
     lines.append("    acc += float(as_type<half>(hbits)) + float(as_type<half>(hsigned));")

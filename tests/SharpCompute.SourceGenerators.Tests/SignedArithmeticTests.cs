@@ -73,7 +73,8 @@ public class SignedArithmeticTests
     [InlineData("ints[2] = ThreadIds.X + 1;", "ints[2] = int(__tid.x + 1u);")]
     [InlineData("ints[2] = (int)uints[0] + a;", "ints[2] = int(uints[0] + uint(a));")]
     [InlineData("vectors[0] = vectors[1] * 3 + new Int3(a);", "vectors[0] = int3(uint3(vectors[1]) * 3u + uint3(int3(a)));")]
-    [InlineData("vectors[0] = -vectors[1];", "vectors[0] = int3(-uint3(vectors[1]));")]
+    // The negation of a vector goes through the prelude instead (see VectorNegationTests).
+    [InlineData("vectors[0] = -vectors[1];", "vectors[0] = __ms_neg(vectors[1]);")]
     public void SignedArithmetic_IsComputedUnsigned_AndConvertedBack(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
 
