@@ -5,9 +5,9 @@ namespace SharpCompute.Tests.EvaluationOrder;
 
 /// <summary>
 /// Expressions with side effects in buffers, <c>[GroupShared]</c> memory and textures that SCG0021
-/// accepts, because the GPU evaluates them as C# does. One thread runs each, so every cell has a
-/// single exact value. The expressions whose order differs (<c>data[0] += Bump(0)</c> and the like)
-/// are build errors, tested in the generator tests.
+/// accepts, because their order is the same in C# and in MSL. One thread runs each, so every cell has
+/// a single exact value. The expressions whose order is open or differs (<c>data[0] += Bump(0)</c>,
+/// <c>data[i] + Bump(i)</c> and the like) are build errors, tested in the generator tests.
 /// </summary>
 [GeneratedComputeShaderDescriptor]
 [ThreadGroupSize(1)]
@@ -41,22 +41,36 @@ public readonly partial struct OrderedResourceEffects(ReadWriteBuffer<int> data,
         return 10;
     }
 
+    /// <summary>Writes the texture through a local of its own.</summary>
+    private int PaintAlias(int x)
+    {
+        ReadWriteTexture2D<Float4> target = image;
+        target[x, 0] = new Float4(60f, 0f, 0f, 0f);
+        return 10;
+    }
+
+    /// <summary>A getter that writes: one evaluation per use, as in C#.</summary>
+    private int Next
+    {
+        get
+        {
+            data[35] += 1;
+            return data[35] - 100;
+        }
+    }
+
     private static int Inc(ReadWriteBuffer<int> buffer, int slot)
     {
         buffer[slot] += 1;
         return 10;
     }
 
-    private static int Pair(int a, int b) => (a * 1000) + b;
-
     public void Execute()
     {
-        // One operand reads what the other (a call) writes: left to right on both sides.
-        result[0] = data[16] + Bump(16);
-        result[1] = Bump(17) + data[17];
-        result[2] = Pair(data[18], Bump(18));
-        result[3] = Pair(Bump(19), data[19]);
-        result[4] = data[20] + Inc(data, 20) + data[20];
+        // A call's effects come after its own arguments; `?:` and `&&` are sequenced.
+        data[16] = Gpu.AtomicAdd(ref data[17], data[18]);
+        result[0] = data[19] > 0 ? Bump(19) : data[19];
+        result[1] = data[20] > 0 && Bump(20) == 10 ? 1 : 0;
 
         // The store comes last in both languages.
         data[0] = Bump(0);
@@ -81,13 +95,21 @@ public readonly partial struct OrderedResourceEffects(ReadWriteBuffer<int> data,
         // [GroupShared] memory.
         tile[0] = data[33];
         tile[1] = 0;
-        result[10] = tile[0] + BumpTile(0) + tile[0];
+        int before = tile[0];
+        result[10] = before + BumpTile(0);
         tile[1] += tile[0];
         result[11] = tile[1];
 
-        // A texture read next to a helper that writes the pixel.
-        result[14] = (int)image[0, 0].X + Paint(0);
+        // Textures, written in helpers, directly and through a local, and read afterwards.
+        float pixel = image[0, 0].X;
+        result[14] = (int)pixel + Paint(0);
         result[15] = (int)image[0, 0].X;
+        ReadWriteTexture2D<Float4> alias = image;
+        data[34] = PaintAlias(1);
+        result[13] = (int)alias[1, 0].X;
+
+        // The target's index is a getter that writes the buffer: evaluated once.
+        data[Next] += 5;
     }
 }
 
@@ -139,18 +161,16 @@ public class EvaluationOrderTests
 
         // And both are what C# says, worked out by hand.
         int[] expectedResult = new int[16];
-        expectedResult[0] = 116 + 10;                // data[16] read before the call
-        expectedResult[1] = 10 + 118;                // data[17] read after it
-        expectedResult[2] = Pair(118, 10);
-        expectedResult[3] = Pair(10, 120);
-        expectedResult[4] = 120 + 10 + 121;
+        expectedResult[0] = 10;                      // data[19] > 0, so Bump(19)
+        expectedResult[1] = 1;
         expectedResult[5] = 127;
         expectedResult[6] = 10;
         expectedResult[7] = 1;
         expectedResult[8] = 10;                      // result[data[30]], data[30] = 8
-        expectedResult[10] = 133 + 10 + 134;
+        expectedResult[10] = 133 + 10;
         expectedResult[11] = 134;
-        expectedResult[12] = 77;                     // the first atomic returned 0
+        expectedResult[12] = 77;                     // the first atomic on counter returned 0
+        expectedResult[13] = 60;
         expectedResult[14] = 7 + 10;
         expectedResult[15] = 50;
         Assert.Equal(expectedResult, result[1]);
@@ -159,9 +179,8 @@ public class EvaluationOrderTests
         expectedData[0] = 10;
         expectedData[1] = 5;
         expectedData[2] = 5;
-        expectedData[16]++;
-        expectedData[17]++;
-        expectedData[18]++;
+        expectedData[16] = 117;                      // what the atomic returned
+        expectedData[17] = 117 + 118;
         expectedData[19]++;
         expectedData[20]++;
         expectedData[24]++;
@@ -170,10 +189,12 @@ public class EvaluationOrderTests
         expectedData[28]++;
         expectedData[29] += 10;
         expectedData[31] = 1 + 132;                  // the second atomic returned 1
+        expectedData[34] = 10;
+        expectedData[35]++;                          // Next ran once: 136, so data[36] += 5
+        expectedData[36] += 5;
         expectedData[47] = 10;                       // Bump(47) wrote 148, then the store
         Assert.Equal(expectedData, data[1]);
+        Assert.Equal(new[] { new Float4(50f, 0f, 0f, 0f), new Float4(60f, 0f, 0f, 0f) }, pixels[1]);
         Assert.Equal(new[] { 6, 41 }, counter[1]);
     }
-
-    private static int Pair(int a, int b) => (a * 1000) + b;
 }

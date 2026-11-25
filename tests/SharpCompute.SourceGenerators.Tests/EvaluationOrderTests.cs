@@ -20,6 +20,7 @@ public class EvaluationOrderTests
             public readonly ReadWriteBuffer<int> counter;
             public readonly ReadWriteBuffer<Cell> cells;
             public readonly ReadWriteTexture2D<Float4> image;
+            public readonly ReadWriteTexture2D<Float4> other;
 
             [GroupShared]
             private static readonly int[] tile = new int[64];
@@ -39,6 +40,12 @@ public class EvaluationOrderTests
             private int Take() => Gpu.AtomicAdd(ref counter[0], 1);
 
             private int Paint(int x) { image[x, 0] = new Float4(1f, 2f, 3f, 4f); return 10; }
+
+            private int PaintAlias(int x) { ReadWriteTexture2D<Float4> t = image; t[x, 0] = new Float4(1f, 2f, 3f, 4f); return 10; }
+
+            private static int PaintP(ReadWriteTexture2D<Float4> t, int x) { t[x, 0] = new Float4(1f, 2f, 3f, 4f); return 10; }
+
+            private int Next { get { data[0] += 1; return data[0]; } }
 
             private static int Inc(ReadWriteBuffer<int> b, int i) { b[i] += 1; return 10; }
 
@@ -121,6 +128,46 @@ public class EvaluationOrderTests
     }
 
     [Theory]
+    // MSL leaves the order of operands and arguments open, so a write in one (directly or in a call)
+    // and a use of the same resource in another is refused, even where Metal's compiler happens to
+    // evaluate them left to right today.
+    [InlineData("result[0] = data[16] + Bump(16);", "Bump(16)", "data")]
+    [InlineData("result[1] = Bump(17) + data[17];", "Bump(17)", "data")]
+    [InlineData("result[2] = Pair(data[18], Bump(18));", "Bump(18)", "data")]
+    [InlineData("result[3] = Pair(Bump(19), data[19]);", "Bump(19)", "data")]
+    [InlineData("result[0] = Bump(0) + Bump(1);", "Bump(0)", "data")]
+    [InlineData("result[0] = Take() + Take();", "Take()", "counter")]
+    [InlineData("result[0] = data[0]++ + Read(data, 0);", "Read(data, 0)", "data")]
+    [InlineData("result[0] = Next + Next;", "Next", "data")]
+    [InlineData("result[0] = Gpu.AtomicAdd(ref counter[0], 1) + counter[1];", "Gpu.AtomicAdd(ref counter[0], 1)", "counter")]
+    [InlineData("result[0] = tile[0] + BumpTile(0);", "BumpTile(0)", "tile")]
+    [InlineData("result[0] = (int)image[0, 0].X + Paint(0);", "Paint(0)", "image")]
+    public void ACallBesideAnOperandThatUsesWhatItWrites_IsSCG0021(string statement, string call, string resource)
+    {
+        Diagnostic diagnostic = RunBody(statement).AssertOnlyDiagnostic("SCG0021", statement.TrimEnd(';'));
+        string message = diagnostic.GetMessage();
+
+        Assert.StartsWith($"'{resource}' is modified and used again within one expression", message);
+        Assert.EndsWith($"The order of operands and arguments is unspecified in MSL: evaluate the call into a local first, as in 'var t = {call};', and use the local in the expression.", message);
+    }
+
+    [Theory]
+    // A texture under a local name is the texture it was initialized from, here and in helpers.
+    [InlineData("ReadWriteTexture2D<Float4> t = image; data[(int)t[0, 0].X] = Paint(0);", "data[(int)t[0, 0].X] = Paint(0)")]
+    [InlineData("ReadWriteTexture2D<Float4> t = image; data[(int)image[0, 0].X] = PaintP(t, 0);", "data[(int)image[0, 0].X] = PaintP(t, 0)")]
+    [InlineData("data[(int)image[0, 0].X] = PaintAlias(0);", "data[(int)image[0, 0].X] = PaintAlias(0)")]
+    [InlineData("ReadWriteTexture2D<Float4> t = image; ReadWriteTexture2D<Float4> u = t; data[(int)u[0, 0].X] = Paint(0);", "data[(int)u[0, 0].X] = Paint(0)")]
+    [InlineData("data[(int)image[0, 0].X] = PaintP(image, 0);", "data[(int)image[0, 0].X] = PaintP(image, 0)")]
+    // Assigned again: it may be any texture of its type.
+    [InlineData("ReadWriteTexture2D<Float4> t = other; if (i > 0) { t = image; } data[(int)t[0, 0].X] = Paint(0);", "data[(int)t[0, 0].X] = Paint(0)")]
+    public void ATextureUnderALocalName_IsTheSameTexture(string statements, string location)
+    {
+        Diagnostic diagnostic = RunBody(statements).AssertOnlyDiagnostic("SCG0021", location);
+
+        Assert.StartsWith("'image' is modified and used again within one expression", diagnostic.GetMessage());
+    }
+
+    [Theory]
     [InlineData("data[0] += Bump(0);", "var t = Bump(0); data[0] += t;")]
     [InlineData("data[data[8]] = Bump(8);", "var t = Bump(8); data[data[8]] = t;")]
     [InlineData("data[24] += data[24] = 5;", "var t = data[24] = 5; data[24] += t;")]
@@ -158,13 +205,15 @@ public class EvaluationOrderTests
     }
 
     [Theory]
-    // The cases that already give the C# result: a call is never interleaved with its siblings, and
-    // Metal evaluates operands and arguments left to right.
-    [InlineData("result[0] = data[16] + Bump(16);")]
-    [InlineData("result[1] = Bump(17) + data[17];")]
-    [InlineData("result[2] = Pair(data[18], Bump(18));")]
-    [InlineData("result[3] = Pair(Bump(19), data[19]);")]
-    [InlineData("result[0] = Bump(0) + Bump(0);")]
+    // A callee's effects come after its own arguments, and `?:`, `&&` and `||` are sequenced.
+    [InlineData("result[0] = Inc(data, data[16]);")]
+    [InlineData("result[0] = data[0] > 0 ? Bump(0) : data[0];")]
+    [InlineData("result[0] = data[0] > 0 && Bump(0) == 10 ? 1 : 0;")]
+    [InlineData("result[0] = Bump(0) == 10 || data[0] > 0 ? 1 : 0;")]
+    // A texture local of another texture, and a getter that writes the buffer it indexes.
+    [InlineData("ReadWriteTexture2D<Float4> t = other; data[(int)t[0, 0].X] = Paint(0);")]
+    [InlineData("data[Next] += 5;")]
+    [InlineData("data[(int)image[0, 0].X] = Bump(0);")]
     // Reads and writes of the target itself.
     [InlineData("data[i] = data[i] + 1;")]
     [InlineData("data[i] += x;")]

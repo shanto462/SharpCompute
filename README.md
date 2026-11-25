@@ -1676,15 +1676,18 @@ so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); da
   `[GroupShared]` array, a buffer or texture parameter of a helper. Reading any element reads it
   and writing any element writes it, whatever the indices: two elements of one resource are taken
   to be possibly the same one. The location of a `Gpu.Atomic*` call is written, and so is a buffer
-  element that a method modifying its struct is called on (`cells[i].Grow()`).
+  element that a method modifying its struct is called on (`cells[i].Grow()`). A texture local is
+  the texture it was initialized from; one that is assigned again may be any texture of its type.
 - **Helpers count at the call**: what a helper reads and writes, and what the helpers it calls do
   (static helpers of any type, struct methods, properties and operators, instance helpers of the
   shader), with the buffers and textures passed as arguments in place of its parameters.
+- **Operands and arguments too**: MSL does not say in which order it evaluates the operands of an
+  operator or the arguments of a call, so `data[i] + Bump(i)`, `Bump(0) + Bump(1)` and
+  `Pair(data[i], Bump(i))` are `SCG0021` as well; evaluate the call into a local first.
 - **Still fine**: `data[i] = data[i] + 1`, `data[i] += x`, `a[i] += b[i]` on two resources,
-  `data[0] = Bump(0)` and `data[i] = data[j] = 0` (the store comes last in both languages), and a
-  call next to a read of what it writes, `data[i] + Bump(i)` or `Pair(data[i], Bump(i))`: a function
-  is never interleaved with the expression around it, and Metal evaluates operands and arguments
-  left to right, as C# does.
+  `data[0] = Bump(0)` and `data[i] = data[j] = 0` (the store comes last in both languages), a
+  call's own arguments (`Gpu.AtomicAdd(ref data[0], data[1])`: the call runs after them), and the
+  branches of `?:`, `&&` and `||`, which are evaluated in order.
 - **Two resources are never compared.** The same buffer bound under two names (captured twice, or
   through overlapping views) is the same memory, which this check cannot see: it is a question of
   how the shader is bound, not of how an expression is written.
