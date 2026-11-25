@@ -35,6 +35,12 @@ internal sealed partial class MslTranslator
             return Expr.Error;
         }
 
+        // `checked(a + b)` throws on the CPU and cannot on the GPU (SCG0052).
+        if (ReportIfChecked(operation))
+        {
+            return Expr.Error;
+        }
+
         if (operation is IDeclarationExpressionOperation { Expression: ILocalReferenceOperation hoisted } &&
             _function.HoistedLocals.Contains(hoisted.Local))
         {
@@ -528,7 +534,7 @@ internal sealed partial class MslTranslator
             }
 
             // `%` on floating-point operands does not compile in MSL.
-            return Call("metal::fmod", left.Text, right.Text);
+            return Call(FloatRemainder(operation.Type), left.Text, right.Text);
         }
 
         if (operation.OperatorKind == BinaryOperatorKind.UnsignedRightShift && leftType is not { IsUnsigned: true })
@@ -550,6 +556,23 @@ internal sealed partial class MslTranslator
         }
 
         return new Expr(BinaryOperand(left, precedence, isRight: false) + " " + text + " " + BinaryOperand(right, precedence, isRight: true), precedence);
+    }
+
+    /// <summary>
+    /// The MSL of a floating-point <c>%</c>: <c>metal::fmod</c>, except for a scalar <c>Half</c>, where
+    /// .NET's operator (which ForCpu runs) gives a zero remainder the sign of the dividend and the
+    /// GPU's half fmod gives <c>+0</c>; the prelude's <c>__ms_half_rem</c> copies the sign back. The
+    /// half vectors' <c>%</c> is <c>Gpu.Fmod</c>'s on the CPU as well, which returns <c>+0</c> like the GPU.
+    /// </summary>
+    private string FloatRemainder(ITypeSymbol? type)
+    {
+        if (_types.Resolve(type) is { Kind: GpuTypeKind.Scalar, MslName: "half" })
+        {
+            UsesPrelude = true;
+            return MslNames.HalfRemainder;
+        }
+
+        return "metal::fmod";
     }
 
     private bool IsFloating(params ITypeSymbol?[] types)
@@ -644,12 +667,39 @@ internal sealed partial class MslTranslator
                 return Unsupported(operation, "'%=' on a floating-point target whose expression has side effects");
             }
 
-            return new Expr(target.Operand(Expr.Unary) + " = metal::fmod(" + target.Text + ", " + value.Text + ")", Expr.Assignment);
+            if (FloatRemainder(operation.Target.Type) != "metal::fmod")
+            {
+                UsesPrelude = true;
+            }
+
+            return new Expr(target.Operand(Expr.Unary) + " = " + FloatRemainder(operation.Target.Type) + "(" + target.Text + ", " + value.Text + ")", Expr.Assignment);
         }
 
         if (operation.OperatorKind == BinaryOperatorKind.UnsignedRightShift && targetType is not { IsUnsigned: true })
         {
-            return Unsupported(operation, "the '>>>=' operator on a signed type");
+            // MSL's >> is arithmetic on a signed type. C# shifts the target as the unsigned type of its
+            // promoted width (int for sbyte and short) and converts back: `t = int(uint(t) >> n)`, which
+            // names the target twice.
+            string? unsigned = targetType is { Kind: GpuTypeKind.Scalar } ? targetType.MslName switch
+            {
+                "int" or "short" or "char" => "uint",
+                "long" => "ulong",
+                _ => null,
+            } : null;
+
+            if (unsigned is null)
+            {
+                return Unsupported(operation, "the '>>>=' operator on this type");
+            }
+
+            if (HasSideEffects(operation.Target))
+            {
+                return Unsupported(operation, "'>>>=' on a signed target whose expression has side effects");
+            }
+
+            string promoted = targetType!.MslName is "short" or "char" ? "int(" + target.Text + ")" : target.Text;
+            string shifted = unsigned + "(" + promoted + ") >> " + BinaryOperand(value, Expr.Shift, isRight: true);
+            return new Expr(target.Operand(Expr.Unary) + " = " + Call(targetType.MslName, shifted).Text, Expr.Assignment);
         }
 
         return new Expr(target.Operand(Expr.Unary) + " " + text + "= " + value.Operand(Expr.Assignment), Expr.Assignment);

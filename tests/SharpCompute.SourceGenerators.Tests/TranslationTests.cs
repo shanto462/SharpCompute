@@ -495,10 +495,10 @@ public class TranslationTests
             int i = int(__tid.x);
             float a = metal::sqrt(x) + metal::abs(x) + metal::sin(x) + metal::cos(x) + metal::tan(x) + metal::exp(x) + metal::log(x) + metal::log2(x) + metal::log10(x);
             float b = metal::pow(x, 2.0f) + metal::atan2(x, 1.0f) + metal::floor(x) + metal::ceil(x) + metal::trunc(x) + metal::rint(x);
-            float c = metal::min(x, 1.0f) + metal::max(x, 0.0f) + metal::clamp(x, 0.0f, 1.0f) + metal::fma(x, x, x) + metal::copysign(x, -1.0f);
-            int d = int(uint(int(metal::sign(x))) + uint(int(metal::abs(i))) + uint(metal::min(i, 3)) + uint(metal::max(i, 0)) + uint(metal::clamp(i, 0, 9)));
+            float c = __ms_math_min(x, 1.0f) + __ms_math_max(x, 0.0f) + __ms_math_clamp(x, 0.0f, 1.0f) + metal::fma(x, x, x) + metal::copysign(x, -1.0f);
+            int d = int(uint(int(metal::sign(x))) + uint(int(metal::abs(i))) + uint(metal::min(i, 3)) + uint(metal::max(i, 0)) + uint(__ms_math_clamp(i, 0, 9)));
             bool e = metal::isnan(x) || metal::isinf(x) || !metal::isfinite(x);
-            buffer[0] = a + b + c + float(d) + float(e ? 1 : 0) + metal::mix(x, 1.0f, 0.5f);
+            buffer[0] = a + b + c + float(d) + float(e ? 1 : 0) + __ms_number_lerp(x, 1.0f, 0.5f);
             """,
             """
             float x = buffer[0];
@@ -510,6 +510,61 @@ public class TranslationTests
             bool e = float.IsNaN(x) || float.IsInfinity(x) || !float.IsFinite(x);
             buffer[0] = a + b + c + d + (e ? 1 : 0) + float.Lerp(x, 1, 0.5f);
             """);
+    }
+
+    [Fact]
+    public void MathMinMaxAndClamp_HaveDotNetSemantics_WhileGpuMinMaxAndClampStayMetal()
+    {
+        // System.Math / MathF follow .NET (NaN propagates, -0 < +0, Clamp defined for inverted bounds),
+        // through prelude helpers; Gpu.* is the fmin/fmax form. Integer Min and Max are the same in both.
+        AssertKernel(
+            """
+            float x = buffer[0];
+            int i = int(__tid.x);
+            float a = __ms_math_max(x, 1.0f) + __ms_math_min(x, -1.0f) + __ms_math_clamp(x, 0.0f, 0.5f) + __ms_math_max(x, 2.0f) + __ms_number_clamp(x, -1.0f, 1.0f);
+            float b = metal::max(x, 1.0f) + metal::min(x, -1.0f) + metal::clamp(x, 0.0f, 0.5f);
+            int c = int(uint(metal::max(i, 3)) + uint(__ms_math_clamp(i, 9, 0)) + uint(metal::clamp(i, 0, 9)));
+            buffer[0] = a + b + float(c);
+            """,
+            """
+            float x = buffer[0];
+            int i = ThreadIds.X;
+            float a = MathF.Max(x, 1) + MathF.Min(x, -1) + Math.Clamp(x, 0f, 0.5f) + float.Max(x, 2) + float.Clamp(x, -1, 1);
+            float b = Gpu.Max(x, 1) + Gpu.Min(x, -1) + Gpu.Clamp(x, 0, 0.5f);
+            int c = Math.Max(i, 3) + Math.Clamp(i, 9, 0) + Gpu.Clamp(i, 0, 9);
+            buffer[0] = a + b + c;
+            """);
+    }
+
+    [Fact]
+    public void ScalarHalfRemainder_KeepsTheSignOfTheDividendForAZeroResult()
+    {
+        // .NET's Half % gives -0 for -x % x; the GPU's half fmod gives +0. Float and half vectors keep metal::fmod.
+        string kernel = Kernel("Half h = (Half)buffer[0]; Half r = h % (Half)3; r %= h; Half3 v = new Half3(h) % new Half3(r); buffer[0] = (float)r + buffer[0] % 2f + (float)v.X;");
+
+        Assert.Contains("half r = __ms_half_rem(h, half(3));", kernel);
+        Assert.Contains("r = __ms_half_rem(r, h);", kernel);
+        Assert.Contains("metal::fmod(half3(h), half3(r))", kernel);
+        Assert.Contains("metal::fmod(buffer[0], 2.0f)", kernel);
+    }
+
+    [Fact]
+    public void MathMinMaxAndClamp_InProgramScopeConstants_FoldWithDotNetSemantics()
+    {
+        ShaderDescriptor descriptor = GeneratorHarness.Run(TestSources.Vectors, TestSources.Body(
+            "buffer[0] = Low + High + Clamped + Swapped + Fast;",
+            """
+                private static readonly float Low = MathF.Min(-0f, Gpu.Abs(-0f));
+                private static readonly float High = MathF.Max(-0f, Gpu.Abs(-0f));
+                private static readonly float Clamped = Math.Clamp(Gpu.Sqrt(4f), 0f, 1.5f);
+                private static readonly int Swapped = Math.Clamp(Gpu.Abs(-7), 9, 0);
+                private static readonly float Fast = Gpu.Max(-0f, Gpu.Abs(-0f));
+            """)).Verify(Shader);
+
+        Assert.Contains("Low = -0.0f;", descriptor.MslSource);
+        Assert.Contains("High = 0.0f;", descriptor.MslSource);
+        Assert.Contains("Clamped = 1.5f;", descriptor.MslSource);
+        Assert.Contains("Swapped = 9;", descriptor.MslSource);
     }
 
     [Fact]

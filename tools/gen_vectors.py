@@ -695,6 +695,29 @@ PRELUDE_ATOMIC_FLOAT_ADD = "__ms_atomic_fetch_add_float"
 # what `long(NaN)` gives. 9223372036854775808.0f is 2^63, exactly representable as a float.
 PRELUDE_FLOAT_TO_LONG = "__ms_float_to_long"
 
+# The .NET semantics of System.Math / MathF Min, Max and Clamp, which ForCpu runs. metal::min, max and
+# clamp are fmin/fmax: a NaN operand yields the other one (max(NaN, 1) is 1, clamp(NaN, 0, 0.5) is 0),
+# where .NET returns NaN, and they leave the zero of min(-0, +0) open. These are .NET's definitions
+# written out: Min and Max propagate NaN (the first operand when it is the NaN) and order -0 below +0
+# (IEEE 754-2019 minimum and maximum); Clamp is `x < lo ? lo : x > hi ? hi : x`, so a NaN x stays NaN
+# and inverted bounds, where .NET throws ArgumentException, give lo below lo and hi otherwise.
+# Gpu.Min, Max and Clamp keep the fmin/fmax semantics, which cost no selects.
+PRELUDE_MATH_MIN = "__ms_math_min"
+PRELUDE_MATH_MAX = "__ms_math_max"
+PRELUDE_MATH_CLAMP = "__ms_math_clamp"
+# float.Clamp is Min(Max(x, lo), hi) with those NaN-propagating Min and Max in .NET, so a NaN bound
+# gives NaN, where Math.Clamp's comparisons ignore it.
+PRELUDE_NUMBER_CLAMP = "__ms_number_clamp"
+# The % of two scalar halves. .NET's operator gives a zero remainder the sign of the dividend, as
+# IEEE fmod does; an Apple GPU's half fmod gives +0. A nonzero remainder already has that sign.
+PRELUDE_HALF_REM = "__ms_half_rem"
+# float.Lerp is .NET's MultiplyAddEstimate(a, 1 - t, b * t), one fused multiply-add on Apple silicon;
+# metal::mix is a + (b - a) * t, which rounds differently and overflows for other operands.
+PRELUDE_NUMBER_LERP = "__ms_number_lerp"
+# MathF.ILogB: .NET returns int.MaxValue for NaN, metal::ilogb returns int.MinValue.
+PRELUDE_ILOGB = "__ms_ilogb"
+PRELUDE_MATH_CLAMP_TYPES = ("float", "uchar", "char", "short", "ushort", "int", "uint", "long", "ulong")
+
 # Rotates behind Gpu.RotateLeft / Gpu.RotateRight. C# takes the count as an int and reduces it modulo
 # the width; metal::rotate takes it in the type of the value. The mask makes the reduction explicit,
 # and a right rotate is a left rotate by the negated count (negated as unsigned: -int.MinValue
@@ -755,6 +778,18 @@ def prelude_msl() -> list[str]:
     lines.append(
         f"inline long {PRELUDE_FLOAT_TO_LONG}(float x) "
         "{ return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }")
+    lines.append(
+        f"inline float {PRELUDE_MATH_MIN}(float x, float y) "
+        "{ return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }")
+    lines.append(
+        f"inline float {PRELUDE_MATH_MAX}(float x, float y) "
+        "{ return x != y ? (metal::isnan(x) ? x : (y < x ? x : y)) : (metal::signbit(y) ? x : y); }")
+    for t in PRELUDE_MATH_CLAMP_TYPES:
+        lines.append(f"inline {t} {PRELUDE_MATH_CLAMP}({t} x, {t} lo, {t} hi) {{ return x < lo ? lo : (x > hi ? hi : x); }}")
+    lines.append(f"inline float {PRELUDE_NUMBER_CLAMP}(float x, float lo, float hi) {{ return {PRELUDE_MATH_MIN}({PRELUDE_MATH_MAX}(x, lo), hi); }}")
+    lines.append(f"inline half {PRELUDE_HALF_REM}(half x, half y) {{ return metal::copysign(metal::fmod(x, y), x); }}")
+    lines.append(f"inline float {PRELUDE_NUMBER_LERP}(float a, float b, float t) {{ return metal::fma(a, 1.0f - t, b * t); }}")
+    lines.append(f"inline int {PRELUDE_ILOGB}(float x) {{ return metal::isnan(x) ? 2147483647 : metal::ilogb(x); }}")
     for t in ROTATE_TYPES:
         mask = f"{t.bits - 1}u"
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")

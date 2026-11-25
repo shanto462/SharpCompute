@@ -387,6 +387,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor CheckedArithmetic = new(
+        id: "SCG0052",
+        title: "Checked arithmetic in a shader",
+        messageFormat: "'{0}' is checked arithmetic: in C#, and in ForCpu, it throws OverflowException on overflow, but the GPU cannot throw and would wrap or saturate silently. Write it unchecked, as 'unchecked({0})' or inside 'unchecked {{ }}', which wraps on both, or test the operands before the operation{1}.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",

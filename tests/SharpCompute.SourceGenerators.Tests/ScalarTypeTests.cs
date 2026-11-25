@@ -1092,7 +1092,7 @@ public class ScalarTypeTests
             ulong u = ulongs[0];
             ints[0] = int(uint(int(metal::popcount(u))) + uint(int(metal::clz(u))) + uint(int(metal::ctz(u))) + uint(int(metal::ctz(a))));
             ulongs[1] = metal::rotate(u, ulong(uint(n) & 63u)) ^ metal::rotate(u, ulong((0u - uint(int(uint(n) + 1u))) & 63u));
-            longs[2] = long(ulong(metal::min(a, b)) + ulong(metal::max(a, b)) + ulong(metal::clamp(a, -10L, 10L)) + ulong(long(metal::abs(b))));
+            longs[2] = long(ulong(metal::min(a, b)) + ulong(metal::max(a, b)) + ulong(__ms_math_clamp(a, -10L, 10L)) + ulong(long(metal::abs(b))));
             bytes[0] = metal::max(bytes[1], bytes[2]);
             shorts[0] = short(metal::abs(shorts[1]));
             """,
@@ -1223,9 +1223,19 @@ public class ScalarTypeTests
         Assert.Contains(reason, run.AssertOnlyDiagnostic("SCG0006", $"ReadWriteBuffer<{type}>").GetMessage());
     }
 
-    [Fact]
-    public void UnsignedShiftAssignment_OnASigned64BitTarget_IsStillUnsupported()
+    [Theory]
+    [InlineData("long a = longs[0]; a >>>= n; longs[1] = a;", "a = long(ulong(a) >> n);")]
+    [InlineData("int a = (int)longs[0]; a >>>= n; longs[1] = a;", "a = int(uint(a) >> n);")]
+    [InlineData("short a = shorts[0]; a >>>= n; shorts[1] = a;", "a = short(uint(int(a)) >> n);")]
+    public void UnsignedShiftAssignment_OnASignedTarget_ShiftsTheUnsignedTypeOfItsPromotedWidth(string body, string expected)
     {
-        RunBody("long a = longs[0]; a >>>= 3; longs[1] = a;").AssertOnlyDiagnostic("SCG0012", "a >>>= 3");
+        // MSL's >> is arithmetic on a signed type; C# shifts the (promoted) bits as unsigned.
+        Assert.Contains(expected, RunBody("int n = ThreadIds.X; " + body).Verify(Shader).KernelBody);
+    }
+
+    [Fact]
+    public void UnsignedShiftAssignment_OnASignedTargetWithSideEffects_IsUnsupported()
+    {
+        RunBody("int k = ThreadIds.X; longs[k++] >>>= 3;").AssertOnlyDiagnostic("SCG0012", "longs[k++] >>>= 3");
     }
 }
