@@ -70,7 +70,8 @@ public sealed unsafe partial class GraphicsDevice
     /// of the threadgroup size: the CPU runs the leading part with <see cref="ForCpu{T}(int, int, int, in T)"/>'s
     /// machinery while the GPU runs the rest. Both parts see the whole grid: <see cref="ThreadIds"/>,
     /// <see cref="DispatchSize"/>, <see cref="ThreadIds.Normalized"/>, <see cref="GroupIds"/> and
-    /// <see cref="ThreadGroupIds"/> have the values they would have in one GPU dispatch of the grid. The
+    /// <see cref="ThreadGroupIds"/>, <see cref="GroupSize"/> and <see cref="ThreadGroupCount"/> have the
+    /// values they would have in one GPU dispatch of the grid. The
     /// GPU part runs a specialization of the kernel that reads its offset in the grid from a hidden
     /// argument; it is compiled on the first split dispatch of <typeparamref name="T"/>, and normal
     /// dispatches do not pay for it.
@@ -81,6 +82,10 @@ public sealed unsafe partial class GraphicsDevice
     /// The two parts share memory with no ordering between them, so a shader that scatters writes, that
     /// accumulates into a shared element (e.g. a histogram with <c>+=</c>) or that reads what other
     /// threads write is not safe to split, even if it happens to work as one GPU dispatch.
+    /// A shader that uses threadgroup memory or barriers can be split when each threadgroup writes
+    /// only its own outputs: threadgroups are never divided between the two devices, and the CPU runs
+    /// its part with the group executor described for <see cref="ForCpu{T}(int, int, int, in T)"/>,
+    /// which is far slower per thread than the GPU, so give it a small explicit share.
     /// </para>
     /// <para>
     /// <b>Shaders that use atomics are never divided.</b> <c>Gpu.Atomic*</c> makes a shared element safe
@@ -290,7 +295,7 @@ public sealed unsafe partial class GraphicsDevice
         if (gpuExtent == 0)
         {
             long start = Stopwatch.GetTimestamp();
-            CpuDispatcher.Run(cpuKernel, grid.X, grid.Y, grid.Z, groupSize, default, cpuCount);
+            RunCpu<T, TKernel>(cpuKernel, grid, groupSize, cpuCount);
             cpuSeconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
         }
         else
@@ -315,7 +320,7 @@ public sealed unsafe partial class GraphicsDevice
                 {
                     long start = Stopwatch.GetTimestamp();
                     commitTime = HostSeconds(start);
-                    CpuDispatcher.Run(cpuKernel, grid.X, grid.Y, grid.Z, groupSize, default, cpuCount);
+                    RunCpu<T, TKernel>(cpuKernel, grid, groupSize, cpuCount);
                     cpuSeconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
                 };
             }

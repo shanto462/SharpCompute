@@ -20,6 +20,7 @@ internal static class Selectors
     // MTLDevice
     public static readonly nint Name = ObjC.GetSelector("name");
     public static readonly nint MaxBufferLength = ObjC.GetSelector("maxBufferLength");
+    public static readonly nint MaxThreadgroupMemoryLength = ObjC.GetSelector("maxThreadgroupMemoryLength");
     public static readonly nint NewCommandQueue = ObjC.GetSelector("newCommandQueue");
     public static readonly nint NewBufferWithLengthOptions = ObjC.GetSelector("newBufferWithLength:options:");
     public static readonly nint NewBufferWithBytesLengthOptions = ObjC.GetSelector("newBufferWithBytes:length:options:");

@@ -18,6 +18,40 @@ public sealed class ThreadGroupSizeAttribute(int x, int y = 1, int z = 1) : Attr
 }
 
 /// <summary>
+/// Marks a <c>static readonly</c> array field of a shader struct as threadgroup shared memory: one
+/// array per threadgroup, read and written by every thread of the group (HLSL's <c>groupshared</c>,
+/// <c>threadgroup T name[N];</c> in the generated MSL).
+/// </summary>
+/// <remarks>
+/// <para>
+/// Declare it as <c>[GroupShared] private static readonly float[] tile = new float[256];</c> in the
+/// shader struct that uses it. The element type is anything a buffer can hold (scalars, packed vectors,
+/// user structs) and the length must be a compile-time constant. In <c>Execute</c> and its helpers only
+/// the elements (<c>tile[i]</c>) and <c>tile.Length</c> can be used. All the group-shared arrays a
+/// shader uses may total at most 32,768 bytes, the threadgroup memory of an Apple GPU.
+/// </para>
+/// <para>
+/// Give the shader an explicit <see cref="ThreadGroupSizeAttribute"/>: an array is sized for the
+/// threads that share it, and without the attribute the runtime picks the threadgroup size per
+/// dispatch (256, 16 × 16 or 8 × 8 × 4 by rank, smaller if the kernel does not allow that many).
+/// </para>
+/// <para>
+/// <b>The contents are undefined when a threadgroup starts</b>, on the GPU (Metal does not clear
+/// threadgroup memory) and on the CPU (where a group sees what the previous group left behind): a
+/// thread may only read elements that a thread of its own group has written, with a barrier
+/// (<see cref="Gpu.GroupMemoryBarrierWithGroupSync"/>) between the write and the read.
+/// </para>
+/// <para>
+/// On the CPU (<c>GraphicsDevice.ForCpu</c>, <c>ForSplit</c>) the field is the storage itself: the
+/// threads of one threadgroup run concurrently on dedicated threads and the groups run one after
+/// another, so the one static array serves each group in turn. Do not touch the array from outside
+/// the shader, and do not share one array between two shader structs.
+/// </para>
+/// </remarks>
+[AttributeUsage(AttributeTargets.Field, AllowMultiple = false, Inherited = false)]
+public sealed class GroupSharedAttribute : Attribute;
+
+/// <summary>
 /// Maps a C# vector struct to an MSL type. <see cref="Packed"/> is used wherever the value crosses
 /// the CPU/GPU boundary (buffer elements, constants, struct fields). Properties map to lowercase
 /// swizzles, constructors to <c>name(...)</c>, operators to native MSL operators.

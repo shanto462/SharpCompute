@@ -49,6 +49,23 @@ public interface IComputeShaderDescriptor<TSelf>
     static virtual bool UsesAtomics => false;
 
     /// <summary>
+    /// True when the kernel declares threadgroup memory (<see cref="GroupSharedAttribute"/>) or calls a
+    /// threadgroup barrier (<see cref="Gpu.GroupMemoryBarrierWithGroupSync"/> and its siblings). The
+    /// threads of a threadgroup of such a shader cooperate, so the CPU (<c>GraphicsDevice.ForCpu</c>,
+    /// <c>ForSplit</c>) runs each group's threads concurrently on dedicated threads, one group after
+    /// another, instead of spreading independent threads over the thread pool. False, the default,
+    /// for hand-written descriptors and for generated shaders that use neither.
+    /// </summary>
+    static virtual bool UsesThreadgroupMemory => false;
+
+    /// <summary>
+    /// The bytes of threadgroup memory the kernel declares (the total of its <see cref="GroupSharedAttribute"/>
+    /// arrays), which a dispatch checks against the device's <c>maxThreadgroupMemoryLength</c> before the
+    /// kernel is compiled. 0, the default, when it declares none.
+    /// </summary>
+    static virtual int ThreadgroupMemoryLength => 0;
+
+    /// <summary>
     /// Binds the shader's captured state. The binding order is generator-internal; the runtime
     /// assumes nothing beyond the writer calls made here.
     /// </summary>

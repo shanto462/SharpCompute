@@ -181,6 +181,11 @@ internal sealed partial class MslTranslator
         {
             _ when IsThreadLocal(target) => "it is a local, which is private to one GPU thread and never shared",
             IFieldReferenceOperation field when IsBufferElementField(field) => "it is a field of a struct element, and only whole elements can be atomic; keep the value in its own buffer of int or uint",
+
+            // TODO: atomics on threadgroup memory. An int, uint or float element of a [GroupShared]
+            // array could be returned above as an AtomicLocation in the "threadgroup" address space.
+            IArrayElementReferenceOperation array when GroupSharedReference(array.ArrayReference) is not null =>
+                "it is an element of a [GroupShared] array, and atomics on threadgroup memory are not supported yet; within a group, share it across a barrier instead",
             IFieldReferenceOperation { Instance: IInstanceReferenceOperation } or IParameterReferenceOperation => "captured shader state is read-only on the GPU",
             _ => "it is not an element of a buffer",
         };
