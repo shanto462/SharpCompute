@@ -112,7 +112,18 @@ internal sealed partial class MslTranslator
 
         if (operation.Instance is null)
         {
+            if (TypeResolver.IsSharpComputeType(property.ContainingType, "Sampler"))
+            {
+                _diagnostics.Report(DiagnosticDescriptors.InvalidSampler, location, $"'{operation.Syntax}' is used outside a Sample call");
+                return Expr.Error;
+            }
+
             return UnsupportedMember(operation, property, "static properties are not available on the GPU");
+        }
+
+        if (TypeResolver.IsTextureType(WithoutImplicitConversions(operation.Instance)?.Type, out _))
+        {
+            return TextureProperty(operation);
         }
 
         ITypeSymbol? instanceSymbol = operation.Instance.Type;
@@ -352,6 +363,12 @@ internal sealed partial class MslTranslator
         IMethodSymbol definition = (method.ReducedFrom ?? method).OriginalDefinition;
         Location location = operation.Syntax.GetLocation();
 
+        // Members of textures (Sample) are recognized by name, like the indexers and Width/Height.
+        if (TypeResolver.IsSharpComputeType(definition.ContainingType, "Texture2D", "ReadOnlyTexture2D", "ReadWriteTexture2D"))
+        {
+            return TextureCall(operation);
+        }
+
         // 0. [MslBinaryOperator("*", SwapOperands = true)] makes a call an operator: `(a0 op a1)` / `(a1 op a0)`.
         if (TypeResolver.FindAttribute(definition, "MslBinaryOperatorAttribute") is { } binaryOperator)
         {
@@ -460,6 +477,171 @@ internal sealed partial class MslTranslator
         }
 
         return UnsupportedCall(operation, "it is not an [MslIntrinsic] method, a supported System.Math/MathF method, or a method of the shader struct");
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Textures: texture2d<float, access::sample> (ReadOnlyTexture2D) and
+    // texture2d<float, access::read_write> (ReadWriteTexture2D)
+    // ---------------------------------------------------------------------------------------------
+
+    private const string TextureMembers = "only the indexers, 'Width', 'Height' and 'Sample' of a texture can be used in a shader";
+
+    /// <summary>The receiver of a member access without the reference conversions to a base class.</summary>
+    private static IOperation? WithoutImplicitConversions(IOperation? operation)
+    {
+        while (operation is IConversionOperation { IsImplicit: true } conversion)
+        {
+            operation = conversion.Operand;
+        }
+
+        return operation;
+    }
+
+    /// <summary>The indexer access when <paramref name="operation"/> is a pixel of a texture (<c>texture[x, y]</c>), otherwise null.</summary>
+    private static IPropertyReferenceOperation? TextureElement(IOperation operation) =>
+        operation is IPropertyReferenceOperation { Property.IsIndexer: true } pixel && TypeResolver.IsTextureType(WithoutImplicitConversions(pixel.Instance)?.Type, out _)
+            ? pixel
+            : null;
+
+    /// <summary>The MSL expression of the texture a member is accessed on.</summary>
+    private string TextureInstance(IOperation? instance) => Expression(WithoutImplicitConversions(instance)!).Operand(Expr.Primary);
+
+    /// <summary><c>uint2(x, y)</c> for the <c>(int x, int y)</c> indexer, <c>uint2(xy)</c> for the <c>Int2</c> one.</summary>
+    private string TextureCoordinates(IPropertyReferenceOperation pixel) =>
+        "uint2(" + string.Join(", ", Arguments(pixel.Arguments, method: null, out _)) + ")";
+
+    /// <summary>Reads of a texture's members: a pixel (<c>read</c>), <c>Width</c> and <c>Height</c>.</summary>
+    private Expr TextureProperty(IPropertyReferenceOperation operation)
+    {
+        IPropertySymbol property = operation.Property;
+
+        if (property.IsIndexer)
+        {
+            return ResolveType(property.Type, operation.Syntax.GetLocation()) is null
+                ? Expr.Error
+                : Call(TextureInstance(operation.Instance) + ".read", TextureCoordinates(operation));
+        }
+
+        if (property.Name is "Width" or "Height")
+        {
+            // get_width() returns a uint; the C# property is an int.
+            return Call("int", TextureInstance(operation.Instance) + (property.Name == "Width" ? ".get_width()" : ".get_height()"));
+        }
+
+        return UnsupportedMember(operation, property, TextureMembers);
+    }
+
+    /// <summary>
+    /// <c>texture[x, y] = value</c> → <c>texture.write(value, uint2(x, y))</c>. <c>write</c> returns
+    /// nothing, so the assignment has to be a statement of its own.
+    /// </summary>
+    private Expr TextureWrite(ISimpleAssignmentOperation operation, IPropertyReferenceOperation pixel)
+    {
+        if (operation.Parent is not IExpressionStatementOperation)
+        {
+            return Unsupported(operation, "a texture write used as a value (assign the pixel in a statement of its own)");
+        }
+
+        string texture = TextureInstance(pixel.Instance);
+        string coordinates = TextureCoordinates(pixel);
+
+        return Call(texture + ".write", Expression(operation.Value).Text, coordinates);
+    }
+
+    /// <summary><c>texture[x, y] += value</c>, <c>texture[x, y]++</c>: a read and a write, which have no single MSL form.</summary>
+    private Expr TextureElementModifiedInPlace(IOperation operation)
+    {
+        if (ContainsInvalid(operation))
+        {
+            SawInvalidCode = true;
+            return Expr.Error;
+        }
+
+        _diagnostics.Report(DiagnosticDescriptors.TextureElementModifiedInPlace, operation.Syntax.GetLocation(), operation.Syntax.ToString());
+        return Expr.Error;
+    }
+
+    /// <summary>Calls of a texture's methods: <c>Sample</c>; everything else is CPU-only.</summary>
+    private Expr TextureCall(IInvocationOperation operation)
+    {
+        IMethodSymbol method = operation.TargetMethod;
+
+        if (method.Name == "AsReadOnly")
+        {
+            _diagnostics.Report(DiagnosticDescriptors.ReadWriteTextureCannotBeSampled, operation.Syntax.GetLocation(), MemberName(method));
+            return Expr.Error;
+        }
+
+        if (method.Name != "Sample" || operation.Instance is null || operation.Arguments.Length != 2)
+        {
+            return UnsupportedCall(operation, TextureMembers);
+        }
+
+        if (_function.IsGlobalInitializer)
+        {
+            return NotConstant(operation, "a texture can only be sampled while the shader runs");
+        }
+
+        if (ResolveType(method.ReturnType, operation.Syntax.GetLocation()) is null)
+        {
+            return Expr.Error;
+        }
+
+        IOperation? sampler = null;
+        IOperation? coordinates = null;
+
+        foreach (IArgumentOperation argument in operation.Arguments)
+        {
+            if (argument.Parameter?.Ordinal == 0)
+            {
+                sampler = argument.Value;
+            }
+            else
+            {
+                coordinates = argument.Value;
+            }
+        }
+
+        if (sampler is null || coordinates is null)
+        {
+            return UnsupportedCall(operation, TextureMembers);
+        }
+
+        string texture = TextureInstance(operation.Instance);
+        string? samplerName = SamplerReference(sampler);
+        string uv = Expression(coordinates).Text;
+
+        // `metal::level`: a local called `level` would otherwise hide the level-of-detail type. The
+        // textures have one mip level, and a compute kernel has no derivatives to choose one from.
+        return samplerName is null ? Expr.Error : Call(texture + ".sample", samplerName, uv, "metal::level(0)");
+    }
+
+    /// <summary>
+    /// The program-scope sampler for a <c>Sampler.X</c> argument, or null (after reporting SCG0030) when
+    /// the argument is anything else: a sampler is part of the compiled shader, not a run-time value.
+    /// </summary>
+    private string? SamplerReference(IOperation argument)
+    {
+        IOperation value = WithoutImplicitConversions(argument)!;
+
+        if (value is IPropertyReferenceOperation { Instance: null, Property: { IsStatic: true } property } &&
+            TypeResolver.IsSharpComputeType(property.ContainingType, "Sampler") &&
+            SamplerInfo.IndexOf(property.Name) is >= 0 and int index)
+        {
+            _samplersUsed[index] = true;
+            return SamplerInfo.Name(index);
+        }
+
+        if (ContainsInvalid(value))
+        {
+            SawInvalidCode = true;
+        }
+        else if (!ReferencesFailedSymbol(value))
+        {
+            _diagnostics.Report(DiagnosticDescriptors.InvalidSampler, value.Syntax.GetLocation(), $"'{value.Syntax}' is not a static property of Sampler");
+        }
+
+        return null;
     }
 
     /// <summary>

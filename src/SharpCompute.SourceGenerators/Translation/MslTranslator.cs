@@ -80,10 +80,12 @@ internal sealed class Capture
 
     public GpuType Type { get; }
 
-    /// <summary>The kernel parameter name (buffers) or the member name inside <c>__Constants</c>.</summary>
+    /// <summary>The kernel parameter name (buffers and textures) or the member name inside <c>__Constants</c>.</summary>
     public string MslName { get; }
 
     public bool IsBuffer => Type.Kind == GpuTypeKind.Buffer;
+
+    public bool IsTexture => Type.Kind == GpuTypeKind.Texture;
 
     public bool IsParameter => Symbol is IParameterSymbol;
 
@@ -100,18 +102,22 @@ internal sealed class CaptureSet
 
     public List<Capture> All { get; } = new();
 
+    /// <summary>The names of the captured buffers and textures: kernel parameters, which locals must not shadow.</summary>
     public HashSet<string> BufferNames { get; } = new(StringComparer.Ordinal);
 
     public IEnumerable<Capture> Buffers => All.Where(static c => c.IsBuffer);
 
-    public IEnumerable<Capture> Constants => All.Where(static c => !c.IsBuffer);
+    public IEnumerable<Capture> Textures => All.Where(static c => c.IsTexture);
+
+    /// <summary>The captures stored in the constants block: everything that is not bound on its own.</summary>
+    public IEnumerable<Capture> Constants => All.Where(static c => !c.Type.IsResource);
 
     public void Add(Capture capture)
     {
         All.Add(capture);
         _bySymbol[capture.Symbol] = capture;
 
-        if (capture.IsBuffer)
+        if (capture.Type.IsResource)
         {
             BufferNames.Add(capture.MslName);
         }
@@ -148,8 +154,8 @@ internal sealed class HelperFunction
 }
 
 /// <summary>
-/// The kernel parameters a function reads besides its own parameters: captured buffers, the
-/// constants block, and built-ins. A helper receives them as trailing hidden parameters with the
+/// The kernel parameters a function reads besides its own parameters: captured buffers and textures
+/// (both in <see cref="Buffers"/>), the constants block, and built-ins. A helper receives them as trailing hidden parameters with the
 /// kernel's names, in this order, so callers forward them unchanged.
 /// </summary>
 internal sealed class HiddenInputs
@@ -226,6 +232,31 @@ internal sealed class HiddenInputs
     }
 }
 
+/// <summary>
+/// The six samplers of <c>SharpCompute.Sampler</c>. Each one a shader uses becomes a program-scope
+/// <c>constexpr sampler</c>, so nothing is allocated or bound at run time.
+/// </summary>
+internal static class SamplerInfo
+{
+    /// <summary>The static properties of <c>Sampler</c>; the index identifies a sampler.</summary>
+    private static readonly string[] Properties = { "PointClamp", "PointRepeat", "PointMirror", "LinearClamp", "LinearRepeat", "LinearMirror" };
+
+    private static readonly string[] Addresses = { "clamp", "repeat", "mirror" };
+
+    private static readonly string[] MslAddresses = { "clamp_to_edge", "repeat", "mirrored_repeat" };
+
+    public static int Count => Properties.Length;
+
+    /// <summary>The index of the <c>Sampler</c> property called <paramref name="property"/>, or -1.</summary>
+    public static int IndexOf(string property) => Array.IndexOf(Properties, property);
+
+    public static string Name(int index) =>
+        MslNames.SamplerPrefix + (index < 3 ? "point" : "linear") + "_" + Addresses[index % 3];
+
+    public static string Declaration(int index) =>
+        $"constexpr sampler {Name(index)}(coord::normalized, filter::{(index < 3 ? "nearest" : "linear")}, address::{MslAddresses[index % 3]});";
+}
+
 /// <summary>A <c>static readonly</c> or <c>const</c> field lowered to an MSL program-scope constant.</summary>
 internal sealed class GlobalConstant
 {
@@ -267,6 +298,7 @@ internal sealed partial class MslTranslator
     private readonly Dictionary<IFieldSymbol, GlobalConstant?> _globals = new(SymbolEqualityComparer.Default);
     private readonly List<GlobalConstant> _globalOrder = new();
     private readonly List<IFieldSymbol> _globalsInProgress = new();
+    private readonly bool[] _samplersUsed = new bool[SamplerInfo.Count];
     private FunctionContext _function = new(FunctionKind.Kernel);
 
     public MslTranslator(
@@ -297,6 +329,10 @@ internal sealed partial class MslTranslator
 
     /// <summary>Program-scope constants used by the shader, dependencies first.</summary>
     public IReadOnlyList<GlobalConstant> Globals => _globalOrder;
+
+    /// <summary>The declarations of the samplers the shader uses, in the order of <c>Sampler</c>'s properties.</summary>
+    public IReadOnlyList<string> Samplers =>
+        Enumerable.Range(0, SamplerInfo.Count).Where(i => _samplersUsed[i]).Select(SamplerInfo.Declaration).ToList();
 
     /// <summary>True when a <c>__ms_*</c> prelude helper is called, so the MSL needs <c>MslPrelude.Source</c>.</summary>
     public bool UsesPrelude { get; private set; }
@@ -445,11 +481,15 @@ internal sealed partial class MslTranslator
 
         GpuType? returnType = _types.Resolve(method.ReturnType, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
 
-        if (returnType is null || returnType.Kind == GpuTypeKind.Buffer)
+        if (returnType is null || returnType.IsResource)
         {
-            if (returnType is not null)
+            if (returnType is { Kind: GpuTypeKind.Buffer })
             {
                 _diagnostics.Report(DiagnosticDescriptors.UnsupportedSyntax, returnTypeSyntax?.GetLocation() ?? fallback, "a helper method that returns a buffer");
+            }
+            else if (returnType is not null)
+            {
+                _diagnostics.Report(DiagnosticDescriptors.InvalidTextureHelperSignature, returnTypeSyntax?.GetLocation() ?? fallback, method.Name, "returns a texture");
             }
 
             failed = true;
@@ -494,6 +534,18 @@ internal sealed partial class MslTranslator
                 if (parameterType.Kind == GpuTypeKind.Buffer)
                 {
                     _diagnostics.Report(DiagnosticDescriptors.UnsupportedSyntax, location, $"the '{RefKindText(parameter.RefKind)}' buffer parameter '{parameter.Name}'");
+                    _failedSymbols.Add(parameter);
+                    failed = true;
+                    continue;
+                }
+
+                if (parameterType.Kind == GpuTypeKind.Texture)
+                {
+                    _diagnostics.Report(
+                        DiagnosticDescriptors.InvalidTextureHelperSignature,
+                        location,
+                        method.Name,
+                        $"takes the texture parameter '{parameter.Name}' by '{RefKindText(parameter.RefKind)}'");
                     _failedSymbols.Add(parameter);
                     failed = true;
                     continue;
@@ -565,9 +617,9 @@ internal sealed partial class MslTranslator
     {
         string name = MslNames.Escape(symbol.Name);
 
-        // A local may legally share its name with a captured buffer (a kernel parameter in MSL, and a
-        // hidden parameter of helpers that use it) or with a user struct type; rename it so that it
-        // does not shadow them.
+        // A local may legally share its name with a captured buffer or texture (a kernel parameter in
+        // MSL, and a hidden parameter of helpers that use it) or with a user struct type; rename it so
+        // that it does not shadow them.
         if (_reservedLocalNames.Contains(name) || _captures.BufferNames.Contains(name))
         {
             name = MslNames.LocalPrefix + MslNames.Sanitize(symbol.Name);

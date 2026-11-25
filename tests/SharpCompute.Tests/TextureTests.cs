@@ -109,13 +109,14 @@ public class TextureTests
     }
 
     [MetalFact]
-    public void ElementTypesOtherThanRgba32_AreNotSupported()
+    public void ElementTypesWithoutAPixelFormat_AreNotSupported()
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
 
-        Assert.Throws<NotSupportedException>(() => device.AllocateReadWriteTexture2D<float>(4, 4));
+        // (The supported formats, and the read-only ones, are covered by TextureShaderTests.)
         Assert.Throws<NotSupportedException>(() => device.AllocateReadWriteTexture2D<uint>(4, 4));
-        Assert.Throws<NotSupportedException>(() => device.AllocateReadWriteTexture2D<Float4>(4, 4));
+        Assert.Throws<NotSupportedException>(() => device.AllocateReadWriteTexture2D<Float2>(4, 4));
+        Assert.Throws<NotSupportedException>(() => device.AllocateReadWriteTexture2D<double>(4, 4));
     }
 
     [MetalFact]

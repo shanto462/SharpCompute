@@ -18,6 +18,7 @@ internal enum GpuTypeKind
     Vector,
     Struct,
     Buffer,
+    Texture,
 }
 
 /// <summary>A field of a user struct (or of a vector type, for layout purposes).</summary>
@@ -92,6 +93,12 @@ internal sealed class GpuType
     public GpuType? Element { get; set; }
 
     public bool IsReadOnlyBuffer { get; set; }
+
+    /// <summary>For textures: true for <c>ReadOnlyTexture2D</c> (<c>access::sample</c>), false for <c>ReadWriteTexture2D</c> (<c>access::read_write</c>).</summary>
+    public bool IsReadOnlyTexture { get; set; }
+
+    /// <summary>True for the kinds that are bound as kernel arguments of their own (and forwarded to helpers) rather than stored in the constants block.</summary>
+    public bool IsResource => Kind is GpuTypeKind.Buffer or GpuTypeKind.Texture;
 
     /// <summary>True when values of this type can be stored in buffers, constants, and struct fields.</summary>
     public bool CanCrossBoundary => Kind switch
@@ -247,6 +254,50 @@ internal sealed class TypeResolver
         return false;
     }
 
+    /// <summary>Recognizes <c>SharpCompute.ReadOnlyTexture2D&lt;T&gt;</c> and <c>SharpCompute.ReadWriteTexture2D&lt;T&gt;</c>.</summary>
+    public static bool IsTextureType(ITypeSymbol? type, out bool isReadOnly)
+    {
+        isReadOnly = false;
+
+        if (type is INamedTypeSymbol { IsGenericType: true, Arity: 1 } named && IsSharpComputeType(named, "ReadOnlyTexture2D", "ReadWriteTexture2D"))
+        {
+            isReadOnly = named.Name == "ReadOnlyTexture2D";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The element types the runtime has a pixel format for (<c>TextureFormats</c>), for messages.</summary>
+    public const string TextureElementTypes = "Rgba32, Rgba32Srgb, R8, Rg16, Half, Rgba16Float, float or Float4";
+
+    /// <summary>
+    /// True for the eight element types the runtime has a Metal pixel format for. Unlike vectors these
+    /// are recognized by name: the set is fixed by the runtime's format table, not by an attribute.
+    /// <paramref name="supportsReadWrite"/> is false for the formats an Apple GPU cannot read and write
+    /// in one shader, which only <c>ReadOnlyTexture2D</c> accepts.
+    /// </summary>
+    public static bool IsTextureElementType(ITypeSymbol type, out bool supportsReadWrite)
+    {
+        supportsReadWrite = true;
+
+        if (type.SpecialType == SpecialType.System_Single || IsHalf(type) || IsSharpComputeType(type, "Rgba32", "R8", "Rgba16Float", "Float4"))
+        {
+            return true;
+        }
+
+        if (IsSharpComputeType(type, "Rgba32Srgb", "Rg16"))
+        {
+            supportsReadWrite = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsHalf(ITypeSymbol type) =>
+        type is INamedTypeSymbol { Name: "Half", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
+
     /// <summary>True for types named <paramref name="names"/> declared directly in the <c>SharpCompute</c> namespace.</summary>
     public static bool IsSharpComputeType(ITypeSymbol? type, params string[] names) =>
         type is INamedTypeSymbol { ContainingType: null, ContainingNamespace: { Name: "SharpCompute", ContainingNamespace.IsGlobalNamespace: true } } named &&
@@ -284,9 +335,50 @@ internal sealed class TypeResolver
                 return new GpuType(GpuTypeKind.Scalar, "uint", "uint", csharpName, 4, 4) { IsUnsigned = true };
         }
 
-        if (type is INamedTypeSymbol { Name: "Half", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+        if (IsHalf(type))
         {
             return new GpuType(GpuTypeKind.Scalar, "half", "half", csharpName, 2, 2) { IsFloating = true };
+        }
+
+        if (IsTextureType(type, out bool isReadOnlyTexture))
+        {
+            ITypeSymbol pixel = ((INamedTypeSymbol)type).TypeArguments[0];
+
+            if (pixel.TypeKind == TypeKind.Error)
+            {
+                SawErrorType = true;
+                return null;
+            }
+
+            string? problem = null;
+
+            if (!IsTextureElementType(pixel, out bool supportsReadWrite))
+            {
+                problem = $"'{Display(pixel)}' is not a texture element type; use {TextureElementTypes}";
+            }
+            else if (!isReadOnlyTexture && !supportsReadWrite)
+            {
+                problem = $"the GPU cannot read and write '{Display(pixel)}' pixels in one shader; use ReadOnlyTexture2D<{Display(pixel)}>";
+            }
+
+            if (problem is not null)
+            {
+                failure = new TypeFailure(DiagnosticDescriptors.UnsupportedTextureElementType, problem, Display(type), problem);
+                return null;
+            }
+
+            // Every format is a texture2d<float> in MSL: the pixel type only selects the Metal pixel
+            // format, which the runtime does when it allocates the texture.
+            string texture = isReadOnlyTexture ? "texture2d<float, access::sample>" : "texture2d<float, access::read_write>";
+
+            return new GpuType(GpuTypeKind.Texture, texture, texture, csharpName, 0, 1) { IsReadOnlyTexture = isReadOnlyTexture };
+        }
+
+        if (IsSharpComputeType(type, "Sampler"))
+        {
+            const string Reason = "a Sampler cannot be stored or passed around in shader code";
+            failure = new TypeFailure(DiagnosticDescriptors.InvalidSampler, Reason, "A Sampler cannot be stored or passed around in shader code");
+            return null;
         }
 
         if (IsBufferType(type, out bool isReadOnly))
@@ -433,6 +525,12 @@ internal sealed class TypeResolver
                 return null;
             }
 
+            if (IsTextureType(field.Type, out _))
+            {
+                failure = new TypeFailure(DiagnosticDescriptors.TextureInsideStruct, $"its field '{fieldName}' is a texture", Display(type), fieldName);
+                return null;
+            }
+
             GpuType? fieldType = Resolve(field.Type, out TypeFailure? fieldFailure);
 
             if (IsStructFailure(fieldFailure))
@@ -482,10 +580,12 @@ internal sealed class TypeResolver
         return result;
     }
 
-    /// <summary>True for failures that describe a problem with a user struct (SCG0009, SCG0010).</summary>
+    /// <summary>True for failures that describe a problem with a user struct (SCG0009, SCG0010, SCG0027).</summary>
     public static bool IsStructFailure(TypeFailure? failure) =>
         failure is not null &&
-        (ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.InvalidStruct) || ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.BufferInsideStruct));
+        (ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.InvalidStruct) ||
+         ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.BufferInsideStruct) ||
+         ReferenceEquals(failure.Descriptor, DiagnosticDescriptors.TextureInsideStruct));
 
     private static GpuType? Fail(out TypeFailure? failure, INamedTypeSymbol type, string reason)
     {

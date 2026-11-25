@@ -59,6 +59,9 @@ here as an original game built on SharpCompute.
 - **Two shader kinds.** `IComputeShader` for general compute over 1D/2D/3D grids
   (`device.For(x, y, z, shader)`), and `IComputeShader<Float4>` pixel shaders that return a color per
   pixel into a texture (`device.ForEach(texture, shader)`).
+- **Textures in shaders.** `ReadOnlyTexture2D<T>` is read and sampled (point or bilinear; clamp,
+  repeat or mirror), `ReadWriteTexture2D<T>` is read and written, in eight pixel formats from 8-bit
+  to float. A texture one pass wrote can be sampled by the next.
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3` with `Gpu.Mul`, `Half`, user structs, and about 40 `Gpu.*` intrinsics (`MathF.*`
   works too). Static and instance helper methods, local functions, `ref`/`out` parameters, all loops
@@ -98,6 +101,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-pipeline.sh` | A double-buffered pipeline: the GPU renders frame N+1 (`ForAsync`) while the CPU post-processes frame N; sync vs async throughput |
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
+| `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
 
@@ -198,6 +202,89 @@ void* memory = NativeMemory.AlignedAlloc(byteCount, (nuint)GraphicsDevice.PageSi
 using ReadWriteBuffer<float> wrapped = device.WrapReadWriteBuffer<float>((nint)memory, count, () => NativeMemory.AlignedFree(memory));
 ```
 
+### Textures
+
+Shaders capture textures like buffers. A `ReadOnlyTexture2D<T>` is read with `texture[x, y]` (or an
+`Int2`) and sampled with `texture.Sample(sampler, uv)`; a `ReadWriteTexture2D<T>` is read and written
+with its indexer. Every pixel is a `Float4` in the shader, whatever `T` is; `Width` and `Height`
+work too. Textures are zero-copy like buffers: `CopyFrom`, `CopyTo` and `ToArray` go straight to
+the shared memory.
+
+| `T` | Metal format | A shader reads | `ReadWriteTexture2D` |
+|---|---|---|---|
+| `Rgba32` | `RGBA8Unorm` | `(r, g, b, a) / 255` | yes |
+| `Rgba32Srgb` | `RGBA8Unorm_sRGB` | linear `r, g, b`; `a / 255` | no |
+| `R8` | `R8Unorm` | `(r / 255, 0, 0, 1)` | yes |
+| `Rg16` | `RG8Unorm` | `(r / 255, g / 255, 0, 1)` | no |
+| `Half` | `R16Float` | `(r, 0, 0, 1)` | yes |
+| `Rgba16Float` | `RGBA16Float` | `(r, g, b, a)` | yes |
+| `float` | `R32Float` | `(r, 0, 0, 1)` | yes |
+| `Float4` | `RGBA32Float` | `(r, g, b, a)` | yes |
+
+Samplers are the six static properties of `Sampler`, passed directly to `Sample`: `PointClamp`,
+`PointRepeat`, `PointMirror`, `LinearClamp`, `LinearRepeat` and `LinearMirror`. Coordinates are
+normalized, with pixel centers at `(x + 0.5) / Width`. Each one a shader uses is compiled into it,
+so there is nothing to allocate or bind.
+
+Metal can't sample a texture that the same shader may write, so a read-write texture has no
+`Sample`. To sample what one pass wrote, bind `AsReadOnly()` in the next pass. It is a view of the
+same texture, not a copy:
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Diffuse(ReadWriteTexture2D<float> source, ReadWriteTexture2D<float> target) : IComputeShader
+{
+    public void Execute()
+    {
+        int x = ThreadIds.X;
+        int y = ThreadIds.Y;
+        float sum = source[Gpu.Max(x - 1, 0), y].X + source[Gpu.Min(x + 1, source.Width - 1), y].X
+                  + source[x, Gpu.Max(y - 1, 0)].X + source[x, Gpu.Min(y + 1, source.Height - 1)].X;
+
+        target[x, y] = new Float4(sum * 0.25f);
+    }
+}
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct ShowHeat(ReadOnlyTexture2D<float> heat) : IComputeShader<Float4>
+{
+    public Float4 Execute()
+    {
+        float value = heat.Sample(Sampler.LinearClamp, ThreadIds.Normalized.XY).X;
+        return new Float4(value, 0f, 1f - value, 1f);
+    }
+}
+
+using ReadWriteTexture2D<float> a = device.AllocateReadWriteTexture2D<float>(initialHeat, 256, 256);
+using ReadWriteTexture2D<float> b = device.AllocateReadWriteTexture2D<float>(256, 256);
+using ReadOnlyTexture2D<float> result = a.AsReadOnly();
+using ReadWriteTexture2D<Rgba32> frame = device.AllocateReadWriteTexture2D<Rgba32>(1280, 720);
+
+using (ComputeContext context = device.CreateComputeContext())
+{
+    for (int i = 0; i < 16; i++)
+    {
+        context.For(256, 256, new Diffuse(a, b)); // ping
+        context.For(256, 256, new Diffuse(b, a)); // pong
+    }
+
+    context.ForEach(frame, new ShowHeat(result)); // samples what the last pass wrote
+}
+```
+
+`scripts/demo-textures.sh` shows all of this live: the six samplers side by side on any of the eight
+formats, and a simulation that ping-pongs between two textures while you paint into it.
+
+Shaders with textures run on the CPU too (`ForCpu`, `ForSplit`), with the same reads, writes and
+address modes. The CPU is exact where the GPU (measured on an M4 Pro) is not quite:
+
+- Bilinear filtering: the GPU rounds its weights to 1/256, so a bilinear sample written to an 8-bit
+  format can differ by one step between `ForCpu` and the GPU.
+- sRGB decoding: the GPU decodes to 12 bits.
+- Point sampling picks the same pixel with Clamp, for coordinates in [0, 1) and for power-of-two
+  sizes. With Repeat or Mirror outside [0, 1) on other sizes, a coordinate within float rounding of
+  a pixel boundary can pick the neighbouring pixel on the GPU.
+
 ### Batching and async dispatch
 
 Every `device.For` call is its own command buffer, commit and wait, which costs about 0.1 ms even for
@@ -278,7 +365,8 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 ## Limitations
 
 - Apple Silicon and macOS 15+ only, for now.
-- No threadgroup shared memory, atomics or input textures yet.
+- No threadgroup shared memory or atomics yet.
+- Textures are 2D with one mip level; samplers are the six fixed ones.
 - 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`.
 - GPU math follows Apple GPU behaviour, which flushes subnormal floats to zero and fuses
   multiply-adds. Transcendental functions agree with the CPU to within a few ULP.
@@ -288,7 +376,7 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 - **Vulkan backend** (Windows, Linux, Android; macOS through MoltenVK), then **OpenGL 4.3**
   (Windows, Linux; macOS caps OpenGL at 4.1, which has no compute shaders). The shader authoring
   API stays the same; each backend adds its own shading-language emitter and runtime.
-- Threadgroup memory, atomics, input textures.
+- Threadgroup memory, atomics.
 - NuGet packages.
 
 ## License

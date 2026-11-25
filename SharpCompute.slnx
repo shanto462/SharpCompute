@@ -20,6 +20,7 @@
     <Project Path="samples/SharpCompute.Samples.Audio/SharpCompute.Samples.Audio.csproj" />
     <Project Path="samples/SharpCompute.Samples.Audio.Demo/SharpCompute.Samples.Audio.Demo.csproj" />
     <Project Path="samples/SharpCompute.Samples.Platformer/SharpCompute.Samples.Platformer.csproj" />
+    <Project Path="samples/SharpCompute.Samples.Textures/SharpCompute.Samples.Textures.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/SharpCompute.Benchmarks/SharpCompute.Benchmarks.csproj" />

@@ -12,12 +12,16 @@ namespace SharpCompute.SourceGenerators;
 /// <summary>
 /// Turns one <c>[GeneratedComputeShaderDescriptor]</c> struct into a <see cref="ShaderResult"/>:
 /// validates the declaration, collects the captured state, translates <c>Execute</c> to MSL, and
-/// lays out the binding ABI: buffers at <c>[[buffer(0..n-1)]]</c>, then one packed constants struct.
+/// lays out the binding ABI: buffers at <c>[[buffer(0..n-1)]]</c>, then one packed constants struct;
+/// textures at <c>[[texture(0..m-1)]]</c>, or from 1 in a pixel shader, whose output is texture 0.
 /// </summary>
 internal sealed class ShaderAnalyzer
 {
     /// <summary>Metal exposes buffer argument table indices 0..30.</summary>
     private const int MaxBoundArguments = 31;
+
+    /// <summary>A compute encoder's texture argument table has the same 31 entries, counted separately from buffers.</summary>
+    private const int MaxBoundTextures = 31;
 
     private const int MaxThreadsPerThreadgroup = 1024;
 
@@ -329,6 +333,7 @@ internal sealed class ShaderAnalyzer
         // The binding ABI: buffers at 0..n-1 in declaration order, then one constants block at n.
         bool usesInstanceAccess = captures.All.Any(static c => c.IsParameter);
         var buffers = captures.Buffers.ToList();
+        var textures = captures.Textures.ToList();
         var constants = new List<ConstantMember>();
 
         foreach (Capture capture in captures.Constants)
@@ -360,6 +365,20 @@ internal sealed class ShaderAnalyzer
                 MaxBoundArguments.ToString(CultureInfo.InvariantCulture));
         }
 
+        // Textures have an argument table of their own. A pixel shader's output takes index 0 of it.
+        int firstTextureIndex = _isPixelShader ? 1 : 0;
+
+        if (firstTextureIndex + textures.Count > MaxBoundTextures)
+        {
+            diagnostics.Report(
+                DiagnosticDescriptors.TooManyTextures,
+                _location,
+                _symbol.Name,
+                (firstTextureIndex + textures.Count).ToString(CultureInfo.InvariantCulture),
+                MaxBoundTextures.ToString(CultureInfo.InvariantCulture),
+                _isPixelShader ? " (including the output texture of a pixel shader)" : string.Empty);
+        }
+
         if (diagnostics.HasErrors || translator.SawInvalidCode || types.SawErrorType)
         {
             // Either we reported why, or the user's code does not compile and the C# compiler will.
@@ -383,7 +402,7 @@ internal sealed class ShaderAnalyzer
         // The grid window takes the first free buffer index. A shader that uses all of them still
         // works for whole-grid dispatches; it just cannot be split (GraphicsDevice.ForSplit rejects it).
         int gridWindowIndex = boundArguments < MaxBoundArguments ? boundArguments : -1;
-        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Globals, types.Structs, buffers, constants, constantsSize, translator.Helpers, body, builtins, gridWindowIndex);
+        var program = new MslProgram(entryPoint, _isPixelShader, prelude, translator.Samplers, translator.Globals, types.Structs, buffers, textures, firstTextureIndex, constants, constantsSize, translator.Helpers, body, builtins, gridWindowIndex);
         string msl = MslSourceBuilder.Build(program);
         string shaderName = TypeName();
 
@@ -392,6 +411,7 @@ internal sealed class ShaderAnalyzer
             entryPoint,
             msl,
             new EquatableArray<BufferArgument>(buffers.Select((b, i) => new BufferArgument(i, Access(b, usesInstanceAccess), shaderName + "." + b.Symbol.Name))),
+            new EquatableArray<BufferArgument>(textures.Select((t, i) => new BufferArgument(firstTextureIndex + i, Access(t, usesInstanceAccess), shaderName + "." + t.Symbol.Name))),
             new EquatableArray<ConstantArgument>(constants.Select(static c => new ConstantArgument(c.Type.CSharpName, CSharpIdentifier(c.Name), c.Value))),
             constantsIndex: buffers.Count,
             usesInstanceAccess,
@@ -542,7 +562,7 @@ internal sealed class ShaderAnalyzer
         {
             GpuType? type = types.Resolve(typeSymbol, out TypeFailure? failure);
 
-            if (type is { Kind: not GpuTypeKind.Buffer, CanCrossBoundary: false })
+            if (type is { IsResource: false, CanCrossBoundary: false })
             {
                 // Fine as a local (bool, bool vectors, types without a packed form), but not as state.
                 type = null;
@@ -551,9 +571,9 @@ internal sealed class ShaderAnalyzer
 
             if (type is null)
             {
-                if (TypeResolver.IsStructFailure(failure))
+                if (TypeResolver.IsStructFailure(failure) || ReferenceEquals(failure?.Descriptor, DiagnosticDescriptors.UnsupportedTextureElementType))
                 {
-                    // A problem with a user struct: report it as such, at the capture that uses it.
+                    // A problem with a user struct or a texture's pixel type: report it as such, at the capture that uses it.
                     diagnostics.Report(failure!.Descriptor, location, failure.Arguments);
                 }
                 else if (failure is not null)
@@ -565,7 +585,8 @@ internal sealed class ShaderAnalyzer
                 return;
             }
 
-            NameAllocator names = type.Kind == GpuTypeKind.Buffer ? bufferNames : constantNames;
+            // Buffers and textures are kernel parameters and share one scope; constants are members of __Constants.
+            NameAllocator names = type.IsResource ? bufferNames : constantNames;
             captures.Add(new Capture(symbol, type, names.Allocate(MslNames.Escape(symbol.Name))));
         }
     }
@@ -710,6 +731,7 @@ internal sealed class ShaderAnalyzer
         string? entryPoint = null,
         string? mslSource = null,
         EquatableArray<BufferArgument> buffers = default,
+        EquatableArray<BufferArgument> textures = default,
         EquatableArray<ConstantArgument> constants = default,
         int constantsIndex = 0,
         bool usesInstanceAccess = false,
@@ -745,6 +767,7 @@ internal sealed class ShaderAnalyzer
             ThreadGroupSizeY: _threadGroupSizeY,
             ThreadGroupSizeZ: _threadGroupSizeZ,
             Buffers: buffers,
+            Textures: textures,
             Constants: constants,
             ConstantsIndex: constantsIndex,
             UsesInstanceAccess: usesInstanceAccess,
@@ -762,9 +785,12 @@ internal sealed class ShaderAnalyzer
             string entryPoint,
             bool isPixelShader,
             string? prelude,
+            IReadOnlyList<string> samplers,
             IReadOnlyList<GlobalConstant> globals,
             IReadOnlyList<GpuType> structs,
             List<Capture> buffers,
+            List<Capture> textures,
+            int firstTextureIndex,
             List<ConstantMember> constants,
             int constantsSize,
             IReadOnlyList<HelperFunction> helpers,
@@ -775,9 +801,12 @@ internal sealed class ShaderAnalyzer
             EntryPoint = entryPoint;
             IsPixelShader = isPixelShader;
             Prelude = prelude;
+            Samplers = samplers;
             Globals = globals;
             Structs = structs;
             Buffers = buffers;
+            Textures = textures;
+            FirstTextureIndex = firstTextureIndex;
             Constants = constants;
             ConstantsSize = constantsSize;
             Helpers = helpers;
@@ -793,11 +822,19 @@ internal sealed class ShaderAnalyzer
         /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used.</summary>
         public string? Prelude { get; }
 
+        /// <summary>The <c>constexpr sampler</c> declarations of the samplers the shader uses.</summary>
+        public IReadOnlyList<string> Samplers { get; }
+
         public IReadOnlyList<GlobalConstant> Globals { get; }
 
         public IReadOnlyList<GpuType> Structs { get; }
 
         public List<Capture> Buffers { get; }
+
+        public List<Capture> Textures { get; }
+
+        /// <summary>The texture index of the first captured texture: 1 in a pixel shader, whose output is texture 0.</summary>
+        public int FirstTextureIndex { get; }
 
         public List<ConstantMember> Constants { get; }
 
@@ -829,6 +866,18 @@ internal sealed class ShaderAnalyzer
             {
                 writer.Line();
                 writer.Lines(prelude.Replace("\r\n", "\n").TrimEnd('\n'));
+            }
+
+            // Before anything the user declared, so that no user name can hide `sampler`, `coord`,
+            // `filter` or `address` here.
+            if (program.Samplers.Count > 0)
+            {
+                writer.Line();
+
+                foreach (string sampler in program.Samplers)
+                {
+                    writer.Line(sampler);
+                }
             }
 
             if (program.Globals.Count > 0)
@@ -957,6 +1006,12 @@ internal sealed class ShaderAnalyzer
             {
                 // Texture index 0 is reserved for the output; the runtime binds it before SetArguments.
                 parameters.Add($"texture2d<float, access::write> {MslNames.Output} [[texture(0)]]");
+            }
+
+            for (int i = 0; i < program.Textures.Count; i++)
+            {
+                Capture texture = program.Textures[i];
+                parameters.Add($"{texture.Type.ParameterTypeName} {texture.MslName} [[texture({(program.FirstTextureIndex + i).ToString(CultureInfo.InvariantCulture)})]]");
             }
 
             for (int i = 0; i < buffers.Count; i++)

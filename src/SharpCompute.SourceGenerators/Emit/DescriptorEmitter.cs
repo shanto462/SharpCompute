@@ -173,6 +173,12 @@ internal static class DescriptorEmitter
             writer.Line($"{writerName}.SetBuffer({buffer.Index.ToString(CultureInfo.InvariantCulture)}, {buffer.Access} ?? throw new global::System.ArgumentNullException({Literal(buffer.DisplayName)}, {Literal(message)}));");
         }
 
+        foreach (BufferArgument texture in model.Textures)
+        {
+            string message = $"The texture '{texture.DisplayName}' is null. Create the shader with its constructor (not 'default') and pass a texture.";
+            writer.Line($"{writerName}.SetTexture({texture.Index.ToString(CultureInfo.InvariantCulture)}, {texture.Access} ?? throw new global::System.ArgumentNullException({Literal(texture.DisplayName)}, {Literal(message)}));");
+        }
+
         if (model.Constants.Count == 0)
         {
             return;

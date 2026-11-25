@@ -9,6 +9,7 @@ using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace SharpCompute.SourceGenerators.Tests;
 
@@ -211,9 +212,41 @@ internal sealed class GeneratorRun
     {
         Type type = LoadAssembly().GetType(typeName, throwOnError: true)!;
         MethodInfo read = typeof(GeneratorRun).GetMethod(nameof(Read), BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(type);
+        ShaderDescriptor descriptor = (ShaderDescriptor)read.Invoke(null, null)!;
 
-        return (ShaderDescriptor)read.Invoke(null, null)!;
+        // The loaded type must report the MSL this run generated. Every test shader is called
+        // Tests.TestShader in an assembly of the same name, each in a load context of its own, and
+        // the descriptor is read through reflection over static abstract members; this check tells
+        // "the generator emitted something else" apart from "the wrong descriptor was read" when a
+        // test's assertion on the MSL fails. (Three such assertions once failed together in one
+        // run, after their MSL had compiled, and the output of that run was not kept.)
+        if (GeneratedMsl(typeName) is { } generated)
+        {
+            Assert.True(
+                generated == descriptor.MslSource,
+                $"The descriptor loaded for '{typeName}' does not carry the MSL this run generated for it.\n--- generated\n{generated}\n--- loaded\n{descriptor.MslSource}");
+        }
+
+        return descriptor;
     }
+
+    /// <summary>
+    /// The MSL in this run's generated source for <paramref name="typeName"/>: the value of the raw
+    /// string its <c>MslSource</c> member returns, read from the syntax rather than by loading the type.
+    /// Null when the type has no such member with a string literal body.
+    /// </summary>
+    public string? GeneratedMsl(string typeName) =>
+        Output.GetTypeByMetadataName(typeName)?
+            .GetMembers()
+            .OfType<IPropertySymbol>()
+            .Where(static property => property.Name.EndsWith(".MslSource", StringComparison.Ordinal))
+            .SelectMany(static property => property.DeclaringSyntaxReferences)
+            .Select(static reference => reference.GetSyntax())
+            .OfType<PropertyDeclarationSyntax>()
+            .Select(static property => property.ExpressionBody?.Expression)
+            .OfType<LiteralExpressionSyntax>()
+            .Select(static literal => literal.Token.ValueText)
+            .FirstOrDefault();
 
     /// <summary>
     /// The one-stop check for a valid shader: no diagnostics, the C# compiles, the descriptor loads,

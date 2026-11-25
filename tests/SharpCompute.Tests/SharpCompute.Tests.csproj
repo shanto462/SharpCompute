@@ -22,6 +22,8 @@
     <!-- A class library, so a plain reference (the other Exe samples are loaded from their build output: see below). -->
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Audio\SharpCompute.Samples.Audio.csproj" />
     <ProjectReference Include="..\..\samples\SharpCompute.Samples.Platformer\SharpCompute.Samples.Platformer.csproj" />
+    <!-- An Exe as well; the demo's rendering classes and its headless mode are tested directly. -->
+    <ProjectReference Include="..\..\samples\SharpCompute.Samples.Textures\SharpCompute.Samples.Textures.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>

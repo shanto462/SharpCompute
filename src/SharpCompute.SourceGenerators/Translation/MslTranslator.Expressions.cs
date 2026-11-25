@@ -154,8 +154,9 @@ internal sealed partial class MslTranslator
             return NotConstant(operation, "captured shader state is only known when the shader is dispatched");
         }
 
-        if (capture.IsBuffer)
+        if (capture.Type.IsResource)
         {
+            // Buffers and textures are kernel parameters, which helpers receive as hidden parameters.
             _function.Inputs.AddBuffer(capture);
             return new Expr(capture.MslName, Expr.Primary);
         }
@@ -479,6 +480,11 @@ internal sealed partial class MslTranslator
             return Expr.Error;
         }
 
+        if (TextureElement(operation.Target) is { } pixel)
+        {
+            return TextureWrite(operation, pixel);
+        }
+
         string target = Expression(operation.Target).Operand(Expr.Unary);
         string value = Expression(operation.Value).Operand(Expr.Assignment);
 
@@ -495,6 +501,11 @@ internal sealed partial class MslTranslator
         if (!CheckOperatorMethod(operation.OperatorMethod, operation) || !CheckWritable(operation.Target))
         {
             return Expr.Error;
+        }
+
+        if (TextureElement(operation.Target) is not null)
+        {
+            return TextureElementModifiedInPlace(operation);
         }
 
         Expr target = Expression(operation.Target);
@@ -524,6 +535,11 @@ internal sealed partial class MslTranslator
         if (operation.IsLifted || !CheckOperatorMethod(operation.OperatorMethod, operation) || !CheckWritable(operation.Target))
         {
             return operation.IsLifted ? Unsupported(operation, Humanize(operation.Syntax)) : Expr.Error;
+        }
+
+        if (TextureElement(operation.Target) is not null)
+        {
+            return TextureElementModifiedInPlace(operation);
         }
 
         string text = operation.Kind == OperationKind.Increment ? "++" : "--";
@@ -566,6 +582,9 @@ internal sealed partial class MslTranslator
                     break;
                 case IPropertyReferenceOperation { Property.IsIndexer: true } indexer when TypeResolver.IsBufferType(indexer.Instance?.Type, out _):
                     // Writing to a buffer element is what shaders are for.
+                    return true;
+                case IPropertyReferenceOperation { Property.IsIndexer: true } pixel when TypeResolver.IsTextureType(WithoutImplicitConversions(pixel.Instance)?.Type, out _):
+                    // So is writing a pixel of a ReadWriteTexture2D (a ReadOnlyTexture2D has no setter).
                     return true;
                 case IPropertyReferenceOperation property:
                     current = property.Instance;

@@ -11,8 +11,8 @@ namespace SharpCompute;
 /// </summary>
 /// <remarks>
 /// Before a CPU dispatch the runtime runs <c>SetArguments</c> with a writer that has no encoder: it
-/// performs the same checks (null, disposed and wrong-device buffers fail up front, exactly as on the
-/// GPU) and leases each buffer for the duration of the dispatch instead of binding it.
+/// performs the same checks (null, disposed and wrong-device buffers and textures fail up front,
+/// exactly as on the GPU) and leases each of them for the duration of the dispatch instead of binding it.
 /// </remarks>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public unsafe ref struct ShaderArgumentWriter
@@ -26,10 +26,10 @@ public unsafe ref struct ShaderArgumentWriter
     // instead of for the duration of the call.
     private readonly CommandBatch? _batch;
 
-    // Buffers bound so far, each with a lease the dispatcher releases once the GPU has finished.
+    // Buffers and textures bound so far, each with a lease the dispatcher releases once the GPU has finished.
     private readonly List<ObjCHandle>? _leased;
 
-    // Non-null only for a CPU dispatch: the buffer handles leased so far, released by the dispatcher.
+    // Non-null only for a CPU dispatch: the buffer and texture handles leased so far, released by the dispatcher.
     private readonly List<ObjCHandle>? _cpuLeases;
 
     // leased receives a lease on every bound buffer; the caller releases them (DangerousRelease)
@@ -111,6 +111,72 @@ public unsafe ref struct ShaderArgumentWriter
         ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, handle.Pointer, (nuint)0, (nuint)index);
     }
 
+    /// <summary>
+    /// <c>setTexture:atIndex:index</c>. A <see cref="ReadOnlyTexture2D{T}"/> made by
+    /// <see cref="ReadWriteTexture2D{T}.AsReadOnly"/> binds (and leases) its source's texture.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
+    /// <exception cref="ArgumentException"><paramref name="texture"/> was allocated from a different device.</exception>
+    /// <exception cref="ObjectDisposedException"><paramref name="texture"/> has been disposed.</exception>
+    public void SetTexture<T>(int index, Texture2D<T> texture)
+        where T : unmanaged
+    {
+        GraphicsDevice device = Validate(index, Metal.MaxTextureBindings, "Texture");
+
+        ArgumentNullException.ThrowIfNull(texture);
+        ObjectDisposedException.ThrowIf(texture.IsDisposed, texture);
+
+        if (!ReferenceEquals(texture.Device, device))
+        {
+            throw new ArgumentException(
+                $"The texture bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
+                nameof(texture));
+        }
+
+        // Both handles are leased everywhere below: the MTLTexture is what is bound, and the MTLBuffer
+        // is the memory behind it, which the CPU reads directly and which must not be released (nor
+        // its GC memory pressure dropped) while the GPU may still touch it.
+        if (_cpuLeases is not null)
+        {
+            // The CPU reads and writes the pixels through the indexers for the whole dispatch.
+            _cpuLeases.EnsureCapacity(_cpuLeases.Count + 2);
+            texture.Handle.AddLease(texture);
+            _cpuLeases.Add(texture.Handle);
+            texture.BufferHandle.AddLease(texture);
+            _cpuLeases.Add(texture.BufferHandle);
+            return;
+        }
+
+        if (_batch is not null)
+        {
+            // Recorded, not encoded: the leases are released when the batch completes, so a Dispose
+            // before then cannot free the texture.
+            nint recorded = _batch.Lease(texture.Handle, texture);
+            _batch.Lease(texture.BufferHandle, texture);
+            _batch.RecordTexture(recorded, index);
+            return;
+        }
+
+        if (_leased is not null)
+        {
+            // Held until the dispatch completes (see SetBuffer).
+            _leased.EnsureCapacity(_leased.Count + 2);
+            nint pointer = texture.Handle.AddLease(texture);
+            _leased.Add(texture.Handle);
+            texture.BufferHandle.AddLease(texture);
+            _leased.Add(texture.BufferHandle);
+            ObjC.SendVoid(Encoder, Selectors.SetTextureAtIndex, pointer, (nuint)index);
+            return;
+        }
+
+        // The leases close the window where another thread disposes the texture mid-call. Once bound,
+        // the command buffer holds its own reference until the dispatch completes.
+        using ObjCHandle.Lease handle = texture.Handle.Acquire(texture);
+        using ObjCHandle.Lease storage = texture.BufferHandle.Acquire(texture);
+
+        ObjC.SendVoid(Encoder, Selectors.SetTextureAtIndex, handle.Pointer, (nuint)index);
+    }
+
     /// <summary><c>setBytes:length:sizeof(T) atIndex:index</c>.</summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
     public void SetBytes<T>(int index, in T value)
@@ -165,7 +231,7 @@ public unsafe ref struct ShaderArgumentWriter
         }
     }
 
-    private readonly GraphicsDevice Validate(int index)
+    private readonly GraphicsDevice Validate(int index, int limit = Metal.MaxBufferBindings, string kind = "Buffer")
     {
         if (_device is null || (Encoder == 0 && _batch is null && _cpuLeases is null))
         {
@@ -173,10 +239,10 @@ public unsafe ref struct ShaderArgumentWriter
                 $"A {nameof(ShaderArgumentWriter)} is only valid inside {nameof(IComputeShaderDescriptor<>)}.SetArguments during a dispatch.");
         }
 
-        if ((uint)index >= Metal.MaxBufferBindings)
+        if ((uint)index >= (uint)limit)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(index), index, $"Buffer binding indices must be in the range 0..{Metal.MaxBufferBindings - 1}.");
+                nameof(index), index, $"{kind} binding indices must be in the range 0..{limit - 1}.");
         }
 
         return _device;

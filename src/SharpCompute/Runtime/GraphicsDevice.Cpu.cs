@@ -35,20 +35,24 @@ public sealed unsafe partial class GraphicsDevice
     /// <see cref="IComputeShader.Execute"/> runs as ordinary C# once per thread of the grid, spread over
     /// the thread pool with <c>Parallel.For</c> (in chunks of consecutive threads, x fastest). Inside it,
     /// <see cref="ThreadIds"/>, <see cref="DispatchSize"/>, <see cref="GroupIds"/> and
-    /// <see cref="ThreadGroupIds"/> return the values the GPU would, buffers are read and written in
-    /// place in the shared memory the GPU uses, and the <see cref="Gpu"/> intrinsics use their CPU
-    /// implementations. The grid is the same as the GPU's, and so is the order of threads: none.
+    /// <see cref="ThreadGroupIds"/> return the values the GPU would, buffers and textures are read and
+    /// written in place in the shared memory the GPU uses, and the <see cref="Gpu"/> intrinsics use their
+    /// CPU implementations. The grid is the same as the GPU's, and so is the order of threads: none.
     /// </para>
     /// <para>
     /// Results match a GPU dispatch up to floating-point rounding: the GPU contracts <c>a * b + c</c>
     /// into fused multiply-adds, flushes subnormals to zero and evaluates transcendental functions to
     /// within a few ULP, so compare float results with a tolerance. Integer results are identical
     /// (conversions from float saturate, shift counts are masked and arithmetic wraps on both), except
-    /// for the two divisions below.
+    /// for the two divisions below. Texture reads and writes convert pixels as the GPU does;
+    /// <see cref="ReadOnlyTexture2D{T}.Sample"/> with a linear filter and reads of <see cref="Rgba32Srgb"/>
+    /// are deliberately exact rather than as coarse as the GPU's, so a bilinear sample written to an
+    /// 8-bit format can differ by one step between the two, and a point sample with Repeat or Mirror
+    /// outside [0, 1) can land on the neighbouring pixel right at a pixel boundary (see those members).
     /// </para>
     /// <para>
-    /// Differences from the GPU: buffer accesses are bounds-checked (an out-of-range index throws
-    /// <see cref="ArgumentOutOfRangeException"/> instead of being undefined), integer division by zero
+    /// Differences from the GPU: buffer and texture accesses are bounds-checked (an out-of-range index
+    /// or pixel throws <see cref="ArgumentOutOfRangeException"/> instead of being undefined), integer division by zero
     /// throws <see cref="DivideByZeroException"/> and <c>int.MinValue / -1</c> throws
     /// <see cref="OverflowException"/> (the GPU returns -1 and <c>int.MinValue</c> for those), and an exception in any thread stops the dispatch and
     /// is rethrown (the first one, if several threads throw). After an exception the output is
@@ -59,15 +63,15 @@ public sealed unsafe partial class GraphicsDevice
     /// cannot run.
     /// </para>
     /// <para>
-    /// The shader's buffers must not be disposed during the dispatch (an access then throws
+    /// The shader's buffers and textures must not be disposed during the dispatch (an access then throws
     /// <see cref="ObjectDisposedException"/>; the memory itself stays valid until the dispatch returns).
-    /// Do not dispatch shaders that write the same buffers concurrently, on the CPU or the GPU.
+    /// Do not dispatch shaders that write the same buffers or textures concurrently, on the CPU or the GPU.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is negative.</exception>
-    /// <exception cref="ArgumentNullException">A buffer of <paramref name="shader"/> is null, e.g. for <c>default(T)</c>.</exception>
-    /// <exception cref="ArgumentException">A buffer of <paramref name="shader"/> was allocated from a different device.</exception>
-    /// <exception cref="ObjectDisposedException">The device or a buffer of <paramref name="shader"/> has been disposed.</exception>
+    /// <exception cref="ArgumentNullException">A buffer or texture of <paramref name="shader"/> is null, e.g. for <c>default(T)</c>.</exception>
+    /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device.</exception>
+    /// <exception cref="ObjectDisposedException">The device or a buffer or texture of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The shader's <see cref="ThreadGroupSizeAttribute"/> is invalid.</exception>
     public void ForCpu<T>(int x, int y, int z, in T shader)
         where T : struct, IComputeShader, IComputeShaderDescriptor<T> => DispatchCpu(x, y, z, in shader);
@@ -140,7 +144,7 @@ public sealed unsafe partial class GraphicsDevice
 
     /// <summary>
     /// Runs the shader's <c>SetArguments</c> in CPU mode: the same null, disposed and wrong-device checks
-    /// as a GPU dispatch, and a lease on every buffer until <paramref name="leases"/> is disposed.
+    /// as a GPU dispatch, and a lease on every buffer and texture until <paramref name="leases"/> is disposed.
     /// </summary>
     private void LeaseArguments<T>(in T shader, CpuLeases leases)
         where T : struct, IComputeShaderDescriptor<T>

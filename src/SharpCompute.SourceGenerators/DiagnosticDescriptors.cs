@@ -215,6 +215,62 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor TextureInsideStruct = new(
+        id: "SCG0027",
+        title: "Texture nested inside a struct",
+        messageFormat: "Struct '{0}' has a texture field '{1}'; textures must be captured directly by the shader struct",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor UnsupportedTextureElementType = new(
+        id: "SCG0028",
+        title: "Unsupported texture element type",
+        messageFormat: "Texture type '{0}' is not supported: {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor TooManyTextures = new(
+        id: "SCG0029",
+        title: "Too many textures",
+        messageFormat: "Shader struct '{0}' binds {1} textures, but Metal supports at most {2}{3}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InvalidSampler = new(
+        id: "SCG0030",
+        title: "Sampler must be a static property of Sampler passed to Sample",
+        messageFormat: "{0}; pass one of the static properties of Sampler (such as Sampler.LinearClamp) directly as the first argument of Sample, because the sampler is compiled into the shader",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor TextureElementModifiedInPlace = new(
+        id: "SCG0031",
+        title: "Texture element is modified in place",
+        messageFormat: "'{0}' reads and writes a texture element in one expression, which Metal's texture read and write functions cannot express; read the pixel into a local, change the local, and assign it back",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InvalidTextureHelperSignature = new(
+        id: "SCG0032",
+        title: "Texture is returned or passed by reference",
+        messageFormat: "Helper method '{0}' {1}; a texture can only be passed to a helper method by value",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor ReadWriteTextureCannotBeSampled = new(
+        id: "SCG0033",
+        title: "Read-write texture cannot be sampled",
+        messageFormat: "'{0}' cannot be used in a compute shader: Metal cannot sample a texture that the shader can also write. Capture the result of AsReadOnly() in a ReadOnlyTexture2D<T> field of a shader that runs in a later dispatch, and sample that.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",
