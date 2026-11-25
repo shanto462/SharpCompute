@@ -29,7 +29,8 @@ public sealed record RunData(
     IReadOnlyList<BenchmarkRow> Rows,
     bool Quick,
     double ElapsedMinutes,
-    IReadOnlyList<Rerun>? Reruns = null)
+    IReadOnlyList<Rerun>? Reruns = null,
+    NativeBaselineData? Native = null)
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 

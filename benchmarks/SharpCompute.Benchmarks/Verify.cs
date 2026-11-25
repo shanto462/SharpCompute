@@ -63,6 +63,7 @@ public static partial class Verify
         }
 
         VerifyCpuAndSplit(device, Add);
+        VerifyNativeBaselines(device, Add);
 
         return checks;
     }

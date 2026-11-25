@@ -276,12 +276,16 @@ public sealed class SharedMemoryPageTests
         Assert.False(page.OnKeyDown(Key.Up));
 
         // In the window the matrices move four times a second; in between, a frame costs nothing.
+        // Counted, not told apart by their times: two products can take the GPU the same time to the tick.
         page.Compute(new LabFrame(1.01f, Deterministic: false));
+        int products = page.Products;
         double first = page.GpuMilliseconds;
+        Assert.True(first > 0);
         page.Compute(new LabFrame(1.2f, Deterministic: false));
+        Assert.Equal(products, page.Products);
         Assert.Equal(first, page.GpuMilliseconds);
         page.Compute(new LabFrame(1.3f, Deterministic: false));
-        Assert.NotEqual(first, page.GpuMilliseconds);
+        Assert.Equal(products + 1, page.Products);
         Assert.True(page.Check().Passed);
     }
 
