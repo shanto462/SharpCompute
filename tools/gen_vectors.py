@@ -715,6 +715,13 @@ PRELUDE_ROTATE_RIGHT = "__ms_rotate_right"
 # the negation cannot overflow at all and the conversion back truncates).
 PRELUDE_NEGATE = "__ms_neg"
 
+# The lane-by-lane product of two int or uint vectors, which the generator emits instead of `a * b`
+# when one operand is a constant with a lane of -1, as in `v * new Int3(1, -1, 1)`. Where the other
+# lanes of the product are never read, the optimizer reduces the multiplication to the negation it
+# miscompiles (see PRELUDE_NEGATE); multiplying each lane as a scalar leaves it none. The lanes are
+# multiplied as uint, so the product wraps as it does in C#.
+PRELUDE_MULTIPLY = "__ms_mul"
+
 
 @dataclass(frozen=True)
 class IntegerType:
@@ -768,6 +775,17 @@ def negate_msl() -> list[str]:
     return lines
 
 
+def multiply_msl() -> list[str]:
+    """The prelude's lane-by-lane products (see PRELUDE_MULTIPLY), for the vectors SharpCompute has."""
+    lines = []
+    for t in ("int", "uint"):
+        for n in (2, 3, 4):
+            v = f"{t}{n}"
+            lanes = [f"int(uint(a.{c}) * uint(b.{c}))" if t == "int" else f"a.{c} * b.{c}" for c in COMPONENTS[:n]]
+            lines.append(f"inline {v} {PRELUDE_MULTIPLY}({v} a, {v} b) {{ return {v}({', '.join(lanes)}); }}")
+    return lines
+
+
 PRELUDE_ATOMICS = tuple(
     (space, t, atomic)
     for space in ("device", "threadgroup")
@@ -799,6 +817,7 @@ def prelude_msl() -> list[str]:
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_RIGHT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}((0u - uint(count)) & {mask})); }}")
     lines.extend(negate_msl())
+    lines.extend(multiply_msl())
     for n, packed in PACKED_MATRICES.items():
         msl, column = f"float{n}x{n}", f"float{n}"
         # The boundary form of a matrix: its columns as packed vectors, so the struct has the
@@ -1670,6 +1689,11 @@ def gen_msl_probe() -> str:
             v = f"{t.msl}{n}"
             lines.append(f"    {v} neg{v} = {v}({t.msl}(tid)); packed_{v} pneg{v} = neg{v};")
             lines.append(f"    neg{v} = {PRELUDE_NEGATE}(neg{v}); pneg{v} = {PRELUDE_NEGATE}(pneg{v}); acc += float(neg{v}.x) + float(pneg{v}.y);")
+    # The lane-by-lane product the generator emits for a constant with a lane of -1.
+    for t in ("int", "uint"):
+        for n in (2, 3, 4):
+            v = f"{t}{n}"
+            lines.append(f"    acc += float({PRELUDE_MULTIPLY}(neg{v}, {v}({t}(1))).x) + float({PRELUDE_MULTIPLY}(pneg{v}, pneg{v}).y);")
     # The bits of a half (Gpu.AsUShort, AsShort, AsHalf and the BitConverter methods they stand for).
     lines.append("    ushort hbits = as_type<ushort>(shalf); short hsigned = as_type<short>(shalf);")
     lines.append("    acc += float(as_type<half>(hbits)) + float(as_type<half>(hsigned));")

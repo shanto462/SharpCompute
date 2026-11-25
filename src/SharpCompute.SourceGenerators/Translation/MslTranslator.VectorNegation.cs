@@ -35,12 +35,26 @@ namespace SharpCompute.SourceGenerators;
 /// <c>int</c> and <c>uint</c> components.
 /// </para>
 /// <para>
+/// A constant that negates only some lanes is as bad: when the other lanes of the result are the
+/// ones that are never read, the optimizer drops them from the constant and is left with the same
+/// negation. So <c>C - v</c>, where a lane of the constant <c>C</c> is zero, is emitted as
+/// <c>C + __ms_neg(v)</c> (in the unsigned type for an <c>int</c> vector, so that it wraps:
+/// <c>int3(uint3(C) + __ms_neg(uint3(v)))</c>), and <c>v * C</c>, where a lane of <c>C</c> is minus
+/// one, as the prelude's <c>__ms_mul(v, C)</c>, which multiplies each lane as a scalar
+/// (<c>v * new Int3(1, -1, 1)</c>, to flip an axis). A division by such a constant does not lose a
+/// lane and keeps its operator.
+/// </para>
+/// <para>
+/// A compound <c>v *= C</c> or <c>v /= -1</c> of those forms assigns the helper's result,
+/// <c>v = __ms_neg(v)</c>, which names the target twice. A target whose expression has side effects
+/// cannot be named twice and its native operator would be the miscompiled one, so that is
+/// unsupported (SCG0012).
+/// </para>
+/// <para>
 /// What does not: a negation the generator cannot see. The optimizer also derives one from
-/// <c>~v + 1</c>, from <c>v - 2 * v</c>, from a constant operand of which only some lanes are zero
-/// or minus one (when the other lanes are the ones that are never read), and from a <c>*= -1</c>
-/// whose target has side effects. Those shapes keep their native operators and stay exposed until
-/// Apple fixes the compiler. A program-scope initializer also keeps the native operator: it may not
-/// call a function, and its operands are constants, which the compiler folds.
+/// <c>~v + 1</c> and from <c>v - 2 * v</c>. Those shapes keep their native operators and stay
+/// exposed until Apple fixes the compiler. A program-scope initializer also keeps the native
+/// operator: it may not call a function, and its operands are constants, which the compiler folds.
 /// </para>
 /// </remarks>
 internal sealed partial class MslTranslator
@@ -72,37 +86,104 @@ internal sealed partial class MslTranslator
             _ = Expression(constant);
         }
 
-        string operand = unsigned is null ? Expression(negated).Text : UnsignedOperand(negated).Text;
-
-        if (_types.Resolve(negated.Type) is not { Kind: GpuTypeKind.Vector })
-        {
-            // `new Int3(0) - s` negates the scalar in every lane: `__ms_neg(int3(s))`.
-            operand = Call(unsigned ?? vector.MslName, operand).Text;
-        }
-
         UsesPrelude = true;
-        return Call(MslNames.Negate, operand);
+        return Call(MslNames.Negate, VectorOperand(negated, vector, unsigned));
     }
 
     /// <summary>
-    /// <c>t = __ms_neg(t)</c> for a <c>t *= -1</c> or <c>t /= -1</c> on an <c>int</c> or <c>uint</c>
-    /// vector, or null when <paramref name="operation"/> is not one. That names the target twice, so
-    /// a target with side effects keeps its native operator.
+    /// A <c>C - v</c> or <c>v * C</c> on an <c>int</c> or <c>uint</c> vector whose constant negates
+    /// some lanes (a lane of zero, or of minus one): <c>C + __ms_neg(v)</c> or <c>__ms_mul(v, C)</c>;
+    /// otherwise null. A constant that negates every lane is a negation and has been taken by
+    /// <see cref="VectorNegation"/> before. With <paramref name="unsigned"/>, both operands are
+    /// computed in that unsigned vector type, for a chain of wrapped arithmetic. Without it, the
+    /// difference of an <c>int</c> vector is left to that chain (it has to wrap) and null here.
     /// </summary>
-    private Expr? NegatingCompoundAssignment(ICompoundAssignmentOperation operation, Expr target)
+    private Expr? LaneNegation(IOperation operation, string? unsigned = null)
     {
-        if (_function.IsGlobalInitializer || operation.IsLifted || !IsNativeArithmetic(operation.OperatorMethod) ||
-            _types.Resolve(operation.Target.Type) is not { } type || !IsIntegerVector(type) || !HasFoldableLanes(type) ||
-            !IsNegatingFactor(operation.OperatorKind, type, operation.Value) || HasSideEffects(operation.Target))
+        if (_function.IsGlobalInitializer || operation is not IBinaryOperation { IsLifted: false } binary ||
+            !IsNativeArithmetic(binary.OperatorMethod) || _types.Resolve(binary.Type) is not { } vector ||
+            !IsIntegerVector(vector) || !HasFoldableLanes(vector))
         {
             return null;
         }
 
-        // As in VectorNegation: translated for its diagnostics, not emitted.
-        _ = Expression(operation.Value);
+        if (binary.OperatorKind == BinaryOperatorKind.Subtract && HasLane(binary.LeftOperand, 0))
+        {
+            if (unsigned is null && UnsignedArithmeticType(binary.Type) is not null)
+            {
+                return null;
+            }
+
+            UsesPrelude = true;
+            Expr left = unsigned is null ? Expression(binary.LeftOperand) : UnsignedOperand(binary.LeftOperand);
+
+            return new Expr(
+                BinaryOperand(left, Expr.Additive, isRight: false) + " + " + Call(MslNames.Negate, VectorOperand(binary.RightOperand, vector, unsigned)).Text,
+                Expr.Additive);
+        }
+
+        if (binary.OperatorKind == BinaryOperatorKind.Multiply && (HasLane(binary.LeftOperand, -1) || HasLane(binary.RightOperand, -1)))
+        {
+            UsesPrelude = true;
+            return Call(MslNames.Multiply, VectorOperand(binary.LeftOperand, vector, unsigned), VectorOperand(binary.RightOperand, vector, unsigned));
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// An operand of a prelude helper, which takes vectors: a scalar operand (the <c>s</c> of
+    /// <c>new Int3(0) - s</c>, which MSL would broadcast) is converted to the vector type.
+    /// </summary>
+    private string VectorOperand(IOperation operand, GpuType vector, string? unsigned)
+    {
+        string text = unsigned is null ? Expression(operand).Text : UnsignedOperand(operand).Text;
+
+        return _types.Resolve(operand.Type) is { Kind: GpuTypeKind.Vector } ? text : Call(unsigned ?? vector.MslName, text).Text;
+    }
+
+    /// <summary>
+    /// <c>t = __ms_neg(t)</c> for a <c>t *= -1</c> or <c>t /= -1</c> on an <c>int</c> or <c>uint</c>
+    /// vector, and <c>t = __ms_mul(t, C)</c> for a <c>t *= C</c> where a lane of the constant is
+    /// minus one; null when <paramref name="operation"/> is neither. That names the target twice, and
+    /// the native operator is the one the Metal compiler miscompiles, so a target whose expression
+    /// has side effects is unsupported.
+    /// </summary>
+    private Expr? NegatingCompoundAssignment(ICompoundAssignmentOperation operation, Expr target, string text)
+    {
+        if (_function.IsGlobalInitializer || operation.IsLifted || !IsNativeArithmetic(operation.OperatorMethod) ||
+            _types.Resolve(operation.Target.Type) is not { } type || !IsIntegerVector(type) || !HasFoldableLanes(type))
+        {
+            return null;
+        }
+
+        bool negates = IsNegatingFactor(operation.OperatorKind, type, operation.Value);
+
+        if (!negates && !(operation.OperatorKind == BinaryOperatorKind.Multiply && HasLane(operation.Value, -1)))
+        {
+            return null;
+        }
+
+        if (HasSideEffects(operation.Target))
+        {
+            return Unsupported(
+                operation,
+                $"'{text}=' by a constant that negates lanes of an integer vector, on a target whose expression has side effects " +
+                "(the result is assigned back, which names the target twice; put the index in a local first)");
+        }
 
         UsesPrelude = true;
-        return new Expr(target.Operand(Expr.Unary) + " = " + Call(MslNames.Negate, target.Text).Text, Expr.Assignment);
+
+        if (negates)
+        {
+            // As in VectorNegation: the constant is translated for its diagnostics, not emitted.
+            _ = Expression(operation.Value);
+            return new Expr(target.Operand(Expr.Unary) + " = " + Call(MslNames.Negate, target.Text).Text, Expr.Assignment);
+        }
+
+        return new Expr(
+            target.Operand(Expr.Unary) + " = " + Call(MslNames.Multiply, target.Text, VectorOperand(operation.Value, type, unsigned: null)).Text,
+            Expr.Assignment);
     }
 
     /// <summary>
@@ -166,5 +247,13 @@ internal sealed partial class MslTranslator
     private bool IsSplat(IOperation operand, int value) =>
         Folder.TryEvaluate(operand, out FoldedValue? folded, out _) &&
         folded is { Kind: ScalarKind.Int or ScalarKind.UInt } &&
-        folded.Components.All(component => component == (folded.Kind == ScalarKind.UInt ? unchecked((uint)value) : (double)value));
+        folded.Components.All(component => component == Bits(folded.Kind, value));
+
+    /// <summary>As <see cref="IsSplat"/>, for at least one component.</summary>
+    private bool HasLane(IOperation operand, int value) =>
+        Folder.TryEvaluate(operand, out FoldedValue? folded, out _) &&
+        folded is { Kind: ScalarKind.Int or ScalarKind.UInt } &&
+        folded.Components.Any(component => component == Bits(folded.Kind, value));
+
+    private static double Bits(ScalarKind kind, int value) => kind == ScalarKind.UInt ? unchecked((uint)value) : value;
 }

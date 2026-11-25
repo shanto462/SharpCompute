@@ -164,4 +164,81 @@ public class VectorNegationTests
             Assert.Equal([-(form + 7), 3000 + (2 * form), 3014, 3014], expected[(form * 4)..((form * 4) + 4)]);
         }
     }
+
+    /// <summary>Pairs with negative values too, still small enough that nothing overflows.</summary>
+    private static readonly int[] SignedPairs = [.. Enumerable.Range(0, Threads * 2).Select(static k => ((k * 7) % 31) - 9)];
+
+    [MetalFact]
+    public void ConstantsThatNegateSomeLanes_WithTheOtherLanesUnused_DoNotLoseThoseLanesOfAChain()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<int> input = device.AllocateReadOnlyBuffer(SignedPairs);
+        using ReadWriteBuffer<int> gpu = device.AllocateReadWriteBuffer<int>(Threads * NegationOfSomeLanes.Slots);
+        using ReadWriteBuffer<int> cpu = device.AllocateReadWriteBuffer<int>(Threads * NegationOfSomeLanes.Slots);
+
+        device.For(Threads, new NegationOfSomeLanes(input, gpu));
+        device.ForCpu(Threads, new NegationOfSomeLanes(input, cpu));
+
+        int[] onCpu = cpu.ToArray();
+        AssertIdentical(onCpu, gpu.ToArray(), NegationOfSomeLanes.Slots, SignedPairs, "constants that negate some lanes");
+
+        // And ForCpu agrees with the same arithmetic on scalars, in plain C#.
+        int[] expected = [.. Enumerable.Range(0, Threads).SelectMany(k => SomeLanesReference(SignedPairs[2 * k], SignedPairs[(2 * k) + 1]))];
+        AssertIdentical(expected, onCpu, NegationOfSomeLanes.Slots, SignedPairs, "constants that negate some lanes on the CPU");
+    }
+
+    private static int[] SomeLanesReference(int a, int b)
+    {
+        static int[] Chain(int[] w, int[] c) => [.. w.Select((lane, k) => ((lane + c[k]) * 3) - lane)];
+
+        int x = a ^ b;
+        int[] c = [1000, 2000, 3000];
+        int[] w0 = [a, b, x], w1 = [a + 1, b - 1, x + 1], w2 = [a + 2, b - 2, a + b, a - b], w3 = [a + 3, b - 3, x + 3];
+        int[] u4 = [a + 4, b + 4, x + 4], u5 = [a + 5, b + 5, x + 5], w6 = [a + 6, b - 6, x + 6];
+
+        return
+        [
+            -w0[0] + -w0[2], .. Chain(w0, c),
+            -w1[0] + -w1[2], .. Chain(w1, c),
+            -w2[1] + -w2[2], .. Chain(w2, [10, 20, 30, 40]),
+            -w3[0] + -w3[2], .. Chain(w3, c),
+            -u4[0] + -u4[2], .. Chain(u4, c),
+            -u5[0] + -u5[2], .. Chain(u5, c),
+            -w6[0], 5 - w6[1], -w6[2], w6[0], -w6[1], w6[2] * 7,
+            1000 + (7 - w6[0]) - w6[0], 2000 - w6[1] - w6[1], 3000 - w6[2] + (w6[2] * 3),
+            -a + -a, 5 - a,
+        ];
+    }
+
+    [MetalFact]
+    public void VectorsReadFromStorage_NegatedWithAnUnusedLane_DoNotLoseThatLaneOfAChain()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        int[][] outputs = new int[2][];
+
+        for (int pass = 0; pass < 2; pass++)
+        {
+            // The shader writes the vectors it negates, so each pass gets storage of its own.
+            using ReadOnlyBuffer<int> input = device.AllocateReadOnlyBuffer(SignedPairs);
+            using ReadWriteBuffer<Int3> vectors = device.AllocateReadWriteBuffer<Int3>(Threads);
+            using ReadWriteBuffer<NegationCell> cells = device.AllocateReadWriteBuffer<NegationCell>(Threads);
+            using ReadWriteBuffer<int> output = device.AllocateReadWriteBuffer<int>(Threads * NegationInStorage.Slots);
+
+            if (pass == 0)
+            {
+                device.For(Threads, new NegationInStorage(input, vectors, cells, output));
+            }
+            else
+            {
+                device.ForCpu(Threads, new NegationInStorage(input, vectors, cells, output));
+            }
+
+            outputs[pass] = output.ToArray();
+        }
+
+        AssertIdentical(outputs[1], outputs[0], NegationInStorage.Slots, SignedPairs, "vectors read from storage");
+
+        // Thread 0 is a = -9, b = -2 (a ^ b = 9): the Int2 group is -(a + 6) and ((p + (100, 200)) * 3) - p.
+        Assert.Equal([3, 294, 608], outputs[1][..3]);
+    }
 }

@@ -98,6 +98,12 @@ internal sealed partial class MslTranslator
             return negation;
         }
 
+        if (UnsignedArithmeticType(operation.Type) == unsigned && LaneNegation(operation, unsigned) is { } lanes)
+        {
+            // A constant that negates some lanes: `uint3(C) + __ms_neg(uint3(v))`, `__ms_mul(uint3(v), uint3(C))`.
+            return lanes;
+        }
+
         switch (operation)
         {
             case IBinaryOperation binary

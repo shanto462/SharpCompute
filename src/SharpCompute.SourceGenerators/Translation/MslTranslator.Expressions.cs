@@ -526,6 +526,13 @@ internal sealed partial class MslTranslator
             return negation;
         }
 
+        if (LaneNegation(operation) is { } lanes)
+        {
+            // A constant that negates some lanes, `new UInt3(0, 5, 0) - v` or `v * new Int3(1, -1, 1)`:
+            // `C + __ms_neg(v)` or `__ms_mul(v, C)`. (The difference of an int vector wraps: below.)
+            return lanes;
+        }
+
         if (SignedArithmetic(operation) is { } wrapped)
         {
             // Signed `+`, `-` and `*` are computed unsigned, where overflow wraps as in C#.
@@ -633,7 +640,7 @@ internal sealed partial class MslTranslator
 
         Expr target = StoreTarget(operation.Target, out bool packed);
 
-        if (!packed && NegatingCompoundAssignment(operation, target) is { } negation)
+        if (!packed && NegatingCompoundAssignment(operation, target, text) is { } negation)
         {
             // `v *= -1` on an integer vector: `v = __ms_neg(v)`.
             return negation;

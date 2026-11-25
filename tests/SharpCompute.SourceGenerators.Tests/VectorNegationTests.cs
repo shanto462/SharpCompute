@@ -1,4 +1,5 @@
 using System.Linq;
+using Microsoft.CodeAnalysis;
 
 namespace SharpCompute.SourceGenerators.Tests;
 
@@ -6,14 +7,17 @@ namespace SharpCompute.SourceGenerators.Tests;
 /// The negation of an integer vector is emitted as the prelude's <c>__ms_neg(v)</c>, never as the
 /// native <c>-v</c>: the Metal compiler miscompiles that operator when a lane of its result is unused
 /// and the same vector is subtracted elsewhere (see <c>MslTranslator.VectorNegation</c>). So are the
-/// operators that negate by a constant, <c>0 - v</c>, <c>v * -1</c> and <c>v / -1</c>. Floats, halves
-/// and scalars keep their operators. Every result is compiled with Metal.
+/// operators that negate by a constant, <c>0 - v</c>, <c>v * -1</c> and <c>v / -1</c>; a constant that
+/// negates only some lanes goes through <c>C + __ms_neg(v)</c> or the lane-by-lane <c>__ms_mul</c>.
+/// Floats, halves and scalars keep their operators. Every result is compiled with Metal.
 /// </summary>
 public class VectorNegationTests
 {
     private const string Shader = "Tests.TestShader";
 
-    private static ShaderDescriptor Translate(string body, string members = "") =>
+    private static ShaderDescriptor Translate(string body, string members = "") => Run(body, members).Verify(Shader);
+
+    private static GeneratorRun Run(string body, string members = "") =>
         GeneratorHarness.Run($$"""
             using System;
             using SharpCompute;
@@ -68,7 +72,7 @@ public class VectorNegationTests
                     return 10;
                 }
             }
-            """).Verify(Shader);
+            """);
 
     private static string Statement(string body, string members = "") =>
         Translate(body, members).KernelBody.Split('\n').Last();
@@ -140,6 +144,32 @@ public class VectorNegationTests
         Assert.Equal(expected, Statement(body));
 
     [Theory]
+    [InlineData("vectors[0] = new Int3(0, 5, 0) - v;", "vectors[0] = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(v)));")]
+    [InlineData("vectors[0] = new Int3(7, 0, 9) - vectors[1];", "vectors[0] = int3(uint3(int3(7, 0, 9)) + __ms_neg(uint3(vectors[1])));")]
+    [InlineData("vectors[0] = Offsets - v;", "vectors[0] = int3(uint3(::Offsets) + __ms_neg(uint3(v)));")]
+    [InlineData("vectors[0] = w + (new Int3(0, 5, 0) - v) * 3;", "vectors[0] = int3(uint3(w) + (uint3(int3(0, 5, 0)) + __ms_neg(uint3(v))) * 3u);")]
+    [InlineData("vectors[0] = new Int3(0, 5, 0) - v - w;", "vectors[0] = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(v)) - uint3(w));")]
+    [InlineData("vectors[0] = w - (new Int3(0, 5, 0) - v);", "vectors[0] = int3(uint3(w) - (uint3(int3(0, 5, 0)) + __ms_neg(uint3(v))));")]
+    [InlineData("vectors[0] = new Int3(0, 5, 0) - a;", "vectors[0] = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(uint(a))));")]
+    [InlineData("unsigneds[0] = new UInt3(0u, 5u, 0u) - u;", "unsigneds[0] = uint3(0u, 5u, 0u) + __ms_neg(u);")]
+    [InlineData("unsigneds[0] = (new UInt3(0u, 5u, 0u) - u) * 3u;", "unsigneds[0] = (uint3(0u, 5u, 0u) + __ms_neg(u)) * 3u;")]
+    [InlineData("unsigneds[0] = u - (new UInt3(0u, 5u, 0u) - u);", "unsigneds[0] = u - (uint3(0u, 5u, 0u) + __ms_neg(u));")]
+    public void ADifference_FromAConstantWithAZeroLane_AddsTheNegation(string body, string expected) =>
+        Assert.Equal(expected, Statement(body, "private static readonly Int3 Offsets = new Int3(4, 0, 0);"));
+
+    [Theory]
+    [InlineData("vectors[0] = v * new Int3(-1, 7, -1);", "vectors[0] = __ms_mul(v, int3(-1, 7, -1));")]
+    [InlineData("vectors[0] = new Int3(1, -1, 1) * v;", "vectors[0] = __ms_mul(int3(1, -1, 1), v);")]
+    [InlineData("vectors[0] = vectors[1] * Flip;", "vectors[0] = __ms_mul(vectors[1], ::Flip);")]
+    [InlineData("vectors[0] = w + v * new Int3(1, -1, 1);", "vectors[0] = int3(uint3(w) + __ms_mul(uint3(v), uint3(int3(1, -1, 1))));")]
+    [InlineData("vectors[0] = (v + w) * new Int3(1, 1, -1) - w;", "vectors[0] = int3(__ms_mul(uint3(v) + uint3(w), uint3(int3(1, 1, -1))) - uint3(w));")]
+    [InlineData("vectors[0] = a * new Int3(1, -1, 1);", "vectors[0] = __ms_mul(int3(a), int3(1, -1, 1));")]
+    [InlineData("unsigneds[0] = u * new UInt3(uint.MaxValue, 7u, 1u);", "unsigneds[0] = __ms_mul(u, uint3(4294967295u, 7u, 1u));")]
+    [InlineData("unsigneds[0] = new UInt3(1u, 0xFFFFFFFFu, 1u) * u + u;", "unsigneds[0] = __ms_mul(uint3(1u, 4294967295u, 1u), u) + u;")]
+    public void AProduct_WithAConstantWithALaneOfMinusOne_IsMultipliedLaneByLane(string body, string expected) =>
+        Assert.Equal(expected, Statement(body, "private static readonly Int3 Flip = new Int3(1, -1, 1);"));
+
+    [Theory]
     // The scalar is negated in every lane.
     [InlineData("vectors[0] = new Int3(0) - a;", "vectors[0] = __ms_neg(int3(a));")]
     [InlineData("vectors[0] = a * new Int3(-1);", "vectors[0] = __ms_neg(int3(a));")]
@@ -154,13 +184,43 @@ public class VectorNegationTests
     [InlineData("v /= -1; vectors[0] = v;", "v = __ms_neg(v);")]
     [InlineData("vectors[i] *= -1;", "vectors[i] = __ms_neg(vectors[i]);")]
     [InlineData("u *= uint.MaxValue; unsigneds[0] = u;", "u = __ms_neg(u);")]
-    // The target would be named twice: one with side effects keeps the native operator.
-    [InlineData("vectors[Bump(3)] *= -1;", "reinterpret_cast<device packed_uint3&>(vectors[::Bump(3, ints)]) *= uint(-1);")]
+    [InlineData("v *= new Int3(1, -1, 1); vectors[0] = v;", "v = __ms_mul(v, int3(1, -1, 1));")]
+    [InlineData("vectors[i] *= new Int3(-1, 7, -1);", "vectors[i] = __ms_mul(vectors[i], int3(-1, 7, -1));")]
+    [InlineData("u *= new UInt3(1u, uint.MaxValue, 1u); unsigneds[0] = u;", "u = __ms_mul(u, uint3(1u, 4294967295u, 1u));")]
+    // A multiplication that negates no lane is free to have side effects in its target.
+    [InlineData("vectors[Bump(3)] *= 2;", "reinterpret_cast<device packed_uint3&>(vectors[::Bump(3, ints)]) *= 2u;")]
     // Not negations.
     [InlineData("v *= 1; vectors[0] = v;", "v = int3(uint3(v) * 1u);")]
     [InlineData("u /= uint.MaxValue; unsigneds[0] = u;", "u /= 4294967295u;")]
-    public void ACompoundNegation_AssignsTheHelperResult_UnlessItsTargetHasSideEffects(string body, string expected) =>
+    [InlineData("v /= new Int3(-1, 7, -1); vectors[0] = v;", "v /= int3(-1, 7, -1);")]
+    public void ACompoundNegation_AssignsTheHelperResult(string body, string expected) =>
         Assert.Contains(expected, Translate(body).KernelBody.Split('\n').Select(static line => line.Trim()));
+
+    [Theory]
+    [InlineData("vectors[Bump(3)] *= -1;", "*=")]
+    [InlineData("vectors[Bump(3)] /= -1;", "/=")]
+    [InlineData("vectors[Bump(3)] *= new Int3(-1);", "*=")]
+    [InlineData("vectors[Bump(3)] *= new Int3(1, -1, 1);", "*=")]
+    [InlineData("unsigneds[Bump(3)] *= uint.MaxValue;", "*=")]
+    [InlineData("vectors[ints[2]++] *= -1;", "*=")]
+    public void ACompoundNegation_OnATargetWithSideEffects_IsUnsupported(string body, string op)
+    {
+        // The helper's result is assigned back, which would evaluate the target twice, and the
+        // native operator is the one the Metal compiler miscompiles.
+        Diagnostic diagnostic = Run(body).AssertOnlyDiagnostic("SCG0012", body.TrimEnd(';'));
+
+        Assert.Contains($"'{op}' by a constant that negates lanes of an integer vector, on a target whose expression has side effects", diagnostic.GetMessage());
+        Assert.Contains("put the index in a local first", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void ACompoundNegation_WithItsIndexInALocal_IsTheHelper()
+    {
+        string[] lines = Translate("int slot = Bump(3); vectors[slot] *= -1;").KernelBody.Split('\n').Select(static line => line.Trim()).ToArray();
+
+        Assert.Contains("int slot = ::Bump(3, ints);", lines);
+        Assert.Contains("vectors[slot] = __ms_neg(vectors[slot]);", lines);
+    }
 
     [Theory]
     [InlineData("vectors[0] = v - new Int3(0);", "vectors[0] = int3(uint3(v) - uint3(int3(0)));")]
@@ -170,9 +230,13 @@ public class VectorNegationTests
     [InlineData("vectors[0] = -1 / v;", "vectors[0] = -1 / v;")]
     [InlineData("vectors[0] = v * a;", "vectors[0] = int3(uint3(v) * uint(a));")]
     [InlineData("vectors[0] = ~v + 1;", "vectors[0] = int3(uint3(~v) + 1u);")]
-    // Only some lanes are zero or minus one: not a negation of the vector, so the operator stays.
-    [InlineData("vectors[0] = new Int3(0, 5, 0) - v;", "vectors[0] = int3(uint3(int3(0, 5, 0)) - uint3(v));")]
-    [InlineData("vectors[0] = v * new Int3(-1, 7, -1);", "vectors[0] = int3(uint3(v) * uint3(int3(-1, 7, -1)));")]
+    // No lane of these constants negates: no zero on the left of a difference, no minus one in a product.
+    [InlineData("vectors[0] = new Int3(1, 5, 2) - v;", "vectors[0] = int3(uint3(int3(1, 5, 2)) - uint3(v));")]
+    [InlineData("vectors[0] = v - new Int3(0, 5, 0);", "vectors[0] = int3(uint3(v) - uint3(int3(0, 5, 0)));")]
+    [InlineData("vectors[0] = v + new Int3(0, -1, 0);", "vectors[0] = int3(uint3(v) + uint3(int3(0, -1, 0)));")]
+    [InlineData("vectors[0] = v * new Int3(2, 7, 1);", "vectors[0] = int3(uint3(v) * uint3(int3(2, 7, 1)));")]
+    // A division by a constant with a lane of minus one does not lose a lane.
+    [InlineData("vectors[0] = v / new Int3(-1, 7, -1);", "vectors[0] = v / int3(-1, 7, -1);")]
     public void OtherOperators_OnIntVectors_AreUnchanged(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
 
@@ -218,6 +282,12 @@ public class VectorNegationTests
         Assert.Equal(24, MslPrelude.Source.Split('\n').Count(static line => line.Contains("__ms_neg(")));
         Assert.DoesNotContain("-x;", MslPrelude.Source);
         Assert.DoesNotContain("-x)", MslPrelude.Source);
+
+        // The lane-by-lane product, for the int and uint vectors: no vector multiplication either.
+        Assert.Contains("inline int3 __ms_mul(int3 a, int3 b) { return int3(int(uint(a.x) * uint(b.x)), int(uint(a.y) * uint(b.y)), int(uint(a.z) * uint(b.z))); }", MslPrelude.Source);
+        Assert.Contains("inline uint3 __ms_mul(uint3 a, uint3 b) { return uint3(a.x * b.x, a.y * b.y, a.z * b.z); }", MslPrelude.Source);
+        Assert.Equal(6, MslPrelude.Source.Split('\n').Count(static line => line.Contains("__ms_mul(")));
+        Assert.DoesNotContain("a * b", MslPrelude.Source);
     }
 
     [Fact]
@@ -248,18 +318,22 @@ public class VectorNegationTests
     public void AProgramScopeInitializer_KeepsTheNativeOperator_BecauseItMayNotCallAFunction()
     {
         ShaderDescriptor descriptor = Translate(
-            "vectors[0] = Flipped + Mirrored + Scaled;",
+            "vectors[0] = Flipped + Mirrored + Scaled + Shifted + Turned;",
             """
             private static readonly Int3 Offsets = new Int3(1, -2, int.MinValue);
             private static readonly Int3 Flipped = -Offsets;
             private static readonly Int3 Mirrored = new Int3(0) - Offsets;
             private static readonly Int3 Scaled = Offsets * -1;
+            private static readonly Int3 Shifted = new Int3(0, 5, 0) - Offsets;
+            private static readonly Int3 Turned = Offsets * new Int3(1, -1, 1);
             """);
 
         Assert.Contains("constant int3 Flipped = int3(-uint3(::Offsets));", descriptor.MslSource);
         Assert.Contains("constant int3 Mirrored = int3(uint3(int3(0)) - uint3(::Offsets));", descriptor.MslSource);
         Assert.Contains("constant int3 Scaled = int3(uint3(::Offsets) * uint(-1));", descriptor.MslSource);
-        Assert.DoesNotContain("__ms_neg", descriptor.MslSource);
+        Assert.Contains("constant int3 Shifted = int3(uint3(int3(0, 5, 0)) - uint3(::Offsets));", descriptor.MslSource);
+        Assert.Contains("constant int3 Turned = int3(uint3(::Offsets) * uint3(int3(1, -1, 1)));", descriptor.MslSource);
+        Assert.DoesNotContain("__ms_", descriptor.MslSource);
     }
 
     [Fact]
