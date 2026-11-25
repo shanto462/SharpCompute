@@ -162,11 +162,11 @@ internal static class CpuGroupDispatcher
                 }
                 catch (Exception e)
                 {
-                    group.Fail(e);
+                    group.Fail(slot, e);
                 }
                 finally
                 {
-                    group.Leave();
+                    group.Leave(slot);
                 }
             }
         }
@@ -188,6 +188,21 @@ internal static class CpuGroupDispatcher
 /// interlocked word, so exactly one thread sees the group become complete and does the waking.
 /// </para>
 /// <para>
+/// <b>Wake-ups.</b> A thread about to park announces it in its slot (<see cref="Slot.Waiting"/>), and
+/// whoever has a reason to wake the parked threads (the last arrival, a departure that leaves only
+/// parked threads, a failure) scans the slots and takes each announcement with a compare-exchange
+/// before signalling the slot. So an announcement is answered exactly once, a signal is only ever
+/// sent to a thread that announced a wait, and every signal is consumed by the wait it was sent for.
+/// </para>
+/// <para>
+/// <b>Generations.</b> Every group of the dispatch has a number, and an announcement carries the
+/// number of the group it was made in. A scan only takes announcements of its own group. That matters
+/// for the one scan that can outlive its group: a departing thread scans after it has stopped counting
+/// as running, so the threads it wakes can finish the group, and the next group can start and reach
+/// its first barrier, while the scan is still on its way through the slots. It then finds
+/// announcements of the next group, which it must not answer, and by their number it does not.
+/// </para>
+/// <para>
 /// <b>Memory.</b> Every arrival is an interlocked operation and every wake-up goes through a monitor,
 /// so what a thread wrote before a barrier is visible to every thread after it, for the group-shared
 /// arrays (plain static arrays) as well as for buffers and textures. That makes the three barrier
@@ -203,9 +218,16 @@ internal sealed class CpuThreadgroup
     // The running group: threads still inside Execute (high 32 bits) and, of those, the ones parked
     // at the barrier (low 32 bits).
     private long _state;
+
+    // The running group's origin and number (from 1). Written by the dispatching thread before it
+    // signals the group's workers, which read them after that signal.
     private Extent3 _origin;
+    private long _generation;
+
     private bool _groupDone;
-    private volatile bool _aborted;
+
+    // 0, or 1 once a thread has thrown. Set with an interlocked operation: see Barrier.
+    private int _aborted;
     private volatile bool _stopped;
     private ExceptionDispatchInfo? _failure;
 
@@ -220,7 +242,7 @@ internal sealed class CpuThreadgroup
     }
 
     /// <summary>True once a thread has thrown: the dispatch is being abandoned.</summary>
-    internal bool IsAborted => _aborted;
+    internal bool IsAborted => Volatile.Read(ref _aborted) != 0;
 
     // ---- the dispatching thread --------------------------------------------------------------
 
@@ -232,6 +254,7 @@ internal sealed class CpuThreadgroup
     internal void RunGroup(Extent3 origin, Extent3 extent, Extent3 slots)
     {
         _origin = origin;
+        _generation++;
         Volatile.Write(ref _state, (long)(extent.X * extent.Y * extent.Z) << 32);
 
         for (int z = 0; z < extent.Z; z++)
@@ -292,11 +315,13 @@ internal sealed class CpuThreadgroup
                 return false;
             }
 
-            // A wake-up without a start is left over from an abort (see Barrier); keep waiting for Stop.
+            // Only the dispatching thread signals a worker between groups (a start, or Stop above);
+            // the check keeps the loop honest if that ever changes.
             if (Interlocked.Exchange(ref self.Start, 0) == 1)
             {
-                // Written by the dispatching thread before it signalled this slot.
+                // Both written by the dispatching thread before it signalled this slot.
                 origin = _origin;
+                self.Generation = _generation;
                 return true;
             }
         }
@@ -309,15 +334,21 @@ internal sealed class CpuThreadgroup
     internal void Barrier(int slot)
     {
         Slot self = _slots[slot];
+        long generation = self.Generation;
 
-        // Announce the wait before arriving, so that whoever completes the group (or aborts it) finds
-        // this thread. Abort sets its flag and then looks for waiters; this sets Waiting and then looks
-        // for the flag: one of the two always sees the other.
-        Volatile.Write(ref self.Waiting, 1);
+        // Announce the wait, then look for an abort; Fail sets the abort flag, then looks for
+        // announcements. Both writes are interlocked operations, which are full fences: neither
+        // thread's read can overtake its own write. So at least one of the two reads comes after the
+        // other thread's write: either this thread sees the flag and unwinds without parking, or
+        // Fail's scan (which starts after the flag is set) finds this announcement and signals this
+        // slot, and the wait below returns to find the flag. (A volatile write is not enough for
+        // this: on arm64 it does not stop a later read from being satisfied first, and then both
+        // sides can miss each other.)
+        Interlocked.Exchange(ref self.Waiting, generation);
 
-        if (_aborted)
+        if (IsAborted)
         {
-            Interlocked.Exchange(ref self.Waiting, 0);
+            Withdraw(self, generation);
             throw new CpuThreadgroupAbortedException();
         }
 
@@ -334,16 +365,18 @@ internal sealed class CpuThreadgroup
                 // before it is woken here, so the wake-ups of two barriers never mix.
                 if (Interlocked.CompareExchange(ref _state, (long)live << 32, state) == state)
                 {
-                    Interlocked.Exchange(ref self.Waiting, 0);
-                    WakeWaiting();
+                    Withdraw(self, generation);
+                    WakeWaiting(generation);
                     return;
                 }
             }
             else if (Interlocked.CompareExchange(ref _state, state + 1, state) == state)
             {
+                // Parked until a scan takes the announcement: the last arrival's, that of a departure
+                // which left only parked threads, or Fail's.
                 self.Wait();
 
-                if (_aborted)
+                if (IsAborted)
                 {
                     throw new CpuThreadgroupAbortedException();
                 }
@@ -354,11 +387,26 @@ internal sealed class CpuThreadgroup
     }
 
     /// <summary>
-    /// Called when a thread is done with the group (it returned, threw or was stopped). If that leaves
-    /// only parked threads, their barrier is complete; if it leaves none, the group is.
+    /// Takes back an announcement this thread will not wait for after all. If a scan (Fail's) took it
+    /// first, the signal it sends is consumed here, so that it cannot end a later wait early.
     /// </summary>
-    internal void Leave()
+    private static void Withdraw(Slot self, long generation)
     {
+        if (Interlocked.Exchange(ref self.Waiting, 0) != generation)
+        {
+            self.Wait();
+        }
+    }
+
+    /// <summary>
+    /// Called by worker <paramref name="slot"/> when its thread is done with the group (it returned,
+    /// threw or was stopped). If that leaves only parked threads, their barrier is complete; if it
+    /// leaves none, the group is.
+    /// </summary>
+    internal void Leave(int slot)
+    {
+        long generation = _slots[slot].Generation;
+
         while (true)
         {
             long state = Volatile.Read(ref _state);
@@ -369,7 +417,10 @@ internal sealed class CpuThreadgroup
             {
                 if (Interlocked.CompareExchange(ref _state, (long)live << 32, state) == state)
                 {
-                    WakeWaiting();
+                    // From here on this thread no longer counts as running, so the group can finish
+                    // and the next one start while this scan is under way: it is the scan that the
+                    // generation number is for.
+                    WakeWaiting(generation);
                     return;
                 }
             }
@@ -389,20 +440,30 @@ internal sealed class CpuThreadgroup
         }
     }
 
-    /// <summary>Records the first exception and stops the group: parked threads wake up and unwind, running ones at their next barrier.</summary>
-    internal void Fail(Exception exception)
+    /// <summary>
+    /// Called by worker <paramref name="slot"/> when its thread threw: records the first exception and
+    /// stops the group. Parked threads wake up and unwind, running ones unwind at their next barrier.
+    /// </summary>
+    internal void Fail(int slot, Exception exception)
     {
         Interlocked.CompareExchange(ref _failure, ExceptionDispatchInfo.Capture(exception), null);
-        _aborted = true;
-        WakeWaiting();
+
+        // Interlocked, and before the scan: see Barrier.
+        Interlocked.Exchange(ref _aborted, 1);
+        WakeWaiting(_slots[slot].Generation);
     }
 
-    /// <summary>Wakes every thread that announced a wait. Each announcement is answered once, whoever gets to it first.</summary>
-    private void WakeWaiting()
+    /// <summary>
+    /// Wakes every thread that announced a wait in group <paramref name="generation"/>. Each
+    /// announcement is answered once, whichever scan gets to it first; announcements of another
+    /// group are not this scan's to answer. (Internal rather than private for the test that runs a
+    /// scan of a finished group against the next one.)
+    /// </summary>
+    internal void WakeWaiting(long generation)
     {
         foreach (Slot slot in _slots)
         {
-            if (Interlocked.Exchange(ref slot.Waiting, 0) == 1)
+            if (Interlocked.CompareExchange(ref slot.Waiting, 0, generation) == generation)
             {
                 slot.Signal();
             }
@@ -416,11 +477,17 @@ internal sealed class CpuThreadgroup
     /// </summary>
     private sealed class Slot
     {
-        /// <summary>1 while the worker is (about to be) parked at the barrier and has not been woken for it.</summary>
-        internal int Waiting;
+        /// <summary>
+        /// The number of the group in which the worker is (about to be) parked at the barrier and has
+        /// not been woken for it; 0 otherwise. Group numbers start at 1.
+        /// </summary>
+        internal long Waiting;
 
         /// <summary>1 when the dispatching thread has started a group for the worker that it has not picked up yet.</summary>
         internal int Start;
+
+        /// <summary>The number of the group the worker is running. Only the worker itself reads and writes it.</summary>
+        internal long Generation;
 
         private readonly object _gate = new();
         private bool _signaled;
