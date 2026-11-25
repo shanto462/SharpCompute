@@ -619,6 +619,36 @@ public class SimdGroupTests
         Assert.InRange(actual.Sum(static v => (double)v), input.Sum(static v => (double)v) * (1 - 1e-5), input.Sum(static v => (double)v) * (1 + 1e-5));
     }
 
+    [MetalFact]
+    public async System.Threading.Tasks.Task BatchedAndAsyncDispatches_RunThemLikeADirectDispatch()
+    {
+        const int count = 100;
+        int[] input = Enumerable.Range(0, count).Select(static i => (i * 37 % 19) - 9).ToArray();
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<int> inputBuffer = device.AllocateReadOnlyBuffer<int>(input);
+        using ReadWriteBuffer<int> direct = device.AllocateReadWriteBuffer<int>(count * SimdReduceInt.Stride);
+        using ReadWriteBuffer<int> batched = device.AllocateReadWriteBuffer<int>(count * SimdReduceInt.Stride);
+        using ReadWriteBuffer<int> asynchronous = device.AllocateReadWriteBuffer<int>(count * SimdReduceInt.Stride);
+
+        device.For(count, new SimdReduceInt(inputBuffer, direct, count));
+
+        using (ComputeContext context = device.CreateComputeContext())
+        {
+            context.For(count, new SimdReduceInt(inputBuffer, batched, count));
+        }
+
+        await device.ForAsync(count, new SimdReduceInt(inputBuffer, asynchronous, count));
+
+        for (int thread = 0; thread < count; thread++)
+        {
+            AssertReductions(input, direct.ToArray(), SimdReduceInt.Stride, threadgroup: 64, thread);
+        }
+
+        Assert.Equal(direct.ToArray(), batched.ToArray());
+        Assert.Equal(direct.ToArray(), asynchronous.ToArray());
+    }
+
     // ---- the CPU ---------------------------------------------------------------------------------
 
     [MetalFact]

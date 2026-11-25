@@ -105,6 +105,9 @@ dotnet run -c Release --no-build --project samples/SharpCompute.Samples.ComputeL
 step "GroupShared: a reduction, a prefix sum, a tiled matrix product and a tiled blur in threadgroup shared memory (headless)"
 dotnet run -c Release --no-build --project samples/SharpCompute.Samples.GroupShared -- --headless --out "$OUT/groupshared"
 
+step "SimdGroups: a reduction race, a stream compaction and a shuffle filter, each checked against the CPU (headless)"
+dotnet run -c Release --no-build --project samples/SharpCompute.Samples.SimdGroups -- --headless --out "$OUT/simdgroups"
+
 step "Done: $OUT"
 find "$OUT" -maxdepth 2 \( -name '*.png' -o -name '*.mp4' -o -name '*.txt' \) -not -path '*/video/*/*' | sed "s#^$OUT/#  #" | sort
 

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SIMD-group ("wave") operations: a reduction three ways, a stream compaction by ballots and prefix
+    sums, and a filter by lane shuffles, each shown, checked against the CPU and timed. Original SharpCompute sample (MIT).
+    Run with scripts/demo-simdgroups.sh from a desktop session (add the headless switch for PNGs only).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpCompute.Samples.SimdGroups</RootNamespace>
+    <AssemblyName>SharpCompute.Samples.SimdGroups</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- For PngEncoder only; the sample itself is MIT. -->
+    <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
