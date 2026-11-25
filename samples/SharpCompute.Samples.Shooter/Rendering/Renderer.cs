@@ -44,6 +44,7 @@ public sealed class Renderer : IDisposable
     private const float BloomThreshold = 0.3f;
 
     private readonly GraphicsDevice _device;
+    private readonly ComputeContext _context;
     private readonly ReadWriteBuffer<uint> _frame;
     private readonly ReadWriteBuffer<Float4> _hdr;
     private readonly ReadWriteBuffer<Float4> _halfA;
@@ -78,6 +79,7 @@ public sealed class Renderer : IDisposable
     public Renderer(GraphicsDevice device)
     {
         _device = device ?? throw new ArgumentNullException(nameof(device));
+        _context = device.CreateComputeContext();
         _frame = device.AllocateReadWriteBuffer<uint>(Width * Height);
         _hdr = device.AllocateReadWriteBuffer<Float4>(Width * Height);
         _halfA = device.AllocateReadWriteBuffer<Float4>(Width / 2 * (Height / 2));
@@ -173,30 +175,40 @@ public sealed class Renderer : IDisposable
         float shakeY = (Hash01(_frameIndex, 2) - 0.5f) * 2f * _shake;
         Vector2 parallax = arena.Player.Position - Tuning.Center;
 
-        using ComputeContext context = _device.CreateComputeContext();
-        context.For(MaxParticles, new StepParticles(_particles, paused ? 0f : dt, Tuning.Wall, Tuning.Wall, Width - Tuning.Wall, Height - Tuning.Wall));
-        context.For(ChunkCount, new BoundParticleChunks(_particles, _chunkBounds));
-        context.For(TilesX, TilesY, new BinTiles(_chunkBounds, ChunkCount, _prims, _primCount, _tileChunks, _tilePrims, _tileCounts, TilesX, MaxChunksPerTile, MaxPrimsPerTile));
-        context.For(Width, Height, new DrawScene(
-            _hdr, _prims, _particles, _tileChunks, _tilePrims, _tileCounts,
-            Width, Height, TilesX, MaxChunksPerTile, MaxPrimsPerTile,
-            arena.Time, _energy, -parallax.X, -parallax.Y, Tuning.Wall));
+        // One context for the renderer's lifetime: it keeps its command lists between frames, so
+        // recording a frame allocates nothing once the lists have grown to fit.
+        ComputeContext context = _context;
 
-        context.For(Width / 2, Height / 2, new BloomPrefilter(_hdr, _halfA, Width, Width / 2, BloomThreshold));
-        context.For(Width / 2, Height / 2, new Blur(_halfA, _halfB, Width / 2, Height / 2, 1, 0));
-        context.For(Width / 2, Height / 2, new Blur(_halfB, _halfA, Width / 2, Height / 2, 0, 1));
-        context.For(Width / 4, Height / 4, new Downsample(_halfA, _quarterA, Width / 2, Width / 4));
-        context.For(Width / 4, Height / 4, new Blur(_quarterA, _quarterB, Width / 4, Height / 4, 1, 0));
-        context.For(Width / 4, Height / 4, new Blur(_quarterB, _quarterA, Width / 4, Height / 4, 0, 1));
-
-        context.For(Width, Height, new Composite(
-            _hdr, _halfA, _quarterA, _ripples, _rippleCount, _glyphs, _glyphCount, _font, _frame,
-            Width, Height, BloomStrength, Exposure, _flash.X, _flash.Y, _flash.Z, shakeX, shakeY));
-
-        if (target is not null)
+        try
         {
-            (int scale, int originX, int originY) = Layout(target.Width, target.Height);
-            context.ForEach(target, new UpscaleFrame(_frame, Width, Height, scale, originX, originY));
+            context.For(MaxParticles, new StepParticles(_particles, paused ? 0f : dt, Tuning.Wall, Tuning.Wall, Width - Tuning.Wall, Height - Tuning.Wall));
+            context.For(ChunkCount, new BoundParticleChunks(_particles, _chunkBounds));
+            context.For(TilesX, TilesY, new BinTiles(_chunkBounds, ChunkCount, _prims, _primCount, _tileChunks, _tilePrims, _tileCounts, TilesX, MaxChunksPerTile, MaxPrimsPerTile));
+            context.For(Width, Height, new DrawScene(
+                _hdr, _prims, _particles, _tileChunks, _tilePrims, _tileCounts,
+                Width, Height, TilesX, MaxChunksPerTile, MaxPrimsPerTile,
+                arena.Time, _energy, -parallax.X, -parallax.Y, Tuning.Wall));
+
+            context.For(Width / 2, Height / 2, new BloomPrefilter(_hdr, _halfA, Width, Width / 2, BloomThreshold));
+            context.For(Width / 2, Height / 2, new Blur(_halfA, _halfB, Width / 2, Height / 2, 1, 0));
+            context.For(Width / 2, Height / 2, new Blur(_halfB, _halfA, Width / 2, Height / 2, 0, 1));
+            context.For(Width / 4, Height / 4, new Downsample(_halfA, _quarterA, Width / 2, Width / 4));
+            context.For(Width / 4, Height / 4, new Blur(_quarterA, _quarterB, Width / 4, Height / 4, 1, 0));
+            context.For(Width / 4, Height / 4, new Blur(_quarterB, _quarterA, Width / 4, Height / 4, 0, 1));
+
+            context.For(Width, Height, new Composite(
+                _hdr, _halfA, _quarterA, _ripples, _rippleCount, _glyphs, _glyphCount, _font, _frame,
+                Width, Height, BloomStrength, Exposure, _flash.X, _flash.Y, _flash.Z, shakeX, shakeY));
+
+            if (target is not null)
+            {
+                (int scale, int originX, int originY) = Layout(target.Width, target.Height);
+                context.ForEach(target, new UpscaleFrame(_frame, Width, Height, scale, originX, originY));
+            }
+        }
+        finally
+        {
+            context.Execute();
         }
     }
 
@@ -256,6 +268,7 @@ public sealed class Renderer : IDisposable
 
     public void Dispose()
     {
+        _context.Dispose();
         _frame.Dispose();
         _hdr.Dispose();
         _halfA.Dispose();

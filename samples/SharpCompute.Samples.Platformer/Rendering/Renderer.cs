@@ -22,6 +22,7 @@ public sealed class Renderer : IDisposable
     public const int MaxGlyphs = 320;
 
     private readonly GraphicsDevice _device;
+    private readonly ComputeContext _context;
     private readonly ReadWriteBuffer<uint> _frame;
     private readonly ReadOnlyBuffer<uint> _atlas;
     private readonly ReadOnlyBuffer<SpriteInstance> _sprites;
@@ -42,6 +43,7 @@ public sealed class Renderer : IDisposable
     public Renderer(GraphicsDevice device)
     {
         _device = device ?? throw new ArgumentNullException(nameof(device));
+        _context = device.CreateComputeContext();
         _frame = device.AllocateReadWriteBuffer<uint>(Width * Height);
         _atlas = device.AllocateReadOnlyBuffer<uint>(Art.BuildAtlas());
         _sprites = device.AllocateReadOnlyBuffer<SpriteInstance>(MaxSprites);
@@ -162,14 +164,24 @@ public sealed class Renderer : IDisposable
             Width, cameraX, cameraY, world.Level.Width, world.Level.Height,
             _spriteCount, _lightCount, _glyphCount, time, ambient, session.Fade);
 
-        using ComputeContext context = _device.CreateComputeContext();
-        context.For(MaxParticles, new StepParticles(_particles, dt));
-        context.For(Width, Height, scene);
+        // One context for the renderer's lifetime: it keeps its command lists between frames, so
+        // recording a frame allocates nothing once the lists have grown to fit.
+        ComputeContext context = _context;
 
-        if (target is not null)
+        try
         {
-            int scale = Math.Max(1, Math.Min(target.Width / Width, target.Height / Height));
-            context.ForEach(target, new UpscaleFrame(_frame, Width, Height, scale, (target.Width - (Width * scale)) / 2, (target.Height - (Height * scale)) / 2));
+            context.For(MaxParticles, new StepParticles(_particles, dt));
+            context.For(Width, Height, scene);
+
+            if (target is not null)
+            {
+                int scale = Math.Max(1, Math.Min(target.Width / Width, target.Height / Height));
+                context.ForEach(target, new UpscaleFrame(_frame, Width, Height, scale, (target.Width - (Width * scale)) / 2, (target.Height - (Height * scale)) / 2));
+            }
+        }
+        finally
+        {
+            context.Execute();
         }
     }
 
@@ -178,6 +190,7 @@ public sealed class Renderer : IDisposable
 
     public void Dispose()
     {
+        _context.Dispose();
         _frame.Dispose();
         _atlas.Dispose();
         _sprites.Dispose();

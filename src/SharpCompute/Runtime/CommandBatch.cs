@@ -54,6 +54,9 @@ internal sealed unsafe class CommandBatch
     // A dispatch records 3 to 5 commands. A context batch starts at 32 so a few dispatches never
     // regrow the list; a single async dispatch needs only a handful.
     private readonly List<Command> _commands;
+    // The two sizes of each dispatch, kept apart so that the common commands stay 24 bytes.
+    private readonly List<DispatchSizes> _dispatches;
+    private readonly Action<CommandBatch>? _recycle;
     private byte[] _constants = [];
     private int _constantsLength;
     private List<nint>? _temporaries;
@@ -62,7 +65,6 @@ internal sealed unsafe class CommandBatch
     private nint _commandBuffer;
     private nint _encoder;
     private nint _currentPipeline;
-    private int _dispatchCount;
     private int _released;
     private string? _simulatedError;
 
@@ -70,13 +72,43 @@ internal sealed unsafe class CommandBatch
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <param name="device">The device whose queue runs the batch.</param>
     /// <param name="commandCapacity">Initial room for recorded commands (3 to 5 per dispatch).</param>
-    internal CommandBatch(GraphicsDevice device, int commandCapacity = 32)
+    /// <param name="recycle">
+    /// Called with the batch once it has run (or was abandoned) and released everything it held, so its
+    /// owner can <see cref="Reset"/> and record into it again instead of allocating new lists. It runs
+    /// on the completing thread, possibly a Metal thread, and must not throw.
+    /// </param>
+    internal CommandBatch(GraphicsDevice device, int commandCapacity = 32, Action<CommandBatch>? recycle = null)
     {
         _device = device;
         _commands = new List<Command>(commandCapacity);
+        _dispatches = new List<DispatchSizes>(Math.Max(1, commandCapacity / 4));
+        _recycle = recycle;
 
         // Held until completion: a device disposed while the batch is pending keeps its queue.
         _queue = Lease(device.QueueHandle, device);
+    }
+
+    /// <summary>
+    /// Makes a released batch record again, keeping the capacity of its lists and constants buffer.
+    /// Only valid after the batch was handed to the recycle callback.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">The device has been disposed; the batch stays released.</exception>
+    internal void Reset()
+    {
+        Debug.Assert(Volatile.Read(ref _released) == 1 && _commandBuffer == 0, "Only a released batch can be reset.");
+
+        _queue = 0;
+        _constantsLength = 0;
+        _currentPipeline = 0;
+        _shaderTypes.Clear();
+        _dispatches.Clear();
+        _completion = null;
+        _simulatedError = null;
+
+        // Leases the queue before the batch counts as live again, so a disposed device leaves it released.
+        _queue = Lease(_device.QueueHandle, _device);
+        Volatile.Write(ref _released, 0);
+        GC.ReRegisterForFinalize(this);
     }
 
     // Reached only for a batch that was never committed and was dropped without Abandon (a leaked
@@ -97,7 +129,7 @@ internal sealed unsafe class CommandBatch
     }
 
     /// <summary>Number of dispatches recorded so far.</summary>
-    internal int DispatchCount => _dispatchCount;
+    internal int DispatchCount => _dispatches.Count;
 
     /// <summary>
     /// Tests only: report this error description at completion as if Metal had set the command
@@ -118,6 +150,7 @@ internal sealed unsafe class CommandBatch
         Debug.Assert(_commandBuffer == 0 && Volatile.Read(ref _released) == 0, "The batch is no longer recording.");
 
         int commandCount = _commands.Count;
+        int dispatchCount = _dispatches.Count;
         int constantsLength = _constantsLength;
         nint currentPipeline = _currentPipeline;
 
@@ -144,19 +177,19 @@ internal sealed unsafe class CommandBatch
             ShaderArgumentWriter writer = new(0, _device, this);
             T.SetArguments(in shader, ref writer);
 
-            _commands.Add(new Command(CommandKind.Dispatch, 0, 0) { Grid = grid, ThreadsPerThreadgroup = threadsPerThreadgroup });
+            _dispatches.Add(new DispatchSizes(grid, threadsPerThreadgroup));
+            _commands.Add(new Command(CommandKind.Dispatch, 0, _dispatches.Count - 1));
         }
         catch
         {
             // Drop the partial dispatch's commands. Its leases stay recorded and are released with the
             // batch, which is harmless: they only delay a release until the batch is done.
             _commands.RemoveRange(commandCount, _commands.Count - commandCount);
+            _dispatches.RemoveRange(dispatchCount, _dispatches.Count - dispatchCount);
             _constantsLength = constantsLength;
             _currentPipeline = currentPipeline;
             throw;
         }
-
-        _dispatchCount++;
 
         if (!_shaderTypes.Contains(typeof(T)))
         {
@@ -176,7 +209,7 @@ internal sealed unsafe class CommandBatch
         }
 
         new ReadOnlySpan<byte>(bytes, length).CopyTo(_constants.AsSpan(_constantsLength));
-        _commands.Add(new Command(CommandKind.Bytes, _constantsLength, index) { Length = length });
+        _commands.Add(new Command(CommandKind.Bytes, _constantsLength, index, length));
         _constantsLength += length;
     }
 
@@ -219,7 +252,7 @@ internal sealed unsafe class CommandBatch
         }
         finally
         {
-            ReleaseResources();
+            ReleaseAndRecycle();
         }
 
         if (error is not null)
@@ -270,6 +303,35 @@ internal sealed unsafe class CommandBatch
     /// <summary>Drops an uncommitted batch: releases everything without running it.</summary>
     internal void Abandon() => ReleaseResources();
 
+    /// <summary>Drops an uncommitted batch like <see cref="Abandon"/>, then hands it back to its owner for reuse.</summary>
+    internal void AbandonAndRecycle() => ReleaseAndRecycle();
+
+    /// <summary>
+    /// True when the batch has grown past what is worth keeping for reuse (an unusually large batch):
+    /// its owner drops it instead, so one big frame does not pin that memory for the context's life.
+    /// </summary>
+    internal bool IsOversized => _commands.Capacity > MaxRetainedCommands || _constants.Length > MaxRetainedConstantBytes;
+
+    // About 100 KB of commands (a few hundred dispatches) and 64 KB of constants.
+    private const int MaxRetainedCommands = 4096;
+    private const int MaxRetainedConstantBytes = 64 * 1024;
+
+    /// <summary>
+    /// Releases the batch and hands it to its owner. A release callback that throws still lets the
+    /// batch be recycled: everything was released before the exception surfaces.
+    /// </summary>
+    private void ReleaseAndRecycle()
+    {
+        try
+        {
+            ReleaseResources();
+        }
+        finally
+        {
+            Recycle();
+        }
+    }
+
     /// <summary>The completed handler; runs on a Metal completion thread and must not throw.</summary>
     internal void OnCompleted()
     {
@@ -295,6 +357,17 @@ internal sealed unsafe class CommandBatch
             {
                 error ??= new MetalException($"Releasing the resources of {Describe()} failed.", e);
             }
+        }
+
+        // From here on only locals are used: once recycled, the owner may reset the batch at any time.
+        // The task must complete whatever the callback does, or every awaiter would hang.
+        try
+        {
+            Recycle();
+        }
+        catch (Exception e)
+        {
+            error ??= new MetalException("Recycling a completed batch failed.", e);
         }
 
         if (error is null)
@@ -353,7 +426,8 @@ internal sealed unsafe class CommandBatch
                             ObjC.SendVoid(encoder, Selectors.SetBytesLengthAtIndex, constants + command.Pointer, (nuint)command.Length, (nuint)command.Index);
                             break;
                         case CommandKind.Dispatch:
-                            ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, command.Grid, command.ThreadsPerThreadgroup);
+                            DispatchSizes sizes = _dispatches[command.Index];
+                            ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, sizes.Grid, sizes.ThreadsPerThreadgroup);
                             break;
                     }
                 }
@@ -402,12 +476,12 @@ internal sealed unsafe class CommandBatch
     /// <summary>"shader 'X'" for one dispatch, otherwise the dispatch count and every shader type in the batch.</summary>
     private string Describe()
     {
-        if (_dispatchCount == 1 && _shaderTypes.Count == 1)
+        if (_dispatches.Count == 1 && _shaderTypes.Count == 1)
         {
             return $"shader '{_shaderTypes[0]}'";
         }
 
-        return $"a batch of {_dispatchCount} dispatches (shaders: {string.Join(", ", _shaderTypes.ConvertAll(static t => $"'{t}'"))})";
+        return $"a batch of {_dispatches.Count} dispatches (shaders: {string.Join(", ", _shaderTypes.ConvertAll(static t => $"'{t}'"))})";
     }
 
     private void ReleaseResources()
@@ -425,6 +499,7 @@ internal sealed unsafe class CommandBatch
         EndEncoding();
         ObjC.Release(_commandBuffer);
         _commandBuffer = 0;
+        _queue = 0;
         _commands.Clear();
 
         if (_temporaries is not null)
@@ -433,11 +508,22 @@ internal sealed unsafe class CommandBatch
             {
                 ObjC.Release(temporary);
             }
+
+            _temporaries.Clear();
         }
 
         // The last release of a wrapped buffer runs the caller's release callback, possibly on Metal's
         // completion thread; one that throws must not stop the other leases from being released.
         GraphicsDevice.ReleaseLeases(_leases);
+    }
+
+    /// <summary>Hands a released batch to its owner (the recycle callback), if it has one.</summary>
+    private void Recycle()
+    {
+        if (Volatile.Read(ref _released) == 1)
+        {
+            _recycle?.Invoke(this);
+        }
     }
 
     private enum CommandKind : byte
@@ -450,21 +536,21 @@ internal sealed unsafe class CommandBatch
     }
 
     /// <summary>
-    /// One recorded encoder call. <see cref="Pointer"/> is an <c>id</c> (pipeline, texture, buffer)
-    /// or, for <see cref="CommandKind.Bytes"/>, the offset of the copied constants.
+    /// One recorded encoder call, 24 bytes. <see cref="Pointer"/> is an <c>id</c> (pipeline, texture,
+    /// buffer) or, for <see cref="CommandKind.Bytes"/>, the offset of the copied constants.
+    /// <see cref="Index"/> is the argument index, or for <see cref="CommandKind.Dispatch"/> the
+    /// position of its sizes in the dispatch list.
     /// </summary>
-    private readonly struct Command(CommandKind kind, nint pointer, int index)
+    private readonly struct Command(CommandKind kind, nint pointer, int index, int length = 0)
     {
-        public CommandKind Kind { get; } = kind;
-
         public nint Pointer { get; } = pointer;
 
         public int Index { get; } = index;
 
-        public int Length { get; init; }
+        public int Length { get; } = length;
 
-        public MTLSize Grid { get; init; }
-
-        public MTLSize ThreadsPerThreadgroup { get; init; }
+        public CommandKind Kind { get; } = kind;
     }
+
+    private readonly record struct DispatchSizes(MTLSize Grid, MTLSize ThreadsPerThreadgroup);
 }
