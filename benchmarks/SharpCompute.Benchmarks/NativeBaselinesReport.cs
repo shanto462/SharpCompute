@@ -46,8 +46,8 @@ public static class NativeBaselinesReport
         md.AppendLine();
         md.AppendLine("The tables above compare the GPU with the CPU. This section compares the kernels SharpCompute generates with **native "
             + "controls on the same GPU**: the same kernel written by hand in MSL, and for single-precision matrix multiply (SGEMM) Apple's "
-            + "`MPSMatrixMultiplication` and a hand-written kernel on Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use. "
-            + "A generated kernel that matches its hand-written twin shows the generator costs nothing; a gap to MPS shows what is still out of reach from C#.");
+            + "`MPSMatrixMultiplication` and a kernel on Metal's matrix units (`simdgroup_matrix`), written by hand and as a C# shader on `WaveMatrix8x8`. "
+            + "A generated kernel that matches its hand-written twin shows the generator costs nothing; what is then left to MPS is the kernel's, not the language's.");
         md.AppendLine();
         md.AppendLine(Invariant($"Measured by `scripts/run-benchmarks.sh --native-baselines` on {data.Before.Time:yyyy-MM-dd HH:mm zzz} ({data.ElapsedSeconds:F0} s) on ")
             + $"{machine.Model} (GPU: {machine.Gpu}; {machine.Memory}; {machine.Os}).");
@@ -152,7 +152,7 @@ public static class NativeBaselinesReport
         md.AppendLine();
     }
 
-    /// <summary>Each generated kernel against its hand-written twin, and the best generated SGEMM against the native ones.</summary>
+    /// <summary>Each generated kernel against its hand-written twin, and the generated SGEMM kernels against the native ones.</summary>
     private static void AppendGaps(StringBuilder md, IReadOnlyList<NativeRow> rows)
     {
         md.AppendLine("### Generated against hand-written");
@@ -187,28 +187,42 @@ public static class NativeBaselinesReport
             .DefaultIfEmpty(double.NaN)
             .Max();
 
+        // Whether this run timed the matrix units from C# (WaveMatrix8x8); run data from before that kernel existed did not.
+        bool fromCSharp = rows.Any(r => r.IsGenerated && r.Workload == "SGEMM" && r.Variant == NativeBaselines.MatrixUnitsVariant);
         List<string> lines = [];
 
         foreach (IGrouping<string, NativeRow> size in rows.Where(r => r.Workload == "SGEMM").GroupBy(r => r.Size))
         {
             NativeRow? best = size.Where(r => r.IsGenerated).MinBy(r => r.GpuSeconds);
+            NativeRow? scalar = size.Where(r => r.IsGenerated && r.Variant != NativeBaselines.MatrixUnitsVariant).MinBy(r => r.GpuSeconds);
             NativeRow? mps = size.FirstOrDefault(r => r.Kind == NativeKinds.Mps);
             NativeRow? matrixUnits = size.Where(r => r.Kind == NativeKinds.HandWritten).MinBy(r => r.GpuSeconds);
 
             if (best is not null && mps is not null && matrixUnits is not null)
             {
-                lines.Add(Invariant($"- {size.Key}: the fastest generated kernel ({best.Variant}, {best.FlopRate / 1e12:F2} TFLOP/s) takes **{best.GpuSeconds / mps.GpuSeconds:F1}×** the GPU time of ")
-                    + Invariant($"`MPSMatrixMultiplication` ({mps.FlopRate / 1e12:F2} TFLOP/s) and {best.GpuSeconds / matrixUnits.GpuSeconds:F1}× that of the hand-written ")
-                    + Invariant($"{matrixUnits.Variant} kernel ({matrixUnits.FlopRate / 1e12:F2} TFLOP/s), which itself is within {(matrixUnits.GpuSeconds / mps.GpuSeconds - 1) * 100:F0} % of MPS."));
+                string line = Invariant($"- {size.Key}: the fastest generated kernel ({best.Variant}, {best.FlopRate / 1e12:F2} TFLOP/s) takes **{best.GpuSeconds / mps.GpuSeconds:F2}×** the GPU time of ")
+                    + Invariant($"`MPSMatrixMultiplication` ({mps.FlopRate / 1e12:F2} TFLOP/s) and {best.GpuSeconds / matrixUnits.GpuSeconds:F2}× that of the hand-written ")
+                    + Invariant($"{matrixUnits.Variant} kernel ({matrixUnits.FlopRate / 1e12:F2} TFLOP/s), which itself is within {(matrixUnits.GpuSeconds / mps.GpuSeconds - 1) * 100:F0} % of MPS.");
+
+                if (fromCSharp && scalar is not null)
+                {
+                    line += Invariant($" The fastest generated kernel without the matrix units ({scalar.Variant}, {scalar.FlopRate / 1e12:F2} TFLOP/s) takes {scalar.GpuSeconds / mps.GpuSeconds:F1}× the time of MPS.");
+                }
+
+                lines.Add(line);
             }
         }
 
         if (lines.Count > 0)
         {
             string twins = double.IsNaN(naiveGap) ? "" : Invariant($"The generated naive kernel is within {Math.Max(naiveGap * 100, 0.1):F1} % of its hand-written twin's GPU time, so the generated MSL is not what is slow. ");
-            md.AppendLine("**SGEMM, the gap that is not the generator's.** " + twins
-                + "What separates a C# shader from MPS is the matrix units: `simdgroup_matrix` multiplies 8 × 8 blocks with a whole SIMD group per operation, "
-                + "and a C# shader has no way to say that yet.");
+            md.AppendLine(fromCSharp
+                ? "**SGEMM, and what the matrix units are worth.** " + twins
+                    + "What separates a scalar kernel from MPS is the matrix units: `simdgroup_matrix` multiplies 8 × 8 blocks with a whole SIMD group per operation. "
+                    + "A C# shader reaches them as `WaveMatrix8x8`, and the kernel written that way is the twin of the hand-written one in the table above."
+                : "**SGEMM, the gap that is not the generator's.** " + twins
+                    + "What separates these generated kernels from MPS is the matrix units: `simdgroup_matrix` multiplies 8 × 8 blocks with a whole SIMD group per operation, "
+                    + "and this run timed no C# kernel on them.");
             md.AppendLine();
 
             foreach (string line in lines)
@@ -226,7 +240,7 @@ public static class NativeBaselinesReport
         md.AppendLine();
         md.AppendLine("- **One machine, one OS.** `MPSMatrixMultiplication` is Apple's kernel and changes with macOS. The hand-written matrix-unit kernel was tuned on an "
             + "Apple M4 Pro: of the accumulator grids tried (2 × 2, 2 × 4 and 4 × 4 blocks per SIMD group, with and without staging in threadgroup memory) "
-            + "2 × 4 without staging was the fastest, and another GPU may prefer another.");
+            + "2 × 4 without staging was the fastest, and another GPU may prefer another. The C# kernel on `WaveMatrix8x8` has the same shape.");
         md.AppendLine("- **GPU time is elapsed time on the GPU**, not time that was only this dispatch's: work of other processes that the GPU runs in between lengthens it. "
             + "The machine was shared; the medians and the Passes column are the guard against that, and a row whose passes are far apart should be read with that in mind.");
         double[] overheads = [.. data.Rows.Select(r => r.WallSeconds - r.GpuSeconds)];
@@ -236,7 +250,7 @@ public static class NativeBaselinesReport
             + "Percentages are of that, so they are a little higher than they would be against the published estimates.");
         md.AppendLine("- **Operation counts are nominal.** A square root or a divide costs the GPU more than a multiply, so the N-body row sits further below the FP32 ceiling "
             + "than its arithmetic alone would put it; that is the count's doing, not a sign of slack in the kernel.");
-        md.AppendLine("- **MPS and the matrix-unit kernel are free to sum in another order** than the naive kernel (they multiply 8 × 8 blocks), so `--verify` holds "
+        md.AppendLine("- **MPS and the matrix-unit kernels are free to sum in another order** than the naive kernel (they multiply 8 × 8 blocks), so `--verify` holds "
             + Invariant($"them to a relative error of {Verify.ReorderedSumTolerance:G3} against the CPU rather than to the bit-for-bit match a hand-written twin must reach; ")
             + "the verification table shows how close they came to the naive kernel's product.");
         md.AppendLine(Invariant($"- **Sizes are fixed** ({string.Join(" and ", NativeBaselines.SgemmSizes)} for SGEMM, both multiples of 64 as the matrix-unit kernel needs): nothing here says how a kernel scales to small ")
