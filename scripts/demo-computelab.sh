@@ -4,7 +4,7 @@
 #   Histogram (atomics): a live 256-bin luminance histogram; C folds it into 4 bins to show contention
 #   Compaction (atomics): keep the passing elements of 1M through an AtomicAdd counter; Up/Down threshold
 #   Bits: popcount, bit reversal, clz/ctz, float bits and unorm8 packing as patterns
-#   Indirect (indirect dispatch): compact, then dispatch exactly the survivors; D runs the full array instead
+#   Indirect (indirect dispatch): compact, then dispatch exactly the survivors; D steps through the full-array alternatives
 #   FastMath (compile options): one kernel with and without [ShaderOptions(FastMath = true)]; F toggles
 #   <-/-> switch page · Space pause · S save PNG · Esc quit
 #

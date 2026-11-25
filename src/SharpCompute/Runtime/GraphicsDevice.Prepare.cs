@@ -1,7 +1,27 @@
 using System;
 using System.Threading.Tasks;
+using SharpCompute.Interop;
 
 namespace SharpCompute;
+
+/// <summary>What <c>GraphicsDevice.Prepare</c> compiles besides a shader's ordinary pipeline.</summary>
+[Flags]
+public enum PrepareOptions
+{
+    /// <summary>
+    /// The pipeline that <c>For</c>, <c>ForEach</c>, <c>ForAsync</c>, <c>ForIndirect</c> and
+    /// <see cref="ComputeContext"/> use.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Also the specialization that the GPU part of <c>ForSplit</c> and <c>ForEachSplit</c> runs, which is
+    /// a second pipeline compiled from the same source. Skipped for a shader that cannot be split
+    /// (a hand-written descriptor, or a generated shader with no free buffer index), since no dispatch
+    /// would ever use it.
+    /// </summary>
+    IncludeSplit = 1,
+}
 
 // Pipeline warm-up: compile a shader before its first dispatch needs it.
 public sealed partial class GraphicsDevice
@@ -13,25 +33,41 @@ public sealed partial class GraphicsDevice
     /// <remarks>
     /// <para>
     /// A shader is compiled from its MSL the first time it is used on a device, which takes
-    /// milliseconds to tens of milliseconds: a visible stall when that first use is a frame. Call this
-    /// at startup (or <see cref="PrepareAsync{T}()"/> from a loading screen) for the shaders a frame
-    /// will dispatch. A shader is compiled once however it is first used: a dispatch that arrives
-    /// while it is being prepared on another thread waits for that compilation instead of starting
-    /// its own.
+    /// milliseconds once macOS has seen the shader and tens to hundreds of milliseconds the first
+    /// time: a visible stall when that first use is a frame. Call this at startup (or
+    /// <see cref="PrepareAsync{T}()"/> from a loading screen) for the shaders a frame will dispatch. A
+    /// shader is compiled once however it is first used: a dispatch that arrives while it is being
+    /// prepared on another thread waits for that compilation instead of starting its own.
     /// </para>
     /// <para>
     /// This prepares the pipeline that <c>For</c>, <c>ForEach</c>, <c>ForAsync</c>,
-    /// <c>ForIndirect</c> and <see cref="ComputeContext"/> use. The separate specialization that
-    /// <c>ForSplit</c> runs on the GPU is still compiled by the first split dispatch.
+    /// <c>ForIndirect</c> and <see cref="ComputeContext"/> use. <c>ForSplit</c> runs a separate
+    /// specialization on the GPU; pass <see cref="PrepareOptions.IncludeSplit"/> to
+    /// <see cref="Prepare{T}(PrepareOptions)"/> to compile that one as well.
     /// </para>
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <exception cref="NotSupportedException">The shader declares more threadgroup memory than the device supports.</exception>
     /// <exception cref="ShaderCompilationException">The shader failed to compile.</exception>
     public void Prepare<T>()
+        where T : struct, IComputeShaderDescriptor<T> => Prepare<T>(PrepareOptions.None);
+
+    /// <summary>
+    /// Compiles the pipelines of <typeparamref name="T"/> that <paramref name="options"/> select and
+    /// caches them. No-op for the ones that are already compiled.
+    /// </summary>
+    /// <inheritdoc cref="Prepare{T}()" path="/remarks"/>
+    /// <inheritdoc cref="Prepare{T}()" path="/exception"/>
+    public void Prepare<T>(PrepareOptions options)
         where T : struct, IComputeShaderDescriptor<T>
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
         GetPipeline<T>();
+
+        if (IncludesSplit<T>(options))
+        {
+            GetWindowedPipeline<T>();
+        }
     }
 
     /// <summary>
@@ -40,13 +76,28 @@ public sealed partial class GraphicsDevice
     /// </summary>
     /// <inheritdoc cref="Prepare{T}()" path="/remarks"/>
     /// <exception cref="ObjectDisposedException">The device has been disposed. (Thrown.)</exception>
+    /// <exception cref="NotSupportedException">The shader declares more threadgroup memory than the device supports. (Stored in the returned task.)</exception>
     /// <exception cref="ShaderCompilationException">The shader failed to compile. (Stored in the returned task.)</exception>
     public Task PrepareAsync<T>()
+        where T : struct, IComputeShaderDescriptor<T> => PrepareAsync<T>(PrepareOptions.None);
+
+    /// <summary>
+    /// Compiles the pipelines of <typeparamref name="T"/> that <paramref name="options"/> select on a
+    /// thread-pool thread and caches them; the task completes when they are ready. Completes at once
+    /// when they are already compiled.
+    /// </summary>
+    /// <inheritdoc cref="Prepare{T}()" path="/remarks"/>
+    /// <inheritdoc cref="PrepareAsync{T}()" path="/exception"/>
+    public Task PrepareAsync<T>(PrepareOptions options)
         where T : struct, IComputeShaderDescriptor<T>
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
 
-        return IsPipelineCached<T>() ? Task.CompletedTask : Task.Run(() => { GetPipeline<T>(); });
+        bool split = IncludesSplit<T>(options);
+
+        return IsPipelineCached<T>() && (!split || IsPipelineCached<T>(windowed: true))
+            ? Task.CompletedTask
+            : Task.Run(() => Prepare<T>(options));
     }
 
     /// <summary>
@@ -57,7 +108,15 @@ public sealed partial class GraphicsDevice
     /// <exception cref="ArgumentNullException">An element of <paramref name="shaders"/> is null.</exception>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <exception cref="ShaderCompilationException">A shader failed to compile; the ones after it are not compiled.</exception>
-    public void Prepare(params ReadOnlySpan<ShaderReference> shaders)
+    public void Prepare(params ReadOnlySpan<ShaderReference> shaders) => Prepare(PrepareOptions.None, shaders);
+
+    /// <summary>
+    /// Compiles and caches the pipelines of several shaders that <paramref name="options"/> select, one
+    /// shader after the other.
+    /// </summary>
+    /// <inheritdoc cref="Prepare{T}()" path="/remarks"/>
+    /// <inheritdoc cref="Prepare(ReadOnlySpan{ShaderReference})" path="/exception"/>
+    public void Prepare(PrepareOptions options, params ReadOnlySpan<ShaderReference> shaders)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, this);
 
@@ -68,7 +127,7 @@ public sealed partial class GraphicsDevice
 
         foreach (ShaderReference shader in shaders)
         {
-            shader.Prepare(this);
+            shader.Prepare(this, options);
         }
     }
 
@@ -83,7 +142,15 @@ public sealed partial class GraphicsDevice
     /// A shader failed to compile. (Stored in the returned task, which completes only after every shader
     /// has been tried; the others are prepared regardless.)
     /// </exception>
-    public Task PrepareAsync(params ShaderReference[] shaders)
+    public Task PrepareAsync(params ShaderReference[] shaders) => PrepareAsync(PrepareOptions.None, shaders);
+
+    /// <summary>
+    /// Compiles and caches the pipelines of several shaders that <paramref name="options"/> select, in
+    /// parallel on the thread pool; the task completes when all are ready.
+    /// </summary>
+    /// <inheritdoc cref="Prepare{T}()" path="/remarks"/>
+    /// <inheritdoc cref="PrepareAsync(ShaderReference[])" path="/exception"/>
+    public Task PrepareAsync(PrepareOptions options, params ShaderReference[] shaders)
     {
         ArgumentNullException.ThrowIfNull(shaders);
         ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -97,11 +164,19 @@ public sealed partial class GraphicsDevice
 
         for (int i = 0; i < shaders.Length; i++)
         {
-            tasks[i] = shaders[i].PrepareAsync(this);
+            tasks[i] = shaders[i].PrepareAsync(this, options);
         }
 
         return Task.WhenAll(tasks);
     }
+
+    /// <summary>
+    /// True when <paramref name="options"/> ask for the split specialization and <typeparamref name="T"/>
+    /// has one: the condition under which <c>ForSplit</c> accepts the shader at all.
+    /// </summary>
+    private static bool IncludesSplit<T>(PrepareOptions options)
+        where T : struct, IComputeShaderDescriptor<T> =>
+        (options & PrepareOptions.IncludeSplit) != 0 && T.GridWindowIndex is >= 0 and < Metal.MaxBufferBindings;
 }
 
 /// <summary>
@@ -130,9 +205,9 @@ public abstract class ShaderReference
 
     public override string ToString() => ShaderType.ToString();
 
-    internal abstract void Prepare(GraphicsDevice device);
+    internal abstract void Prepare(GraphicsDevice device, PrepareOptions options);
 
-    internal abstract Task PrepareAsync(GraphicsDevice device);
+    internal abstract Task PrepareAsync(GraphicsDevice device, PrepareOptions options);
 
     private sealed class Reference<T> : ShaderReference
         where T : struct, IComputeShaderDescriptor<T>
@@ -141,8 +216,8 @@ public abstract class ShaderReference
 
         public override Type ShaderType => typeof(T);
 
-        internal override void Prepare(GraphicsDevice device) => device.Prepare<T>();
+        internal override void Prepare(GraphicsDevice device, PrepareOptions options) => device.Prepare<T>(options);
 
-        internal override Task PrepareAsync(GraphicsDevice device) => device.PrepareAsync<T>();
+        internal override Task PrepareAsync(GraphicsDevice device, PrepareOptions options) => device.PrepareAsync<T>(options);
     }
 }

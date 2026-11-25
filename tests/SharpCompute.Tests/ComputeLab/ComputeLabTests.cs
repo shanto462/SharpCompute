@@ -41,6 +41,10 @@ public sealed class ComputeLabTests
         }
 
         Assert.Equal(PixelFont.Index('X'), PixelFont.Index('x'));
+        Assert.Equal('X', PixelFont.Character(PixelFont.Index('x')));
+        Assert.Equal(' ', PixelFont.Character(0));
+        Assert.Equal(' ', PixelFont.Character(PixelFont.Count));
+        Assert.Equal(' ', PixelFont.Character(-1));
         Assert.Equal(0, PixelFont.Index('§'));
         Assert.Equal(PixelFont.Count, Enumerable.Range(0, PixelFont.Count).Select(PixelFont.Mask).Distinct().Count());
 
@@ -218,14 +222,15 @@ public sealed class ComputeLabTests
                 Assert.Equal(summary, log.ToString());
                 Assert.Contains("All GPU results match the CPU.", summary);
                 Assert.DoesNotContain("FAIL", summary);
-                Assert.Equal(8, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // histogram, indirect and fast math twice
+                Assert.Equal(9, summary.Split('\n').Count(static line => line.TrimStart().StartsWith("PASS", StringComparison.Ordinal))); // histogram and fast math twice, indirect three times
                 Assert.Contains("256 bins", summary);
                 Assert.Contains("4 bins (64x the contention)", summary);
                 Assert.Contains("indirect: compact, dispatch the survivors", summary);
-                Assert.Contains("direct: all 1,048,576 threads test themselves", summary);
+                Assert.Contains("compact, dispatch all 1,048,576 threads", summary);
+                Assert.Contains("no compaction: every thread tests itself", summary);
                 Assert.Contains("safe math (the default)", summary);
                 Assert.Contains("[ShaderOptions(FastMath = true)]", summary);
-                Assert.Equal(8, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
+                Assert.Equal(9, summary.Split('\n').Count(static line => line.Contains("GPU ", StringComparison.Ordinal) && line.Contains(" ms   CPU ", StringComparison.Ordinal)));
 
                 string[] pictures = ["1-histogram.png", "2-compaction.png", "3-bits.png", "4-indirect.png", "5-fastmath.png"];
                 Assert.Equal(pictures.Append("summary.txt").Order(), Directory.GetFiles(directory).Select(Path.GetFileName).Order());
@@ -372,9 +377,10 @@ public sealed class ComputeLabTests
     }
 
     [MetalFact]
-    public void Indirect_DispatchesWholeThreadGroupsOverTheSurvivors_AndBothVariantsAgree()
+    public void Indirect_DispatchesWholeThreadGroupsOverTheSurvivors_AndAllThreeWaysAgree()
     {
         using IndirectPage page = new(GraphicsDevice.GetDefault());
+        Assert.Equal(3, page.Variants.Count);
 
         // Indirect: the GPU's own count, rounded up to whole groups of 256, is what ran.
         page.Compute(Frame);
@@ -383,7 +389,11 @@ public sealed class ComputeLabTests
         Assert.Equal(DispatchArguments.FromCount(kept, ShadeSurvivors.GroupSize), page.Arguments);
         Assert.Equal((kept + 255) / 256 * 256, page.ThreadsDispatched);
         Assert.InRange(page.ThreadsDispatched - kept, 0, 255);
-        Assert.True(page.GpuMilliseconds > 0 && page.OtherMilliseconds > 0);
+
+        // All three ways were run and timed, and the page's own time is the shown one's.
+        Assert.Equal(3, page.Milliseconds.Count);
+        Assert.All(page.Milliseconds, static ms => Assert.InRange(ms, double.Epsilon, 10_000));
+        Assert.Equal(page.Milliseconds[0], page.GpuMilliseconds);
 
         LabCheck check = page.Check();
         Assert.True(check.Passed, check.Summary);
@@ -393,16 +403,26 @@ public sealed class ComputeLabTests
         uint[] indirect = page.Shaded.ToArray();
         Assert.Equal(kept, indirect.Count(static value => value != 0u));
 
-        // Direct: every thread of the array tests its own element, and the result is the same.
+        // The other two ways run every thread of the array, and give the same result: first over the
+        // compacted list with a bounds check, then with no compaction at all.
+        for (int way = 1; way <= 2; way++)
+        {
+            Assert.True(page.OnKeyDown(Key.D));
+            Assert.Equal(way, page.Variant);
+            page.Compute(Frame);
+            Assert.Equal(kept, page.Kept);
+            Assert.Equal(DispatchArguments.FromCount(kept, ShadeSurvivors.GroupSize), page.Arguments);
+            Assert.Equal(IndirectPage.Count, page.ThreadsDispatched);
+            Assert.Equal(page.Milliseconds[way], page.GpuMilliseconds);
+            Assert.Equal(indirect, page.Shaded.ToArray());
+
+            LabCheck other = page.Check();
+            Assert.True(other.Passed, other.Summary);
+        }
+
+        // D comes back round to the indirect way.
         Assert.True(page.OnKeyDown(Key.D));
-        Assert.Equal(1, page.Variant);
-        page.Compute(Frame);
-        Assert.Equal(kept, page.Kept);
-        Assert.Equal(IndirectPage.Count, page.ThreadsDispatched);
-        Assert.Equal(indirect, page.Shaded.ToArray());
-        LabCheck direct = page.Check();
-        Assert.True(direct.Passed, direct.Summary);
-        Assert.True(page.OnKeyDown(Key.D));
+        Assert.Equal(0, page.Variant);
 
         // A higher threshold leaves fewer survivors and fewer threadgroups; other keys are not the page's.
         uint cutoff = page.Cutoff;
@@ -422,13 +442,33 @@ public sealed class ComputeLabTests
 
         Assert.Equal(63000u, page.Cutoff); // clamped
 
-        // Almost nothing survives at the top of the range; both ways still agree, down to few groups.
-        page.Compute(new LabFrame(Headless.Time, Deterministic: false));
-        Assert.True(page.Kept < kept / 4);
-        Assert.True(page.Check().Passed);
-        page.Variant = 1;
+        // Almost nothing survives at the top of the range; all three ways still agree, down to few groups.
+        for (int way = 0; way < 3; way++)
+        {
+            page.Variant = way;
+            page.Compute(new LabFrame(Headless.Time, Deterministic: way == 1));
+            Assert.True(page.Kept < kept / 4);
+            Assert.True(page.Check().Passed);
+        }
+    }
+
+    [MetalFact]
+    public void Indirect_PageSaysWhereTheSpeedUpComesFrom()
+    {
+        // The sentence is drawn on the page itself (the picture is what people look at), in both modes.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using IndirectPage page = new(device);
+        using LabCanvas canvas = new(device);
+        const string Sentence = "The speed-up comes from compaction; indirect dispatch's gain is no CPU read-back.";
+
         page.Compute(Frame);
-        Assert.True(page.Check().Passed);
+        page.Draw(canvas, Frame);
+        Assert.Contains(Sentence, canvas.TextLines(), StringComparer.OrdinalIgnoreCase);
+
+        page.Draw(canvas, new LabFrame(Headless.Time, Deterministic: false));
+        string[] live = canvas.TextLines();
+        Assert.Contains(Sentence, live, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(live, static line => line.StartsWith("This frame: compact + indirect ", StringComparison.OrdinalIgnoreCase) && line.Contains("no compaction", StringComparison.OrdinalIgnoreCase));
     }
 
     [MetalFact]

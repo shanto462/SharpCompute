@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SharpCompute.Interop;
 using SharpCompute.Tests.Shaders;
+using SharpCompute.Tests.Threadgroups;
 
 namespace SharpCompute.Tests;
 
@@ -335,6 +336,47 @@ public class IndirectDispatchTests
         }
 
         Assert.Equal([64, 640, 0, 6400, 64], log.ToArray());
+    }
+
+    [MetalTheory]
+    [InlineData(256 * 40)]
+    [InlineData((256 * 40) - 100)]
+    [InlineData(1)]
+    [InlineData(0)]
+    public void IndirectDispatch_OfAShaderWithThreadgroupMemory_RunsWholeGroupsOnTheGpuAndTheCpu(int count)
+    {
+        // BlockSum reduces each threadgroup's 256 elements in [GroupShared] memory, with barriers. An
+        // indirect dispatch always runs whole threadgroups, which is exactly what such a shader needs;
+        // its threads past `count` load 0.
+        const int capacity = 256 * 40;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        float[] input = GroupSharedTests.Floats(capacity, seed: 7);
+        float[] expected = GroupSharedTests.BlockSums(input[..count]);
+        using ReadOnlyBuffer<float> source = device.AllocateReadOnlyBuffer<float>(input);
+        using ReadWriteBuffer<int> counter = device.AllocateReadWriteBuffer<int>(1);
+        using ReadWriteBuffer<int> staged = device.AllocateReadWriteBuffer<int>([count]);
+        using ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>(1);
+        using ReadWriteBuffer<float> gpu = device.AllocateReadWriteBuffer<float>(Enumerable.Repeat(float.NaN, 40).ToArray());
+        using ReadWriteBuffer<float> cpu = device.AllocateReadWriteBuffer<float>(Enumerable.Repeat(float.NaN, 40).ToArray());
+
+        using (ComputeContext context = device.CreateComputeContext())
+        {
+            // The count reaches the dispatch on the GPU: copied in, converted, and consumed.
+            context.Copy(staged, counter);
+            context.WriteDispatchArguments<BlockSum>(counter, arguments);
+            context.ForIndirect(arguments, new BlockSum(source, gpu, count));
+        }
+
+        Assert.Equal(DispatchArguments.FromCount(count, BlockSum.BlockSize), arguments[0]);
+
+        // The CPU runs the same grid on its group executor: the shader's threads cooperate there too.
+        device.ForIndirectCpu(arguments, new BlockSum(source, cpu, count));
+
+        // One sum per threadgroup that ran, bit for bit the tree's result; the groups beyond are untouched.
+        Assert.Equal(expected, gpu.ToArray()[..expected.Length]);
+        Assert.Equal(expected, cpu.ToArray()[..expected.Length]);
+        Assert.All(gpu.ToArray()[expected.Length..], value => Assert.True(float.IsNaN(value)));
+        Assert.All(cpu.ToArray()[expected.Length..], value => Assert.True(float.IsNaN(value)));
     }
 
     [MetalFact]

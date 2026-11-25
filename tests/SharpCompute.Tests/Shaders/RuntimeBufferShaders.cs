@@ -271,6 +271,48 @@ public readonly partial struct NaNProbeFast(ReadOnlyBuffer<float> input, ReadWri
     }
 }
 
+/// <summary>
+/// Compile options on a shader that uses threadgroup memory: each thread loads <c>a * b + c</c> into
+/// the group's shared tile, with contraction off, and the tile is summed by a tree with a barrier
+/// between the steps. Dispatched over a multiple of <see cref="BlockSize"/> threads; threads past
+/// <paramref name="count"/> load 0.
+/// </summary>
+[ThreadGroupSize(BlockSize)]
+[ShaderOptions(FpContract = false)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct BlockMulAddSum(
+    ReadOnlyBuffer<float> a, ReadOnlyBuffer<float> b, ReadOnlyBuffer<float> c, ReadWriteBuffer<float> sums, int count) : IComputeShader
+{
+    public const int BlockSize = 64;
+
+    [GroupShared]
+    private static readonly float[] tile = new float[BlockSize];
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int local = GroupIds.X;
+
+        tile[local] = i < count ? (a[i] * b[i]) + c[i] : 0f;
+        Gpu.GroupMemoryBarrierWithGroupSync();
+
+        for (int half = BlockSize / 2; half > 0; half >>= 1)
+        {
+            if (local < half)
+            {
+                tile[local] += tile[local + half];
+            }
+
+            Gpu.GroupMemoryBarrierWithGroupSync();
+        }
+
+        if (local == 0)
+        {
+            sums[ThreadGroupIds.X] = tile[0];
+        }
+    }
+}
+
 /// <summary>An attribute that sets nothing: the options stay at their defaults.</summary>
 [ShaderOptions(FastMath = false, FpContract = true)]
 [GeneratedComputeShaderDescriptor]

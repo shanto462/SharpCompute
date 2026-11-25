@@ -13,7 +13,7 @@ using SharpCompute.Benchmarks.Shaders;
 //   --runtime-features  quick Stopwatch measurements of GPU copies, FP contraction off and pipeline
 //                       warm-up (a few seconds; not part of the report)
 //   --first-frame cold|prepared cached|uncached
-//                       time the first frame of a gallery shader in this fresh process, without or
+//                       time the first frame of a large shader (RaymarchedGarden) in this fresh process, without or
 //                       with GraphicsDevice.Prepare (--runtime-features spawns these)
 //   --run [--quick] [--out RESULTS.md] [--filter <glob>] [--merge <run-data.json>]
 //                       verify, measure first dispatch, run BenchmarkDotNet, write the report
@@ -62,6 +62,7 @@ if (args.Contains("--msl"))
     Console.WriteLine(ShaderInfo.MslSource<BlurRgba8Horizontal>());
     Console.WriteLine(ShaderInfo.MslSource<BlurRgba8Vertical>());
     Console.WriteLine(ShaderInfo.MslSource<StridedPartialSums>());
+    Console.WriteLine(ShaderInfo.MslSource<RaymarchedGarden>());
     return 0;
 }
 

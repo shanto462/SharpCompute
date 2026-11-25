@@ -68,6 +68,40 @@ public class ShaderOptionsTests
     }
 
     [Fact]
+    public void Options_OnAShaderWithThreadgroupMemory_EmitBothSetsOfMembers()
+    {
+        // The options and the threadgroup-memory facts are independent descriptor members; a shader
+        // that has both reports both, and the options still leave its MSL alone.
+        const string GroupShared = """
+                [GroupShared]
+                private static readonly float[] tile = new float[64];
+
+                public readonly ReadWriteBuffer<float> buffer;
+
+                public void Execute()
+                {
+                    tile[GroupIds.X] = (buffer[ThreadIds.X] * 2f) + 1f;
+                    Gpu.GroupMemoryBarrierWithGroupSync();
+                    buffer[ThreadIds.X] = tile[63 - GroupIds.X];
+                }
+            """;
+
+        GeneratorRun with = GeneratorHarness.Run(TestSources.Vectors, TestSources.Shader(GroupShared, "[ThreadGroupSize(64), ShaderOptions(FastMath = true, FpContract = false)]"));
+        GeneratorRun without = GeneratorHarness.Run(TestSources.Vectors, TestSources.Shader(GroupShared, "[ThreadGroupSize(64)]"));
+        ShaderDescriptor descriptor = with.Verify(Shader);
+
+        Assert.Equal(ShaderCompileOptions.FastMath | ShaderCompileOptions.NoFpContract, descriptor.CompileOptions);
+        Assert.True(descriptor.UsesThreadgroupMemory);
+        Assert.Equal(64 * sizeof(float), descriptor.ThreadgroupMemoryLength);
+        Assert.Contains(Member + Options + "FastMath | " + Options + "NoFpContract;", with.Source("TestShader.SharpCompute.g.cs"));
+
+        ShaderDescriptor plain = without.Verify(Shader);
+        Assert.Equal(ShaderCompileOptions.None, plain.CompileOptions);
+        Assert.True(plain.UsesThreadgroupMemory);
+        Assert.Equal(plain.MslSource, descriptor.MslSource);
+    }
+
+    [Fact]
     public void TheOptions_DoNotChangeTheMsl()
     {
         string plain = Run(string.Empty).Verify(Shader).MslSource;

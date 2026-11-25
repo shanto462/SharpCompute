@@ -30,6 +30,7 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     // same source is ever compiled two ways.
     private readonly ConcurrentDictionary<PipelineKey, Lazy<ComputePipeline>> _pipelines = new();
     private readonly bool _isDefault;
+    private int _pipelineCompileCount;
     private int _disposed;
 
     private GraphicsDevice(nint device, bool isDefault)
@@ -806,10 +807,16 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
         }
     }
 
-    /// <summary>True when the pipeline of <typeparamref name="T"/> has been compiled and is cached (not merely being compiled).</summary>
-    internal bool IsPipelineCached<T>()
+    /// <summary>
+    /// True when the pipeline of <typeparamref name="T"/> (with <paramref name="windowed"/>, its split
+    /// specialization) has been compiled and is cached, not merely being compiled.
+    /// </summary>
+    internal bool IsPipelineCached<T>(bool windowed = false)
         where T : struct, IComputeShaderDescriptor<T> =>
-        _pipelines.TryGetValue(new PipelineKey(typeof(T), Windowed: false, T.CompileOptions), out Lazy<ComputePipeline>? lazy) && lazy.IsValueCreated;
+        _pipelines.TryGetValue(new PipelineKey(typeof(T), windowed, T.CompileOptions), out Lazy<ComputePipeline>? lazy) && lazy.IsValueCreated;
+
+    /// <summary>Tests only: how many times this device has compiled MSL into a pipeline (successfully or not).</summary>
+    internal int PipelineCompileCount => Volatile.Read(ref _pipelineCompileCount);
 
     /// <summary>The line the runtime puts ahead of a shader's MSL for <see cref="ShaderCompileOptions.NoFpContract"/>.</summary>
     internal const string FpContractOffPragma = "#pragma clang fp contract(off)\n";
@@ -841,6 +848,8 @@ public sealed unsafe partial class GraphicsDevice : IDisposable
     {
         using AutoreleasePool pool = AutoreleasePool.Push();
         using ObjCHandle.Lease device = _device.Acquire(this);
+
+        Interlocked.Increment(ref _pipelineCompileCount);
 
         if ((options & ShaderCompileOptions.NoFpContract) != 0)
         {

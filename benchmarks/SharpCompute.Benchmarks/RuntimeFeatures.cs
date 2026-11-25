@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using SharpCompute.Benchmarks.Shaders;
-using SharpCompute.Samples.Shaders;
 using static System.FormattableString;
 
 namespace SharpCompute.Benchmarks;
@@ -45,8 +44,8 @@ public static class RuntimeFeatures
         bool prepare = args.Contains("prepared");
 
         return args.Contains("uncached")
-            ? FirstFrame(prepare, static time => new NeverSeen<ProteanClouds>(new ProteanClouds(time)))
-            : FirstFrame(prepare, static time => new ProteanClouds(time));
+            ? FirstFrame(prepare, static time => new NeverSeen<RaymarchedGarden>(new RaymarchedGarden(time)))
+            : FirstFrame(prepare, static time => new RaymarchedGarden(time));
     }
 
     private static int FirstFrame<T>(bool prepare, Func<float, T> create)
@@ -191,7 +190,7 @@ public static class RuntimeFeatures
     private static void FirstFrames()
     {
         Console.WriteLine();
-        Console.WriteLine(Invariant($"First frame of the gallery's ProteanClouds at {FirstFrameWidth}×{FirstFrameHeight}, each sample a fresh process (median of {FirstFrameSamples})."));
+        Console.WriteLine(Invariant($"First frame of RaymarchedGarden (a raymarched SDF scene) at {FirstFrameWidth}×{FirstFrameHeight}, each sample a fresh process (median of {FirstFrameSamples})."));
         Console.WriteLine("'Seen before' is what a second launch of an app gets: macOS keeps compiled shaders in a cache across");
         Console.WriteLine("processes. 'Never seen' defeats that cache with a unique comment in the MSL: the first launch ever.");
         Console.WriteLine("| Shader cache | Warm-up | Prepare | First frame | Steady frame | Stall in the first frame |");

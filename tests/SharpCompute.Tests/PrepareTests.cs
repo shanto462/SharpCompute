@@ -169,6 +169,118 @@ public class PrepareTests
         Assert.False(device.IsPipelineCached<MulAdd>());
     }
 
+    [MetalFact]
+    public void Prepare_WithIncludeSplit_CompilesTheSplitSpecialization_SoASplitDispatchDoesNotCompile()
+    {
+        using GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(4096);
+
+        // Without the option only the ordinary pipeline is compiled.
+        device.Prepare<WarmupA>();
+        Assert.Equal(1, device.PipelineCompileCount);
+        Assert.True(device.IsPipelineCached<WarmupA>());
+        Assert.False(device.IsPipelineCached<WarmupA>(windowed: true));
+
+        // With it, the specialization ForSplit runs on the GPU is compiled too (and only that: the
+        // ordinary one is already there).
+        device.Prepare<WarmupA>(PrepareOptions.IncludeSplit);
+        Assert.Equal(2, device.PipelineCompileCount);
+        Assert.True(device.IsPipelineCached<WarmupA>(windowed: true));
+
+        // Neither a split dispatch nor an ordinary one compiles anything now.
+        SplitDispatchInfo info = device.ForSplit(4096, new WarmupA(buffer), cpuFraction: 0.5);
+        Assert.True(info.CpuExtent > 0 && info.GpuExtent > 0);
+        device.For(4096, new WarmupA(buffer));
+        device.Prepare<WarmupA>(PrepareOptions.IncludeSplit);
+        Assert.Equal(2, device.PipelineCompileCount);
+        Assert.All(buffer.ToArray(), value => Assert.Equal(11, value));
+
+        // The control: a shader that was not prepared compiles its specialization in the split dispatch.
+        device.ForSplit(4096, new WarmupB(buffer), cpuFraction: 0.5);
+        Assert.Equal(3, device.PipelineCompileCount);
+        Assert.True(device.IsPipelineCached<WarmupB>(windowed: true));
+        Assert.False(device.IsPipelineCached<WarmupB>());
+    }
+
+    [MetalFact]
+    public async Task PrepareAsync_AndTheMultiShaderForms_TakeTheOptionToo()
+    {
+        using GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
+
+        await device.PrepareAsync<WarmupA>(PrepareOptions.IncludeSplit);
+        Assert.Equal(2, device.PipelineCompileCount);
+        Assert.True(device.IsPipelineCached<WarmupA>() && device.IsPipelineCached<WarmupA>(windowed: true));
+        Assert.Same(Task.CompletedTask, device.PrepareAsync<WarmupA>(PrepareOptions.IncludeSplit));
+
+        // The ordinary pipeline alone is not "already prepared" when the split one is asked for.
+        device.Prepare<WarmupB>();
+        Task both = device.PrepareAsync<WarmupB>(PrepareOptions.IncludeSplit);
+        Assert.NotSame(Task.CompletedTask, both);
+        await both;
+        Assert.True(device.IsPipelineCached<WarmupB>(windowed: true));
+        Assert.Equal(4, device.PipelineCompileCount);
+
+        device.Prepare(PrepareOptions.IncludeSplit, ShaderReference.Of<WarmupA>(), ShaderReference.Of<WarmupC>());
+        Assert.True(device.IsPipelineCached<WarmupC>() && device.IsPipelineCached<WarmupC>(windowed: true));
+        Assert.Equal(6, device.PipelineCompileCount);
+
+        await device.PrepareAsync(PrepareOptions.IncludeSplit, ShaderReference.Of<MulAdd>(), ShaderReference.Of<WarmupC>());
+        Assert.True(device.IsPipelineCached<MulAdd>() && device.IsPipelineCached<MulAdd>(windowed: true));
+        Assert.Equal(8, device.PipelineCompileCount);
+
+        // No shaders, with or without the option, is allowed and does nothing.
+        device.Prepare(PrepareOptions.IncludeSplit);
+        await device.PrepareAsync(PrepareOptions.IncludeSplit);
+        Assert.Equal(8, device.PipelineCompileCount);
+    }
+
+    [MetalFact]
+    public void Prepare_WithIncludeSplit_SkipsShadersThatCannotBeSplit()
+    {
+        using GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
+        using ReadWriteBuffer<int> buffer = device.AllocateReadWriteBuffer<int>(64);
+
+        // A hand-written descriptor has no grid window, so ForSplit rejects it and there is no
+        // specialization to prepare: only the ordinary pipeline is compiled.
+        device.Prepare<IncrementAll>(PrepareOptions.IncludeSplit);
+        Assert.Equal(1, device.PipelineCompileCount);
+        Assert.True(device.IsPipelineCached<IncrementAll>());
+        Assert.False(device.IsPipelineCached<IncrementAll>(windowed: true));
+        Assert.Throws<NotSupportedException>(() => device.ForSplit(64, new IncrementAll(buffer), cpuFraction: 0.5));
+    }
+
+    [MetalFact]
+    public void Prepare_OfAShaderWithThreadgroupMemoryAndOptions_CoversItsDispatchesAndItsSplit()
+    {
+        const int length = 4096;
+        using GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
+        float[] ones = Enumerable.Repeat(1f, length).ToArray();
+        using ReadOnlyBuffer<float> a = device.AllocateReadOnlyBuffer<float>(ones);
+        using ReadOnlyBuffer<float> b = device.AllocateReadOnlyBuffer<float>(ones);
+        using ReadOnlyBuffer<float> c = device.AllocateReadOnlyBuffer<float>(ones);
+        using ReadWriteBuffer<float> sums = device.AllocateReadWriteBuffer<float>(length / BlockMulAddSum.BlockSize);
+
+        // [GroupShared] memory and [ShaderOptions(FpContract = false)] on one shader: both pipelines
+        // are compiled by Prepare, and nothing after it compiles.
+        device.Prepare<BlockMulAddSum>(PrepareOptions.IncludeSplit);
+        Assert.Equal(2, device.PipelineCompileCount);
+        Assert.True(device.IsPipelineCached<BlockMulAddSum>() && device.IsPipelineCached<BlockMulAddSum>(windowed: true));
+
+        device.For(length, new BlockMulAddSum(a, b, c, sums, length));
+        Assert.All(sums.ToArray(), sum => Assert.Equal(2f * BlockMulAddSum.BlockSize, sum));
+
+        sums.AsSpan().Clear();
+        device.ForSplit(length, new BlockMulAddSum(a, b, c, sums, length), cpuFraction: 0.5);
+        Assert.All(sums.ToArray(), sum => Assert.Equal(2f * BlockMulAddSum.BlockSize, sum));
+
+        using (ComputeContext context = device.CreateComputeContext())
+        {
+            context.For(length, new BlockMulAddSum(a, b, c, sums, length));
+        }
+
+        Assert.Equal(2, device.PipelineCompileCount);
+    }
+
     [Fact]
     public void ShaderReference_IsOnePerShaderType()
     {

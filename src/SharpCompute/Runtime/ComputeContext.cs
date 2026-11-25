@@ -80,7 +80,12 @@ public sealed class ComputeContext : IDisposable, IAsyncDisposable
     /// <summary>The device this context dispatches on.</summary>
     public GraphicsDevice Device { get; }
 
-    /// <summary>The number of operations (dispatches, copies and fills) recorded since the context last executed.</summary>
+    /// <summary>
+    /// The number of operations recorded since the last execution: every dispatch (direct or indirect,
+    /// and each <c>WriteDispatchArguments</c>, which is a one-thread dispatch), copy and fill that is
+    /// waiting for <see cref="Execute"/>. 0 right after an execution, and for a context that only
+    /// recorded operations with nothing to do (an empty grid, a copy of 0 elements).
+    /// </summary>
     public int PendingCount => Volatile.Read(ref _batch)?.OperationCount ?? 0;
 
     /// <summary>Records a dispatch of <paramref name="x"/> threads.</summary>

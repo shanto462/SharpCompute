@@ -12,8 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
-    <!-- For the first-frame measurement only (a gallery shader with and without Prepare); never packed. -->
-    <ProjectReference Include="..\..\samples\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

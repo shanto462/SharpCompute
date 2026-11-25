@@ -162,6 +162,63 @@ public class ShaderOptionsTests
     }
 
     [MetalFact]
+    public void Options_ApplyToAShaderThatUsesThreadgroupMemory()
+    {
+        // Both descriptor members come from the generator for the same shader: its options and its
+        // use of group-shared memory.
+        Assert.Equal(ShaderCompileOptions.NoFpContract, Options<BlockMulAddSum>());
+        Assert.True(UsesThreadgroupMemory<BlockMulAddSum>());
+
+        const int blocks = Length / BlockMulAddSum.BlockSize;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        (float[] a, float[] b, float[] c) = Operands();
+        using ReadOnlyBuffer<float> bufferA = device.AllocateReadOnlyBuffer<float>(a);
+        using ReadOnlyBuffer<float> bufferB = device.AllocateReadOnlyBuffer<float>(b);
+        using ReadOnlyBuffer<float> bufferC = device.AllocateReadOnlyBuffer<float>(c);
+        using ReadWriteBuffer<float> gpu = device.AllocateReadWriteBuffer<float>(blocks);
+        using ReadWriteBuffer<float> cpu = device.AllocateReadWriteBuffer<float>(blocks);
+        using ReadWriteBuffer<float> split = device.AllocateReadWriteBuffer<float>(blocks);
+
+        device.For(Length, new BlockMulAddSum(bufferA, bufferB, bufferC, gpu, Length));
+        device.ForCpu(Length, new BlockMulAddSum(bufferA, bufferB, bufferC, cpu, Length));
+        device.ForSplit(Length, new BlockMulAddSum(bufferA, bufferB, bufferC, split, Length), cpuFraction: 0.5);
+
+        // Plain C#: an unfused multiply-add per element, then the same tree of sums.
+        int[] expected = new int[blocks];
+        float[] tile = new float[BlockMulAddSum.BlockSize];
+        int fusedLoadsThatDiffer = 0;
+
+        for (int block = 0; block < blocks; block++)
+        {
+            for (int j = 0; j < tile.Length; j++)
+            {
+                int i = (block * tile.Length) + j;
+                float product = a[i] * b[i];
+                tile[j] = product + c[i];
+                fusedLoadsThatDiffer += tile[j] != MathF.FusedMultiplyAdd(a[i], b[i], c[i]) ? 1 : 0;
+            }
+
+            for (int half = tile.Length / 2; half > 0; half >>= 1)
+            {
+                for (int j = 0; j < half; j++)
+                {
+                    tile[j] += tile[j + half];
+                }
+            }
+
+            expected[block] = BitConverter.SingleToInt32Bits(tile[0]);
+        }
+
+        // With contraction off every block sum has C#'s bits, on the GPU, on the CPU's group executor
+        // and split between the two. (A fused load would differ in many of the 8192 elements, so the
+        // parity is the option at work, not luck.)
+        Assert.True(fusedLoadsThatDiffer > Length / 20);
+        Assert.Equal(expected, Bits(gpu));
+        Assert.Equal(expected, Bits(cpu));
+        Assert.Equal(expected, Bits(split));
+    }
+
+    [MetalFact]
     public void CompileError_ReportsTheSourceAsItWasCompiled()
     {
         using GraphicsDevice device = GraphicsDevice.CreateSystemDefault();
@@ -184,6 +241,9 @@ public class ShaderOptionsTests
 
     private static string Source<T>()
         where T : struct, IComputeShaderDescriptor<T> => T.MslSource;
+
+    private static bool UsesThreadgroupMemory<T>()
+        where T : struct, IComputeShaderDescriptor<T> => T.UsesThreadgroupMemory;
 
     private static int[] Bits(ReadWriteBuffer<float> buffer) => buffer.ToArray().Select(BitConverter.SingleToInt32Bits).ToArray();
 

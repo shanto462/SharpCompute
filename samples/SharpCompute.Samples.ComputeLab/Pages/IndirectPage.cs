@@ -18,17 +18,30 @@ namespace SharpCompute.Samples.ComputeLab.Pages;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The second variant is the job done without any of that: one dispatch over the full array, in
-/// which every thread tests its own element and the survivors do their work where they stand. Both
-/// give the same result. The full-array pass is slower once the survivors' work is worth anything,
-/// because a GPU runs neighbouring threads together: with the survivors scattered, the idle threads
-/// next to each one wait for it, while the compacted pass keeps every thread busy.
+/// The page runs the job three ways, with the same result each time:
 /// </para>
+/// <list type="number">
+/// <item><description>
+/// <b>Compact, then dispatch the survivors indirectly</b>: the feature.
+/// </description></item>
+/// <item><description>
+/// <b>Compact, then dispatch the full array</b> over the compacted list, each thread checking its
+/// index against the count. This is what there is without indirect dispatch when the count must
+/// stay on the GPU. It measures about the same as the first on an Apple M4 Pro: threads that stop
+/// at once cost around ten microseconds per million.
+/// </description></item>
+/// <item><description>
+/// <b>No compaction</b>: one dispatch over the full array in which every thread tests its own
+/// element and the survivors do their work where they stand. This one is slower once the
+/// survivors' work is worth anything, because a GPU runs neighbouring threads together: with the
+/// survivors scattered, the idle threads next to each one wait for it, while a compacted pass keeps
+/// every thread busy.
+/// </description></item>
+/// </list>
 /// <para>
-/// What the indirect dispatch itself adds to compaction is that the thread count follows the data
-/// with no read-back. (Dispatching the full array over the compacted list, each thread checking its
-/// index against the count, measures about the same on an Apple M4 Pro: threads that stop at once
-/// cost around ten microseconds per million.)
+/// So the speed-up comes from compaction; indirect dispatch's gain is no CPU read-back: the thread
+/// count follows the data without the count leaving the GPU, and without dispatching (or sizing a
+/// dispatch for) the whole capacity of the array.
 /// </para>
 /// <para>
 /// An indirect dispatch runs whole threadgroups, so up to 255 threads more than the count: the
@@ -44,7 +57,12 @@ public sealed class IndirectPage : ILabPage
     // How many times Compute runs each way; see there.
     private const int Repeats = 3;
 
-    private static readonly string[] s_variants = ["indirect: compact, dispatch the survivors", "direct: all 1,048,576 threads test themselves"];
+    private static readonly string[] s_variants =
+    [
+        "indirect: compact, dispatch the survivors",
+        "compact, dispatch all 1,048,576 threads",
+        "no compaction: every thread tests itself",
+    ];
 
     private readonly GraphicsDevice _device;
     private readonly ComputeContext _context;
@@ -85,7 +103,7 @@ public sealed class IndirectPage : ILabPage
 
     public string Feature => "indirect dispatch";
 
-    public string Help => "Up/Down threshold   D direct/indirect";
+    public string Help => "Up/Down threshold   D next way";
 
     public IReadOnlyList<string> Variants => s_variants;
 
@@ -93,8 +111,13 @@ public sealed class IndirectPage : ILabPage
 
     public double GpuMilliseconds { get; private set; }
 
-    /// <summary>How long the other variant took in the last <see cref="Compute"/> (its fastest execution, like <see cref="GpuMilliseconds"/>), for the comparison line.</summary>
-    public double OtherMilliseconds { get; private set; }
+    /// <summary>
+    /// How long each of the three ways took in the last <see cref="Compute"/>, by variant index (its
+    /// fastest execution, like <see cref="GpuMilliseconds"/>, which is the shown variant's entry).
+    /// </summary>
+    public IReadOnlyList<double> Milliseconds => _milliseconds;
+
+    private readonly double[] _milliseconds = new double[3];
 
     /// <summary>Elements with a value at or above this (of 65,535) survive.</summary>
     public uint Cutoff { get; private set; } = 45000;
@@ -105,7 +128,7 @@ public sealed class IndirectPage : ILabPage
     /// <summary>The threadgroup counts the GPU wrote for the indirect follow-up pass in the last <see cref="Compute"/>.</summary>
     public DispatchArguments Arguments { get; private set; }
 
-    /// <summary>How many threads the shown variant's pass over the elements ran in the last <see cref="Compute"/>.</summary>
+    /// <summary>How many threads the shown variant's pass that does the survivors' work ran in the last <see cref="Compute"/>.</summary>
     public int ThreadsDispatched => Variant == 0 ? (int)Arguments.ThreadGroupsX * ShadeSurvivors.GroupSize : Count;
 
     /// <summary>The shown variant's output: one value per element, 0 where the element did not survive.</summary>
@@ -115,54 +138,57 @@ public sealed class IndirectPage : ILabPage
     {
         _device.For(Size, Size, new GenerateField(_source, Size, frame.Time));
 
-        // Both ways every time, taking turns, the shown one last so that its output is what is drawn
-        // and checked. Each execution is well under a millisecond, where one sample says more about
-        // what the GPU was doing just before than about the work, so each way runs a few times and
-        // its fastest execution is the one reported.
-        double indirect = double.MaxValue, direct = double.MaxValue;
+        // All three ways every time, taking turns, the shown one last so that its output is what is
+        // drawn and checked. Each execution is well under a millisecond, where one sample says more
+        // about what the GPU was doing just before than about the work, so each way runs a few times
+        // and its fastest execution is the one reported.
+        Array.Fill(_milliseconds, double.MaxValue);
 
         for (int repeat = 0; repeat < Repeats; repeat++)
         {
-            if (Variant == 0)
+            for (int step = 1; step <= s_variants.Length; step++)
             {
-                direct = Math.Min(direct, RunDirect());
-                indirect = Math.Min(indirect, RunIndirect());
-            }
-            else
-            {
-                indirect = Math.Min(indirect, RunIndirect());
-                direct = Math.Min(direct, RunDirect());
+                int way = (Variant + step) % s_variants.Length;
+                _milliseconds[way] = Math.Min(_milliseconds[way], Run(way));
             }
         }
 
-        GpuMilliseconds = Variant == 0 ? indirect : direct;
-        OtherMilliseconds = Variant == 0 ? direct : indirect;
+        GpuMilliseconds = _milliseconds[Variant];
         Kept = _counter[0];
         Arguments = _arguments[0];
     }
 
-    /// <summary>
-    /// The feature: five operations recorded into one context and run with one commit. Nothing here
-    /// reads the count; the GPU hands it from pass to pass.
-    /// </summary>
-    private double RunIndirect()
+    /// <summary>Records one of the three ways into the context and returns how long its single execution took.</summary>
+    private double Run(int way)
     {
-        _context.Clear(_counter);
-        _context.Clear(_shaded);
-        _context.For(Count, new CompactAbove(_source, _survivors, _counter, Cutoff));
-        _context.WriteDispatchArguments<ShadeSurvivors>(_counter, _arguments);
-        _context.ForIndirect(_arguments, new ShadeSurvivors(_survivors, _counter, _source, _shaded));
+        ShadeSurvivors shade = new(_survivors, _counter, _source, _shaded);
 
-        long start = Stopwatch.GetTimestamp();
-        _context.Execute();
-        return Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-    }
-
-    /// <summary>The same result with no compaction and no indirect dispatch: every thread of the array tests its element.</summary>
-    private double RunDirect()
-    {
         _context.Clear(_shaded);
-        _context.For(Count, new ShadeInPlace(_source, _shaded, Cutoff));
+
+        if (way == 2)
+        {
+            // No compaction and no indirect dispatch: every thread of the array tests its element.
+            _context.For(Count, new ShadeInPlace(_source, _shaded, Cutoff));
+        }
+        else
+        {
+            _context.Clear(_counter);
+            _context.For(Count, new CompactAbove(_source, _survivors, _counter, Cutoff));
+
+            // Written in both, so that the arguments on show always belong to the survivors on show.
+            _context.WriteDispatchArguments<ShadeSurvivors>(_counter, _arguments);
+
+            if (way == 0)
+            {
+                // The feature: nothing here reads the count; the GPU hands it from pass to pass.
+                _context.ForIndirect(_arguments, shade);
+            }
+            else
+            {
+                // The same pass over the whole array: every thread past the count stops at its check.
+                _context.For(Count, shade);
+            }
+        }
 
         long start = Stopwatch.GetTimestamp();
         _context.Execute();
@@ -176,15 +202,25 @@ public sealed class IndirectPage : ILabPage
         _cpuCounter[0] = 0;
         _cpuShaded.AsSpan().Clear();
 
-        if (Variant == 0)
+        if (Variant == 2)
         {
-            _device.ForCpu(Count, new CompactAbove(_source, _cpuSurvivors, _cpuCounter, Cutoff));
-            _cpuArguments[0] = DispatchArguments.FromCount(_cpuCounter[0], ShadeSurvivors.GroupSize);
-            _device.ForIndirectCpu(_cpuArguments, new ShadeSurvivors(_cpuSurvivors, _cpuCounter, _source, _cpuShaded));
+            _device.ForCpu(Count, new ShadeInPlace(_source, _cpuShaded, Cutoff));
         }
         else
         {
-            _device.ForCpu(Count, new ShadeInPlace(_source, _cpuShaded, Cutoff));
+            ShadeSurvivors shade = new(_cpuSurvivors, _cpuCounter, _source, _cpuShaded);
+
+            _device.ForCpu(Count, new CompactAbove(_source, _cpuSurvivors, _cpuCounter, Cutoff));
+            _cpuArguments[0] = DispatchArguments.FromCount(_cpuCounter[0], ShadeSurvivors.GroupSize);
+
+            if (Variant == 0)
+            {
+                _device.ForIndirectCpu(_cpuArguments, shade);
+            }
+            else
+            {
+                _device.ForCpu(Count, shade);
+            }
         }
 
         double cpuMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
@@ -218,7 +254,7 @@ public sealed class IndirectPage : ILabPage
         // The GPU's count, and the arguments it derived from it, against plain C# (and the CPU chain's own).
         DispatchArguments expectedArguments = DispatchArguments.FromCount(expectedKept, ShadeSurvivors.GroupSize);
         bool countsMatch = Kept == expectedKept && Arguments == expectedArguments
-            && (Variant != 0 || (_cpuCounter[0] == expectedKept && _cpuArguments[0] == expectedArguments));
+            && (Variant == 2 || (_cpuCounter[0] == expectedKept && _cpuArguments[0] == expectedArguments));
         bool passed = countsMatch && gpuWrong == 0 && cpuWrong == 0;
 
         string summary = !countsMatch
@@ -237,7 +273,7 @@ public sealed class IndirectPage : ILabPage
         _device.For(
             LabCanvas.Width,
             LabCanvas.Height,
-            new DrawIndirect(canvas.Pixels, _source, _shaded, LabCanvas.Width, Size, Kept, dispatched, Cutoff, compacted: Variant == 0 ? 1 : 0));
+            new DrawIndirect(canvas.Pixels, _source, _shaded, LabCanvas.Width, Size, Kept, dispatched, Cutoff, compacted: Variant == 2 ? 0 : 1));
 
         int labelY = DrawIndirect.PanelY - 24;
         int below = DrawIndirect.PanelY + DrawIndirect.PanelSize + 8;
@@ -254,27 +290,34 @@ public sealed class IndirectPage : ILabPage
         canvas.Label(
             DrawIndirect.PanelX(0),
             text,
-            Variant == 0
-                ? Invariant($"{Kept:N0} survivors -> {groups} = {dispatched:N0} threads, counted and dispatched on the GPU:")
-                : Invariant($"{Kept:N0} survivors, but {dispatched:N0} threads: the busy ones are scattered among the idle."),
+            Variant switch
+            {
+                0 => Invariant($"{Kept:N0} survivors -> {groups} = {dispatched:N0} threads, counted and dispatched on the GPU:"),
+                1 => Invariant($"{Kept:N0} survivors packed first, but all {dispatched:N0} threads run; the rest stop at once:"),
+                _ => Invariant($"{Kept:N0} survivors, but {dispatched:N0} threads: the busy ones are scattered among the idle."),
+            },
             TextColor.White);
         canvas.Label(
             DrawIndirect.PanelX(0) + (4 * LabCanvas.CellWidth),
             text + 16,
-            Variant == 0 ? "context.WriteDispatchArguments<Shade>(counter, args); context.ForIndirect(args, shade);" : "context.For(1048576, shadeInPlace);  // no compaction, no indirect dispatch",
+            Variant switch
+            {
+                0 => "context.WriteDispatchArguments<Shade>(counter, args); context.ForIndirect(args, shade);",
+                1 => "context.For(1048576, shade);  // after the same compaction; each thread checks the count",
+                _ => "context.For(1048576, shadeInPlace);  // no compaction, no indirect dispatch",
+            },
             TextColor.Cool);
         canvas.Label(DrawIndirect.PanelX(0), text + 48, "Caveat: an indirect dispatch runs whole threadgroups, so up to 255 threads past the count,", TextColor.Accent);
         canvas.Label(DrawIndirect.PanelX(0), text + 64, "and DispatchSize is groups x 256. The shader checks its index against the count itself.", TextColor.Accent);
+        canvas.Label(DrawIndirect.PanelX(0), text + 96, "The speed-up comes from compaction; indirect dispatch's gain is no CPU read-back.", TextColor.White);
 
         // Timings change from run to run, so they stay out of the headless picture.
         if (!frame.Deterministic)
         {
-            double indirectMs = Variant == 0 ? GpuMilliseconds : OtherMilliseconds;
-            double directMs = Variant == 0 ? OtherMilliseconds : GpuMilliseconds;
             canvas.Label(
                 DrawIndirect.PanelX(0),
-                text + 96,
-                Invariant($"This frame: compact + indirect {indirectMs:F2} ms, full array {directMs:F2} ms (one execution each)"),
+                text + 128,
+                Invariant($"This frame: compact + indirect {_milliseconds[0]:F2} ms | compact + full array {_milliseconds[1]:F2} ms | no compaction {_milliseconds[2]:F2} ms"),
                 TextColor.Good);
         }
     }
@@ -288,7 +331,7 @@ public sealed class IndirectPage : ILabPage
                 return true;
 
             case Key.D:
-                Variant = 1 - Variant;
+                Variant = (Variant + 1) % s_variants.Length;
                 return true;
 
             default:
@@ -354,8 +397,8 @@ public readonly partial struct ShadeSurvivors(
     {
         int slot = ThreadIds.X;
 
-        // The dispatch covers whole threadgroups, so a few more threads than there are survivors:
-        // the rest must not read a slot that was never written.
+        // The dispatch covers whole threadgroups (indirect) or the whole array, so more threads than
+        // there are survivors: the rest must not read a slot that was never written.
         if (slot < counter[0])
         {
             uint index = survivors[slot];
