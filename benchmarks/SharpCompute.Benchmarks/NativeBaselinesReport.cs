@@ -143,6 +143,15 @@ public static class NativeBaselinesReport
 
         md.AppendLine();
 
+        // How far the naive SGEMM is from its twin, for the sentence below: stated from the data, not assumed.
+        double naiveGap = rows
+            .Where(r => r.IsGenerated && r.Workload == "SGEMM")
+            .Select(g => (Generated: g, Twin: rows.FirstOrDefault(r => r.Kind == NativeKinds.HandWritten && r.Workload == g.Workload && r.Size == g.Size && r.Variant == g.Variant)))
+            .Where(p => p.Twin is not null)
+            .Select(p => Math.Abs((p.Generated.GpuSeconds / p.Twin!.GpuSeconds) - 1))
+            .DefaultIfEmpty(double.NaN)
+            .Max();
+
         List<string> lines = [];
 
         foreach (IGrouping<string, NativeRow> size in rows.Where(r => r.Workload == "SGEMM").GroupBy(r => r.Size))
@@ -161,7 +170,8 @@ public static class NativeBaselinesReport
 
         if (lines.Count > 0)
         {
-            md.AppendLine("**SGEMM, the gap that is not the generator's.** The naive kernel is the same speed generated or by hand, so the generated MSL is not what is slow. "
+            string twins = double.IsNaN(naiveGap) ? "" : Invariant($"The generated naive kernel is within {Math.Max(naiveGap * 100, 0.1):F1} % of its hand-written twin's GPU time, so the generated MSL is not what is slow. ");
+            md.AppendLine("**SGEMM, the gap that is not the generator's.** " + twins
                 + "What separates a C# shader from MPS is the matrix units: `simdgroup_matrix` multiplies 8 × 8 blocks with a whole SIMD group per operation, "
                 + "and a C# shader has no way to say that yet.");
             md.AppendLine();
@@ -179,12 +189,14 @@ public static class NativeBaselinesReport
     {
         md.AppendLine("### Caveats");
         md.AppendLine();
-        md.AppendLine("- **One machine, one OS.** `MPSMatrixMultiplication` is Apple's kernel and changes with macOS; the hand-written matrix-unit kernel was tuned on this GPU "
-            + "(accumulator grids of 2 × 2, 2 × 4 and 4 × 4 were tried, with and without staging in threadgroup memory; 2 × 4 without was the fastest by a wide margin).");
+        md.AppendLine("- **One machine, one OS.** `MPSMatrixMultiplication` is Apple's kernel and changes with macOS. The hand-written matrix-unit kernel was tuned on an "
+            + "Apple M4 Pro: of the accumulator grids tried (2 × 2, 2 × 4 and 4 × 4 blocks per SIMD group, with and without staging in threadgroup memory) "
+            + "2 × 4 without staging was the fastest, and another GPU may prefer another.");
         md.AppendLine("- **GPU time is elapsed time on the GPU**, not time that was only this dispatch's: work of other processes that the GPU runs in between lengthens it. "
             + "The machine was shared; the medians and the Passes column are the guard against that, and a row whose passes are far apart should be read with that in mind.");
-        md.AppendLine("- **Wall time has a floor.** Every synchronous dispatch pays for a command buffer's submission and for waking the waiting thread, "
-            + "roughly 0.1–0.2 ms here, whatever the kernel; it is the difference between the two time columns, and a `ComputeContext` shares it among the dispatches of a batch.");
+        double[] overheads = [.. data.Rows.Select(r => r.WallSeconds - r.GpuSeconds)];
+        md.AppendLine("- **Wall time has a floor.** Every synchronous dispatch pays for a command buffer's submission and for waking the waiting thread, whatever the kernel: "
+            + Invariant($"the difference between the two time columns, {overheads.Min() * 1e6:F0} to {overheads.Max() * 1e6:F0} µs in this run. A `ComputeContext` shares it among the dispatches of a batch."));
         md.AppendLine(Invariant($"- **The FP32 ceiling is a measurement, not a specification**: {flopPeak.FlopRate / 1e12:F2} TFLOP/s is what the probe reached. ")
             + "Percentages are of that, so they are a little higher than they would be against the published estimates.");
         md.AppendLine("- **Operation counts are nominal.** A square root or a divide costs the GPU more than a multiply, so the N-body row sits further below the FP32 ceiling "

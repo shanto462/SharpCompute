@@ -71,9 +71,9 @@ public readonly struct MatMulNaiveHandWritten(ReadOnlyBuffer<float> a, ReadOnlyB
 /// <c>simdgroup_multiply_accumulate</c>, which multiply 8 × 8 blocks with a whole SIMD group (32
 /// threads) at once. Each SIMD group owns a 16 × 32 block of C as a 2 × 4 grid of 8 × 8
 /// accumulators and walks k in steps of 8, loading its blocks of A and B straight from the buffers;
-/// a threadgroup is four SIMD groups (2 × 2), so 32 rows × 64 columns of C. The best of the variants
-/// measured (accumulator grids of 2 × 2, 2 × 4 and 4 × 4, with and without staging in threadgroup
-/// memory): 2 × 4 keeps the accumulators in registers, and 4 × 4 does not.
+/// a threadgroup is four SIMD groups (2 × 2), so 32 rows × 64 columns of C. The fastest on an Apple
+/// M4 Pro of the variants tried: accumulator grids of 2 × 2, 2 × 4 and 4 × 4, each with and without
+/// staging the blocks of A and B in threadgroup memory.
 /// </summary>
 /// <remarks>
 /// n must be a multiple of 64. Dispatch with <see cref="GridWidth"/> × <see cref="GridHeight"/>

@@ -62,7 +62,7 @@ public static class Report
         if (native is not null)
         {
             md.AppendLine();
-            md.AppendLine(Invariant($"[Native baselines and roofline](#native-baselines-and-roofline) measured on {native.Before.Time:yyyy-MM-dd HH:mm zzz} ({native.ElapsedSeconds:F0} s), by a harness of its own; that section names its machine state."));
+            md.AppendLine(Invariant($"[Native baselines and roofline](#native-baselines-and-roofline) measured on {native.Before.Time:yyyy-MM-dd HH:mm zzz} ({native.ElapsedSeconds:F0} s) by a harness of its own; that section gives the machine's state at the time, and the verification results are from that run."));
         }
 
         md.AppendLine();

@@ -283,6 +283,25 @@ results back. Every dispatch has a fixed cost of roughly 0.1 ms, and Apple Silic
 share the same memory. Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The
 generated SAXPY kernel runs at the same speed as hand-written MSL (ratio 0.99–1.01).
 
+Against native Metal on the same GPU, by the GPU's own time for one dispatch
+([`LastGpuTime`](#gpu-time-of-a-dispatch); Apple M4 Pro, medians of 5 passes of 25 dispatches):
+
+| Single-precision matrix multiply, 1024×1024 | Written as | GPU time | TFLOP/s |
+|---|---|---:|---:|
+| `MPSMatrixMultiplication` | Apple's kernel | 0.403 ms | 5.33 |
+| `simdgroup_matrix`, 2×4 accumulators | hand-written MSL | 0.417 ms | 5.16 |
+| threadgroup-tiled 16×16 | generated from C# | 2.01 ms | 1.07 |
+| naive | generated from C# | 4.14 ms | 0.52 |
+| naive | hand-written MSL | 4.10 ms | 0.52 |
+
+A generated kernel takes the same GPU time as the same kernel written by hand in MSL: the ratio is
+1.009 to 1.011 for the naive matrix multiply, 0.995 for an N-body step, 0.997 for SAXPY and 1.000
+for an integer hash. The 5× to MPS is not the generator's: MPS and the hand-written kernel next to
+it use Metal's matrix units (`simdgroup_matrix`), which a C# shader cannot use yet. The same section
+of the report places every kernel under the machine's measured ceilings (6.24 TFLOP/s of FP32
+arithmetic, 258 GB/s of memory bandwidth): MPS reaches 85 % of the first, SAXPY 98 % of the second.
+See [Native baselines and roofline](benchmarks/RESULTS.md#native-baselines-and-roofline).
+
 Moving and converting data can cost more than the kernel, and unified memory means it can be
 skipped: decode into the GPU buffer, convert and filter on the GPU, encode from the buffer.
 
