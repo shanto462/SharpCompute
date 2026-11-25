@@ -275,6 +275,22 @@ public sealed class MetalWindow : IDisposable
     public event EventHandler<MouseEventArgs>? MouseUp;
 
     /// <summary>
+    /// The scroll wheel turned, or two fingers scrolled on a trackpad or Magic Mouse, with the pointer
+    /// over the content area. <see cref="MouseWheelEventArgs"/> documents the direction (macOS has
+    /// already applied "Natural scrolling"; don't invert again), the units (pixels when
+    /// <see cref="MouseWheelEventArgs.IsPrecise"/>, lines otherwise) and what Shift does to a wheel.
+    /// </summary>
+    /// <remarks>
+    /// As with <see cref="MouseMoved"/>, nothing is raised for the title bar or outside the content.
+    /// One difference comes from AppKit itself: it routes scrolling to the window under the pointer
+    /// whether or not that window is key, so this is also raised while another window or app has
+    /// keyboard focus (the event's own <see cref="MouseWheelEventArgs.Modifiers"/> stay correct then,
+    /// while <see cref="HeldModifiers"/> reports none). A trackpad gesture also produces events that
+    /// only mark its start and end and carry no movement; those are not raised.
+    /// </remarks>
+    public event EventHandler<MouseWheelEventArgs>? MouseWheel;
+
+    /// <summary>
     /// The drawable size (<see cref="Width"/>, <see cref="Height"/>) changed: the window was resized
     /// or moved to a display with a different scale factor. Raised from <see cref="Run"/> before the
     /// next frame callback; reallocate size-dependent textures here or in that callback.
@@ -693,6 +709,10 @@ public sealed class MetalWindow : IDisposable
                 HandleMouse(e, MouseEventKind.Up);
                 return true;
 
+            case AppKit.EventScrollWheel:
+                HandleWheel(e);
+                return true;
+
             default:
                 return true;
         }
@@ -790,6 +810,78 @@ public sealed class MetalWindow : IDisposable
                 MouseMoved?.Invoke(this, args);
                 break;
         }
+    }
+
+    private void HandleWheel(nint e)
+    {
+        if (ObjC.SendIntPtr(e, AppKitSelectors.Window) != _window)
+        {
+            return;
+        }
+
+        CGPoint inWindow = ObjC.SendCGPoint(e, AppKitSelectors.LocationInWindow);
+        CGPoint inView = ObjC.SendCGPoint(_view, AppKitSelectors.ConvertPointFromView, inWindow, 0);
+
+        // The scrolling selectors are only valid on scroll-wheel events (AppKit throws otherwise),
+        // which the caller has established. momentumPhase is NSEventPhaseNone (0) outside inertia.
+        MouseWheelEventArgs? args = TranslateWheel(
+            inView.X, inView.Y, _viewWidth, _viewHeight, Width, Height,
+            ObjC.SendDouble(e, AppKitSelectors.ScrollingDeltaX),
+            ObjC.SendDouble(e, AppKitSelectors.ScrollingDeltaY),
+            isPrecise: ObjC.SendByte(e, AppKitSelectors.HasPreciseScrollingDeltas) != 0,
+            isMomentum: ObjC.SendNUInt(e, AppKitSelectors.MomentumPhase) != 0,
+            ObjC.SendNUInt(e, AppKitSelectors.ModifierFlags));
+
+        if (args is not null)
+        {
+            MouseWheel?.Invoke(this, args);
+        }
+    }
+
+    /// <summary>
+    /// Turns the raw values of an AppKit scroll-wheel event into <see cref="MouseWheel"/> arguments, or
+    /// null when nothing should be raised: the pointer is outside the drawable (title bar, resize
+    /// border), or both deltas are zero (the events that only mark the start or end of a trackpad
+    /// gesture). Free of native calls so it can be unit-tested without a window.
+    /// </summary>
+    /// <param name="viewX">Pointer position in view points, origin bottom-left.</param>
+    /// <param name="viewY">Pointer position in view points, origin bottom-left.</param>
+    /// <param name="viewWidth">View width in points.</param>
+    /// <param name="viewHeight">View height in points.</param>
+    /// <param name="pixelWidth">Drawable width in pixels.</param>
+    /// <param name="pixelHeight">Drawable height in pixels.</param>
+    /// <param name="deltaX"><c>scrollingDeltaX</c>: points when <paramref name="isPrecise"/>, lines otherwise.</param>
+    /// <param name="deltaY"><c>scrollingDeltaY</c>, likewise.</param>
+    /// <param name="isPrecise"><c>hasPreciseScrollingDeltas</c>.</param>
+    /// <param name="isMomentum">Whether <c>momentumPhase</c> is anything but <c>NSEventPhaseNone</c>.</param>
+    /// <param name="modifierFlags"><c>NSEventModifierFlags</c>.</param>
+    internal static MouseWheelEventArgs? TranslateWheel(
+        double viewX, double viewY, double viewWidth, double viewHeight, int pixelWidth, int pixelHeight,
+        double deltaX, double deltaY, bool isPrecise, bool isMomentum, nuint modifierFlags)
+    {
+        if ((deltaX == 0 && deltaY == 0) || viewWidth <= 0 || viewHeight <= 0)
+        {
+            return null;
+        }
+
+        (double x, double y) = PresentLayout.ViewToDrawable(viewX, viewY, viewWidth, viewHeight, pixelWidth, pixelHeight);
+
+        if (!(x >= 0 && x < pixelWidth && y >= 0 && y < pixelHeight))
+        {
+            return null;
+        }
+
+        // Precise deltas are distances in points: scale them to drawable pixels like the position, so
+        // "pan by the delta" tracks the fingers on a Retina display. They are not flipped: AppKit's
+        // positive Y already means "content moves down", which is +Y with a top-left origin. Line
+        // deltas count lines, not distance, so they pass through unscaled.
+        if (isPrecise)
+        {
+            deltaX *= pixelWidth / viewWidth;
+            deltaY *= pixelHeight / viewHeight;
+        }
+
+        return new MouseWheelEventArgs(x, y, (float)deltaX, (float)deltaY, isPrecise, isMomentum, ToModifiers(modifierFlags));
     }
 
     private void UpdateDrawableSize(bool raiseResized)

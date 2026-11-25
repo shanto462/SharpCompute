@@ -203,6 +203,7 @@ internal sealed class ViewerApp : IDisposable
         window.MouseDown += (_, e) => OnMouse(MouseAction.Down, e);
         window.MouseDragged += (_, e) => OnMouse(MouseAction.Drag, e);
         window.MouseUp += (_, e) => OnMouse(MouseAction.Up, e);
+        window.MouseWheel += OnWheel;
 
         Announce();
         UpdateTitle();
@@ -320,6 +321,22 @@ internal sealed class ViewerApp : IDisposable
         if (action == MouseAction.Up)
         {
             _mouseCaptured = false;
+        }
+    }
+
+    private void OnWheel(object? sender, MouseWheelEventArgs e)
+    {
+        // Scrolling in a letterbox bar is ignored, like a press there.
+        if (_target is null || !_window.TryMapToFrame(e.X, e.Y, _target.Width, _target.Height, out _, out _))
+        {
+            return;
+        }
+
+        float steps = WheelInput.ToSteps(e.DeltaY, e.IsPrecise, _window.ScaleFactor);
+
+        if (steps != 0f)
+        {
+            Current.OnWheel(steps);
         }
     }
 

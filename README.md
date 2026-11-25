@@ -78,6 +78,7 @@ here as an original game built on SharpCompute.
 - **Live presentation.** `MetalWindow` shows GPU output in a native macOS window at display refresh
   rate, with keyboard and mouse input: `KeyDown`/`KeyUp` events, plus `IsKeyDown(key)` and
   `HeldModifiers` to poll what is held each frame (released automatically when the window loses focus).
+  `MouseWheel` reports wheel and trackpad scrolling with the pointer position in pixels.
 - **No dependencies, AOT-friendly.** The runtime talks to Metal through hand-written
   `LibraryImport` interop.
 
@@ -87,8 +88,8 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 
 | Script | What it shows |
 |---|---|
-| `scripts/demo-viewer.sh` | **Live window:** every gallery shader, Game of Life and a 16k-body N-body simulation. ←/→ switch, Space pause, S save PNG, Esc quit |
-| `scripts/demo-paint.sh` | **Live window:** a GPU paint app with brushes, filters and undo. `--replay` paints a scripted scene |
+| `scripts/demo-viewer.sh` | **Live window:** every gallery shader, Game of Life and a 16k-body N-body simulation (drag to orbit, wheel to zoom). ←/→ switch, Space pause, S save PNG, Esc quit |
+| `scripts/demo-paint.sh` | **Live window:** a GPU paint app with brushes, filters and undo. The scroll wheel (or a two-finger scroll) sets the brush size, Shift+wheel the hardness; the title bar shows both. `--replay` paints a scripted scene |
 | `scripts/demo-glowfall.sh` | **Game:** *Glowfall*, an original 2D platformer. A lantern spirit relights three dark caverns; every pixel, per-pixel light with tile shadows and particle is computed by SharpCompute shaders, the music and sound effects are synthesized on the GPU, and the game logic runs at a fixed 120 Hz on the CPU. `--demo` watches a pilot play, `--headless` writes PNG frames, `--check-levels` proves each level can be finished |
 | `scripts/demo-gallery.sh` | The shader gallery as PNGs (`--video` for mp4s, `--shader <name>` for one) plus a benchmark |
 | `scripts/demo-mandelbrot.sh` | A deep-zoom Mandelbrot video (perturbation theory, down to ~1e-30) |

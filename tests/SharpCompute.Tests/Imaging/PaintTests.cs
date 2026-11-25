@@ -237,6 +237,146 @@ public class PaintTests
     }
 
     [SampleFact(Sample)]
+    public void WheelSteps_CountEveryNotch_AndConvertTrackpadTravelProportionally()
+    {
+        // A notched wheel: lines, scaled by macOS with the wheel's speed. Every event is at least a step.
+        Assert.Equal(1f, WheelSteps(0.1f, precise: false));
+        Assert.Equal(-1f, WheelSteps(-0.1f, precise: false));
+        Assert.Equal(1f, WheelSteps(1f, precise: false));
+        Assert.Equal(-2.5f, WheelSteps(-2.5f, precise: false));
+        Assert.Equal(4f, WheelSteps(30f, precise: false));
+        Assert.Equal(-4f, WheelSteps(-30f, precise: false));
+
+        // A trackpad: 40 points of travel per step, fractions kept.
+        Assert.Equal(1f, WheelSteps(40f, precise: true));
+        Assert.Equal(-0.05f, WheelSteps(-2f, precise: true), 6);
+        Assert.Equal(4f, WheelSteps(1000f, precise: true));
+
+        Assert.Equal(0f, WheelSteps(0f, precise: false));
+        Assert.Equal(0f, WheelSteps(0f, precise: true));
+        Assert.Equal(0f, WheelSteps(float.NaN, precise: true));
+    }
+
+    [SampleFact(Sample)]
+    public void Brush_ScrollSize_StepsLikeTheBracketKeys_AndStaysInRange()
+    {
+        dynamic brush = Brush(36f, 0.6f, 1f, new Float3(0f, 0f, 0f));
+
+        brush.ScrollSize(1f);
+        Assert.Equal(45f, (float)brush.Size, 3);
+        brush.ScrollSize(-1f);
+        Assert.Equal(36f, (float)brush.Size, 3);
+
+        // Ten tenths of a step are one step.
+        for (int i = 0; i < 10; i++)
+        {
+            brush.ScrollSize(0.1f);
+        }
+
+        Assert.Equal(45f, (float)brush.Size, 2);
+
+        for (int i = 0; i < 40; i++)
+        {
+            brush.ScrollSize(4f);
+        }
+
+        Assert.Equal(512f, (float)brush.Size);
+
+        for (int i = 0; i < 40; i++)
+        {
+            brush.ScrollSize(-4f);
+        }
+
+        Assert.Equal(2f, (float)brush.Size);
+    }
+
+    [SampleFact(Sample)]
+    public void Brush_ScrollHardness_AccumulatesStepsTooSmallToShow_AndStopsAtTheLimits()
+    {
+        dynamic brush = Brush(36f, 0.6f, 1f, new Float3(0f, 0f, 0f));
+
+        brush.ScrollHardness(1f);
+        Assert.Equal(0.65f, (float)brush.Hardness, 4);
+        brush.ScrollHardness(-1f);
+        Assert.Equal(0.6f, (float)brush.Hardness, 4);
+
+        // One trackpad event is worth a twentieth of a step: 0.0025, below the two decimals hardness keeps.
+        for (int i = 0; i < 40; i++)
+        {
+            brush.ScrollHardness(0.05f);
+        }
+
+        Assert.Equal(0.7f, (float)brush.Hardness, 4);
+
+        for (int i = 0; i < 20; i++)
+        {
+            brush.ScrollHardness(4f);
+        }
+
+        Assert.Equal(1f, (float)brush.Hardness);
+
+        // Nothing piles up past the limit: the first step back shows at once.
+        brush.ScrollHardness(-1f);
+        Assert.Equal(0.95f, (float)brush.Hardness, 4);
+
+        for (int i = 0; i < 20; i++)
+        {
+            brush.ScrollHardness(-4f);
+        }
+
+        Assert.Equal(0f, (float)brush.Hardness);
+        brush.ScrollHardness(1f);
+        Assert.Equal(0.05f, (float)brush.Hardness, 4);
+    }
+
+    [SampleGpuFact(Sample)]
+    public void Wheel_ChangesTheBrushSize_AndShiftWheelTheHardness()
+    {
+        using IDisposable disposable = SampleAssembly.Create(Sample, "PaintController", GraphicsDevice.GetDefault(), Width, Height);
+        dynamic controller = disposable;
+        int version = controller.Version;
+
+        // One notch up: the brush grows by one bracket step and the view is redrawn.
+        Assert.True((bool)controller.HandleWheel(0f, 1f, false, KeyModifiers.None));
+        Assert.Equal(45f, (float)controller.Brush.Size, 3);
+        Assert.Equal(0.6f, (float)controller.Brush.Hardness, 4);
+        Assert.True((int)controller.Version > version);
+        Assert.Contains("Brush 45 px", (string)controller.Status, StringComparison.Ordinal);
+
+        // Down again, as a slow notch (a tenth of a line still counts as one).
+        Assert.True((bool)controller.HandleWheel(0f, -0.1f, false, KeyModifiers.None));
+        Assert.Equal(36f, (float)controller.Brush.Size, 3);
+
+        // A trackpad: 20 points of travel are half a step.
+        Assert.True((bool)controller.HandleWheel(0f, 20f, true, KeyModifiers.None));
+        Assert.Equal(36f * MathF.Sqrt(1.25f), (float)controller.Brush.Size, 2);
+        float size = controller.Brush.Size;
+
+        // Shift + a notched wheel arrives as horizontal scrolling on macOS: it still means hardness.
+        Assert.True((bool)controller.HandleWheel(2f, 0f, false, KeyModifiers.Shift));
+        Assert.Equal(0.7f, (float)controller.Brush.Hardness, 4);
+        Assert.Equal(size, (float)controller.Brush.Size);
+        Assert.Contains("hardness 70%", (string)controller.Status, StringComparison.Ordinal);
+
+        // Shift + a trackpad keeps the vertical axis.
+        Assert.True((bool)controller.HandleWheel(0f, -40f, true, KeyModifiers.Shift | KeyModifiers.Option));
+        Assert.Equal(0.65f, (float)controller.Brush.Hardness, 4);
+
+        // Without Shift, sideways scrolling does nothing; neither does an event without movement.
+        version = controller.Version;
+        Assert.False((bool)controller.HandleWheel(5f, 0f, true, KeyModifiers.None));
+        Assert.False((bool)controller.HandleWheel(0f, 0f, false, KeyModifiers.Shift));
+        Assert.Equal(size, (float)controller.Brush.Size);
+        Assert.Equal(0.65f, (float)controller.Brush.Hardness, 4);
+        Assert.Equal(version, (int)controller.Version);
+
+        // At a limit nothing changes, so nothing is redrawn.
+        controller.Brush.Size = 512f;
+        Assert.False((bool)controller.HandleWheel(0f, 3f, false, KeyModifiers.None));
+        Assert.Equal(version, (int)controller.Version);
+    }
+
+    [SampleFact(Sample)]
     public void ScriptKeys_ParseToTheSameEventsAsTheWindow()
     {
         Assert.Equal((Key.Z, 'z', KeyModifiers.Command | KeyModifiers.Shift), ParseKey("cmd+shift+z"));
@@ -249,6 +389,9 @@ public class PaintTests
 
     private static (Key, char, KeyModifiers) ParseKey(string text) =>
         ((Key, char, KeyModifiers))SampleAssembly.Call(Sample, "PaintScript", "ParseKey", text)!;
+
+    private static float WheelSteps(float delta, bool precise) =>
+        (float)SampleAssembly.Call(Sample, "BrushSettings", "WheelSteps", delta, precise)!;
 
     private static float Coverage(float distance, float radius, float hardness) =>
         (float)SampleAssembly.Call(Sample, "BrushStamp", "Coverage", distance, radius, hardness)!;
