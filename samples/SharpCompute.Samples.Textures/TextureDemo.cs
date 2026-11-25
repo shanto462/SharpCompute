@@ -61,6 +61,37 @@ public sealed class TextureDemo : IDisposable
         }
     }
 
+    /// <summary>Multiplies the current mode's zoom by <paramref name="factor"/> (below 1 moves closer), around the middle of its view.</summary>
+    public void ZoomBy(float factor)
+    {
+        if (Mode == DemoMode.Samplers)
+        {
+            Explorer.ZoomBy(factor);
+        }
+        else
+        {
+            Reaction.ZoomBy(factor);
+        }
+    }
+
+    /// <summary>
+    /// Multiplies the current mode's zoom by <paramref name="factor"/> around a point of the frame:
+    /// what is drawn at position (<paramref name="x"/>, <paramref name="y"/>) of a
+    /// <paramref name="width"/> × <paramref name="height"/> frame stays there. This is what the scroll
+    /// wheel does, with the pointer's position.
+    /// </summary>
+    public void ZoomAt(float factor, double x, double y, int width, int height)
+    {
+        if (Mode == DemoMode.Samplers)
+        {
+            Explorer.ZoomAt(factor, x, y, new ExplorerLayout(width, height));
+        }
+        else
+        {
+            Reaction.ZoomAt(factor, x, y, width, height);
+        }
+    }
+
     /// <summary>Draws the current mode into <paramref name="target"/> and returns when the GPU has finished.</summary>
     public void Render(ReadWriteTexture2D<Rgba32> target)
     {

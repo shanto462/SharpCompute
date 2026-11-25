@@ -105,7 +105,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-pipeline.sh` | A double-buffered pipeline: the GPU renders frame N+1 (`ForAsync`) while the CPU post-processes frame N; sync vs async throughput |
 | `scripts/demo-audio.sh` | **Sound:** chiptune sound effects and a short loop synthesized on the GPU (one thread per sample), played through AudioToolbox for ~10 s at half volume. `--wav <dir>` writes WAVs instead |
 | `scripts/demo-pulsewake.sh` | **Game:** *Pulsewake*, an original neon twin-stick arena shooter: Drifters that split, Lancers that lock on and dash, Weavers that circle and fire, Pylons that send out rings to dodge, waves, a score multiplier and smart bombs. Vector shapes drawn as signed distances, up to 65,536 GPU particles binned into screen tiles without atomics, multi-pass bloom and shockwave distortion, one long-lived `ComputeContext` executed every frame; the sound is synthesized on the GPU. The same genre as MonoGame's [NeonShooter sample](https://github.com/MonoGame/MonoGame.Samples/tree/3.8.4/NeonShooter), here an original game built on SharpCompute. `--demo` watches an autopilot, `--headless` writes PNG frames and frame times |
-| `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
+| `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
 | `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
@@ -212,8 +212,9 @@ using ReadWriteBuffer<float> wrapped = device.WrapReadWriteBuffer<float>((nint)m
 Shaders capture textures like buffers. A `ReadOnlyTexture2D<T>` is read with `texture[x, y]` (or an
 `Int2`) and sampled with `texture.Sample(sampler, uv)`; a `ReadWriteTexture2D<T>` is read and written
 with its indexer. Every pixel is a `Float4` in the shader, whatever `T` is; `Width` and `Height`
-work too. Textures are zero-copy like buffers: `CopyFrom`, `CopyTo` and `ToArray` go straight to
-the shared memory.
+work too. A thread that writes a pixel and reads it back gets what it wrote, as in C# (the
+generator emits the `fence()` Metal needs for that). Textures are zero-copy like buffers:
+`CopyFrom`, `CopyTo` and `ToArray` go straight to the shared memory.
 
 | `T` | Metal format | A shader reads | `ReadWriteTexture2D` |
 |---|---|---|---|

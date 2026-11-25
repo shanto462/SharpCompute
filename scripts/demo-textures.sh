@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Textures in shaders, live: a sampler explorer and a ping-pong simulation.
 #   Tab switches between the two · S save PNG · Esc quit
+#   Both:      the scroll wheel (or a two-finger scroll) zooms around the pointer: a trackpad
+#              smoothly, a notched wheel in fixed steps · +/- zoom around the middle ·
+#              0 resets the view
 #   Samplers:  one picture magnified through all six samplers (Point/Linear x Clamp/Repeat/Mirror)
-#              F next texture format (Shift+F previous) · +/- zoom · drag pans · right-drag zooms ·
-#              R toggles a slow rotation · 0 resets the view
+#              F next texture format (Shift+F previous) · drag pans · right-drag zooms ·
+#              R toggles a slow rotation
 #   Ping-pong: a reaction-diffusion between two read-write textures, sampled through AsReadOnly()
-#              drag paints · right-drag erases · +/- zoom (zoomed out, the field tiles) ·
+#              drag paints · right-drag erases · zoomed out, the field tiles ·
 #              Space pauses · C restarts
 #
 #   scripts/demo-textures.sh                    # the window

@@ -508,6 +508,11 @@ public sealed unsafe class ReadOnlyTexture2D<T> : Texture2D<T>
 /// textures). To sample what one pass wrote, bind <see cref="AsReadOnly"/> in the next pass. As with
 /// buffers, threads of one dispatch must not write a pixel another thread reads or writes.
 /// </para>
+/// <para>
+/// A thread that writes a pixel and then reads it gets the value it wrote, in a shader as on the
+/// CPU. Metal only promises that after <c>texture.fence()</c>, which the generator puts after every
+/// write of a texture the shader also reads; a hand-written descriptor has to do the same.
+/// </para>
 /// </remarks>
 public sealed unsafe class ReadWriteTexture2D<T> : Texture2D<T>
     where T : unmanaged

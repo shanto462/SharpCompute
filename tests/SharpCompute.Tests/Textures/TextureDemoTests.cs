@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
+using SharpCompute.Presentation;
 using SharpCompute.Samples.Textures;
 using SharpCompute.Tests.CpuExecution;
 using Program = SharpCompute.Samples.Textures.Program;
@@ -10,7 +11,8 @@ namespace SharpCompute.Tests.Textures;
 
 /// <summary>
 /// The textures demo without its window: the sampler explorer's frames for every format, what each
-/// panel shows inside and outside the texture, the ping-pong simulation, and the headless mode.
+/// panel shows inside and outside the texture, the ping-pong simulation, zooming around the pointer
+/// with the wheel, and the headless mode.
 /// </summary>
 public sealed class TextureDemoTests
 {
@@ -690,6 +692,397 @@ public sealed class TextureDemoTests
         Assert.Equal((0.5f - (zoom / 2f), 0.5f - (zoom / 2f)), (corner.X, corner.Y));
     }
 
+    // ---- wheel zoom -------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(1f, 1)] // one notch
+    [InlineData(-1f, -1)]
+    [InlineData(0.1f, 1)] // a slow notch is still a whole step
+    [InlineData(-0.1f, -1)]
+    [InlineData(2.5f, 3)] // a faster spin: whole steps, rounded away from zero
+    [InlineData(-1.01f, -2)]
+    [InlineData(30f, WheelZoom.MaxSteps)] // capped
+    [InlineData(-30f, -WheelZoom.MaxSteps)]
+    public void WheelZoom_ANotchedWheelZoomsInWholeSteps(float lines, int steps)
+    {
+        // Positive deltas zoom in, and a factor below 1 is closer.
+        float factor = WheelZoom.Factor(Wheel(lines, precise: false), scaleFactor: 2.0);
+
+        Assert.Equal(MathF.Pow(WheelZoom.Step, -steps), factor, 1e-6f);
+
+        // The display's scale does not matter to lines.
+        Assert.Equal(factor, WheelZoom.Factor(Wheel(lines, precise: false), scaleFactor: 1.0));
+    }
+
+    [Fact]
+    public void WheelZoom_ANotchIsOnePressOfPlusOrMinus()
+    {
+        // What the + and - keys do (TexturesApp.OnKeyDown): the wheel and the keys share one ladder of zooms.
+        Assert.Equal(1f / WheelZoom.Step, WheelZoom.Factor(Wheel(1f, precise: false), 2.0), 1e-6f);
+        Assert.Equal(WheelZoom.Step, WheelZoom.Factor(Wheel(-1f, precise: false), 2.0), 1e-6f);
+    }
+
+    [Fact]
+    public void WheelZoom_ATrackpadZoomsSmoothly_ByFingerTravelInPoints()
+    {
+        // PointsPerStep points of travel are one notch: 80 pixels on a Retina display, 40 on a 1x one.
+        Assert.Equal(1f / WheelZoom.Step, WheelZoom.Factor(Wheel(80f, precise: true), 2.0), 1e-6f);
+        Assert.Equal(1f / WheelZoom.Step, WheelZoom.Factor(Wheel(40f, precise: true), 1.0), 1e-6f);
+        Assert.Equal(WheelZoom.Step, WheelZoom.Factor(Wheel(-80f, precise: true), 2.0), 1e-6f);
+
+        // Smooth: a small delta is a small zoom, not a whole step...
+        float small = WheelZoom.Factor(Wheel(1f, precise: true), 2.0);
+
+        Assert.InRange(small, 0.998f, 0.9999f);
+
+        // ...and a gesture zooms the same however it is cut into events.
+        float whole = WheelZoom.Factor(Wheel(120f, precise: true), 2.0);
+        float parts = 1f;
+
+        foreach (float delta in new[] { 3f, 17.5f, 40f, 0.5f, 59f })
+        {
+            parts *= WheelZoom.Factor(Wheel(delta, precise: true), 2.0);
+        }
+
+        Assert.Equal(whole, parts, 1e-5f);
+        Assert.Equal(1f, WheelZoom.Factor(Wheel(64f, precise: true), 2.0) * WheelZoom.Factor(Wheel(-64f, precise: true), 2.0), 1e-6f);
+
+        // One event is capped like a wheel's, and a scale factor that is not one counts as 1.
+        Assert.Equal(MathF.Pow(WheelZoom.Step, -WheelZoom.MaxSteps), WheelZoom.Factor(Wheel(1e6f, precise: true), 2.0), 1e-6f);
+        Assert.Equal(MathF.Pow(WheelZoom.Step, WheelZoom.MaxSteps), WheelZoom.Factor(Wheel(-1e6f, precise: true), 2.0), 1e-6f);
+        Assert.Equal(1f / WheelZoom.Step, WheelZoom.Factor(Wheel(40f, precise: true), 0.0), 1e-6f);
+        Assert.Equal(1f / WheelZoom.Step, WheelZoom.Factor(Wheel(40f, precise: true), double.NaN), 1e-6f);
+    }
+
+    [Fact]
+    public void WheelZoom_IgnoresMomentumSidewaysScrollingAndDeltasThatAreNotNumbers()
+    {
+        // Inertia after the fingers lift would carry the zoom past where the user stopped.
+        Assert.Equal(1f, WheelZoom.Factor(new MouseWheelEventArgs(10, 10, 0f, 25f, isPrecise: true, isMomentum: true, KeyModifiers.None), 2.0));
+
+        // Shift + a notched wheel arrives as a horizontal scroll; only the vertical delta zooms.
+        Assert.Equal(1f, WheelZoom.Factor(new MouseWheelEventArgs(10, 10, 3f, 0f, isPrecise: false, isMomentum: false, KeyModifiers.Shift), 2.0));
+        Assert.Equal(1f, WheelZoom.Factor(new MouseWheelEventArgs(10, 10, -40f, 0f, isPrecise: true, isMomentum: false, KeyModifiers.None), 2.0));
+
+        foreach (bool precise in new[] { false, true })
+        {
+            Assert.Equal(1f, WheelZoom.Factor(Wheel(0f, precise), 2.0));
+            Assert.Equal(1f, WheelZoom.Factor(Wheel(float.NaN, precise), 2.0));
+            Assert.Equal(1f, WheelZoom.Factor(Wheel(float.PositiveInfinity, precise), 2.0));
+            Assert.Equal(1f, WheelZoom.Factor(Wheel(float.NegativeInfinity, precise), 2.0));
+        }
+
+        Assert.Throws<ArgumentNullException>(() => WheelZoom.Factor(null!, 2.0));
+    }
+
+    [Theory]
+    [InlineData(0.0, 38.0, 0)] // the grid's own corner
+    [InlineData(399.9, 367.9, 0)]
+    [InlineData(400.0, 367.9, 1)]
+    [InlineData(800.0, 100.0, 2)]
+    [InlineData(399.9, 368.0, 3)]
+    [InlineData(600.0, 500.0, 4)]
+    [InlineData(1199.9, 697.9, 5)]
+    [InlineData(600.0, 3.0, 1)] // in the top bar: the panel below
+    [InlineData(1000.0, 715.0, 5)] // in the help bar: the panel above
+    [InlineData(-50.0, -50.0, 0)] // outside the frame: the nearest panel
+    [InlineData(5000.0, 5000.0, 5)]
+    [InlineData(-1.0, 5000.0, 3)]
+    public void Layout_PanelAt_FindsThePanelUnderAPosition_OrTheNearestOne(double x, double y, int panel)
+    {
+        // 1200 × 720: a 38-pixel top bar, then two rows of three 400 × 330 panels.
+        ExplorerLayout layout = new(Width, Height);
+
+        Assert.Equal((38, 400f, 330f), (layout.TopBar, layout.Cell.X, layout.Cell.Y));
+        Assert.Equal(panel, layout.PanelAt(x, y));
+    }
+
+    [MetalTheory]
+    [InlineData(0f, 0.5f)]
+    [InlineData(0f, 1.21f)]
+    [InlineData(0.7f, 1f / 1.1f)]
+    [InlineData(-2.1f, 3f)]
+    public void Samplers_ZoomAtKeepsThePointUnderThePointer(float angle, float factor)
+    {
+        using SamplerExplorer explorer = new(GraphicsDevice.GetDefault()) { Angle = angle, Zoom = 1.7f, Pan = new Float2(0.2f, -0.3f) };
+        ExplorerLayout layout = new(Width, Height);
+        Float2 pan = explorer.Pan;
+        Float2? moved = null;
+
+        for (int panel = 0; panel < ExplorerLayout.PanelCount; panel++)
+        {
+            // A pixel well off the middle of the panel; the pointer is at its center.
+            int x = (int)layout.PanelOrigin(panel).X + 317, y = (int)layout.PanelOrigin(panel).Y + 41;
+            Float2 before = layout.Uv(panel, x, y, explorer.Zoom, explorer.Pan, explorer.Angle);
+
+            explorer.ZoomAt(factor, x + 0.5, y + 0.5, layout);
+
+            Float2 after = layout.Uv(panel, x, y, explorer.Zoom, explorer.Pan, explorer.Angle);
+
+            Assert.Equal(1.7f * factor, explorer.Zoom, 1e-5f);
+            Assert.Equal(before.X, after.X, 1e-5f);
+            Assert.Equal(before.Y, after.Y, 1e-5f);
+
+            // That took a pan (a zoom around the middle would have moved the point by a third of a texture or more)...
+            Assert.True(MathF.Abs(explorer.Pan.X - pan.X) + MathF.Abs(explorer.Pan.Y - pan.Y) > 0.05f, "The view was not panned.");
+
+            // ...and the same one whichever panel the pointer is in, because the panels share a mapping.
+            moved ??= explorer.Pan;
+            Assert.Equal(moved.Value.X, explorer.Pan.X, 1e-5f);
+            Assert.Equal(moved.Value.Y, explorer.Pan.Y, 1e-5f);
+
+            (explorer.Zoom, explorer.Pan) = (1.7f, pan);
+        }
+
+        // Around the middle of a panel it is ZoomBy: no pan at all.
+        Float2 middle = layout.PanelOrigin(4) + (layout.Cell * 0.5f);
+
+        explorer.ZoomAt(factor, middle.X, middle.Y, layout);
+        Assert.Equal(pan.X, explorer.Pan.X, 1e-6f);
+        Assert.Equal(pan.Y, explorer.Pan.Y, 1e-6f);
+    }
+
+    [MetalFact]
+    public void Samplers_ZoomAt_StopsAtTheLimitsWithoutSliding_AndComesBack()
+    {
+        using SamplerExplorer explorer = new(GraphicsDevice.GetDefault()) { Angle = 0.4f, Pan = new Float2(-1.5f, 0.25f) };
+        ExplorerLayout layout = new(Width, Height);
+        const int x = 930, y = 601;
+        Float2 point = layout.Uv(5, x, y, explorer.Zoom, explorer.Pan, explorer.Angle);
+
+        void AssertPointStays()
+        {
+            Float2 now = layout.Uv(5, x, y, explorer.Zoom, explorer.Pan, explorer.Angle);
+
+            Assert.Equal(point.X, now.X, 1e-4f);
+            Assert.Equal(point.Y, now.Y, 1e-4f);
+        }
+
+        // Far past either limit, the point is still under the pointer...
+        explorer.ZoomAt(1e-9f, x + 0.5, y + 0.5, layout);
+        Assert.Equal(0.05f, explorer.Zoom);
+        AssertPointStays();
+
+        // ...and more of the same changes nothing: the view does not creep while the wheel keeps turning.
+        Float2 pan = explorer.Pan;
+
+        explorer.ZoomAt(0.5f, x + 0.5, y + 0.5, layout);
+        Assert.Equal((0.05f, pan), (explorer.Zoom, explorer.Pan));
+
+        explorer.ZoomAt(1e9f, x + 0.5, y + 0.5, layout);
+        Assert.Equal(16f, explorer.Zoom);
+        AssertPointStays();
+        pan = explorer.Pan;
+        explorer.ZoomAt(2f, x + 0.5, y + 0.5, layout);
+        Assert.Equal((16f, pan), (explorer.Zoom, explorer.Pan));
+
+        // Many small steps in and the same steps back out, as a trackpad sends them: back where it started.
+        (explorer.Zoom, explorer.Pan) = (SamplerExplorer.DefaultZoom, new Float2(-1.5f, 0.25f));
+
+        for (int i = 0; i < 200; i++)
+        {
+            explorer.ZoomAt(0.99f, x + 0.5, y + 0.5, layout);
+        }
+
+        Assert.Equal(SamplerExplorer.DefaultZoom * MathF.Pow(0.99f, 200), explorer.Zoom, 1e-4f);
+        AssertPointStays();
+
+        for (int i = 0; i < 200; i++)
+        {
+            explorer.ZoomAt(1f / 0.99f, x + 0.5, y + 0.5, layout);
+        }
+
+        Assert.Equal(SamplerExplorer.DefaultZoom, explorer.Zoom, 1e-3f);
+        Assert.Equal(-1.5f, explorer.Pan.X, 1e-3f);
+        Assert.Equal(0.25f, explorer.Pan.Y, 1e-3f);
+    }
+
+    [MetalFact]
+    public void Samplers_ZoomAt_TheRenderedPixelUnderThePointerKeepsItsColor()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using TextureDemo demo = new(device);
+        using ReadWriteTexture2D<Rgba32> target = device.AllocateReadWriteTexture2D<Rgba32>(Width, Height);
+        ExplorerLayout layout = new(Width, Height);
+
+        // Pixels of the three bilinear panels, inside the texture and clear of its outline, the
+        // panel's edge and the label: there the color is a smooth function of the coordinate.
+        (int Panel, int X, int Y)[] pointers = [(3, 160, 500), (4, 640, 560), (5, 1030, 510)];
+
+        foreach ((int panel, int x, int y) in pointers)
+        {
+            demo.Explorer.ResetView();
+
+            Float2 uv = layout.Uv(panel, x, y, demo.Explorer.Zoom, demo.Explorer.Pan, demo.Explorer.Angle);
+
+            Assert.InRange(uv.X, 0.1f, 0.9f);
+            Assert.InRange(uv.Y, 0.1f, 0.9f);
+            Assert.Equal(panel, layout.PanelAt(x + 0.5, y + 0.5));
+
+            demo.Render(target);
+
+            Rgba32[] before = target.ToArray();
+
+            demo.ZoomAt(0.4f, x + 0.5, y + 0.5, Width, Height);
+            demo.Render(target);
+
+            Rgba32[] after = target.ToArray();
+            Rgba32 was = before[(y * Width) + x], now = after[(y * Width) + x];
+
+            Assert.NotEqual(before, after);
+            // The same coordinate up to float rounding, which can move a bilinear weight by one of its 256 steps.
+            Assert.InRange(Math.Abs(was.R - now.R), 0, 2);
+            Assert.InRange(Math.Abs(was.G - now.G), 0, 2);
+            Assert.InRange(Math.Abs(was.B - now.B), 0, 2);
+        }
+    }
+
+    [MetalTheory]
+    [InlineData(0.5f, 100.5, 620.25)]
+    [InlineData(1f / 1.1f, 1279.0, 0.0)]
+    [InlineData(1.21f, 37.0, 11.0)]
+    [InlineData(3f, 900.0, 700.0)]
+    public void PingPong_ZoomAtKeepsTheFieldPointUnderThePointer(float factor, double x, double y)
+    {
+        const int width = 1280, height = 720;
+        using ReactionDiffusion simulation = new(GraphicsDevice.GetDefault()) { Zoom = 1.5f, Pan = new Float2(0.25f, 0.75f) };
+        Float2 before = simulation.FrameToField(x, y, width, height);
+
+        simulation.ZoomAt(factor, x, y, width, height);
+
+        Assert.Equal(1.5f * factor, simulation.Zoom, 1e-5f);
+        AssertSameFieldPoint(before, simulation.FrameToField(x, y, width, height));
+
+        // The offset is kept to its fraction, which is all a repeating field needs.
+        Assert.InRange(simulation.Pan.X, 0f, 1f);
+        Assert.InRange(simulation.Pan.Y, 0f, 1f);
+
+        // Away from the pointer the picture did move: this was not a pan.
+        Float2 elsewhere = simulation.FrameToField(width - x, height - y, width, height);
+
+        simulation.ZoomAt(1f / factor, x, y, width, height);
+        AssertSameFieldPoint(before, simulation.FrameToField(x, y, width, height));
+
+        Float2 back = simulation.FrameToField(width - x, height - y, width, height);
+
+        Assert.True(FieldDistance(elsewhere.X, back.X) + FieldDistance(elsewhere.Y, back.Y) > 0.05f, "Nothing moved away from the pointer.");
+
+        // In and back out around the same point is the view it started from.
+        Assert.Equal(1.5f, simulation.Zoom, 1e-5f);
+        AssertSameFieldPoint(new Float2(0.75f, 1.25f), simulation.FrameToField(width / 2, height / 2, width, height));
+    }
+
+    [MetalFact]
+    public void PingPong_ZoomByAndZoomAt_StopAtTheLimits_AndResetViewRestoresTheStart()
+    {
+        const int width = 1280, height = 720;
+        using ReactionDiffusion simulation = new(GraphicsDevice.GetDefault());
+
+        Assert.Equal((1f, default(Float2)), (simulation.Zoom, simulation.Pan));
+
+        // Around the middle of the frame, ZoomAt is ZoomBy: no offset.
+        simulation.ZoomAt(0.5f, width / 2, height / 2, width, height);
+        Assert.Equal((0.5f, default(Float2)), (simulation.Zoom, simulation.Pan));
+
+        simulation.ZoomBy(3f);
+        Assert.Equal((1.5f, default(Float2)), (simulation.Zoom, simulation.Pan));
+
+        simulation.ZoomBy(1e-9f);
+        Assert.Equal(ReactionDiffusion.MinZoom, simulation.Zoom);
+        simulation.ZoomBy(1e9f);
+        Assert.Equal(ReactionDiffusion.MaxZoom, simulation.Zoom);
+
+        // At a limit the point stays under the pointer, and pushing further does not slide the view.
+        simulation.Zoom = 1f;
+
+        Float2 point = simulation.FrameToField(200, 650, width, height);
+
+        simulation.ZoomAt(1e-9f, 200, 650, width, height);
+        Assert.Equal(ReactionDiffusion.MinZoom, simulation.Zoom);
+        AssertSameFieldPoint(point, simulation.FrameToField(200, 650, width, height));
+
+        Float2 pan = simulation.Pan;
+
+        simulation.ZoomAt(0.5f, 200, 650, width, height);
+        Assert.Equal((ReactionDiffusion.MinZoom, pan), (simulation.Zoom, simulation.Pan));
+
+        simulation.ZoomAt(1e9f, 200, 650, width, height);
+        Assert.Equal(ReactionDiffusion.MaxZoom, simulation.Zoom);
+        AssertSameFieldPoint(point, simulation.FrameToField(200, 650, width, height));
+        pan = simulation.Pan;
+        simulation.ZoomAt(2f, 200, 650, width, height);
+        Assert.Equal((ReactionDiffusion.MaxZoom, pan), (simulation.Zoom, simulation.Pan));
+
+        Assert.NotEqual(default, simulation.Pan);
+        simulation.ResetView();
+        Assert.Equal((1f, default(Float2)), (simulation.Zoom, simulation.Pan));
+    }
+
+    [MetalFact]
+    public void PingPong_ZoomAt_TheDabUnderThePointerStaysUnderIt_AndTheStartingViewComesBackWithoutSeams()
+    {
+        const int width = 640, height = 360;
+        const int x = 500, y = 100;
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using TextureDemo demo = new(device) { Mode = DemoMode.PingPong, Paused = true };
+        using ReadWriteTexture2D<Rgba32> target = device.AllocateReadWriteTexture2D<Rgba32>(width, height);
+
+        Rgba32 Pixel(int px, int py)
+        {
+            demo.Render(target);
+            return target.ToArray()[(py * width) + px];
+        }
+
+        // Empty field around the pointer to begin with (the simulation is paused, so it stays as painted).
+        Assert.True(Pixel(x, y).R < 60 && Pixel(x + 12, y).R < 60, "Pick a place without a starting spot.");
+
+        demo.Reaction.Paint(demo.Reaction.FrameToField(x + 0.5, y + 0.5, width, height));
+        demo.Render(target);
+
+        Rgba32[] start = target.ToArray();
+
+        // The dab is 4 field pixels in radius, 8 on this frame: the pointer is on it, 12 pixels along is not.
+        Assert.True(start[(y * width) + x].R > 200, "The dab should show as the brightest color.");
+        Assert.True(start[(y * width) + x + 12].R < 60);
+
+        // Twice as close around the pointer: the dab is still under it, and now reaches 12 pixels along.
+        demo.ZoomAt(0.5f, x + 0.5, y + 0.5, width, height);
+        Assert.Equal(0.5f, demo.Reaction.Zoom);
+        Assert.NotEqual(default, demo.Reaction.Pan);
+        Assert.True(Pixel(x, y).R > 200, "The dab left the pointer when zooming in.");
+        Assert.True(Pixel(x + 12, y).R > 200, "The dab did not grow.");
+
+        // Far out, where the frame shows four copies of the field across: still under the pointer.
+        demo.ZoomAt(8f, x + 0.5, y + 0.5, width, height);
+        Assert.Equal(4f, demo.Reaction.Zoom);
+        Assert.True(Pixel(x, y).R > 200, "The dab left the pointer when zooming out.");
+
+        // Back in around the same point, in small steps as a trackpad sends them: the starting view
+        // again, without a seam line along the frame's edges (which a view left a hair off would get).
+        for (int i = 0; i < 40; i++)
+        {
+            demo.ZoomAt(MathF.Pow(0.25f, 1f / 40f), x + 0.5, y + 0.5, width, height);
+        }
+
+        Assert.Equal(1f, demo.Reaction.Zoom, 1e-4f);
+        demo.Reaction.Zoom = 1f;
+        demo.Render(target);
+        CpuComparison.AssertPixelsClose(start, target.ToArray(), maxStep: 2, outlierFraction: 0.002, "Back at the starting view");
+
+        // The keys' zoom and the sampler explorer's view are separate: neither touched the other mode.
+        Assert.Equal((SamplerExplorer.DefaultZoom, default(Float2)), (demo.Explorer.Zoom, demo.Explorer.Pan));
+        demo.Mode = DemoMode.Samplers;
+        demo.ZoomAt(0.5f, 10, 300, width, height);
+        demo.ZoomBy(0.5f);
+        Assert.Equal(SamplerExplorer.DefaultZoom / 4f, demo.Explorer.Zoom, 1e-5f);
+        Assert.NotEqual(default, demo.Explorer.Pan);
+        Assert.Equal(1f, demo.Reaction.Zoom);
+        demo.Mode = DemoMode.PingPong;
+        demo.ZoomBy(2f);
+        Assert.Equal(2f, demo.Reaction.Zoom);
+        Assert.Equal(SamplerExplorer.DefaultZoom / 4f, demo.Explorer.Zoom, 1e-5f);
+    }
+
     // ---- headless ---------------------------------------------------------------------------------
 
     [MetalFact]
@@ -748,4 +1141,18 @@ public sealed class TextureDemoTests
     }
 
     private static float[] Flat(Float4[] values) => CpuComparison.Flatten(values);
+
+    private static MouseWheelEventArgs Wheel(float deltaY, bool precise) => new(320, 240, 0f, deltaY, precise, isMomentum: false, KeyModifiers.None);
+
+    /// <summary>The same place in the field: the field repeats, so a whole number of copies over is the same point.</summary>
+    private static void AssertSameFieldPoint(Float2 expected, Float2 actual)
+    {
+        Float2 difference = actual - expected;
+
+        Assert.Equal(MathF.Round(difference.X), difference.X, 2e-5f);
+        Assert.Equal(MathF.Round(difference.Y), difference.Y, 2e-5f);
+    }
+
+    /// <summary>How far apart two field coordinates are along one axis, the short way around the repeating field (0..0.5).</summary>
+    private static float FieldDistance(float a, float b) => MathF.Abs((a - b) - MathF.Round(a - b));
 }

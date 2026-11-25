@@ -43,7 +43,17 @@ internal sealed partial class MslTranslator
 
             case IExpressionStatementOperation expression:
                 HoistDeclarations(expression.Operation);
-                Writer.Line(FullExpression(expression.Operation) + ";");
+                string text = FullExpression(expression.Operation);
+                string? fence = TakeTrailingFence(ref text);
+
+                Writer.Line(text + ";");
+
+                if (fence is not null)
+                {
+                    // A texture write: its fence, if it turns out to need one, is the next statement.
+                    Writer.Line(fence);
+                }
+
                 break;
 
             case IConditionalOperation conditional:

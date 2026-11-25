@@ -534,6 +534,9 @@ internal sealed partial class MslTranslator
 
         if (property.IsIndexer)
         {
+            // A read of a texture the shader also writes puts a fence after those writes.
+            RecordTextureRead(operation.Instance);
+
             return ResolveType(property.Type, operation.Syntax.GetLocation()) is null
                 ? Expr.Error
                 : Call(TextureInstance(operation.Instance) + ".read", TextureCoordinates(operation));
@@ -550,7 +553,9 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// <c>texture[x, y] = value</c> → <c>texture.write(value, uint2(x, y))</c>. <c>write</c> returns
-    /// nothing, so the assignment has to be a statement of its own.
+    /// nothing, so the assignment has to be a statement of its own. The write is followed by the
+    /// placeholder of a fence, which stays only if the shader also reads the texture (see
+    /// <see cref="ResolveFences"/>).
     /// </summary>
     private Expr TextureWrite(ISimpleAssignmentOperation operation, IPropertyReferenceOperation pixel)
     {
@@ -562,7 +567,7 @@ internal sealed partial class MslTranslator
         string texture = TextureInstance(pixel.Instance);
         string coordinates = TextureCoordinates(pixel);
 
-        return Call(texture + ".write", Expression(operation.Value).Text, coordinates);
+        return new Expr(Call(texture + ".write", Expression(operation.Value).Text, coordinates).Text + FencePlaceholder(pixel.Instance, texture), Expr.Primary);
     }
 
     /// <summary><c>texture[x, y] += value</c>, <c>texture[x, y]++</c>: a read and a write, which have no single MSL form.</summary>

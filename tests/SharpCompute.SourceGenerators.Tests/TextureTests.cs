@@ -8,7 +8,8 @@ namespace SharpCompute.SourceGenerators.Tests;
 /// <summary>
 /// Textures as captured state: <c>ReadOnlyTexture2D&lt;T&gt;</c> (<c>access::sample</c>) and
 /// <c>ReadWriteTexture2D&lt;T&gt;</c> (<c>access::read_write</c>), their kernel parameters and binding
-/// indices, the translation of reads, writes, sizes and <c>Sample</c>, the sampler globals, and SCG0027 to SCG0033.
+/// indices, the translation of reads, writes, sizes and <c>Sample</c>, the fence after a write of a
+/// texture that is also read, the sampler globals, and SCG0027 to SCG0033.
 /// </summary>
 public class TextureTests
 {
@@ -112,6 +113,7 @@ public class TextureTests
                 float4 color = source.sample(__ms_sampler_linear_clamp, uv, metal::level(0)) * __c.gain;
                 float4 previous = target.read(uint2(xy));
                 target.write(color + previous + source.read(uint2(xy)), uint2(xy.x, xy.y));
+                target.fence();
                 luma[xy.y * int(target.get_width()) + xy.x] = color.x;
             }
             """),
@@ -336,7 +338,7 @@ public class TextureTests
     [InlineData("target[1, 2] = new Float4(1, 0, 0, 1);", "target.write(float4(1.0f, 0.0f, 0.0f, 1.0f), uint2(1, 2));")]
     [InlineData("target[ThreadIds.XY] = source[ThreadIds.XY] * 2;", "target.write(source.read(uint2(int2(__tid.xy))) * 2.0f, uint2(int2(__tid.xy)));")]
     [InlineData("target[y: 2, x: 1] = output[0];", "target.write(output[0], uint2(1, 2));")]
-    [InlineData("Float4 c = target[0, 0]; c.X += 1; target[0, 0] = c;", "float4 c = target.read(uint2(0, 0));\nc.x += 1.0f;\ntarget.write(c, uint2(0, 0));")]
+    [InlineData("Float4 c = target[0, 0]; c.X += 1; target[0, 0] = c;", "float4 c = target.read(uint2(0, 0));\nc.x += 1.0f;\ntarget.write(c, uint2(0, 0));\ntarget.fence();")]
     [InlineData("for (int i = 0; i < 4; target[i, 0] = output[i], i++) { }", "for (int i = 0; i < 4; target.write(output[i], uint2(i, 0)), i++)\n{\n}")]
     [InlineData("int w = source.Width; int h = source.Height; output[w + h] = default;", "int w = int(source.get_width());\nint h = int(source.get_height());\noutput[w + h] = float4(0);")]
     [InlineData("output[target.Width * target.Height - 1] = default;", "output[int(target.get_width()) * int(target.get_height()) - 1] = float4(0);")]
@@ -456,6 +458,220 @@ public class TextureTests
         Assert.DoesNotContain("sampler", descriptor.MslSource);
     }
 
+    // ---- fences: a write followed by a read of the same texture ------------------------------------
+
+    /// <summary>A compute shader with two read-write textures, a sampled one and a buffer.</summary>
+    private static GeneratorRun RunFenceBody(string body, string extraMembers = "") =>
+        GeneratorHarness.Run(TestSources.Vectors, TestSources.Shader($$"""
+                public readonly ReadOnlyTexture2D<Rgba32> source;
+                public readonly ReadWriteTexture2D<Float4> target;
+                public readonly ReadWriteTexture2D<float> other;
+                public readonly ReadWriteBuffer<Float4> output;
+                {{extraMembers}}
+
+                public void Execute()
+                {
+                    {{body}}
+                }
+            """));
+
+    private static ShaderDescriptor VerifyFences(GeneratorRun run)
+    {
+        ShaderDescriptor descriptor = run.Verify(Shader);
+
+        // The placeholders the translator leaves after writes never reach the MSL.
+        Assert.DoesNotContain('\u0001', descriptor.MslSource);
+        Assert.DoesNotContain('\u0001', run.Source("Tests.TestShader.SharpCompute.g.cs"));
+        return descriptor;
+    }
+
+    [Theory]
+
+    // Metal only shows a thread its own write after a fence: write, fence, read.
+    [InlineData(
+        "target[1, 2] = output[0]; output[1] = target[1, 2];",
+        "target.write(output[0], uint2(1, 2));\ntarget.fence();\noutput[1] = target.read(uint2(1, 2));")]
+
+    // Every write of a texture that is read gets one, in any branch.
+    [InlineData(
+        "if (ThreadIds.X > 0) { target[0, 0] = default; } else target[1, 1] = output[0]; output[1] = target[0, 0]; target[2, 2] = output[1];",
+        "if (int(__tid.x) > 0)\n{\n    target.write(float4(0), uint2(0, 0));\n    target.fence();\n}\nelse\n{\n    target.write(output[0], uint2(1, 1));\n    target.fence();\n}\n" +
+        "output[1] = target.read(uint2(0, 0));\ntarget.write(output[1], uint2(2, 2));\ntarget.fence();")]
+
+    // The read comes first in the source, but follows the write on the next turn of the loop.
+    [InlineData(
+        "for (int i = 0; i < 3; i++) { Float4 c = target[0, 0]; target[0, 0] = c + 1; }",
+        "for (int i = 0; i < 3; i++)\n{\n    float4 c = target.read(uint2(0, 0));\n    target.write(c + 1.0f, uint2(0, 0));\n    target.fence();\n}")]
+
+    // The header of a for has no statements: the fence follows the write as one more expression.
+    [InlineData(
+        "for (int i = 0; i < 4; target[i, 0] = target[i + 1, 0], i++) { }",
+        "for (int i = 0; i < 4; target.write(target.read(uint2(i + 1, 0)), uint2(i, 0)), target.fence(), i++)\n{\n}")]
+    [InlineData(
+        "int i = 0; for (target[0, 0] = default; i < 4; i++) { output[i] = target[i, 0]; }",
+        "int i = 0;\nfor (target.write(float4(0), uint2(0, 0)), target.fence(); i < 4; i++)\n{\n    output[i] = target.read(uint2(i, 0));\n}")]
+
+    // Each texture on its own: only the one that is read is fenced.
+    [InlineData(
+        "target[0, 0] = default; other[0, 0] = default; output[0] = other[0, 0];",
+        "target.write(float4(0), uint2(0, 0));\nother.write(float4(0), uint2(0, 0));\nother.fence();\noutput[0] = other.read(uint2(0, 0));")]
+    [InlineData(
+        "target[0, 0] = other[0, 0]; other[0, 0] = target[1, 1];",
+        "target.write(other.read(uint2(0, 0)), uint2(0, 0));\ntarget.fence();\nother.write(target.read(uint2(1, 1)), uint2(0, 0));\nother.fence();")]
+    public void Fence_FollowsEveryWriteOfATextureTheShaderReads(string body, string expected)
+    {
+        Assert.Equal(expected, VerifyFences(RunFenceBody(body)).KernelBody);
+    }
+
+    [Theory]
+    [InlineData("target[1, 2] = output[0];")]
+    [InlineData("target[0, 0] = default; target[1, 1] = output[0]; other[ThreadIds.XY] = default;")]
+
+    // The size is not a pixel, and reading a sampled texture or a buffer is not reading this one.
+    [InlineData("target[target.Width - 1, target.Height - 1] = source[0, 0] + source.Sample(Sampler.PointClamp, new Float2(0.5f)) + output[0];")]
+    [InlineData("for (int i = 0; i < 4; target[i, 0] = output[i], i++) { }")]
+
+    // A helper that would read it, but that nothing calls, is not part of the shader.
+    [InlineData("target[0, 0] = default;", "private Float4 Unused() => target[0, 0];")]
+
+    // A read through a helper's ReadOnlyTexture2D parameter cannot be a read of a read-write texture.
+    [InlineData("target[0, 0] = Texel(source);", "private static Float4 Texel(ReadOnlyTexture2D<Rgba32> image) => image[0, 0];")]
+    public void Fence_IsNotEmitted_ForATextureTheShaderOnlyWrites(string body, string extraMembers = "")
+    {
+        ShaderDescriptor descriptor = VerifyFences(RunFenceBody(body, extraMembers));
+
+        Assert.Contains(".write(", descriptor.MslSource);
+        Assert.DoesNotContain("fence", descriptor.MslSource);
+    }
+
+    [Fact]
+    public void Fence_CountsReadsAndWritesInHelpers()
+    {
+        // The write is in one helper and the read in another; the kernel itself touches neither.
+        ShaderDescriptor descriptor = VerifyFences(RunFenceBody(
+            """
+            Store(1, output[0]);
+            output[1] = Load(1);
+            Clear(2);
+            """,
+            """
+            private void Store(int x, Float4 value)
+            {
+                if (x > 0)
+                {
+                    target[x, 0] = value;
+                }
+            }
+
+            private Float4 Load(int x) => target[x, 0];
+
+            private void Clear(int x) => other[x, 0] = default;
+            """));
+
+        Assert.Contains(
+            "static void Store(int x, float4 value, texture2d<float, access::read_write> target)\n{\n    if (x > 0)\n    {\n        target.write(value, uint2(x, 0));\n        target.fence();\n    }\n}",
+            descriptor.MslSource);
+        Assert.Contains("static float4 Load(int x, texture2d<float, access::read_write> target)\n{\n    return target.read(uint2(x, 0));\n}", descriptor.MslSource);
+
+        // `other` is only written, so its helper is as it always was.
+        Assert.Contains("static void Clear(int x, texture2d<float, access::read_write> other)\n{\n    other.write(float4(0), uint2(x, 0));\n}", descriptor.MslSource);
+        Assert.Equal("::Store(1, output[0], target);\noutput[1] = ::Load(1, target);\n::Clear(2, other);", descriptor.KernelBody);
+    }
+
+    [Fact]
+    public void Fence_AHelperTranslatedBeforeTheReadIsStillFenced()
+    {
+        // Store is translated, as a finished function, before the kernel reaches the statement that
+        // reads the texture; and the kernel's own first write comes before it too.
+        ShaderDescriptor descriptor = VerifyFences(RunFenceBody(
+            """
+            target[0, 0] = default;
+            Store(1, output[0]);
+            output[1] = target[1, 0];
+            """,
+            "private void Store(int x, Float4 value) => target[x, 0] = value;"));
+
+        Assert.Contains("static void Store(int x, float4 value, texture2d<float, access::read_write> target)\n{\n    target.write(value, uint2(x, 0));\n    target.fence();\n}", descriptor.MslSource);
+        Assert.Equal(
+            "target.write(float4(0), uint2(0, 0));\ntarget.fence();\n::Store(1, output[0], target);\noutput[1] = target.read(uint2(1, 0));",
+            descriptor.KernelBody);
+    }
+
+    [Fact]
+    public void Fence_ATextureParameterOrLocalCouldBeAnyTexture()
+    {
+        // Which texture `canvas` is depends on the call, so a write through it is fenced as soon as
+        // the shader reads any read-write texture...
+        ShaderDescriptor written = VerifyFences(RunFenceBody(
+            """
+            Fill(other, 1f);
+            output[0] = target[0, 0];
+            """,
+            "private static void Fill(ReadWriteTexture2D<float> canvas, float value) => canvas[0, 0] = new Float4(value);"));
+
+        Assert.Contains("static void Fill(texture2d<float, access::read_write> canvas, float value)\n{\n    canvas.write(float4(value), uint2(0, 0));\n    canvas.fence();\n}", written.MslSource);
+
+        // ...and a read through one counts as a read of every texture the shader writes.
+        ShaderDescriptor read = VerifyFences(RunFenceBody(
+            """
+            target[0, 0] = default;
+            other[0, 0] = default;
+            output[0] = new Float4(Peek(other));
+            """,
+            "private static float Peek(ReadWriteTexture2D<float> canvas) => canvas[0, 0].X;"));
+
+        Assert.Equal(
+            "target.write(float4(0), uint2(0, 0));\ntarget.fence();\nother.write(float4(0), uint2(0, 0));\nother.fence();\noutput[0] = float4(::Peek(other));",
+            read.KernelBody);
+
+        // A local is another name for a texture: the write through it is fenced by the read of the capture.
+        ShaderDescriptor local = VerifyFences(RunFenceBody(
+            """
+            ReadWriteTexture2D<Float4> canvas = target;
+            canvas[0, 0] = default;
+            output[0] = target[0, 0];
+            """));
+
+        Assert.Equal(
+            "texture2d<float, access::read_write> canvas = target;\ncanvas.write(float4(0), uint2(0, 0));\ncanvas.fence();\noutput[0] = target.read(uint2(0, 0));",
+            local.KernelBody);
+
+        // Without any read there is still nothing to fence.
+        ShaderDescriptor writeOnly = VerifyFences(RunFenceBody(
+            "Fill(other, 1f); Fill(other, 2f);",
+            "private static void Fill(ReadWriteTexture2D<float> canvas, float value) => canvas[0, 0] = new Float4(value);"));
+
+        Assert.DoesNotContain("fence", writeOnly.MslSource);
+    }
+
+    [Fact]
+    public void Fence_InAPixelShader_IsForItsCapturedTextures_NotItsOutput()
+    {
+        GeneratorRun run = GeneratorHarness.Run("""
+            using SharpCompute;
+
+            namespace Tests;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct TestShader(ReadWriteTexture2D<float> history) : IComputeShader<Float4>
+            {
+                public Float4 Execute()
+                {
+                    history[ThreadIds.XY] = new Float4(history[ThreadIds.XY].X + 1f);
+                    return history[ThreadIds.XY];
+                }
+            }
+            """);
+
+        ShaderDescriptor descriptor = VerifyFences(run);
+
+        // The output is write-only (it cannot be read back), so its write needs no fence.
+        Assert.Equal(
+            "history.write(float4(history.read(uint2(int2(__tid.xy))).x + 1.0f), uint2(int2(__tid.xy)));\nhistory.fence();\n" +
+            "__output.write(history.read(uint2(int2(__tid.xy))), __tid.xy);\nreturn;",
+            descriptor.KernelBody);
+    }
+
     // ---- helpers ----------------------------------------------------------------------------------
 
     [Fact]
@@ -478,8 +694,9 @@ public class TextureTests
             """).Verify(Shader);
 
         // Each helper gets the textures it (or what it calls) uses, under the kernel's parameter names.
+        // Store's write is fenced, because Outer reads the texture after calling it.
         Assert.Contains("static float4 Average(int x, texture2d<float, access::sample> source)\n{\n    return (source.read(uint2(x, 0)) + source.read(uint2(x + 1, 0))) * 0.5f;\n}", descriptor.MslSource);
-        Assert.Contains("static void Store(int x, float4 value, texture2d<float, access::read_write> target)\n{\n    target.write(value, uint2(x, 0));\n}", descriptor.MslSource);
+        Assert.Contains("static void Store(int x, float4 value, texture2d<float, access::read_write> target)\n{\n    target.write(value, uint2(x, 0));\n    target.fence();\n}", descriptor.MslSource);
         Assert.Contains("static float4 Outer(int x, texture2d<float, access::sample> source, texture2d<float, access::read_write> target)\n{\n    ::Store(x, ::Average(x, source), target);\n    return target.read(uint2(x, 0));\n}", descriptor.MslSource);
         Assert.Equal("output[int(__tid.x)] = ::Average(int(__tid.x), source) + ::Outer(1, source, target);", descriptor.KernelBody);
     }
@@ -506,7 +723,7 @@ public class TextureTests
         Assert.Contains("static float4 Execute_Bilinear(texture2d<float, access::sample> image, float2 at)\n{\n    return image.sample(__ms_sampler_linear_clamp, at, metal::level(0));\n}", descriptor.MslSource);
         Assert.Contains("static float4 Texel(texture2d<float, access::sample> image, int x, int y)\n{\n    return image.read(uint2(x, y));\n}", descriptor.MslSource);
         Assert.Contains("static float Size(texture2d<float, access::read_write> canvas)\n{\n    return float(int(canvas.get_width()) * int(canvas.get_height()));\n}", descriptor.MslSource);
-        Assert.Contains("static void Execute_Fill(texture2d<float, access::read_write> canvas, float4 color)\n{\n    canvas.write(color + canvas.read(uint2(1, 1)), uint2(0, 0));\n    return;\n}", descriptor.MslSource);
+        Assert.Contains("static void Execute_Fill(texture2d<float, access::read_write> canvas, float4 color)\n{\n    canvas.write(color + canvas.read(uint2(1, 1)), uint2(0, 0));\n    canvas.fence();\n    return;\n}", descriptor.MslSource);
         Assert.Equal(
             "float2 uv = float2(0.5f);\n" +
             "output[0] = ::Execute_Bilinear(source, uv) + ::Texel(source, 1, 2) + ::Size(target);\n" +

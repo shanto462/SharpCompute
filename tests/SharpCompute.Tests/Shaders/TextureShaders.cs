@@ -323,6 +323,132 @@ public readonly partial struct TextureToBuffer(ReadOnlyTexture2D<Rgba32> source,
 }
 
 /// <summary>
+/// Writes a value that depends on the pixel's position to every pixel of an R8 texture, over a 2D grid
+/// (so it can be split between the CPU and the GPU): <c>(7x + 13y) mod 256</c>, as a byte.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WritePositionR8(ReadWriteTexture2D<R8> target) : IComputeShader
+{
+    public void Execute()
+    {
+        int value = ((ThreadIds.X * 7) + (ThreadIds.Y * 13)) & 255;
+        target[ThreadIds.XY] = new Float4(value / 255f, 0f, 0f, 1f);
+    }
+}
+
+/// <summary><see cref="WritePositionR8"/> for an Rgba32 texture, with a different function of the value in each channel.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WritePositionRgba32(ReadWriteTexture2D<Rgba32> target) : IComputeShader
+{
+    public void Execute()
+    {
+        int value = ((ThreadIds.X * 7) + (ThreadIds.Y * 13)) & 255;
+        target[ThreadIds.XY] = new Float4(value / 255f, (255 - value) / 255f, (value ^ 85) / 255f, 1f);
+    }
+}
+
+/// <summary><see cref="WritePositionR8"/> for a float texture: <c>7x + 13y</c>, which no two pixels of a row or a column share.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WritePositionSingle(ReadWriteTexture2D<float> target) : IComputeShader
+{
+    public void Execute() => target[ThreadIds.XY] = new Float4((ThreadIds.X * 7) + (ThreadIds.Y * 13), 0f, 0f, 1f);
+}
+
+/// <summary>
+/// Writes a pixel of each texture and reads it straight back, in the kernel itself: every thread must
+/// see its own write. <paramref name="seen"/> gets what was read, three entries per thread
+/// (R8, Rgba32, float).
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WriteThenRead(
+    ReadWriteTexture2D<R8> r8, ReadWriteTexture2D<Rgba32> rgba, ReadWriteTexture2D<float> single, ReadWriteBuffer<Float4> seen) : IComputeShader
+{
+    public void Execute()
+    {
+        Int2 xy = ThreadIds.XY;
+        int index = ((xy.Y * r8.Width) + xy.X) * 3;
+        int value = 1 + (((xy.X * 7) + (xy.Y * 13)) % 255);
+
+        r8[xy] = new Float4(value / 255f, 0f, 0f, 1f);
+        rgba[xy] = new Float4(value / 255f, (255 - value) / 255f, (value ^ 85) / 255f, 1f);
+        single[xy] = new Float4(value * 0.5f, 0f, 0f, 1f);
+
+        seen[index] = r8[xy];
+        seen[index + 1] = rgba[xy];
+        seen[index + 2] = single[xy];
+    }
+}
+
+/// <summary>
+/// <see cref="WriteThenRead"/> with the writes and the reads in helpers: instance helpers that use the
+/// captured textures, and static ones that take the texture as a parameter.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WriteThenReadInHelpers(
+    ReadWriteTexture2D<R8> r8, ReadWriteTexture2D<Rgba32> rgba, ReadWriteTexture2D<float> single, ReadWriteBuffer<Float4> seen) : IComputeShader
+{
+    public void Execute()
+    {
+        Int2 xy = ThreadIds.XY;
+        int index = ((xy.Y * r8.Width) + xy.X) * 3;
+        int value = 1 + (((xy.X * 7) + (xy.Y * 13)) % 255);
+
+        Store(xy, value);
+        Put(single, xy, value * 0.5f);
+
+        seen[index] = r8[xy];
+        seen[index + 1] = Load(xy);
+        seen[index + 2] = Get(single, xy);
+    }
+
+    private void Store(Int2 xy, int value)
+    {
+        r8[xy] = new Float4(value / 255f, 0f, 0f, 1f);
+        rgba[xy] = new Float4(value / 255f, (255 - value) / 255f, (value ^ 85) / 255f, 1f);
+    }
+
+    private Float4 Load(Int2 xy) => rgba[xy];
+
+    private static void Put(ReadWriteTexture2D<float> canvas, Int2 at, float value) => canvas[at] = new Float4(value, 0f, 0f, 1f);
+
+    private static Float4 Get(ReadWriteTexture2D<float> canvas, Int2 at) => canvas[at];
+}
+
+/// <summary>
+/// Adds to a pixel of each texture <see cref="Turns"/> times, reading it back each time: the read
+/// comes before the write in the source and after it from the second turn on. The textures start
+/// at zero; a thread that did not see its own writes would end one step in instead of four.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct AccumulateInPlace(
+    ReadWriteTexture2D<R8> r8, ReadWriteTexture2D<Rgba32> rgba, ReadWriteTexture2D<float> single, ReadWriteBuffer<Float4> seen) : IComputeShader
+{
+    public const int Turns = 4;
+
+    public void Execute()
+    {
+        Int2 xy = ThreadIds.XY;
+        int index = ((xy.Y * r8.Width) + xy.X) * 3;
+        int step = 1 + (((xy.X * 7) + (xy.Y * 13)) & 31);
+
+        for (int turn = 0; turn < Turns; turn++)
+        {
+            Float4 a = r8[xy];
+            Float4 b = rgba[xy];
+            Float4 c = single[xy];
+
+            r8[xy] = new Float4(a.X + (step / 255f), 0f, 0f, 1f);
+            rgba[xy] = new Float4(b.X + (step / 255f), b.Y + ((63 - step) / 255f), b.Z + ((step ^ 21) / 255f), 1f);
+            single[xy] = new Float4(c.X + (step * 0.25f), 0f, 0f, 1f);
+        }
+
+        seen[index] = r8[xy];
+        seen[index + 1] = rgba[xy];
+        seen[index + 2] = single[xy];
+    }
+}
+
+/// <summary>
 /// One Jacobi relaxation step: every pixel of <paramref name="target"/> becomes the mean of its four
 /// neighbours in <paramref name="source"/> (clamped at the border). Run back and forth between two textures.
 /// </summary>

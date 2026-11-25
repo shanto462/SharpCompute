@@ -228,10 +228,11 @@ public readonly partial struct PaintBrush(ReadWriteTexture2D<Float4> field, Int2
 /// The ping-pong mode's frame: the field, magnified to the frame with <c>LinearRepeat</c> and
 /// colored by the amount of B. <paramref name="field"/> is the <c>AsReadOnly()</c> view of the
 /// texture the last step wrote. With <paramref name="zoom"/> above 1 the frame shows more than one
-/// copy of the field, with a faint line where they meet.
+/// copy of the field, with a faint line where they meet; <paramref name="pan"/> slides the view over
+/// the (endlessly repeating) field, which is what zooming around the pointer needs.
 /// </summary>
 [GeneratedComputeShaderDescriptor]
-public readonly partial struct ShowField(ReadOnlyTexture2D<Float4> field, ReadOnlyTexture2D<R8> labels, float zoom) : IComputeShader<Float4>
+public readonly partial struct ShowField(ReadOnlyTexture2D<Float4> field, ReadOnlyTexture2D<R8> labels, float zoom, Float2 pan) : IComputeShader<Float4>
 {
     private static readonly Float3 Deep = new(0.02f, 0.03f, 0.09f);
     private static readonly Float3 Middle = new(0.10f, 0.62f, 0.78f);
@@ -240,16 +241,20 @@ public readonly partial struct ShowField(ReadOnlyTexture2D<Float4> field, ReadOn
     public Float4 Execute()
     {
         Float2 frame = new Float2(DispatchSize.X, DispatchSize.Y);
-        Float2 uv = FieldUv((new Float2(ThreadIds.X, ThreadIds.Y) + 0.5f) / frame, zoom);
+        Float2 uv = FieldUv((new Float2(ThreadIds.X, ThreadIds.Y) + 0.5f) / frame, zoom, pan);
         float amount = Gpu.Saturate(field.Sample(Sampler.LinearRepeat, uv).Y * 3f);
 
         Float3 color = Gpu.Lerp(Deep, Middle, Gpu.Smoothstep(0f, 0.45f, amount));
         color = Gpu.Lerp(color, Bright, Gpu.Smoothstep(0.45f, 1f, amount));
 
-        // Where one copy of the field ends and the next begins.
+        // Where one copy of the field ends and the next begins. Not in the starting view, where the
+        // seams are the frame's own edges: only once the view shows more than one field or has been
+        // moved off a whole number of fields (the tolerance absorbs the rounding of a zoom in and
+        // back out around the same point).
         Float2 seam = Gpu.Abs(Gpu.Fract(uv) - 0.5f);
+        Float2 shift = Gpu.Abs(Gpu.Fract(pan + 0.5f) - 0.5f);
 
-        if (zoom > 1.001f && Gpu.Max(seam.X, seam.Y) > 0.5f - (zoom / frame.Y))
+        if ((zoom > 1.001f || Gpu.Max(shift.X, shift.Y) > 0.0005f) && Gpu.Max(seam.X, seam.Y) > 0.5f - (zoom / frame.Y))
         {
             color = Gpu.Lerp(color, new Float3(1f, 1f, 1f), 0.3f);
         }
@@ -268,6 +273,9 @@ public readonly partial struct ShowField(ReadOnlyTexture2D<Float4> field, ReadOn
         return new Float4(color, 1f);
     }
 
-    /// <summary>The field coordinate shown at <paramref name="position"/> (0..1 across the frame).</summary>
-    public static Float2 FieldUv(Float2 position, float zoom) => new Float2(0.5f, 0.5f) + ((position - 0.5f) * zoom);
+    /// <summary>
+    /// The field coordinate shown at <paramref name="position"/> (0..1 across the frame): the middle
+    /// of the frame shows <c>0.5 + pan</c>, and the frame spans <paramref name="zoom"/> fields.
+    /// </summary>
+    public static Float2 FieldUv(Float2 position, float zoom, Float2 pan) => new Float2(0.5f, 0.5f) + ((position - 0.5f) * zoom) + pan;
 }
