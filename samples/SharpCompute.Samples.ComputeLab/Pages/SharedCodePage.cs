@@ -66,6 +66,9 @@ public sealed class SharedCodePage : ILabPage
 
     public string Topic => LabTopics.CodeReuse;
 
+    /// <summary>The CPU time is extrapolated: <c>ForCpu</c> traces one pixel in <see cref="SampleStride"/>² and the time is scaled up.</summary>
+    public string CpuNote => "all cores, scaled from every 8th pixel";
+
     public string Help => string.Empty;
 
     public IReadOnlyList<string> Variants => s_variants;

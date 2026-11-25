@@ -255,9 +255,12 @@ public sealed class ComputeLabTests
 
             // The CPU side runs on all cores unless the page says otherwise, as its check line does too.
             Assert.Equal(
-                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle"],
+                ["PrefixSum", "SIMD reduction", "SIMD compaction", "SIMD shuffle", "Shared code"],
                 pages.Where(static p => p.CpuNote != "all cores").Select(static p => p.Name));
-            Assert.All(pages.Where(static p => p.CpuNote != "all cores"), static p => Assert.Equal("one core", p.CpuNote));
+            Assert.All(pages.Where(static p => p.CpuNote != "all cores" && p.Name != "Shared code"), static p => Assert.Equal("one core", p.CpuNote));
+
+            // A CPU time that is extrapolated from a sample says so.
+            Assert.Equal("all cores, scaled from every 8th pixel", pages.Single(static p => p.Name == "Shared code").CpuNote);
 
             // --page takes the name or the file-name form of it, in any case.
             Assert.Equal(1, LabPages.Find(pages, "Histogram: privatised"));
