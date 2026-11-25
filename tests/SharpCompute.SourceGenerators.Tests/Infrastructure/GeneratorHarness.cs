@@ -77,6 +77,9 @@ internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string Msl
     /// <summary>The bytes of threadgroup memory the kernel declares.</summary>
     public int ThreadgroupMemoryLength { get; init; }
 
+    /// <summary>The shader's <c>[ShaderOptions]</c>, as the descriptor reports them.</summary>
+    public ShaderCompileOptions CompileOptions { get; init; }
+
     /// <summary>
     /// The statements between the braces of the kernel function, without their indentation and without
     /// the grid-window prologue that rebases the built-ins (<see cref="KernelPrologue"/>; covered by GridWindowTests).
@@ -311,5 +314,6 @@ internal sealed class GeneratorRun
         {
             UsesThreadgroupMemory = T.UsesThreadgroupMemory,
             ThreadgroupMemoryLength = T.ThreadgroupMemoryLength,
+            CompileOptions = T.CompileOptions,
         };
 }

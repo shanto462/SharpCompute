@@ -55,7 +55,10 @@ public unsafe ref struct ShaderArgumentWriter
         _cpuLeases = leases;
     }
 
-    /// <summary><c>setBuffer:offset:0 atIndex:index</c>.</summary>
+    /// <summary>
+    /// <c>setBuffer:offset:atIndex:index</c>. The offset is 0 for a buffer that owns its memory; a view
+    /// (<c>Slice</c>) binds its source's <c>MTLBuffer</c> at the view's start, and leases the source.
+    /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
     /// <exception cref="ArgumentException"><paramref name="buffer"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException"><paramref name="buffer"/> has been disposed.</exception>
@@ -88,7 +91,7 @@ public unsafe ref struct ShaderArgumentWriter
         {
             // Recorded, not encoded: the batch encodes when it is committed. The lease is released when
             // the batch completes, so a Dispose before then cannot free the memory.
-            _batch.RecordBuffer(_batch.Lease(buffer.Handle, buffer), index);
+            _batch.RecordBuffer(_batch.Lease(buffer.Handle, buffer), index, buffer.BindOffset);
             return;
         }
 
@@ -100,7 +103,7 @@ public unsafe ref struct ShaderArgumentWriter
             // released, by Dispose or by the finalizer, while the GPU may still touch it.
             nint pointer = buffer.Handle.AddLease(buffer);
             _leased.Add(buffer.Handle);
-            ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, pointer, (nuint)0, (nuint)index);
+            ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, pointer, buffer.BindOffset, (nuint)index);
             return;
         }
 
@@ -108,7 +111,7 @@ public unsafe ref struct ShaderArgumentWriter
         // the command buffer holds its own reference until the dispatch completes.
         using ObjCHandle.Lease handle = buffer.Handle.Acquire(buffer);
 
-        ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, handle.Pointer, (nuint)0, (nuint)index);
+        ObjC.SendVoid(Encoder, Selectors.SetBufferOffsetAtIndex, handle.Pointer, buffer.BindOffset, (nuint)index);
     }
 
     /// <summary>
@@ -216,7 +219,7 @@ public unsafe ref struct ShaderArgumentWriter
                 // A batch may stay uncommitted for a long time; it keeps its own reference until it
                 // completes instead of relying on the command buffer's retain from bind time alone.
                 _batch.Own(temporary);
-                _batch.RecordBuffer(temporary, index);
+                _batch.RecordBuffer(temporary, index, offset: 0);
                 return;
             }
 

@@ -55,6 +55,73 @@ public sealed class ThreadGroupSizeAttribute(int x, int y = 1, int z = 1) : Attr
 public sealed class GroupSharedAttribute : Attribute;
 
 /// <summary>
+/// Compile options for one shader. Without the attribute a shader is compiled the way every
+/// SharpCompute shader is: IEEE-safe math, precise math functions and Metal's default floating-point
+/// contraction.
+/// </summary>
+/// <example>
+/// <code>
+/// [GeneratedComputeShaderDescriptor]
+/// [ShaderOptions(FastMath = true)]
+/// public readonly partial struct Glow(ReadWriteBuffer&lt;float&gt; data) : IComputeShader { ... }
+/// </code>
+/// </example>
+/// <remarks>
+/// The options are part of the shader type, so they apply to every dispatch of it, on every device,
+/// and the compiled pipeline is cached per shader type and options. They only change how the GPU
+/// compiles the kernel: a CPU dispatch (<c>ForCpu</c>) runs the same C# either way.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Struct, AllowMultiple = false, Inherited = false)]
+public sealed class ShaderOptionsAttribute : Attribute
+{
+    /// <summary>
+    /// Compiles the kernel with <c>MTLMathModeFast</c> and fast math functions (Metal's own defaults,
+    /// which SharpCompute otherwise turns off). The compiler may then assume that no value is NaN or
+    /// infinite, reorder and reassociate arithmetic, and use faster, less accurate
+    /// <c>sin</c>/<c>exp</c>/<c>pow</c>. Default false.
+    /// </summary>
+    /// <remarks>
+    /// Use it for kernels whose results are looked at rather than compared (a visual effect, a
+    /// heuristic). Do not use it when the kernel relies on NaN or infinity propagating, tests for them,
+    /// or must match the CPU closely: a comparison such as <c>x != x</c> is compiled to <c>false</c>,
+    /// and Metal makes no promise for <c>Gpu.IsNaN</c>, <c>Gpu.IsInfinity</c> and <c>Gpu.IsFinite</c>
+    /// either (an Apple M4 Pro was measured to still answer <c>Gpu.IsNaN</c> correctly).
+    /// </remarks>
+    public bool FastMath { get; init; }
+
+    /// <summary>
+    /// False compiles the kernel with floating-point contraction off
+    /// (<c>#pragma clang fp contract(off)</c>): <c>a * b + c</c> is then a rounded multiply followed by a
+    /// rounded add, as it is in C#, instead of one fused multiply-add. Default true, Metal's default,
+    /// which lets the compiler fuse them.
+    /// </summary>
+    /// <remarks>
+    /// With contraction off, arithmetic that uses only <c>+ - * /</c> and <c>Gpu.Sqrt</c> gives the
+    /// same bits on the GPU as in C# on the CPU, at the cost of the fused operations. Math functions
+    /// (<c>Gpu.Sin</c> and so on) still differ by a few ULP either way. <c>Gpu.Fma</c> is always fused.
+    /// </remarks>
+    public bool FpContract { get; init; } = true;
+}
+
+/// <summary>
+/// The compile options of a shader as its descriptor reports them
+/// (<see cref="IComputeShaderDescriptor{TSelf}.CompileOptions"/>); set with
+/// <see cref="ShaderOptionsAttribute"/>.
+/// </summary>
+[Flags]
+public enum ShaderCompileOptions
+{
+    /// <summary>The defaults: IEEE-safe math, precise math functions, contraction allowed.</summary>
+    None = 0,
+
+    /// <summary><see cref="ShaderOptionsAttribute.FastMath"/> is true.</summary>
+    FastMath = 1,
+
+    /// <summary><see cref="ShaderOptionsAttribute.FpContract"/> is false.</summary>
+    NoFpContract = 2,
+}
+
+/// <summary>
 /// Maps a C# vector struct to an MSL type. <see cref="Packed"/> is used wherever the value crosses
 /// the CPU/GPU boundary (buffer elements, constants, struct fields). Properties map to lowercase
 /// swizzles, constructors to <c>name(...)</c>, operators to native MSL operators.

@@ -38,6 +38,12 @@ internal static partial class Metal
     /// <summary><c>MTLMathModeSafe</c>: IEEE NaN/Inf semantics are honoured.</summary>
     internal const nint MathModeSafe = 0;
 
+    /// <summary><c>MTLMathModeFast</c>: the compiler may assume no NaN or infinity and reorder arithmetic (<c>-ffast-math</c>).</summary>
+    internal const nint MathModeFast = 2;
+
+    /// <summary><c>MTLMathFloatingPointFunctionsFast</c>: sin/exp/pow etc. trade accuracy for speed (Metal's own default).</summary>
+    internal const nint MathFloatingPointFunctionsFast = 0;
+
     /// <summary><c>MTLMathFloatingPointFunctionsPrecise</c>: precise sin/exp/pow etc. (default is Fast).</summary>
     internal const nint MathFloatingPointFunctionsPrecise = 1;
 
@@ -55,6 +61,15 @@ internal static partial class Metal
 
     /// <summary>Texture argument table size of a compute encoder: valid indices are 0..30.</summary>
     internal const int MaxTextureBindings = 31;
+}
+
+/// <summary>Metal <c>MTLOrigin</c>: three <c>NSUInteger</c>s, passed by value.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal readonly struct MTLOrigin(nuint x, nuint y, nuint z)
+{
+    public readonly nuint X = x;
+    public readonly nuint Y = y;
+    public readonly nuint Z = z;
 }
 
 /// <summary>Metal <c>MTLSize</c>: three <c>NSUInteger</c>s, passed by value.</summary>

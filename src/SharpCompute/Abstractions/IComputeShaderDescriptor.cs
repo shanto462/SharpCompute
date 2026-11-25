@@ -66,6 +66,16 @@ public interface IComputeShaderDescriptor<TSelf>
     static virtual int ThreadgroupMemoryLength => 0;
 
     /// <summary>
+    /// How the kernel is compiled, from the shader's <see cref="ShaderOptionsAttribute"/>. The runtime
+    /// maps <see cref="ShaderCompileOptions.FastMath"/> to <c>MTLCompileOptions.mathMode = Fast</c> with
+    /// fast math functions, and <see cref="ShaderCompileOptions.NoFpContract"/> to
+    /// <c>#pragma clang fp contract(off)</c> ahead of <see cref="MslSource"/>, which therefore never
+    /// contains the pragma itself. The default is <see cref="ShaderCompileOptions.None"/>:
+    /// hand-written descriptors and generated shaders without the attribute.
+    /// </summary>
+    static virtual ShaderCompileOptions CompileOptions => ShaderCompileOptions.None;
+
+    /// <summary>
     /// Binds the shader's captured state. The binding order is generator-internal; the runtime
     /// assumes nothing beyond the writer calls made here.
     /// </summary>

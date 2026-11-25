@@ -124,6 +124,34 @@ internal static unsafe partial class ObjC
     [LibraryImport(LibObjC, EntryPoint = MsgSend)]
     internal static partial void SendVoid(nint receiver, nint selector, MTLSize arg0, MTLSize arg1);
 
+    // void f(id, SEL, id, id) — copyFromTexture:toTexture:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(nint receiver, nint selector, nint arg0, nint arg1);
+
+    // void f(id, SEL, id, NSUInteger, id, NSUInteger, NSUInteger) — copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(nint receiver, nint selector, nint arg0, nuint arg1, nint arg2, nuint arg3, nuint arg4);
+
+    // void f(id, SEL, id, NSRange, uint8_t) — fillBuffer:range:value:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(nint receiver, nint selector, nint arg0, NSRange arg1, byte arg2);
+
+    // void f(id, SEL, id, NSUInteger, MTLSize) — dispatchThreadgroupsWithIndirectBuffer:indirectBufferOffset:threadsPerThreadgroup:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(nint receiver, nint selector, nint arg0, nuint arg1, MTLSize arg2);
+
+    // void f(id, SEL, id, NSUInteger, NSUInteger, NSUInteger, MTLSize, id, NSUInteger, NSUInteger, MTLOrigin)
+    // — copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(
+        nint receiver, nint selector, nint arg0, nuint arg1, nuint arg2, nuint arg3, MTLSize arg4, nint arg5, nuint arg6, nuint arg7, MTLOrigin arg8);
+
+    // void f(id, SEL, id, NSUInteger, NSUInteger, MTLOrigin, MTLSize, id, NSUInteger, NSUInteger, NSUInteger)
+    // — copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:
+    [LibraryImport(LibObjC, EntryPoint = MsgSend)]
+    internal static partial void SendVoid(
+        nint receiver, nint selector, nint arg0, nuint arg1, nuint arg2, MTLOrigin arg3, MTLSize arg4, nint arg5, nuint arg6, nuint arg7, nuint arg8);
+
     /// <summary><c>[obj retain]</c>; nil-safe.</summary>
     internal static nint Retain(nint obj) => SendIntPtr(obj, Selectors.Retain);
 

@@ -12,6 +12,7 @@ internal sealed record ShaderResult(ShaderModel? Model, EquatableArray<Diagnosti
 /// <see cref="UsesThreadgroupMemory"/> is true when the kernel uses group-shared memory or a barrier (its
 /// threads then cooperate, which the CPU has to run differently), and <see cref="ThreadgroupMemoryLength"/>
 /// is the bytes of group-shared memory it declares.
+/// <see cref="CompileOptions"/> holds the shader's <c>[ShaderOptions]</c> as <c>ShaderCompileOptions</c> bits.
 /// </summary>
 internal sealed record ShaderModel(
     string HintName,
@@ -32,7 +33,15 @@ internal sealed record ShaderModel(
     int GridWindowIndex,
     bool UsesAtomics,
     bool UsesThreadgroupMemory,
-    int ThreadgroupMemoryLength);
+    int ThreadgroupMemoryLength,
+    int CompileOptions)
+{
+    /// <summary><c>ShaderCompileOptions.FastMath</c>.</summary>
+    public const int FastMath = 1;
+
+    /// <summary><c>ShaderCompileOptions.NoFpContract</c>.</summary>
+    public const int NoFpContract = 2;
+}
 
 /// <summary>One level of the type hierarchy to re-open, e.g. <c>partial class Outer</c>.</summary>
 internal sealed record TypeDeclarationInfo(string Keyword, string Name);

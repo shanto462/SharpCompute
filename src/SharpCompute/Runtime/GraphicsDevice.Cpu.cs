@@ -150,8 +150,14 @@ public sealed unsafe partial class GraphicsDevice
             return;
         }
 
-        Extent3 groupSize = ResolveCpuThreadGroupSize<T>(InferRank(y, z));
+        RunCpu(x, y, z, ResolveCpuThreadGroupSize<T>(InferRank(y, z)), in shader);
+    }
 
+    /// <summary>Runs a validated grid (possibly empty) of <paramref name="shader"/> on the CPU with the given threadgroup size.</summary>
+    private void RunCpu<T>(int x, int y, int z, Extent3 groupSize, in T shader)
+        where T : struct, IComputeShader, IComputeShaderDescriptor<T>
+    {
+        // The arguments are checked and leased even for an empty grid, as a GPU dispatch of 0 groups checks them.
         using CpuLeases leases = new();
         LeaseArguments(in shader, leases);
 

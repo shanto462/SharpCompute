@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,18 +10,28 @@ using SharpCompute.Interop;
 namespace SharpCompute;
 
 /// <summary>
-/// A list of recorded dispatches that is encoded into one <c>id&lt;MTLCommandBuffer&gt;</c> with one
-/// compute encoder when it is committed, plus everything the dispatches need kept alive until the GPU
-/// has finished. Shared by
-/// <see cref="ComputeContext"/> (many dispatches, one commit) and the <c>ForAsync</c> methods
-/// (one dispatch, completion reported through a <see cref="Task"/>).
+/// A list of recorded operations (dispatches, and GPU copies and fills) that is encoded into one
+/// <c>id&lt;MTLCommandBuffer&gt;</c> when it is committed, plus everything the operations need kept
+/// alive until the GPU has finished. Shared by
+/// <see cref="ComputeContext"/> (many operations, one commit), the <c>ForAsync</c> methods
+/// (one dispatch, completion reported through a <see cref="Task"/>) and the synchronous
+/// <c>Copy</c>, <c>Fill</c> and <c>Clear</c> of <see cref="GraphicsDevice"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Ordering.</b> The encoder comes from <c>computeCommandEncoder</c>, whose dispatch type is
+/// <b>Ordering.</b> Dispatches are encoded with <c>computeCommandEncoder</c>, whose dispatch type is
 /// <c>MTLDispatchTypeSerial</c>: each dispatch finishes, and its writes are visible, before the next
 /// one starts. Every SharpCompute resource is shared storage with the default (tracked) hazard mode,
 /// so command buffers committed to the same queue are ordered the same way.
+/// </para>
+/// <para>
+/// <b>Encoders.</b> A command buffer has one open encoder at a time, and copies and fills need a blit
+/// encoder. Encoding therefore walks the recorded operations in order and switches encoder whenever
+/// the kind of operation changes: a run of dispatches shares one compute encoder, a run of copies and
+/// fills shares one blit encoder. Encoders of one command buffer execute in the order they were
+/// created and Metal tracks the resources they share, so recorded order is execution order across
+/// the switch as well. Nothing carries over from one encoder to the next, which is why the dispatch
+/// after a copy records its pipeline again (every other binding is recorded per dispatch anyway).
 /// </para>
 /// <para>
 /// <b>Deferred encoding.</b> Recording validates every dispatch, leases what it binds and copies its
@@ -56,6 +67,8 @@ internal sealed unsafe class CommandBatch
     private readonly List<Command> _commands;
     // The two sizes of each dispatch, kept apart so that the common commands stay 24 bytes.
     private readonly List<DispatchSizes> _dispatches;
+    // The copies and fills, kept apart for the same reason; most batches have none.
+    private readonly List<BlitOperation> _blits = [];
     private readonly Action<CommandBatch>? _recycle;
     private byte[] _constants = [];
     private int _constantsLength;
@@ -64,6 +77,7 @@ internal sealed unsafe class CommandBatch
     private nint _queue;
     private nint _commandBuffer;
     private nint _encoder;
+    private bool _encoderIsBlit;
     private nint _currentPipeline;
     private int _released;
     private string? _simulatedError;
@@ -102,6 +116,7 @@ internal sealed unsafe class CommandBatch
         _currentPipeline = 0;
         _shaderTypes.Clear();
         _dispatches.Clear();
+        _blits.Clear();
         _completion = null;
         _simulatedError = null;
 
@@ -128,8 +143,11 @@ internal sealed unsafe class CommandBatch
         }
     }
 
-    /// <summary>Number of dispatches recorded so far.</summary>
+    /// <summary>Number of dispatches recorded so far (direct and indirect).</summary>
     internal int DispatchCount => _dispatches.Count;
+
+    /// <summary>Number of operations recorded so far: dispatches, copies and fills.</summary>
+    internal int OperationCount => _dispatches.Count + _blits.Count;
 
     /// <summary>
     /// Tests only: report this error description at completion as if Metal had set the command
@@ -144,7 +162,20 @@ internal sealed unsafe class CommandBatch
     /// leased, and the constants are copied, now; if this throws, nothing of the failed dispatch is
     /// recorded and dispatches recorded earlier are unaffected.
     /// </summary>
-    internal void Encode<T>(ComputePipeline pipeline, MTLSize grid, MTLSize threadsPerThreadgroup, ReadWriteTexture2D<Rgba32>? output, in T shader)
+    /// <remarks>
+    /// With <paramref name="indirect"/>, the dispatch takes its threadgroup counts from that buffer at
+    /// <paramref name="indirectOffset"/> bytes when it runs (<c>dispatchThreadgroupsWithIndirectBuffer</c>)
+    /// and <paramref name="grid"/> is ignored; the buffer is leased under <paramref name="indirectOwner"/>.
+    /// </remarks>
+    internal void Encode<T>(
+        ComputePipeline pipeline,
+        MTLSize grid,
+        MTLSize threadsPerThreadgroup,
+        ReadWriteTexture2D<Rgba32>? output,
+        in T shader,
+        ObjCHandle? indirect = null,
+        object? indirectOwner = null,
+        nuint indirectOffset = 0)
         where T : struct, IComputeShaderDescriptor<T>
     {
         Debug.Assert(_commandBuffer == 0 && Volatile.Read(ref _released) == 0, "The batch is no longer recording.");
@@ -177,8 +208,17 @@ internal sealed unsafe class CommandBatch
             ShaderArgumentWriter writer = new(0, _device, this);
             T.SetArguments(in shader, ref writer);
 
-            _dispatches.Add(new DispatchSizes(grid, threadsPerThreadgroup));
-            _commands.Add(new Command(CommandKind.Dispatch, 0, _dispatches.Count - 1));
+            if (indirect is null)
+            {
+                _dispatches.Add(new DispatchSizes(grid, threadsPerThreadgroup));
+                _commands.Add(new Command(CommandKind.Dispatch, 0, _dispatches.Count - 1));
+            }
+            else
+            {
+                nint arguments = Lease(indirect, indirectOwner!);
+                _dispatches.Add(new DispatchSizes(default, threadsPerThreadgroup));
+                _commands.Add(new Command(CommandKind.DispatchIndirect, arguments, _dispatches.Count - 1, indirectOffset));
+            }
         }
         catch
         {
@@ -197,8 +237,8 @@ internal sealed unsafe class CommandBatch
         }
     }
 
-    /// <summary>Records <c>setBuffer:offset:0 atIndex:</c> for an already leased buffer.</summary>
-    internal void RecordBuffer(nint buffer, int index) => _commands.Add(new Command(CommandKind.Buffer, buffer, index));
+    /// <summary>Records <c>setBuffer:offset:atIndex:</c> for an already leased buffer; <paramref name="offset"/> is in bytes (a view's start).</summary>
+    internal void RecordBuffer(nint buffer, int index, nuint offset) => _commands.Add(new Command(CommandKind.Buffer, buffer, index, offset));
 
     /// <summary>Records <c>setTexture:atIndex:</c> for an already leased texture.</summary>
     internal void RecordTexture(nint texture, int index) => _commands.Add(new Command(CommandKind.Texture, texture, index));
@@ -212,8 +252,97 @@ internal sealed unsafe class CommandBatch
         }
 
         new ReadOnlySpan<byte>(bytes, length).CopyTo(_constants.AsSpan(_constantsLength));
-        _commands.Add(new Command(CommandKind.Bytes, _constantsLength, index, length));
+        _commands.Add(new Command(CommandKind.Bytes, _constantsLength, index, (nuint)length));
         _constantsLength += length;
+    }
+
+    /// <summary>
+    /// Records <c>copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:</c>. Offsets and
+    /// <paramref name="size"/> are in bytes and already validated; both buffers are leased now.
+    /// </summary>
+    internal void RecordCopy(
+        ObjCHandle source, object sourceOwner, nuint sourceOffset, ObjCHandle destination, object destinationOwner, nuint destinationOffset, nuint size)
+    {
+        nint from = Lease(source, sourceOwner);
+        nint to = Lease(destination, destinationOwner);
+        RecordBlit(new BlitOperation(BlitKind.CopyBuffer, from, sourceOffset, to, destinationOffset, size));
+    }
+
+    /// <summary>Records <c>fillBuffer:range:value:</c> over <paramref name="size"/> bytes from <paramref name="offset"/>; the buffer is leased now.</summary>
+    internal void RecordFill(ObjCHandle buffer, object owner, nuint offset, nuint size, byte value)
+    {
+        nint target = Lease(buffer, owner);
+        RecordBlit(new BlitOperation(BlitKind.FillBuffer, 0, 0, target, offset, size, Value: value));
+    }
+
+    /// <summary>
+    /// Records <c>copyFromTexture:toTexture:</c> between two textures of the same size and format.
+    /// Both textures and the buffers behind them are leased now.
+    /// </summary>
+    internal void RecordCopy<T>(Texture2D<T> source, Texture2D<T> destination)
+        where T : unmanaged
+    {
+        nint from = LeaseTexture(source);
+        nint to = LeaseTexture(destination);
+        RecordBlit(new BlitOperation(BlitKind.CopyTexture, from, 0, to, 0, 0));
+    }
+
+    /// <summary>
+    /// Records a copy of tightly packed, row-major pixels at <paramref name="sourceOffset"/> bytes of a
+    /// buffer into the whole of <paramref name="destination"/>
+    /// (<c>copyFromBuffer:...toTexture:...</c>); Metal applies the texture's row padding.
+    /// </summary>
+    internal void RecordCopy<T>(ObjCHandle source, object sourceOwner, nuint sourceOffset, Texture2D<T> destination)
+        where T : unmanaged
+    {
+        nint from = Lease(source, sourceOwner);
+        nint to = LeaseTexture(destination);
+        RecordBlit(new BlitOperation(
+            BlitKind.CopyBufferToTexture, from, sourceOffset, to, 0, (nuint)destination.Width * (nuint)Unsafe.SizeOf<T>(), destination.Width, destination.Height));
+    }
+
+    /// <summary>
+    /// Records a copy of the whole of <paramref name="source"/> into a buffer at
+    /// <paramref name="destinationOffset"/> bytes, as tightly packed, row-major pixels
+    /// (<c>copyFromTexture:...toBuffer:...</c>).
+    /// </summary>
+    internal void RecordCopy<T>(Texture2D<T> source, ObjCHandle destination, object destinationOwner, nuint destinationOffset)
+        where T : unmanaged
+    {
+        nint from = LeaseTexture(source);
+        nint to = Lease(destination, destinationOwner);
+        RecordBlit(new BlitOperation(
+            BlitKind.CopyTextureToBuffer, from, 0, to, destinationOffset, (nuint)source.Width * (nuint)Unsafe.SizeOf<T>(), source.Width, source.Height));
+    }
+
+    /// <summary>Leases a texture and the buffer that stores its pixels, as binding it does, and returns the <c>id&lt;MTLTexture&gt;</c>.</summary>
+    private nint LeaseTexture<T>(Texture2D<T> texture)
+        where T : unmanaged
+    {
+        nint pointer = Lease(texture.Handle, texture);
+        Lease(texture.BufferHandle, texture);
+        return pointer;
+    }
+
+    private void RecordBlit(in BlitOperation operation)
+    {
+        Debug.Assert(_commandBuffer == 0 && Volatile.Read(ref _released) == 0, "The batch is no longer recording.");
+
+        _blits.Add(operation);
+
+        try
+        {
+            _commands.Add(new Command(CommandKind.Blit, 0, _blits.Count - 1));
+        }
+        catch
+        {
+            _blits.RemoveAt(_blits.Count - 1);
+            throw;
+        }
+
+        // The blit runs in its own encoder, and the compute encoder opened after it starts with
+        // nothing bound: the next dispatch must set its pipeline even if it is the same one.
+        _currentPipeline = 0;
     }
 
     /// <summary>
@@ -384,9 +513,9 @@ internal sealed unsafe class CommandBatch
     }
 
     /// <summary>
-    /// Creates the command buffer and compute encoder, replays the recorded commands into it and ends
-    /// encoding. On failure the encoder is still ended (Metal aborts if it is deallocated otherwise);
-    /// the caller releases the batch.
+    /// Creates the command buffer, replays the recorded commands into it (opening a compute or a blit
+    /// encoder as the commands require, see the class remarks) and ends encoding. On failure the open
+    /// encoder is still ended (Metal aborts if it is deallocated otherwise); the caller releases the batch.
     /// </summary>
     private void EncodeRecorded()
     {
@@ -399,14 +528,6 @@ internal sealed unsafe class CommandBatch
 
         // Autoreleased; retained so they outlive the caller's pool until the batch is released.
         _commandBuffer = ObjC.Retain(commandBuffer);
-        nint encoder = ObjC.SendIntPtr(commandBuffer, Selectors.ComputeCommandEncoder);
-
-        if (encoder == 0)
-        {
-            throw new InvalidOperationException("Metal failed to create a compute command encoder.");
-        }
-
-        _encoder = ObjC.Retain(encoder);
 
         try
         {
@@ -414,6 +535,8 @@ internal sealed unsafe class CommandBatch
             {
                 foreach (Command command in _commands)
                 {
+                    nint encoder = OpenEncoder(blit: command.Kind == CommandKind.Blit);
+
                     switch (command.Kind)
                     {
                         case CommandKind.Pipeline:
@@ -423,14 +546,21 @@ internal sealed unsafe class CommandBatch
                             ObjC.SendVoid(encoder, Selectors.SetTextureAtIndex, command.Pointer, (nuint)command.Index);
                             break;
                         case CommandKind.Buffer:
-                            ObjC.SendVoid(encoder, Selectors.SetBufferOffsetAtIndex, command.Pointer, (nuint)0, (nuint)command.Index);
+                            ObjC.SendVoid(encoder, Selectors.SetBufferOffsetAtIndex, command.Pointer, command.Extra, (nuint)command.Index);
                             break;
                         case CommandKind.Bytes:
-                            ObjC.SendVoid(encoder, Selectors.SetBytesLengthAtIndex, constants + command.Pointer, (nuint)command.Length, (nuint)command.Index);
+                            ObjC.SendVoid(encoder, Selectors.SetBytesLengthAtIndex, constants + command.Pointer, command.Extra, (nuint)command.Index);
                             break;
                         case CommandKind.Dispatch:
                             DispatchSizes sizes = _dispatches[command.Index];
                             ObjC.SendVoid(encoder, Selectors.DispatchThreadsThreadsPerThreadgroup, sizes.Grid, sizes.ThreadsPerThreadgroup);
+                            break;
+                        case CommandKind.DispatchIndirect:
+                            ObjC.SendVoid(
+                                encoder, Selectors.DispatchThreadgroupsWithIndirectBuffer, command.Pointer, command.Extra, _dispatches[command.Index].ThreadsPerThreadgroup);
+                            break;
+                        case CommandKind.Blit:
+                            EncodeBlit(encoder, _blits[command.Index]);
                             break;
                     }
                 }
@@ -439,6 +569,63 @@ internal sealed unsafe class CommandBatch
         finally
         {
             EndEncoding();
+        }
+    }
+
+    /// <summary>
+    /// The encoder for the next command: the open one when it is of the right kind, otherwise a new one
+    /// after ending the open one. Autoreleased by Metal and retained here, like the command buffer.
+    /// </summary>
+    private nint OpenEncoder(bool blit)
+    {
+        if (_encoder != 0 && _encoderIsBlit == blit)
+        {
+            return _encoder;
+        }
+
+        EndEncoding();
+
+        nint encoder = ObjC.SendIntPtr(_commandBuffer, blit ? Selectors.BlitCommandEncoder : Selectors.ComputeCommandEncoder);
+
+        if (encoder == 0)
+        {
+            throw new InvalidOperationException($"Metal failed to create a {(blit ? "blit" : "compute")} command encoder.");
+        }
+
+        _encoder = ObjC.Retain(encoder);
+        _encoderIsBlit = blit;
+        return encoder;
+    }
+
+    private static void EncodeBlit(nint encoder, in BlitOperation blit)
+    {
+        switch (blit.Kind)
+        {
+            case BlitKind.CopyBuffer:
+                ObjC.SendVoid(encoder, Selectors.CopyFromBufferToBuffer, blit.Source, blit.SourceOffset, blit.Destination, blit.DestinationOffset, blit.Size);
+                break;
+            case BlitKind.FillBuffer:
+                ObjC.SendVoid(encoder, Selectors.FillBufferRangeValue, blit.Destination, new NSRange(blit.DestinationOffset, blit.Size), blit.Value);
+                break;
+            case BlitKind.CopyTexture:
+                ObjC.SendVoid(encoder, Selectors.CopyFromTextureToTexture, blit.Source, blit.Destination);
+                break;
+            case BlitKind.CopyBufferToTexture:
+            {
+                // Size is the packed row: the pixels are tightly packed in the buffer, whatever padding the texture's rows have.
+                MTLSize size = new((nuint)blit.Width, (nuint)blit.Height, 1);
+                ObjC.SendVoid(
+                    encoder, Selectors.CopyFromBufferToTexture, blit.Source, blit.SourceOffset, blit.Size, blit.Size * (nuint)blit.Height, size, blit.Destination, 0, 0, default(MTLOrigin));
+                break;
+            }
+
+            case BlitKind.CopyTextureToBuffer:
+            {
+                MTLSize size = new((nuint)blit.Width, (nuint)blit.Height, 1);
+                ObjC.SendVoid(
+                    encoder, Selectors.CopyFromTextureToBuffer, blit.Source, 0, 0, default(MTLOrigin), size, blit.Destination, blit.DestinationOffset, blit.Size, blit.Size * (nuint)blit.Height);
+                break;
+            }
         }
     }
 
@@ -476,15 +663,21 @@ internal sealed unsafe class CommandBatch
         return new MetalException($"The GPU failed to execute {Describe()}: {description}");
     }
 
-    /// <summary>"shader 'X'" for one dispatch, otherwise the dispatch count and every shader type in the batch.</summary>
+    /// <summary>"shader 'X'" for one dispatch, otherwise the operation counts and every shader type in the batch.</summary>
     private string Describe()
     {
-        if (_dispatches.Count == 1 && _shaderTypes.Count == 1)
+        if (_dispatches.Count == 1 && _shaderTypes.Count == 1 && _blits.Count == 0)
         {
             return $"shader '{_shaderTypes[0]}'";
         }
 
-        return $"a batch of {_dispatches.Count} dispatches (shaders: {string.Join(", ", _shaderTypes.ConvertAll(static t => $"'{t}'"))})";
+        if (_dispatches.Count == 0)
+        {
+            return _blits.Count == 1 ? "a GPU copy or fill" : $"a batch of {_blits.Count} GPU copies and fills";
+        }
+
+        string blits = _blits.Count == 0 ? string.Empty : $" and {_blits.Count} copies or fills";
+        return $"a batch of {_dispatches.Count} dispatches{blits} (shaders: {string.Join(", ", _shaderTypes.ConvertAll(static t => $"'{t}'"))})";
     }
 
     private void ReleaseResources()
@@ -529,31 +722,54 @@ internal sealed unsafe class CommandBatch
         }
     }
 
-    private enum CommandKind : byte
+    internal enum CommandKind : byte
     {
         Pipeline,
         Texture,
         Buffer,
         Bytes,
         Dispatch,
+        DispatchIndirect,
+        Blit,
     }
 
     /// <summary>
-    /// One recorded encoder call, 24 bytes. <see cref="Pointer"/> is an <c>id</c> (pipeline, texture,
-    /// buffer) or, for <see cref="CommandKind.Bytes"/>, the offset of the copied constants.
-    /// <see cref="Index"/> is the argument index, or for <see cref="CommandKind.Dispatch"/> the
-    /// position of its sizes in the dispatch list.
+    /// One recorded encoder call, 24 bytes (two words, an int and the kind; see
+    /// <c>CommandBatch_CommandsStay24Bytes</c>). <see cref="Pointer"/> is an <c>id</c> (pipeline,
+    /// texture, buffer, indirect arguments buffer) or, for <see cref="CommandKind.Bytes"/>, the offset of
+    /// the copied constants. <see cref="Extra"/> is the byte offset a buffer is bound at (a view's start,
+    /// which can exceed 4 GB), the byte offset of the arguments of an indirect dispatch, or the byte
+    /// count of <see cref="CommandKind.Bytes"/>. <see cref="Index"/> is the argument index, or the
+    /// position of a dispatch's sizes in the dispatch list, or of a copy or fill in the blit list.
     /// </summary>
-    private readonly struct Command(CommandKind kind, nint pointer, int index, int length = 0)
+    internal readonly struct Command(CommandKind kind, nint pointer, int index, nuint extra = 0)
     {
         public nint Pointer { get; } = pointer;
 
-        public int Index { get; } = index;
+        public nuint Extra { get; } = extra;
 
-        public int Length { get; } = length;
+        public int Index { get; } = index;
 
         public CommandKind Kind { get; } = kind;
     }
 
+    /// <summary>The sizes of one dispatch. An indirect dispatch has no <see cref="Grid"/>: its counts come from a buffer.</summary>
     private readonly record struct DispatchSizes(MTLSize Grid, MTLSize ThreadsPerThreadgroup);
+
+    private enum BlitKind : byte
+    {
+        CopyBuffer,
+        FillBuffer,
+        CopyTexture,
+        CopyBufferToTexture,
+        CopyTextureToBuffer,
+    }
+
+    /// <summary>
+    /// One recorded copy or fill. Offsets and <see cref="Size"/> are in bytes; for the buffer↔texture
+    /// copies <see cref="Size"/> is the length of one tightly packed row and <see cref="Width"/> and
+    /// <see cref="Height"/> the texture's size. <see cref="Source"/> is unused by a fill.
+    /// </summary>
+    private readonly record struct BlitOperation(
+        BlitKind Kind, nint Source, nuint SourceOffset, nint Destination, nuint DestinationOffset, nuint Size, int Width = 0, int Height = 0, byte Value = 0);
 }
