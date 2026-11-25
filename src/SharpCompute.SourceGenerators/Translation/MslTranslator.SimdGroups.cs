@@ -8,8 +8,8 @@ namespace SharpCompute.SourceGenerators;
 
 /// <summary>
 /// The SIMD-group operations of <c>SharpCompute.Gpu</c> (HLSL's wave and quad intrinsics) and the Metal
-/// functions they map to. Like the texture members they are recognized by name: the C# methods carry a
-/// hidden call-site parameter and several need more than a function call (a conversion of the vote
+/// functions they map to. Like the texture members they are recognized by name: the C# methods carry
+/// hidden call-site parameters and several need more than a function call (a conversion of the vote
 /// mask, a lane index narrowed to <c>ushort</c>, a kernel built-in).
 /// </summary>
 internal static class SimdGroupInfo
@@ -25,7 +25,7 @@ internal static class SimdGroupInfo
         /// <summary><c>f(vote)</c>, returning a bool.</summary>
         Vote,
 
-        /// <summary><c>uint(simd_vote::vote_t(f(vote)))</c>: the 64-bit vote mask, narrowed to the 32 lanes there are.</summary>
+        /// <summary><c>uint(vote_t(f(vote)))</c>: the vote mask (64 bits for a SIMD group), narrowed to the lanes there are.</summary>
         Ballot,
 
         /// <summary><c>f(int(vote))</c>: a count of true votes.</summary>
@@ -39,16 +39,23 @@ internal static class SimdGroupInfo
 
         /// <summary><c>f(value, ushort(N))</c> with a fixed N: the quad reads across an axis.</summary>
         ValueAndFixedLane,
+
+        /// <summary><c>f(value, fill, ushort(delta))</c>: the shuffles that fill the lanes they shift in.</summary>
+        ValueFillAndLane,
+
+        /// <summary><c>f(value)</c> returning a bool, with <c>f</c> a prelude helper: the all-equal comparison Metal has no function for.</summary>
+        Equal,
     }
 
     internal readonly struct Operation
     {
-        public Operation(Form form, string function, Builtins builtin = Builtins.None, int fixedLane = 0)
+        public Operation(Form form, string function, Builtins builtin = Builtins.None, int fixedLane = 0, string voteType = "")
         {
             Form = form;
             Function = function;
             Builtin = builtin;
             FixedLane = fixedLane;
+            VoteType = voteType;
         }
 
         public Form Form { get; }
@@ -59,6 +66,9 @@ internal static class SimdGroupInfo
         public Builtins Builtin { get; }
 
         public int FixedLane { get; }
+
+        /// <summary>For a ballot: the mask type its vote converts to, explicitly and to nothing else.</summary>
+        public string VoteType { get; }
     }
 
     private static readonly Dictionary<string, Operation> Operations = new(System.StringComparer.Ordinal)
@@ -69,7 +79,7 @@ internal static class SimdGroupInfo
 
         ["WaveActiveAnyTrue"] = new(Form.Vote, "metal::simd_any"),
         ["WaveActiveAllTrue"] = new(Form.Vote, "metal::simd_all"),
-        ["WaveActiveBallot"] = new(Form.Ballot, "metal::simd_ballot"),
+        ["WaveActiveBallot"] = new(Form.Ballot, "metal::simd_ballot", voteType: "metal::simd_vote::vote_t"),
         ["WaveActiveCountBits"] = new(Form.Count, "metal::simd_sum"),
         ["WavePrefixCountBits"] = new(Form.Count, "metal::simd_prefix_exclusive_sum"),
 
@@ -80,6 +90,7 @@ internal static class SimdGroupInfo
         ["WaveActiveBitAnd"] = new(Form.Value, "metal::simd_and"),
         ["WaveActiveBitOr"] = new(Form.Value, "metal::simd_or"),
         ["WaveActiveBitXor"] = new(Form.Value, "metal::simd_xor"),
+        ["WaveActiveAllEqual"] = new(Form.Equal, "__ms_wave_all_equal"),
 
         ["WavePrefixSum"] = new(Form.Value, "metal::simd_prefix_exclusive_sum"),
         ["WavePrefixProduct"] = new(Form.Value, "metal::simd_prefix_exclusive_product"),
@@ -91,6 +102,25 @@ internal static class SimdGroupInfo
         ["WaveShuffleUp"] = new(Form.ValueAndLane, "metal::simd_shuffle_up"),
         ["WaveShuffleDown"] = new(Form.ValueAndLane, "metal::simd_shuffle_down"),
         ["WaveShuffleXor"] = new(Form.ValueAndLane, "metal::simd_shuffle_xor"),
+        ["WaveRotateUp"] = new(Form.ValueAndLane, "metal::simd_shuffle_rotate_up"),
+        ["WaveRotateDown"] = new(Form.ValueAndLane, "metal::simd_shuffle_rotate_down"),
+        ["WaveShuffleUpAndFill"] = new(Form.ValueFillAndLane, "metal::simd_shuffle_and_fill_up"),
+        ["WaveShuffleDownAndFill"] = new(Form.ValueFillAndLane, "metal::simd_shuffle_and_fill_down"),
+
+        ["QuadActiveAnyTrue"] = new(Form.Vote, "metal::quad_any"),
+        ["QuadActiveAllTrue"] = new(Form.Vote, "metal::quad_all"),
+        ["QuadActiveBallot"] = new(Form.Ballot, "metal::quad_ballot", voteType: "metal::quad_vote::vote_t"),
+        ["QuadActiveSum"] = new(Form.Value, "metal::quad_sum"),
+        ["QuadActiveProduct"] = new(Form.Value, "metal::quad_product"),
+        ["QuadActiveMin"] = new(Form.Value, "metal::quad_min"),
+        ["QuadActiveMax"] = new(Form.Value, "metal::quad_max"),
+        ["QuadActiveBitAnd"] = new(Form.Value, "metal::quad_and"),
+        ["QuadActiveBitOr"] = new(Form.Value, "metal::quad_or"),
+        ["QuadActiveBitXor"] = new(Form.Value, "metal::quad_xor"),
+        ["QuadPrefixSum"] = new(Form.Value, "metal::quad_prefix_exclusive_sum"),
+        ["QuadPrefixProduct"] = new(Form.Value, "metal::quad_prefix_exclusive_product"),
+        ["QuadInclusivePrefixSum"] = new(Form.Value, "metal::quad_prefix_inclusive_sum"),
+        ["QuadInclusivePrefixProduct"] = new(Form.Value, "metal::quad_prefix_inclusive_product"),
 
         // A quad's lanes are x + 2 * y, so the neighbour across an axis is one bit away.
         ["QuadReadAcrossX"] = new(Form.ValueAndFixedLane, "metal::quad_shuffle_xor", fixedLane: 1),
@@ -108,11 +138,11 @@ internal static class SimdGroupInfo
 internal sealed partial class MslTranslator
 {
     /// <summary>
-    /// The SIMD-group call sites translated so far, by method name and the call-site id the C# compiler
-    /// passes to the CPU implementation (the line of the call): two that share both cannot be told
-    /// apart when the shader runs on the CPU.
+    /// The SIMD-group call sites translated so far, by method name and the call site the C# compiler
+    /// passes to the CPU implementation (the file and line of the call): two that share all three
+    /// cannot be told apart when the shader runs on the CPU.
     /// </summary>
-    private readonly Dictionary<(string Method, int CallSite), Location> _simdGroupCallSites = new();
+    private readonly Dictionary<(string Method, string File, int Line), Location> _simdGroupCallSites = new();
 
     /// <summary>
     /// Translates a call of one of <c>Gpu</c>'s SIMD-group operations, or returns null when
@@ -139,19 +169,30 @@ internal sealed partial class MslTranslator
             return Expr.Error;
         }
 
-        // The parameters in declaration order, without the call-site id that only the CPU reads.
+        // The parameters in declaration order, without the call site (file and line) that only the CPU reads.
         var arguments = new List<IArgumentOperation>();
+        IArgumentOperation? callerFile = null, callerLine = null;
 
         foreach (IArgumentOperation argument in operation.Arguments.OrderBy(static a => a.Parameter?.Ordinal ?? int.MaxValue))
         {
-            if (argument.Parameter is { } parameter && IsCallSite(parameter))
+            if (argument.Parameter is { } parameter && CallSiteAttribute(parameter) is { } attribute)
             {
-                CheckCallSite(operation, definition, argument);
+                if (attribute == "CallerFilePathAttribute")
+                {
+                    callerFile = argument;
+                }
+                else
+                {
+                    callerLine = argument;
+                }
+
                 continue;
             }
 
             arguments.Add(argument);
         }
+
+        CheckCallSite(operation, definition, callerFile, callerLine);
 
         UsesSimdGroups = true;
 
@@ -168,8 +209,8 @@ internal sealed partial class MslTranslator
                 return Call(simd.Function, Expression(arguments[0].Value).Text);
 
             case SimdGroupInfo.Form.Ballot when arguments.Count == 1:
-                // simd_vote converts only explicitly, and only to its own 64-bit mask type.
-                return Call(returnType.MslName, Call("metal::simd_vote::vote_t", Call(simd.Function, Expression(arguments[0].Value).Text).Text).Text);
+                // A vote converts only explicitly, and only to its own mask type.
+                return Call(returnType.MslName, Call(simd.VoteType, Call(simd.Function, Expression(arguments[0].Value).Text).Text).Text);
 
             case SimdGroupInfo.Form.Count when arguments.Count == 1:
                 return Call(simd.Function, Call(returnType.MslName, Expression(arguments[0].Value).Text).Text);
@@ -182,6 +223,18 @@ internal sealed partial class MslTranslator
 
             case SimdGroupInfo.Form.ValueAndFixedLane when arguments.Count == 1:
                 return Call(simd.Function, SimdGroupValue(arguments[0], returnType), Call("ushort", simd.FixedLane.ToString(CultureInfo.InvariantCulture)).Text);
+
+            case SimdGroupInfo.Form.ValueFillAndLane when arguments.Count == 3:
+                return Call(
+                    simd.Function,
+                    SimdGroupValue(arguments[0], returnType),
+                    SimdGroupValue(arguments[1], returnType),
+                    Call("ushort", Expression(arguments[2].Value).Text).Text);
+
+            case SimdGroupInfo.Form.Equal when arguments.Count == 1 && ResolveType(arguments[0].Value.Type, location) is { } valueType:
+                // A helper of MslPrelude.Source, overloaded per value type; the prelude is emitted when used.
+                UsesPrelude = true;
+                return Call(simd.Function, SimdGroupValue(arguments[0], valueType));
 
             default:
                 // A Gpu from another version of SharpCompute, whose signature this generator does not know.
@@ -210,29 +263,44 @@ internal sealed partial class MslTranslator
             : Call(type.MslName, value).Text;
     }
 
-    private static bool IsCallSite(IParameterSymbol parameter) =>
-        parameter.GetAttributes().Any(static a => a.AttributeClass is
+    /// <summary>
+    /// The name of the caller-info attribute that makes <paramref name="parameter"/> part of the call
+    /// site (<c>CallerFilePathAttribute</c> or <c>CallerLineNumberAttribute</c>), or null for an ordinary parameter.
+    /// </summary>
+    private static string? CallSiteAttribute(IParameterSymbol parameter)
+    {
+        foreach (AttributeData attribute in parameter.GetAttributes())
         {
-            Name: "CallerLineNumberAttribute",
-            ContainingNamespace: { Name: "CompilerServices", ContainingNamespace: { Name: "Runtime", ContainingNamespace.Name: "System" } },
-        });
+            if (attribute.AttributeClass is
+                {
+                    Name: "CallerFilePathAttribute" or "CallerLineNumberAttribute",
+                    ContainingNamespace: { Name: "CompilerServices", ContainingNamespace: { Name: "Runtime", ContainingNamespace.Name: "System" } },
+                } type)
+            {
+                return type.Name;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
-    /// Reports SCG0035 when another call of the same operation has the same call-site id. The id is read
-    /// from the argument the C# compiler filled in, so this is exactly what the CPU would see.
+    /// Reports SCG0035 when another call of the same operation has the same call site. The file and
+    /// line are read from the arguments the C# compiler filled in, so this is exactly what the CPU would see.
     /// </summary>
-    private void CheckCallSite(IInvocationOperation operation, IMethodSymbol definition, IArgumentOperation callSite)
+    private void CheckCallSite(IInvocationOperation operation, IMethodSymbol definition, IArgumentOperation? callerFile, IArgumentOperation? callerLine)
     {
-        if (callSite.Value.ConstantValue is not { HasValue: true, Value: int id })
+        if (callerLine?.Value.ConstantValue is not { HasValue: true, Value: int line })
         {
             return;
         }
 
+        string file = callerFile?.Value.ConstantValue is { HasValue: true, Value: string path } ? path : string.Empty;
         Location location = operation.Syntax.GetLocation();
 
-        if (!_simdGroupCallSites.TryGetValue((definition.Name, id), out Location? first))
+        if (!_simdGroupCallSites.TryGetValue((definition.Name, file, line), out Location? first))
         {
-            _simdGroupCallSites.Add((definition.Name, id), location);
+            _simdGroupCallSites.Add((definition.Name, file, line), location);
         }
         else if (first != location)
         {
@@ -240,7 +308,7 @@ internal sealed partial class MslTranslator
                 DiagnosticDescriptors.SimdGroupCallSitesShareLine,
                 location,
                 definition.ContainingType.Name + "." + definition.Name,
-                id.ToString(CultureInfo.InvariantCulture));
+                line.ToString(CultureInfo.InvariantCulture));
         }
     }
 

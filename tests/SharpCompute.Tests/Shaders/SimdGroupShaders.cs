@@ -1,5 +1,3 @@
-using System;
-
 namespace SharpCompute.Tests.Shaders;
 
 // Generated shaders for the SIMD-group tests. Threadgroup sizes are explicit wherever a test spells
@@ -356,9 +354,236 @@ public readonly partial struct SimdPartialSums(ReadOnlyBuffer<float> input, Read
     }
 }
 
+/// <summary>The operations HLSL does not have: all-equal, the rotations and the shuffles that fill.</summary>
+[ThreadGroupSize(64)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdShiftsAndEquality(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output, int delta) : IComputeShader
+{
+    public const int Stride = 8;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int v = input[i];
+        Int2 pair = new Int2(v / 100, 7);
+
+        output[(i * Stride) + 0] = Gpu.WaveRotateUp(v, delta);
+        output[(i * Stride) + 1] = Gpu.WaveRotateDown(v, delta);
+        output[(i * Stride) + 2] = Gpu.WaveShuffleUpAndFill(v, -v, delta);
+        output[(i * Stride) + 3] = Gpu.WaveShuffleDownAndFill(v, -v, delta);
+        output[(i * Stride) + 4] = Gpu.WaveActiveAllEqual(v) ? 1 : 0;
+        output[(i * Stride) + 5] = Gpu.WaveActiveAllEqual(v / 100) ? 1 : 0;
+        output[(i * Stride) + 6] = Gpu.WaveActiveAllEqual(pair) ? 1 : 0;
+        output[(i * Stride) + 7] = Gpu.WaveActiveAllEqual(new Float3(1f, 2f, i < 40 ? 3f : 4f)) ? 1 : 0;
+    }
+}
+
+/// <summary>The quad reductions, scans and votes; the lanes for which <c>lane % 4 == skip</c> return first (none for a skip of 4).</summary>
+[ThreadGroupSize(64)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdQuadReductions(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output, int skip) : IComputeShader
+{
+    public const int Stride = 14;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int v = input[i];
+
+        if ((Gpu.WaveGetLaneIndex() & 3) == skip)
+        {
+            return;
+        }
+
+        output[(i * Stride) + 0] = Gpu.QuadActiveSum(v);
+        output[(i * Stride) + 1] = Gpu.QuadActiveProduct(v);
+        output[(i * Stride) + 2] = Gpu.QuadActiveMin(v);
+        output[(i * Stride) + 3] = Gpu.QuadActiveMax(v);
+        output[(i * Stride) + 4] = Gpu.QuadActiveBitAnd(v);
+        output[(i * Stride) + 5] = Gpu.QuadActiveBitOr(v);
+        output[(i * Stride) + 6] = Gpu.QuadActiveBitXor(v);
+        output[(i * Stride) + 7] = Gpu.QuadPrefixSum(v);
+        output[(i * Stride) + 8] = Gpu.QuadPrefixProduct(v);
+        output[(i * Stride) + 9] = Gpu.QuadInclusivePrefixSum(v);
+        output[(i * Stride) + 10] = Gpu.QuadInclusivePrefixProduct(v);
+        output[(i * Stride) + 11] = (int)Gpu.QuadActiveBallot((v & 1) == 0);
+        output[(i * Stride) + 12] = Gpu.QuadActiveAnyTrue(v > 9) ? 1 : 0;
+        output[(i * Stride) + 13] = Gpu.QuadActiveAllTrue(v < 9) ? 1 : 0;
+    }
+}
+
+/// <summary>Operations after a third of the lanes returned, with no call inside a branch: what the CPU reproduces exactly.</summary>
+[ThreadGroupSize(64)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdAfterReturns(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output) : IComputeShader
+{
+    public const int Stride = 8;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int lane = Gpu.WaveGetLaneIndex();
+        int v = input[i];
+
+        output[(i * Stride) + 0] = Gpu.WaveActiveSum(v);
+
+        if (lane % 3 == 0)
+        {
+            return;
+        }
+
+        output[(i * Stride) + 1] = Gpu.WaveActiveSum(v);
+        output[(i * Stride) + 2] = Gpu.WavePrefixSum(1);
+        output[(i * Stride) + 3] = Gpu.WaveReadLaneFirst(v);
+        output[(i * Stride) + 4] = Gpu.WaveIsFirstLane() ? 1 : 0;
+        output[(i * Stride) + 5] = (int)Gpu.WaveActiveBallot(true);
+        output[(i * Stride) + 6] = Gpu.WaveActiveCountBits(true);
+        output[(i * Stride) + 7] = Gpu.WaveShuffleUp(v, 1);
+    }
+}
+
+/// <summary>Operations inside a loop every lane runs alike, and inside a branch every lane takes: uniform control flow.</summary>
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdInUniformLoops(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output, int passes) : IComputeShader
+{
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int v = input[i];
+
+        for (int pass = 0; pass < passes; pass++)
+        {
+            if (pass % 2 == 0)
+            {
+                v += Gpu.WaveShuffleUp(v, 1);
+            }
+            else
+            {
+                v ^= Gpu.WaveActiveMax(v);
+            }
+        }
+
+        output[i] = v;
+    }
+}
+
+/// <summary>A 2D threadgroup whose rows are not a multiple of 32, with reductions, a scan and a shuffle across the rows.</summary>
+[ThreadGroupSize(12, 12)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdOps2D(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output) : IComputeShader
+{
+    public const int Stride = 6;
+
+    public void Execute()
+    {
+        int i = (ThreadIds.Y * DispatchSize.X) + ThreadIds.X;
+        int v = input[i];
+
+        output[(i * Stride) + 0] = Gpu.WaveActiveSum(v);
+        output[(i * Stride) + 1] = Gpu.WavePrefixSum(v);
+        output[(i * Stride) + 2] = Gpu.WaveShuffleUp(v, 5);
+        output[(i * Stride) + 3] = Gpu.QuadActiveSum(v);
+        output[(i * Stride) + 4] = (SimdGroupIds.Index * 1000) + (SimdGroupIds.Count * 100) + Gpu.WaveGetLaneIndex();
+        output[(i * Stride) + 5] = Gpu.WaveActiveCountBits(true);
+    }
+}
+
 /// <summary>
-/// A hand-written descriptor that does not report its SIMD-group operation: on the CPU the operation
-/// itself has to refuse to run.
+/// SIMD-group operations together with threadgroup memory and barriers: every SIMD group sums its lanes
+/// into shared memory, and after a barrier each thread reads the sums of all the groups of its threadgroup.
+/// </summary>
+[ThreadGroupSize(96)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdWithSharedMemory(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output) : IComputeShader
+{
+    public const int Stride = 3;
+
+    [GroupShared]
+    private static readonly int[] sums = new int[4];
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int sum = Gpu.WaveActiveSum(input[i]);
+
+        if (Gpu.WaveIsFirstLane())
+        {
+            sums[SimdGroupIds.Index] = sum;
+        }
+
+        Gpu.GroupMemoryBarrierWithGroupSync();
+
+        int total = 0;
+
+        for (int group = 0; group < SimdGroupIds.Count; group++)
+        {
+            total += sums[group];
+        }
+
+        // And once more after the barrier: the lanes meet again.
+        output[(i * Stride) + 0] = total;
+        output[(i * Stride) + 1] = Gpu.WavePrefixSum(total - sum);
+        output[(i * Stride) + 2] = GroupSize.Count;
+    }
+}
+
+/// <summary>
+/// Divergent control flow: the even lanes call one operation, the odd lanes another. Fine on the GPU,
+/// where each branch sees its own lanes; on the CPU the lanes of the group are not at the same call.
+/// </summary>
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdDivergent(ReadOnlyBuffer<int> input, ReadWriteBuffer<int> output) : IComputeShader
+{
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        int v = input[i];
+
+        if ((Gpu.WaveGetLaneIndex() & 1) == 0)
+        {
+            output[i] = Gpu.WaveActiveSum(v);
+        }
+        else
+        {
+            output[i] = Gpu.WaveActiveMax(v);
+        }
+    }
+}
+
+/// <summary>
+/// Divergence between a SIMD-group operation and a barrier: one half of the threadgroup waits at the
+/// barrier for everybody, the other half at an operation for its whole SIMD group. Undefined on the
+/// GPU (a barrier in divergent control flow), so it only ever runs on the CPU, which must not hang.
+/// </summary>
+[ThreadGroupSize(32)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdAgainstBarrier(ReadWriteBuffer<int> output, int barrierFirstBelow) : IComputeShader
+{
+    public void Execute()
+    {
+        int sum;
+
+        // Both halves do both, in opposite orders: whichever comes first, the two halves wait for each other.
+        if (GroupIds.X < barrierFirstBelow)
+        {
+            Gpu.GroupMemoryBarrierWithGroupSync();
+            sum = Gpu.WaveActiveSum(1);
+        }
+        else
+        {
+            sum = Gpu.WaveActiveMax(1);
+            Gpu.GroupMemoryBarrierWithGroupSync();
+        }
+
+        output[ThreadIds.X] = sum;
+    }
+}
+
+/// <summary>
+/// A hand-written descriptor that does not report its SIMD-group operation: its threads are not run as
+/// lanes on the CPU, so the operation itself has to refuse.
 /// </summary>
 internal readonly struct UnreportedSimdGroups(ReadWriteBuffer<float> buffer) : IComputeShader, IComputeShaderDescriptor<UnreportedSimdGroups>
 {
@@ -384,19 +609,19 @@ internal readonly struct UnreportedSimdGroups(ReadWriteBuffer<float> buffer) : I
     public static void SetArguments(in UnreportedSimdGroups shader, ref ShaderArgumentWriter writer) => writer.SetBuffer(0, shader._buffer);
 }
 
-/// <summary>A hand-written descriptor that does report them, with a real <c>Execute</c> the CPU must not reach.</summary>
+/// <summary>A hand-written descriptor that does report them: it runs on the CPU like a generated one.</summary>
 internal readonly struct ReportedSimdGroups(ReadWriteBuffer<float> buffer) : IComputeShader, IComputeShaderDescriptor<ReportedSimdGroups>
 {
     private readonly ReadWriteBuffer<float> _buffer = buffer;
 
-    public void Execute() => throw new InvalidOperationException("Execute must not run: the dispatch has to refuse the shader first.");
+    public void Execute() => _buffer[ThreadIds.X] = Gpu.WaveActiveSum(1f) + Gpu.WaveGetLaneIndex();
 
     public static string EntryPoint => "ReportedSimdGroups";
 
     public static string MslSource => Msl.Header + """
-        kernel void ReportedSimdGroups(device float* buffer [[buffer(0)]], uint3 __tid [[thread_position_in_grid]])
+        kernel void ReportedSimdGroups(device float* buffer [[buffer(0)]], uint3 __tid [[thread_position_in_grid]], uint __lane [[thread_index_in_simdgroup]])
         {
-            buffer[int(__tid.x)] = metal::simd_sum(1.0f);
+            buffer[int(__tid.x)] = metal::simd_sum(1.0f) + float(int(__lane));
         }
         """;
 

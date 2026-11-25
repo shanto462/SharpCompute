@@ -84,7 +84,7 @@ public class SimdGroupTests
 
         Assert.Equal(SimdGroupInfo.Names.Order(StringComparer.Ordinal), surface);
 
-        // Every operation ends in the call-site id the compiler fills in, and nothing else is optional.
+        // Every operation ends in the call site the compiler fills in (file, then line), and nothing else is optional.
         foreach (MethodInfo method in SimdMethods())
         {
             ParameterInfo[] parameters = method.GetParameters();
@@ -95,9 +95,12 @@ public class SimdGroupTests
                 continue;
             }
 
-            Assert.True(parameters[^1].Name == "callSite" && parameters[^1].ParameterType == typeof(int) && parameters[^1].HasDefaultValue, $"{method}: the last parameter must be the call-site id");
+            Assert.True(parameters.Length >= 2, $"{method}: no call-site parameters");
+            Assert.True(parameters[^2].Name == "callerFile" && parameters[^2].ParameterType == typeof(string) && (string?)parameters[^2].DefaultValue == string.Empty, $"{method}: the last but one parameter must be the caller's file");
+            Assert.True(parameters[^1].Name == "callerLine" && parameters[^1].ParameterType == typeof(int) && (int?)parameters[^1].DefaultValue == 0, $"{method}: the last parameter must be the caller's line");
+            Assert.NotNull(parameters[^2].GetCustomAttribute<System.Runtime.CompilerServices.CallerFilePathAttribute>());
             Assert.NotNull(parameters[^1].GetCustomAttribute<System.Runtime.CompilerServices.CallerLineNumberAttribute>());
-            Assert.All(parameters[..^1], p => Assert.False(p.HasDefaultValue, $"{method}: {p.Name}"));
+            Assert.All(parameters[..^2], p => Assert.False(p.HasDefaultValue, $"{method}: {p.Name}"));
         }
     }
 
@@ -106,18 +109,24 @@ public class SimdGroupTests
     {
         string[] all =
         [
+            "QuadActiveMax", "QuadActiveMin", "QuadActiveProduct", "QuadActiveSum",
+            "QuadInclusivePrefixProduct", "QuadInclusivePrefixSum", "QuadPrefixProduct", "QuadPrefixSum",
             "QuadReadAcrossDiagonal", "QuadReadAcrossX", "QuadReadAcrossY", "QuadReadLaneAt",
             "WaveActiveMax", "WaveActiveMin", "WaveActiveProduct", "WaveActiveSum",
             "WaveInclusivePrefixProduct", "WaveInclusivePrefixSum", "WavePrefixProduct", "WavePrefixSum",
-            "WaveReadLaneAt", "WaveReadLaneFirst", "WaveShuffleDown", "WaveShuffleUp", "WaveShuffleXor",
+            "WaveReadLaneAt", "WaveReadLaneFirst", "WaveRotateDown", "WaveRotateUp",
+            "WaveShuffleDown", "WaveShuffleDownAndFill", "WaveShuffleUp", "WaveShuffleUpAndFill", "WaveShuffleXor",
         ];
-        string[] integerOnly = ["WaveActiveBitAnd", "WaveActiveBitOr", "WaveActiveBitXor"];
+        string[] integerOnly = ["QuadActiveBitAnd", "QuadActiveBitOr", "QuadActiveBitXor", "WaveActiveBitAnd", "WaveActiveBitOr", "WaveActiveBitXor"];
 
         foreach ((Type type, string csharp, _) in ValueTypes)
         {
             string[] expected = csharp.StartsWith("float", StringComparison.OrdinalIgnoreCase) ? all : [.. all, .. integerOnly];
 
             Assert.Equal(expected.Order(StringComparer.Ordinal), TypedOperations(type).Select(static m => m.Name));
+
+            // And the one that answers with a bool whatever the type.
+            Assert.Contains(SimdMethods(), m => m.Name == "WaveActiveAllEqual" && m.ReturnType == typeof(bool) && m.GetParameters()[0].ParameterType == type);
         }
 
         // Nothing for bool, double or matrices: Metal has no SIMD-group functions for them.
@@ -131,7 +140,7 @@ public class SimdGroupTests
     private static int? Extra(string operation) => operation switch
     {
         "WaveReadLaneAt" => 2,
-        "WaveShuffleUp" or "WaveShuffleDown" => 3,
+        "WaveShuffleUp" or "WaveShuffleDown" or "WaveRotateUp" or "WaveRotateDown" or "WaveShuffleUpAndFill" or "WaveShuffleDownAndFill" => 3,
         "WaveShuffleXor" => 1,
         "QuadReadLaneAt" => 3,
         _ => null,
@@ -159,6 +168,21 @@ public class SimdGroupTests
         "QuadReadAcrossY" => "metal::quad_shuffle_xor(v, ushort(2))",
         "QuadReadAcrossDiagonal" => "metal::quad_shuffle_xor(v, ushort(3))",
         "QuadReadLaneAt" => "metal::quad_shuffle(v, ushort(3))",
+        "WaveRotateUp" => "metal::simd_shuffle_rotate_up(v, ushort(3))",
+        "WaveRotateDown" => "metal::simd_shuffle_rotate_down(v, ushort(3))",
+        "WaveShuffleUpAndFill" => "metal::simd_shuffle_and_fill_up(v, v, ushort(3))",
+        "WaveShuffleDownAndFill" => "metal::simd_shuffle_and_fill_down(v, v, ushort(3))",
+        "QuadActiveSum" => "metal::quad_sum(v)",
+        "QuadActiveProduct" => "metal::quad_product(v)",
+        "QuadActiveMin" => "metal::quad_min(v)",
+        "QuadActiveMax" => "metal::quad_max(v)",
+        "QuadActiveBitAnd" => "metal::quad_and(v)",
+        "QuadActiveBitOr" => "metal::quad_or(v)",
+        "QuadActiveBitXor" => "metal::quad_xor(v)",
+        "QuadPrefixSum" => "metal::quad_prefix_exclusive_sum(v)",
+        "QuadPrefixProduct" => "metal::quad_prefix_exclusive_product(v)",
+        "QuadInclusivePrefixSum" => "metal::quad_prefix_inclusive_sum(v)",
+        "QuadInclusivePrefixProduct" => "metal::quad_prefix_inclusive_product(v)",
         _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "No expected MSL for this operation."),
     };
 
@@ -168,6 +192,9 @@ public class SimdGroupTests
     /// One shader per value type that calls every typed operation on <c>v</c>, a value built from four
     /// elements of a scalar buffer, and stores each result component by component: the buffers are then
     /// of one of three scalar types whatever the vector, and every operation is on a line of its own.
+    /// Two more slots hold <c>WaveActiveAllEqual</c> of <c>v</c> and of <c>v - v</c> (which is equal
+    /// everywhere), as 1 or 0. The filling shuffles take <c>v</c> as the fill too, so a lane that is
+    /// filled gets the value of the lane the fill comes from.
     /// </summary>
     private static string MatrixSource()
     {
@@ -189,14 +216,15 @@ public class SimdGroupTests
             source.AppendLine("    public void Execute()");
             source.AppendLine("    {");
             source.AppendLine("        int i = ThreadIds.X;");
-            source.AppendLine($"        int o = i * {operations.Length * 4};");
+            source.AppendLine($"        int o = i * {(operations.Length + 2) * 4};");
             source.AppendLine($"        {csharp} v = {value};");
             source.AppendLine($"        {csharp} r;");
 
             for (int k = 0; k < operations.Length; k++)
             {
                 string extra = Extra(operations[k].Name) is { } argument ? $", {argument}" : string.Empty;
-                source.AppendLine($"        r = Gpu.{operations[k].Name}(v{extra});");
+                string fill = operations[k].Name.EndsWith("AndFill", StringComparison.Ordinal) ? ", v" : string.Empty;
+                source.AppendLine($"        r = Gpu.{operations[k].Name}(v{fill}{extra});");
 
                 for (int c = 0; c < width; c++)
                 {
@@ -204,6 +232,9 @@ public class SimdGroupTests
                 }
             }
 
+            string one = scalar == "float" ? "1f" : scalar == "uint" ? "1u" : "1", zero = scalar == "float" ? "0f" : scalar == "uint" ? "0u" : "0";
+            source.AppendLine($"        output[o + {operations.Length * 4}] = Gpu.WaveActiveAllEqual(v) ? {one} : {zero};");
+            source.AppendLine($"        output[o + {(operations.Length + 1) * 4}] = Gpu.WaveActiveAllEqual(v - v) ? {one} : {zero};");
             source.AppendLine("    }");
             source.AppendLine("}");
         }
@@ -234,14 +265,20 @@ public class SimdGroupTests
             Assert.Contains($"r = {MslCall(operation.Name)};", body);
         }
 
-        // Nothing of the call-site id reaches the MSL, and no SIMD built-in is needed for these.
+        // All-equal is a helper of the prelude, overloaded for this type; a binary expression is unpacked first.
+        Assert.Contains(body, static line => line.EndsWith("= __ms_wave_all_equal(v) ? " + (line.Contains("1.0f", StringComparison.Ordinal) ? "1.0f : 0.0f;" : line.Contains("1u", StringComparison.Ordinal) ? "1u : 0u;" : "1 : 0;"), StringComparison.Ordinal));
+        Assert.Contains(body, line => line.Contains(Width(type) == 1 ? "__ms_wave_all_equal(v - v)" : $"__ms_wave_all_equal({msl}(v - v))", StringComparison.Ordinal));
+        Assert.Contains($"inline bool __ms_wave_all_equal({msl} v)", descriptor.MslSource);
+
+        // Nothing of the call site reaches the MSL, and no SIMD built-in is needed for these.
         Assert.DoesNotContain("__lane", descriptor.MslSource);
+        Assert.DoesNotContain("Source", descriptor.KernelBody);
         Assert.True(UsesSimdGroups(Matrix.Value, "Tests." + MatrixShaderName(csharp)));
     }
 
     [Theory]
     [MemberData(nameof(ValueTypeNames))]
-    public void EveryTypedOperation_HasTheDocumentedValueOnTheGpu(string csharp)
+    public void EveryTypedOperation_HasTheDocumentedValueOnTheGpu_AndTheSameOnTheCpu(string csharp)
     {
         if (!GraphicsDevice.IsSupported)
         {
@@ -268,7 +305,8 @@ public class SimdGroupTests
     /// <summary>
     /// Dispatches the matrix shader of <paramref name="type"/> over 100 threads in threadgroups of 64
     /// (SIMD groups of 32, 32, 32 and 4 lanes) and compares every component of every result with the
-    /// model: an operation combines, scans or reads the lanes of its own SIMD group.
+    /// model: an operation combines, scans or reads the lanes of its own SIMD group (or quad). Then
+    /// dispatches it again with <c>ForCpu</c> and compares that with the GPU's output, value for value.
     /// </summary>
     private static void RunMatrix<TScalar>(Type type, Func<int, int, TScalar> input, Func<TScalar, TScalar, bool> equal)
         where TScalar : unmanaged, IBinaryNumber<TScalar>
@@ -276,7 +314,7 @@ public class SimdGroupTests
         const int threads = 100, threadgroup = 64, lanesPerGroup = 32;
         int width = Width(type);
         MethodInfo[] operations = TypedOperations(type);
-        int stride = operations.Length * 4;
+        int stride = (operations.Length + 2) * 4;
 
         TScalar[] values = new TScalar[threads * 4];
 
@@ -291,16 +329,39 @@ public class SimdGroupTests
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using ReadOnlyBuffer<TScalar> inputBuffer = device.AllocateReadOnlyBuffer<TScalar>(values);
         using ReadWriteBuffer<TScalar> outputBuffer = device.AllocateReadWriteBuffer<TScalar>(threads * stride);
+        using ReadWriteBuffer<TScalar> cpuBuffer = device.AllocateReadWriteBuffer<TScalar>(threads * stride);
 
         Type shaderType = Matrix.Value.LoadType("Tests." + MatrixShaderName(ValueTypes.Single(t => t.Type == type).CSharp));
-        object shader = Activator.CreateInstance(shaderType, inputBuffer, outputBuffer)!;
-        typeof(GraphicsDevice).GetMethods()
-            .Single(static m => m.Name == nameof(GraphicsDevice.For) && m.GetParameters().Length == 2)
-            .MakeGenericMethod(shaderType)
-            .Invoke(device, [threads, shader]);
+
+        foreach ((string method, ReadWriteBuffer<TScalar> output) in new[] { (nameof(GraphicsDevice.For), outputBuffer), (nameof(GraphicsDevice.ForCpu), cpuBuffer) })
+        {
+            try
+            {
+                typeof(GraphicsDevice).GetMethods()
+                    .Single(m => m.Name == method && m.GetParameters().Length == 2)
+                    .MakeGenericMethod(shaderType)
+                    .Invoke(device, [threads, Activator.CreateInstance(shaderType, inputBuffer, output)!]);
+            }
+            catch (TargetInvocationException e) when (e.InnerException is not null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(e.InnerException);
+            }
+        }
 
         TScalar[] actual = outputBuffer.ToArray();
+        TScalar[] onCpu = cpuBuffer.ToArray();
         var failures = new List<string>();
+
+        // The CPU returns what the GPU returns, also where the model says "undefined" (reads of lanes
+        // that do not exist give 0 on both). Floats are folded in lane order there, hence the tolerance.
+        for (int i = 0; i < actual.Length; i++)
+        {
+            if (!equal(actual[i], onCpu[i]))
+            {
+                string operation = i % stride / 4 < operations.Length ? operations[i % stride / 4].Name : "WaveActiveAllEqual";
+                failures.Add($"{operation}, thread {i / stride}, component {i % 4}: GPU {actual[i]}, CPU {onCpu[i]}");
+            }
+        }
 
         for (int thread = 0; thread < threads; thread++)
         {
@@ -319,6 +380,11 @@ public class SimdGroupTests
 
                     // Null where the source lane does not exist, which is undefined.
                     TScalar? Source(int index) => index >= 0 && index < active ? Lane(index) : null;
+
+                    // The lanes of this lane's quad that exist, and those of them below this lane.
+                    int quadStart = lane & ~3;
+                    IEnumerable<TScalar> quad = Enumerable.Range(quadStart, 4).Where(l => l < active).Select(Lane);
+                    IEnumerable<TScalar> quadBelow = Enumerable.Range(quadStart, lane - quadStart).Select(Lane);
 
                     TScalar? expected = operations[k].Name switch
                     {
@@ -342,6 +408,23 @@ public class SimdGroupTests
                         "QuadReadAcrossY" => Source(lane ^ 2),
                         "QuadReadAcrossDiagonal" => Source(lane ^ 3),
                         "QuadReadLaneAt" => Source((lane & ~3) + 3),
+                        "WaveRotateUp" => Source((lane - 3 + lanesPerGroup) % lanesPerGroup),
+                        "WaveRotateDown" => Source((lane + 3) % lanesPerGroup),
+
+                        // The fill is v as well: the lanes shifted in get the value of the lane 32 further on.
+                        "WaveShuffleUpAndFill" => Source(lane >= 3 ? lane - 3 : lane - 3 + lanesPerGroup),
+                        "WaveShuffleDownAndFill" => Source(lane + 3 < lanesPerGroup ? lane + 3 : lane + 3 - lanesPerGroup),
+                        "QuadActiveSum" => Sum(quad),
+                        "QuadActiveProduct" => Product(quad),
+                        "QuadActiveMin" => quad.Aggregate(TScalar.Min),
+                        "QuadActiveMax" => quad.Aggregate(TScalar.Max),
+                        "QuadActiveBitAnd" => quad.Aggregate(static (a, b) => a & b),
+                        "QuadActiveBitOr" => quad.Aggregate(static (a, b) => a | b),
+                        "QuadActiveBitXor" => quad.Aggregate(static (a, b) => a ^ b),
+                        "QuadPrefixSum" => Sum(quadBelow),
+                        "QuadPrefixProduct" => Product(quadBelow),
+                        "QuadInclusivePrefixSum" => Sum(quadBelow) + own,
+                        "QuadInclusivePrefixProduct" => Product(quadBelow) * own,
                         _ => throw new InvalidOperationException(operations[k].Name),
                     };
 
@@ -352,6 +435,19 @@ public class SimdGroupTests
                         failures.Add($"{operations[k].Name}, thread {thread} (lane {lane} of {active}), component {c}: expected {value}, got {got}");
                     }
                 }
+            }
+        }
+
+        // All-equal: of v, which is the same in every lane of a group only by accident, and of v - v, which always is.
+        for (int thread = 0; thread < threads; thread++)
+        {
+            int groupStart = thread - ((thread % threadgroup) % lanesPerGroup);
+            int groupEnd = Math.Min(Math.Min(groupStart + lanesPerGroup, ((thread / threadgroup) + 1) * threadgroup), threads);
+            bool same = Enumerable.Range(groupStart, groupEnd - groupStart).All(t => values.AsSpan(t * 4, width).SequenceEqual(values.AsSpan(groupStart * 4, width)));
+
+            if (actual[(thread * stride) + (operations.Length * 4)] != (same ? TScalar.One : TScalar.Zero) || actual[(thread * stride) + ((operations.Length + 1) * 4)] != TScalar.One)
+            {
+                failures.Add($"WaveActiveAllEqual, thread {thread}: expected {(same ? 1 : 0)} and 1, got {actual[(thread * stride) + (operations.Length * 4)]} and {actual[(thread * stride) + ((operations.Length + 1) * 4)]}");
             }
         }
 
@@ -581,8 +677,10 @@ public class SimdGroupTests
     [Theory]
     [InlineData("output[0] = Gpu.WaveReadLaneAt(lane: 3, value: output[1]);", "output[0] = metal::simd_shuffle(output[1], ushort(3));")]
     [InlineData("output[0] = Gpu.WaveShuffleXor(output[1], mask: 16);", "output[0] = metal::simd_shuffle_xor(output[1], ushort(16));")]
-    [InlineData("output[0] = Gpu.WaveActiveSum(output[1], 7);", "output[0] = metal::simd_sum(output[1]);")] // an explicit call-site id is the CPU's business too
-    [InlineData("output[0] = Gpu.WaveActiveSum(callSite: 9, value: output[1]);", "output[0] = metal::simd_sum(output[1]);")]
+    [InlineData("output[0] = Gpu.WaveActiveSum(output[1], \"Elsewhere.cs\", 7);", "output[0] = metal::simd_sum(output[1]);")] // an explicit call site is the CPU's business too
+    [InlineData("output[0] = Gpu.WaveActiveSum(callerLine: 9, value: output[1]);", "output[0] = metal::simd_sum(output[1]);")]
+    [InlineData("output[0] = Gpu.WaveShuffleUpAndFill(delta: 2, fill: -1, value: output[1]);", "output[0] = metal::simd_shuffle_and_fill_up(output[1], -1, ushort(2));")]
+    [InlineData("output[0] = (int)Gpu.QuadActiveBallot(output[1] > 0) + (Gpu.QuadActiveAnyTrue(true) && Gpu.QuadActiveAllTrue(true) ? 1 : 0);", "output[0] = int(uint(metal::quad_vote::vote_t(metal::quad_ballot(output[1] > 0)))) + (metal::quad_any(true) && metal::quad_all(true) ? 1 : 0);")]
     [InlineData("output[0] = Gpu.WaveActiveMax(1 + output[1]);", "output[0] = metal::simd_max(1 + output[1]);")]
     [InlineData("output[0] = (int)Gpu.WaveActiveSum(2.5f) + (int)Gpu.WaveActiveMax(3u);", "output[0] = int(metal::simd_sum(2.5f)) + int(metal::simd_max(3u));")]
     public void Arguments_AreTranslatedInParameterOrder_WithoutTheCallSiteId(string body, string expected)
@@ -593,11 +691,13 @@ public class SimdGroupTests
     // ---- diagnostics -----------------------------------------------------------------------------
 
     [Theory]
-    [InlineData("Gpu.WaveActiveSum(1f)", "float", "Gpu.WaveActiveSum(float, int)")]
+    [InlineData("Gpu.WaveActiveSum(1f)", "float", "Gpu.WaveActiveSum(float, string, int)")]
     [InlineData("Gpu.WaveGetLaneIndex()", "int", "Gpu.WaveGetLaneIndex()")]
-    [InlineData("Gpu.WaveIsFirstLane() ? 1 : 0", "int", "Gpu.WaveIsFirstLane(int)")]
-    [InlineData("Gpu.WaveActiveBallot(true)", "uint", "Gpu.WaveActiveBallot(bool, int)")]
-    [InlineData("Gpu.QuadReadAcrossX(2)", "int", "Gpu.QuadReadAcrossX(int, int)")]
+    [InlineData("Gpu.WaveIsFirstLane() ? 1 : 0", "int", "Gpu.WaveIsFirstLane(string, int)")]
+    [InlineData("Gpu.WaveActiveBallot(true)", "uint", "Gpu.WaveActiveBallot(bool, string, int)")]
+    [InlineData("Gpu.QuadReadAcrossX(2)", "int", "Gpu.QuadReadAcrossX(int, string, int)")]
+    [InlineData("Gpu.WaveActiveAllEqual(2f) ? 1 : 0", "int", "Gpu.WaveActiveAllEqual(float, string, int)")]
+    [InlineData("Gpu.QuadActiveSum(2u)", "uint", "Gpu.QuadActiveSum(uint, string, int)")]
     public void InAStaticReadonlyInitializer_AnOperationIsNotAConstant(string initializer, string type, string member)
     {
         GeneratorRun run = RunBody(
@@ -662,6 +762,39 @@ public class SimdGroupTests
             "private static int Both(int value) => Gpu.WaveActiveMin(value) - Gpu.WaveActiveMin(-value);");
 
         run.AssertOnlyDiagnostic("SCG0035", "Gpu.WaveActiveMin(-value)");
+    }
+
+    [Fact]
+    public void TheSameLineInTwoFilesOfAPartialStruct_IsTwoCallSites()
+    {
+        // Both calls of WaveActiveSum are on line 7 of their file. The file is part of the call site
+        // (the CPU gets both from the compiler), so they can be told apart and nothing is reported.
+        GeneratorRun run = GeneratorHarness.Run(
+            """
+            using SharpCompute;
+            namespace Tests;
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct TestShader : IComputeShader
+            {
+                public readonly ReadWriteBuffer<int> output;
+                public void Execute() { output[0] = Gpu.WaveActiveSum(1) + Elsewhere(2); }
+            }
+            """,
+            """
+            using SharpCompute;
+            namespace Tests;
+
+            public readonly partial struct TestShader
+            {
+
+                private static int Elsewhere(int value) => Gpu.WaveActiveSum(value);
+            }
+            """);
+
+        ShaderDescriptor descriptor = run.Verify(Shader);
+
+        Assert.Equal("output[0] = metal::simd_sum(1) + ::Elsewhere(2);", descriptor.KernelBody);
+        Assert.Equal(7, run.Input.SyntaxTrees.Select(static tree => tree.GetText().ToString().Split('\n').ToList().FindIndex(static line => line.Contains("WaveActiveSum", StringComparison.Ordinal)) + 1).Distinct().Single());
     }
 
     [Theory]

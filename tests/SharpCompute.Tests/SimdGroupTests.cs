@@ -494,7 +494,99 @@ public class SimdGroupTests
         return output.ToArray();
     }
 
+    [MetalFact]
+    public void RotationsFillsAndAllEqual_OfKnownValues()
+    {
+        // One full SIMD group (1000 + lane) and one of 8 lanes (1032 + lane); the fill of a lane is minus its value.
+        int[] input = Enumerable.Range(1000, 40).ToArray();
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<int> inputBuffer = device.AllocateReadOnlyBuffer<int>(input);
+        using ReadWriteBuffer<int> output = device.AllocateReadWriteBuffer<int>(input.Length * SimdShiftsAndEquality.Stride);
+
+        device.For(input.Length, new SimdShiftsAndEquality(inputBuffer, output, delta: 3));
+        int[] actual = output.ToArray();
+
+        int[] At(int thread) => actual.AsSpan(thread * SimdShiftsAndEquality.Stride, SimdShiftsAndEquality.Stride).ToArray();
+
+        // rotate up 3, rotate down 3, shuffle up and fill, shuffle down and fill,
+        // then all-equal of: the value, the value / 100, (value / 100, 7), (1, 2, 3 or 4 from thread 40 on)
+        Assert.Equal([1029, 1003, -1029, 1003, 0, 1, 1, 1], At(0));   // the fill comes from the lane 32 - 3 further on
+        Assert.Equal([1031, 1005, -1031, 1005, 0, 1, 1, 1], At(2));
+        Assert.Equal([1000, 1006, 1000, 1006, 0, 1, 1, 1], At(3));
+        Assert.Equal([1025, 1031, 1025, 1031, 0, 1, 1, 1], At(28));
+        Assert.Equal([1026, 1000, 1026, -1000, 0, 1, 1, 1], At(29)); // the rotation wraps; the fill comes from lane 29 + 3 - 32
+        Assert.Equal([1028, 1002, 1028, -1002, 0, 1, 1, 1], At(31));
+
+        // The partial group: its lanes 3..7 have a lane 3 below, and 0..4 a lane 3 above. Rotations and
+        // fills that reach for lanes it does not have are undefined, and not asserted.
+        Assert.Equal((1032, 1032), (At(35)[0], At(35)[2]));
+        Assert.Equal((1036, 1036), (At(39)[0], At(39)[2]));
+        Assert.Equal((1035, 1035), (At(32)[1], At(32)[3]));
+        Assert.Equal((1039, 1039), (At(36)[1], At(36)[3]));
+        Assert.All(Enumerable.Range(32, 8), thread => Assert.Equal([0, 1, 1, 1], At(thread)[4..]));
+    }
+
+    [MetalFact]
+    public void AllEqual_SeesTheActiveLanesOnly_AndComparesWholeVectors()
+    {
+        // 72 threads: thread 40 is where the Float3 of the shader changes its last component. It is in
+        // the second SIMD group, which is therefore not all equal; the third group (64..71) is again.
+        int[] input = Enumerable.Repeat(500, 72).ToArray();
+        input[70] = 501;
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<int> inputBuffer = device.AllocateReadOnlyBuffer<int>(input);
+        using ReadWriteBuffer<int> output = device.AllocateReadWriteBuffer<int>(input.Length * SimdShiftsAndEquality.Stride);
+
+        device.For(input.Length, new SimdShiftsAndEquality(inputBuffer, output, delta: 1));
+        int[] actual = output.ToArray();
+
+        // all-equal of: the value, the value / 100, (value / 100, 7), the Float3
+        Assert.All(Enumerable.Range(0, 32), thread => Assert.Equal([1, 1, 1, 1], actual.AsSpan((thread * 8) + 4, 4).ToArray()));
+        Assert.All(Enumerable.Range(32, 32), thread => Assert.Equal([1, 1, 1, 0], actual.AsSpan((thread * 8) + 4, 4).ToArray()));
+        Assert.All(Enumerable.Range(64, 8), thread => Assert.Equal([0, 1, 1, 1], actual.AsSpan((thread * 8) + 4, 4).ToArray()));
+    }
+
     // ---- quads -----------------------------------------------------------------------------------
+
+    [MetalFact]
+    public void QuadReductionsScansAndVotes_OfKnownValues()
+    {
+        // Quads of 1..4, 5..8 and a partial one of 9, 10, 11.
+        int[] input = Enumerable.Range(1, 11).ToArray();
+
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        using ReadOnlyBuffer<int> inputBuffer = device.AllocateReadOnlyBuffer<int>(input);
+        using ReadWriteBuffer<int> output = device.AllocateReadWriteBuffer<int>(input.Length * SimdQuadReductions.Stride);
+
+        device.For(input.Length, new SimdQuadReductions(inputBuffer, output, skip: 4));
+        int[] actual = output.ToArray();
+
+        int[] At(int thread) => actual.AsSpan(thread * SimdQuadReductions.Stride, SimdQuadReductions.Stride).ToArray();
+
+        // sum, product, min, max, and, or, xor, prefix sum, prefix product, inclusive sum, inclusive product,
+        // ballot of the even values, any value above 9, all values below 9
+        Assert.Equal([10, 24, 1, 4, 0, 7, 4, 0, 1, 1, 1, 0b1010, 0, 1], At(0));
+        Assert.Equal([10, 24, 1, 4, 0, 7, 4, 1, 1, 3, 2, 0b1010, 0, 1], At(1));
+        Assert.Equal([10, 24, 1, 4, 0, 7, 4, 3, 2, 6, 6, 0b1010, 0, 1], At(2));
+        Assert.Equal([10, 24, 1, 4, 0, 7, 4, 6, 6, 10, 24, 0b1010, 0, 1], At(3));
+        Assert.Equal([26, 1680, 5, 8, 0, 15, 12, 0, 1, 5, 5, 0b1010, 0, 1], At(4));
+        Assert.Equal([26, 1680, 5, 8, 0, 15, 12, 18, 210, 26, 1680, 0b1010, 0, 1], At(7));
+        Assert.Equal([30, 990, 9, 11, 8, 11, 8, 0, 1, 9, 9, 0b0010, 1, 0], At(8));
+        Assert.Equal([30, 990, 9, 11, 8, 11, 8, 19, 90, 30, 990, 0b0010, 1, 0], At(10));
+
+        // With lane 1 of every quad gone before the operations, the quads are 1, 3, 4 and 5, 7, 8 and 9, 11.
+        output.AsSpan().Fill(-1);
+        device.For(input.Length, new SimdQuadReductions(inputBuffer, output, skip: 1));
+        actual = output.ToArray();
+
+        Assert.Equal([8, 12, 1, 4, 0, 7, 6, 0, 1, 1, 1, 0b1000, 0, 1], At(0));
+        Assert.All(At(1), static value => Assert.Equal(-1, value));
+        Assert.Equal([8, 12, 1, 4, 0, 7, 6, 1, 1, 4, 3, 0b1000, 0, 1], At(2));
+        Assert.Equal([8, 12, 1, 4, 0, 7, 6, 4, 3, 8, 12, 0b1000, 0, 1], At(3));
+        Assert.Equal([20, 99, 9, 11, 9, 11, 2, 9, 9, 20, 99, 0, 1, 0], At(10));
+    }
 
     [MetalFact]
     public void Quads_InAThreadgroupTwoWide_Are2x2BlocksOfTheGrid()
@@ -649,61 +741,7 @@ public class SimdGroupTests
         Assert.Equal(direct.ToArray(), asynchronous.ToArray());
     }
 
-    // ---- the CPU ---------------------------------------------------------------------------------
-
-    [MetalFact]
-    public void OnTheCpu_AShaderThatUsesSimdGroups_IsRefusedBeforeAnyThreadRuns()
-    {
-        GraphicsDevice device = GraphicsDevice.GetDefault();
-        using ReadOnlyBuffer<int> input = device.AllocateReadOnlyBuffer<int>(64);
-        using ReadWriteBuffer<int> output = device.AllocateReadWriteBuffer<int>(64 * SimdReduceInt.Stride);
-        using ReadWriteBuffer<int> lanes = device.AllocateReadWriteBuffer<int>(64 * 4);
-        using ReadWriteBuffer<float> floats = device.AllocateReadWriteBuffer<float>(64);
-        using ReadWriteTexture2D<Rgba32> texture = device.AllocateReadWriteTexture2D<Rgba32>(16, 16);
-        output.AsSpan().Fill(-1);
-
-        SimdReduceInt shader = new(input, output, 64);
-
-        Action[] dispatches =
-        [
-            () => device.ForCpu(64, shader),
-            () => device.ForCpu(8, 8, shader),
-            () => device.ForCpu(4, 4, 4, shader),
-            () => device.ForCpu(0, shader), // also an empty grid: what is accepted does not depend on the size
-            () => device.ForSplit(64, shader),
-            () => device.ForSplit(64, shader, cpuFraction: 0.5),
-            () => device.ForSplit(64, shader, cpuFraction: 0), // also when the CPU would get nothing
-            () => device.ForCpu(64, new SimdLanes1D(lanes)), // the built-ins alone
-            () => device.ForCpu(64, new ReportedSimdGroups(floats)), // a hand-written descriptor that reports them
-            () => device.ForEachCpu(texture, default(SimdPixels)),
-            () => device.ForEachSplit(texture, default(SimdPixels)),
-            () => device.ForEachSplit(texture, default(SimdPixels), cpuFraction: 1),
-        ];
-
-        foreach (Action dispatch in dispatches)
-        {
-            NotSupportedException exception = Assert.Throws<NotSupportedException>(dispatch);
-            Assert.Contains("SIMD-group operations on the CPU arrive with the group executor", exception.Message);
-        }
-
-        Assert.Contains(nameof(SimdReduceInt), Assert.Throws<NotSupportedException>(dispatches[0]).Message);
-        Assert.All(output.ToArray(), static value => Assert.Equal(-1, value));
-    }
-
-    [MetalFact]
-    public void OnTheCpu_AnUnreportedSimdGroupOperation_ThrowsFromTheOperation()
-    {
-        GraphicsDevice device = GraphicsDevice.GetDefault();
-        using ReadWriteBuffer<float> buffer = device.AllocateReadWriteBuffer<float>(8);
-
-        // The descriptor says nothing, so the dispatch starts; the operation itself then refuses.
-        NotSupportedException exception = Assert.Throws<NotSupportedException>(() => device.ForCpu(8, new UnreportedSimdGroups(buffer)));
-        Assert.Contains("SIMD-group operations on the CPU arrive with the group executor", exception.Message);
-
-        // On the GPU the same shader runs.
-        device.For(8, new UnreportedSimdGroups(buffer));
-        Assert.Equal([8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f], buffer.ToArray());
-    }
+    // ---- outside a shader -------------------------------------------------------------------------
 
     [Fact]
     public void OutsideADispatch_EveryOperationThrowsLikeTheOtherBuiltins()
@@ -716,9 +754,15 @@ public class SimdGroupTests
             () => Gpu.WaveActiveCountBits(true), () => Gpu.WavePrefixCountBits(true),
             () => Gpu.WaveActiveSum(1f), () => Gpu.WaveActiveProduct(1), () => Gpu.WaveActiveMin(1u), () => Gpu.WaveActiveMax(new Float3(1f, 2f, 3f)),
             () => Gpu.WaveActiveBitAnd(1), () => Gpu.WaveActiveBitOr(new UInt2(1u, 2u)), () => Gpu.WaveActiveBitXor(new Int4(1, 2, 3, 4)),
+            () => Gpu.WaveActiveAllEqual(1f), () => Gpu.WaveActiveAllEqual(new Int3(1, 2, 3)),
             () => Gpu.WavePrefixSum(1f), () => Gpu.WavePrefixProduct(1f), () => Gpu.WaveInclusivePrefixSum(1), () => Gpu.WaveInclusivePrefixProduct(1u),
             () => Gpu.WaveReadLaneAt(1f, 0), () => Gpu.WaveReadLaneFirst(new Float4(1f, 2f, 3f, 4f)),
             () => Gpu.WaveShuffleUp(1, 1), () => Gpu.WaveShuffleDown(1u, 1), () => Gpu.WaveShuffleXor(new Float2(1f, 2f), 1),
+            () => Gpu.WaveRotateUp(1f, 1), () => Gpu.WaveRotateDown(1, 1), () => Gpu.WaveShuffleUpAndFill(1u, 0u, 1), () => Gpu.WaveShuffleDownAndFill(new Float3(1f, 2f, 3f), default, 1),
+            () => Gpu.QuadActiveAnyTrue(true), () => Gpu.QuadActiveAllTrue(true), () => Gpu.QuadActiveBallot(true),
+            () => Gpu.QuadActiveSum(1f), () => Gpu.QuadActiveProduct(1), () => Gpu.QuadActiveMin(1u), () => Gpu.QuadActiveMax(new Float2(1f, 2f)),
+            () => Gpu.QuadActiveBitAnd(1), () => Gpu.QuadActiveBitOr(1u), () => Gpu.QuadActiveBitXor(new Int2(1, 2)),
+            () => Gpu.QuadPrefixSum(1f), () => Gpu.QuadPrefixProduct(1), () => Gpu.QuadInclusivePrefixSum(1u), () => Gpu.QuadInclusivePrefixProduct(1f),
             () => Gpu.QuadReadAcrossX(1f), () => Gpu.QuadReadAcrossY(1), () => Gpu.QuadReadAcrossDiagonal(1u), () => Gpu.QuadReadLaneAt(new Int3(1, 2, 3), 0),
         ];
 
@@ -735,7 +779,7 @@ public class SimdGroupTests
     /// The SIMD groups of a 1D dispatch of <paramref name="threads"/> threads in threadgroups of
     /// <paramref name="threadgroup"/>: each is up to 32 consecutive threads of one threadgroup.
     /// </summary>
-    private static IEnumerable<int[]> Lanes(int threads, int threadgroup)
+    internal static IEnumerable<int[]> Lanes(int threads, int threadgroup)
     {
         for (int start = 0; start < threads; start += threadgroup)
         {
@@ -749,7 +793,7 @@ public class SimdGroupTests
     }
 
     /// <summary>Checks the 11 results <see cref="SimdReduceInt"/> wrote for <paramref name="thread"/> against the model.</summary>
-    private static void AssertReductions(int[] input, int[] actual, int stride, int threadgroup, int thread)
+    internal static void AssertReductions(int[] input, int[] actual, int stride, int threadgroup, int thread)
     {
         int[] group = Lanes(input.Length, threadgroup).Single(g => g.Contains(thread));
         int[] values = group.Select(t => input[t]).ToArray();

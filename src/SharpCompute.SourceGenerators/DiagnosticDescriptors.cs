@@ -282,7 +282,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor SimdGroupCallSitesShareLine = new(
         id: "SCG0035",
         title: "SIMD-group operations share a line",
-        messageFormat: "'{0}' is called more than once on line {1}. When the shader runs on the CPU, a SIMD-group operation is identified by its name and the line of the call, so these calls cannot be told apart there (which is how the CPU notices that the lanes of a SIMD group have diverged); put each call on a line of its own.",
+        messageFormat: "'{0}' is called more than once on line {1}. When the shader runs on the CPU, the lanes of a SIMD group meet at a call site, which is the operation plus the file and line of the call, so these calls cannot be told apart there (and lanes in two branches would be taken for lanes in one); put each call on a line of its own.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);

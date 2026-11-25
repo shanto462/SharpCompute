@@ -79,11 +79,20 @@ public sealed unsafe partial class GraphicsDevice
     /// exception is rethrown.
     /// </para>
     /// <para>
-    /// The one thing a shader can use that the CPU cannot run yet is a SIMD-group operation (the
-    /// <c>Wave*</c> and <c>Quad*</c> methods of <see cref="Gpu"/>, and <see cref="SimdGroupIds"/>): its
-    /// result comes from the other lanes of the thread's SIMD group, so those threads have to run side
-    /// by side rather than independently. A shader that uses one is refused with
-    /// <see cref="NotSupportedException"/> before any thread runs.
+    /// <b>Shaders with SIMD-group operations</b> (the <c>Wave*</c> and <c>Quad*</c> methods of
+    /// <see cref="Gpu"/>) run in a similar way, because a lane's result comes from the other lanes of
+    /// its SIMD group: the 32 lanes of one SIMD group (consecutive threads of a threadgroup, as on the
+    /// GPU) run concurrently on dedicated threads and meet at every operation, one SIMD group after
+    /// another. A shader that also has threadgroup memory or barriers runs whole threadgroups as
+    /// described above, and its lanes meet among the threadgroup's threads. A lane that has returned
+    /// from <c>Execute</c> takes no part in its group's operations, as on the GPU. The cost is the
+    /// barrier's: a park and a wake-up of every lane per operation. Two differences from the GPU: if
+    /// the lanes of a group reach <i>different</i> operations (divergent control flow), or some wait at
+    /// an operation while other threads wait at a barrier, the dispatch throws
+    /// <see cref="NotSupportedException"/> instead of hanging or guessing; and lanes that reach the
+    /// <i>same</i> call along different paths (different iterations of a loop, or one helper called
+    /// from both branches of an <c>if</c>) cannot be told apart and are combined, which the GPU would
+    /// not do. See the remarks of <see cref="Gpu"/> on SIMD-group operations.
     /// </para>
     /// <para>
     /// The shader's buffers and textures must not be disposed during the dispatch (an access then throws
@@ -96,7 +105,7 @@ public sealed unsafe partial class GraphicsDevice
     /// <exception cref="ArgumentException">A buffer or texture of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device or a buffer or texture of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="InvalidOperationException">The shader's <see cref="ThreadGroupSizeAttribute"/> is invalid.</exception>
-    /// <exception cref="NotSupportedException">The shader uses threadgroup memory or barriers and its threadgroups have more than 1024 threads, or it uses SIMD-group operations (see remarks).</exception>
+    /// <exception cref="NotSupportedException">The shader uses threadgroup memory or barriers and its threadgroups have more than 1024 threads, or it uses SIMD-group operations in divergent control flow (see remarks).</exception>
     public void ForCpu<T>(int x, int y, int z, in T shader)
         where T : struct, IComputeShader, IComputeShaderDescriptor<T> => DispatchCpu(x, y, z, in shader);
 
@@ -114,12 +123,11 @@ public sealed unsafe partial class GraphicsDevice
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="texture"/> or a buffer of <paramref name="shader"/> was allocated from a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device, <paramref name="texture"/> or a buffer of <paramref name="shader"/> has been disposed.</exception>
-    /// <exception cref="NotSupportedException">The shader uses SIMD-group operations, which the CPU cannot run yet.</exception>
+    /// <exception cref="NotSupportedException">The shader uses SIMD-group operations in divergent control flow (see <see cref="ForCpu{T}(int, int, int, in T)"/>).</exception>
     public void ForEachCpu<T>(ReadWriteTexture2D<Rgba32> texture, in T shader)
         where T : struct, IComputeShader<Float4>, IComputeShaderDescriptor<T>
     {
         ValidateOutput(texture);
-        ThrowIfSimdGroups<T>();
 
         Extent3 grid = new(texture.Width, texture.Height, 1);
         Extent3 groupSize = ResolveCpuThreadGroupSize<T>(rank: 2);
@@ -153,7 +161,6 @@ public sealed unsafe partial class GraphicsDevice
         ArgumentOutOfRangeException.ThrowIfNegative(y);
         ArgumentOutOfRangeException.ThrowIfNegative(z);
         ObjectDisposedException.ThrowIf(IsDisposed, this);
-        ThrowIfSimdGroups<T>();
 
         if (x == 0 || y == 0 || z == 0)
         {
@@ -186,26 +193,19 @@ public sealed unsafe partial class GraphicsDevice
     {
         if (T.UsesThreadgroupMemory)
         {
-            CpuGroupDispatcher.Run(kernel, grid.X, grid.Y, grid.Z, groupSize, default, count, ThreadgroupGate<T>.Lock, typeof(T));
+            CpuGroupDispatcher.Run(
+                kernel, grid.X, grid.Y, grid.Z, groupSize, default, count, ThreadgroupGate<T>.Lock, typeof(T),
+                simd: T.UsesSimdGroups ? CpuSimdMode.WholeThreadgroups : CpuSimdMode.None);
+        }
+        else if (T.UsesSimdGroups)
+        {
+            // Nothing but SIMD-group operations ties its threads together: one SIMD group at a time, and
+            // no static memory to guard, so a lock of this dispatch's own stands in for the type's gate.
+            CpuGroupDispatcher.Run(kernel, grid.X, grid.Y, grid.Z, groupSize, default, count, new object(), typeof(T), simd: CpuSimdMode.LanesOnly);
         }
         else
         {
             CpuDispatcher.Run(kernel, grid.X, grid.Y, grid.Z, groupSize, default, count);
-        }
-    }
-
-    /// <summary>
-    /// Refuses a shader that uses SIMD-group operations before any of its threads runs on the CPU: their
-    /// results come from the other lanes of a SIMD group, which only an executor that runs those lanes
-    /// side by side can provide. Thrown whatever the grid, so that an empty dispatch does not hide it.
-    /// </summary>
-    /// <exception cref="NotSupportedException">The shader's descriptor reports <see cref="IComputeShaderDescriptor{TSelf}.UsesSimdGroups"/>.</exception>
-    private static void ThrowIfSimdGroups<T>()
-        where T : struct, IComputeShaderDescriptor<T>
-    {
-        if (T.UsesSimdGroups)
-        {
-            throw CpuSimdGroup.Unavailable(typeof(T));
         }
     }
 

@@ -283,13 +283,13 @@ public static class ThreadGroupIds
 /// <remarks>
 /// <para>
 /// An Apple GPU executes a threadgroup in SIMD groups of 32 consecutive threads (by their linear index
-/// in the threadgroup; see the SIMD-group operations of <see cref="Gpu"/>, such as
-/// <see cref="Gpu.WaveActiveSum(float, int)"/>). <see cref="Index"/> says which of them the thread is
-/// in, and <see cref="Gpu.WaveGetLaneIndex"/> which lane of it the thread is.
+/// in the threadgroup, <see cref="GroupIds.Index"/>; see the SIMD-group operations of <see cref="Gpu"/>,
+/// such as <see cref="Gpu.WaveActiveSum(float, string, int)"/>). <see cref="Index"/> says which of them
+/// the thread is in, and <see cref="Gpu.WaveGetLaneIndex"/> which lane of it the thread is.
 /// </para>
 /// <para>
-/// Not available on the CPU yet: <c>GraphicsDevice.ForCpu</c> and <c>ForSplit</c> throw
-/// <see cref="NotSupportedException"/> for a shader that reads these.
+/// On the CPU (<c>GraphicsDevice.ForCpu</c>, <c>ForSplit</c>) both are computed from the thread's
+/// position the same way, so they agree with the GPU for every grid and threadgroup size.
 /// </para>
 /// </remarks>
 public static class SimdGroupIds
