@@ -866,6 +866,7 @@ def prelude_msl() -> list[str]:
         columns = ", ".join(f"m[{c}]" for c in range(n))
         lines.append(f"inline {packed} {PRELUDE_PACK}({msl} m) {{ return {packed}{{{{{columns}}}}}; }}")
     lines.extend(wave_all_equal_msl())
+    lines.extend(wave_matrix_msl())
     return lines
 
 
@@ -877,8 +878,9 @@ def gen_prelude() -> str:
     out.append("/// MSL helpers and types that have no <c>metal::</c> equivalent. The generator emits")
     out.append("/// <see cref=\"Source\"/> after <c>using namespace metal;</c> when a shader uses one of them. They")
     out.append("/// are named <c>__ms_*</c> and are referenced by <c>[MslIntrinsic(\"__ms_...\")]</c> and")
-    out.append("/// <c>[MslAtomic(\"__ms_...\")]</c> on the matching <see cref=\"Gpu\"/> methods, and by")
-    out.append("/// <c>[MslType(..., Packed = \"__ms_...\")]</c> on <see cref=\"Float4x4\"/>.")
+    out.append("/// <c>[MslAtomic(\"__ms_...\")]</c> on the matching <see cref=\"Gpu\"/> methods, by")
+    out.append("/// <c>[MslType(..., Packed = \"__ms_...\")]</c> on <see cref=\"Float4x4\"/>, and by the generator for the")
+    out.append("/// loads and products of <see cref=\"WaveMatrix8x8\"/> and <see cref=\"WaveMatrixHalf8x8\"/>.")
     out.append("/// </summary>")
     out.append("public static class MslPrelude")
     out.append("{")
@@ -1447,6 +1449,29 @@ def wave_all_equal_msl() -> list[str]:
             t = kind.msl if n == 1 else kind.msl_vec(n)
             same = "v == metal::simd_broadcast_first(v)"
             lines.append(f"inline bool __ms_wave_all_equal({t} v) {{ return metal::simd_all({same if n == 1 else 'metal::all(' + same + ')'}); }}")
+    return lines
+
+
+def wave_matrix_msl() -> list[str]:
+    """The prelude's wave-matrix helpers. Metal's simdgroup_load, simdgroup_multiply and
+    simdgroup_multiply_accumulate return their result through a reference parameter; these return it,
+    so that WaveMatrix8x8.Load(...) and the products are expressions, as they are in C#. They inline to
+    the plain calls (measured: the same GFLOP/s). A load is overloaded on the address space of its
+    source, a buffer (device) or a [GroupShared] array (threadgroup), and takes its element type from
+    it; a product takes the result's element type as R and those of its operands from the arguments,
+    which is every mix of half and float that Metal allows."""
+    m = "metal::simdgroup_matrix"
+    lines = []
+    for space in ("device", "threadgroup"):
+        lines.append(
+            f"template <typename T> inline {m}<T, 8, 8> __ms_wave_matrix_load(const {space} T* source, ulong stride, bool transpose) "
+            f"{{ {m}<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }}")
+    lines.append(
+        f"template <typename R, typename T, typename U> inline {m}<R, 8, 8> __ms_wave_matrix_multiply({m}<T, 8, 8> a, {m}<U, 8, 8> b) "
+        f"{{ {m}<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }}")
+    lines.append(
+        f"template <typename R, typename T, typename U, typename V> inline {m}<R, 8, 8> __ms_wave_matrix_multiply_accumulate({m}<T, 8, 8> a, {m}<U, 8, 8> b, {m}<V, 8, 8> c) "
+        f"{{ {m}<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }}")
     return lines
 
 

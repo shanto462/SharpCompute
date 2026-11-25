@@ -28,9 +28,11 @@ internal sealed partial class MslTranslator
     {
         if (operation is IInvalidOperation invalid)
         {
-            // The C# compiler reports this code. The one case with something to add is an atomic
-            // operation on an element type that has no atomic in MSL.
+            // The C# compiler reports this code. The cases with something to add are an atomic
+            // operation on an element type that has no atomic in MSL, and a wave matrix loaded from
+            // or stored to elements of another type than its own.
             ExplainUnboundAtomicCall(invalid);
+            ExplainUnboundWaveMatrixCall(invalid);
             SawInvalidCode = true;
             return Expr.Error;
         }
@@ -299,6 +301,8 @@ internal sealed partial class MslTranslator
                 return new Expr(type.MslName + "(0)", Expr.Primary);
             case GpuTypeKind.Struct:
                 return new Expr(type.MslName + "{}", Expr.Primary);
+            case GpuTypeKind.WaveMatrix:
+                return WaveMatrixZero(type);
             default:
                 return Unsupported(operation, $"a default value of type '{type.MslName}'");
         }

@@ -8,8 +8,8 @@ namespace SharpCompute.Benchmarks.Workloads;
 /// <summary>
 /// Single-precision <c>C = A · B</c> for n × n row-major matrices, every way the native baselines
 /// time it: the generated naive and threadgroup-tiled kernels, the naive kernel written by hand,
-/// SGEMM on Metal's matrix units written by hand, and <c>MPSMatrixMultiplication</c>. All of them
-/// read the same two buffers and write the same third.
+/// SGEMM on Metal's matrix units written by hand and written in C# (<see cref="MatMulWaveMatrix"/>),
+/// and <c>MPSMatrixMultiplication</c>. All of them read the same two buffers and write the same third.
 /// </summary>
 /// <remarks>
 /// The inputs are uniform random numbers in [0, 1) from a fixed seed. A periodic fill (a short
@@ -110,6 +110,14 @@ public sealed class Sgemm : IDisposable
 
     public void HandWrittenSimdgroup() =>
         Device.For(SgemmSimdgroupHandWritten.GridWidth(N), SgemmSimdgroupHandWritten.GridHeight(N), new SgemmSimdgroupHandWritten(GpuA, GpuB, GpuC, N));
+
+    /// <summary>
+    /// The matrix-unit kernel as a C# shader (<see cref="MatMulWaveMatrix"/> on <c>WaveMatrix8x8</c>):
+    /// the twin of <see cref="HandWrittenSimdgroup"/>, with the same accumulators per SIMD group, the
+    /// same SIMD groups per threadgroup and the same grid.
+    /// </summary>
+    public void GeneratedWaveMatrix() =>
+        Device.For(N / MatMulWaveMatrix.TileColumns * MatMulWaveMatrix.GroupThreads, N / MatMulWaveMatrix.TileRows, new MatMulWaveMatrix(GpuA, GpuB, GpuC, N));
 
     public void Dispose()
     {

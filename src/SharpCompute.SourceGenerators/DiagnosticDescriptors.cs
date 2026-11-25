@@ -387,6 +387,38 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor WaveMatrixNotStorable = new(
+        id: "SCG0048",
+        title: "Wave matrix cannot be stored",
+        messageFormat: "A '{0}' cannot be {1}: a wave matrix is held by the lanes of a SIMD group, two elements each, and has no layout in memory. Keep it in a local, a parameter or a return value, and write its elements to a buffer or a [GroupShared] array with Store.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InvalidWaveMatrixMemory = new(
+        id: "SCG0049",
+        title: "Wave matrix cannot be loaded from or stored to this memory",
+        messageFormat: "'{0}' cannot use '{1}': {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor WaveMatrixInStaticField = new(
+        id: "SCG0050",
+        title: "Wave matrix in a static field",
+        messageFormat: "Static field '{0}' is a '{1}', which cannot be a program-scope constant: a wave matrix only exists while the lanes of a SIMD group run. Create it in Execute, with Filled, Diagonal or Load.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor WaveMatrixInPartialSimdGroup = new(
+        id: "SCG0051",
+        title: "Wave matrix in a threadgroup that is not a multiple of 32 threads",
+        messageFormat: "Shader '{0}' uses a wave matrix, but its [ThreadGroupSize({1}, {2}, {3})] has {4} threads, which is not a multiple of 32: the last SIMD group of every threadgroup has only {5} lanes, and a wave matrix needs all 32 (each lane holds two of its elements). Use a threadgroup size that is a multiple of 32, or make that SIMD group return before it touches a matrix.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor CheckedArithmetic = new(
         id: "SCG0052",
         title: "Checked arithmetic in a shader",
