@@ -456,7 +456,8 @@ pinned by the tests:
 - **Float reductions** combine the lanes in an order of the GPU's choosing; compare with a tolerance.
   Integer results are exact and wrap.
 
-**On the CPU** (`ForCpu`, `ForSplit`) the lanes of a SIMD group run on threads of their own, 32 at a
+**On the CPU** (`ForCpu`, `ForIndirectCpu`, `ForSplit`) the lanes of a SIMD group run on threads of
+their own, 32 at a
 time, and meet at every operation: a lane waits until every lane of its group that has not returned
 from `Execute` is at the same call, and the result is computed from what they brought, in lane
 order (where reading a lane that takes no part gives 0, as on Apple GPUs). A shader that also uses

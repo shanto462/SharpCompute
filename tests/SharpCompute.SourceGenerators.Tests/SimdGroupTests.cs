@@ -551,6 +551,29 @@ public class SimdGroupTests
         Assert.Contains("static bool global::SharpCompute.IComputeShaderDescriptor<global::MyApp.Votes>.UsesSimdGroups => true;", run.Source("MyApp.Votes.SharpCompute.g.cs"));
     }
 
+    [Theory]
+    [InlineData("[ShaderOptions(FastMath = true)]", ShaderCompileOptions.FastMath)]
+    [InlineData("[ShaderOptions(FpContract = false)]", ShaderCompileOptions.NoFpContract)]
+    [InlineData("[ShaderOptions(FastMath = true, FpContract = false), ThreadGroupSize(64)]", ShaderCompileOptions.FastMath | ShaderCompileOptions.NoFpContract)]
+    public void WithShaderOptions_TheDescriptorReportsBothTheOptionsAndTheOperations(string attributes, ShaderCompileOptions options)
+    {
+        GeneratorRun run = RunBody(
+            "output[ThreadIds.X] = Gpu.WaveActiveSum(ThreadIds.X) + (int)Gpu.WaveActiveMax(tint.X * 2f + 1f);",
+            attributes: attributes);
+
+        // The compile options change how the runtime compiles the kernel, not the kernel: the same MSL
+        // as without them, and both members next to each other in the descriptor.
+        ShaderDescriptor descriptor = run.Verify(Shader);
+        string generated = run.Source("TestShader.SharpCompute.g.cs");
+
+        Assert.Equal(options, descriptor.CompileOptions);
+        Assert.True(UsesSimdGroups(run));
+        Assert.Contains(".CompileOptions => global::SharpCompute.ShaderCompileOptions.", generated);
+        Assert.Contains(".UsesSimdGroups => true;", generated);
+        Assert.Equal("output[int(__tid.x)] = metal::simd_sum(int(__tid.x)) + int(metal::simd_max(__c.tint.x * 2.0f + 1.0f));", descriptor.KernelBody);
+        Assert.DoesNotContain("pragma", descriptor.MslSource);
+    }
+
     [Fact]
     public void AShaderWithoutSimdGroupOperations_DoesNotReportThem()
     {

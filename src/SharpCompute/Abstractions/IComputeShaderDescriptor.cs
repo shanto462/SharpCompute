@@ -78,7 +78,7 @@ public interface IComputeShaderDescriptor<TSelf>
     /// <summary>
     /// True when the kernel uses a SIMD-group operation (the <c>Wave*</c> and <c>Quad*</c> methods of
     /// <see cref="Gpu"/>) or reads <see cref="SimdGroupIds"/>. The lanes of a SIMD group of such a shader
-    /// compute their results together, so the CPU (<c>GraphicsDevice.ForCpu</c>, <c>ForSplit</c>) runs
+    /// compute their results together, so the CPU (<c>GraphicsDevice.ForCpu</c>, <c>ForIndirectCpu</c>, <c>ForSplit</c>) runs
     /// each lane on a dedicated thread and lets the lanes of a group meet at every operation: one SIMD
     /// group of 32 at a time, or whole threadgroups when the shader also reports
     /// <see cref="UsesThreadgroupMemory"/>. A GPU dispatch checks that the compiled kernel's SIMD groups

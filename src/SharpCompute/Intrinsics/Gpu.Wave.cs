@@ -42,7 +42,7 @@ namespace SharpCompute;
 /// <see cref="WaveActiveBallot"/>), or keep every lane active.
 /// </para>
 /// <para>
-/// <b>On the CPU</b> (<c>GraphicsDevice.ForCpu</c>, <c>ForSplit</c>) the lanes of a SIMD group run on
+/// <b>On the CPU</b> (<c>GraphicsDevice.ForCpu</c>, <c>ForIndirectCpu</c>, <c>ForSplit</c>) the lanes of a SIMD group run on
 /// threads of their own and meet at every operation: a lane waits there until every lane of its group
 /// that has not returned from <c>Execute</c> has reached the same call, and the result is computed
 /// from what they brought, in lane order. That reproduces the GPU whenever the lanes that are still

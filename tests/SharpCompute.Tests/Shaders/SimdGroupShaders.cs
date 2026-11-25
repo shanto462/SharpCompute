@@ -582,6 +582,55 @@ public readonly partial struct SimdAgainstBarrier(ReadWriteBuffer<int> output, i
 }
 
 /// <summary>
+/// A shader for indirect dispatch: the grid is whole threadgroups of 64, so the threads past the
+/// element count (which is in a buffer, as the GPU pass before would leave it) return first.
+/// </summary>
+[ThreadGroupSize(64)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdIndirectSums(ReadOnlyBuffer<int> input, ReadOnlyBuffer<int> count, ReadWriteBuffer<int> output) : IComputeShader
+{
+    public const int Stride = 4;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+
+        if (i >= count[0])
+        {
+            return;
+        }
+
+        int v = input[i];
+
+        output[(i * Stride) + 0] = Gpu.WaveActiveSum(v);
+        output[(i * Stride) + 1] = Gpu.WavePrefixSum(v);
+        output[(i * Stride) + 2] = (int)Gpu.WaveActiveBallot(true);
+        output[(i * Stride) + 3] = (DispatchSize.X * 1000) + (SimdGroupIds.Index * 100) + Gpu.WaveGetLaneIndex();
+    }
+}
+
+/// <summary>SIMD-group operations in a kernel compiled with fast math: the options and the operations are independent.</summary>
+[ShaderOptions(FastMath = true)]
+[ThreadGroupSize(64)]
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SimdFastMath(ReadOnlyBuffer<float> input, ReadWriteBuffer<float> output) : IComputeShader
+{
+    public const int Stride = 5;
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        float v = input[i];
+
+        output[(i * Stride) + 0] = Gpu.WaveActiveSum(v);
+        output[(i * Stride) + 1] = Gpu.WaveActiveMax((v * 0.5f) + 1f);
+        output[(i * Stride) + 2] = Gpu.WavePrefixSum(v);
+        output[(i * Stride) + 3] = Gpu.WaveActiveCountBits(v > 0f);
+        output[(i * Stride) + 4] = Gpu.WaveShuffleXor(v, 1);
+    }
+}
+
+/// <summary>
 /// A hand-written descriptor that does not report its SIMD-group operation: its threads are not run as
 /// lanes on the CPU, so the operation itself has to refuse.
 /// </summary>
