@@ -248,9 +248,9 @@ public class BitAndMathIntrinsicTests
     public void Float4x4_ConstructorsOperatorsAndMul_FollowTheSmallerMatrices()
     {
         // Constructor arguments pass through unchanged (C# rows become MSL columns) and Mul swaps
-        // its operands to compensate, exactly as for Float2x2 and Float3x3. A packed vector read
-        // straight from a buffer is converted first: MSL's matrix operators are templates, which
-        // do not deduce through the implicit packed_float4 -> float4 conversion.
+        // its operands to compensate, exactly as for Float2x2 and Float3x3. Every vector operand
+        // is converted to the native type first: MSL's matrix operators are templates, which do
+        // not deduce through the implicit packed_float4 -> float4 conversion of a buffer element.
         AssertKernel(
             """
             float4x4 m = float4x4(1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f);
@@ -261,7 +261,7 @@ public class BitAndMathIntrinsicTests
             float4 timesColumn = (float4(v[0]) * sum);
             float4x4 product = (n * m);
             float4x4 zero = float4x4(0);
-            v[1] = rowTimes + timesColumn + (zero * (float4(v[2]) * product));
+            v[1] = rowTimes + timesColumn + (zero * float4((float4(v[2]) * product)));
             """,
             """
             Float4x4 m = new Float4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);

@@ -60,8 +60,8 @@ public class Float4x4BoundaryTests
             int t = int(__tid.x);
             float4x4 m = __ms_unpack(matrices[t]);
             float4x4 product = (__ms_unpack(__c.view) * m);
-            float4 a = (product * float4(1.0f, 2.0f, 3.0f, 4.0f));
-            float4 b = (a * metal::transpose(__ms_unpack(__c.camera.Projection)));
+            float4 a = (product * float4(float4(1.0f, 2.0f, 3.0f, 4.0f)));
+            float4 b = (float4(a) * metal::transpose(__ms_unpack(__c.camera.Projection)));
             matrices[t] = __ms_pack(product * __c.scale);
             bodies[t].Transform = __ms_pack(metal::transpose(__ms_unpack(bodies[t].Transform)) + m);
             f[t] = metal::determinant(product) + b.x + bodies[t].Mass;
@@ -223,7 +223,7 @@ public class Float4x4BoundaryTests
         Assert.Contains(
             "constant float4x4 Flip = float4x4(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f) * 2.0f;",
             descriptor.MslSource);
-        Assert.Equal("buffer[0] = (::Flip * float4(1.0f, 2.0f, 3.0f, 4.0f)).y * __c.factor;", descriptor.KernelBody);
+        Assert.Equal("buffer[0] = (::Flip * float4(float4(1.0f, 2.0f, 3.0f, 4.0f))).y * __c.factor;", descriptor.KernelBody);
         Assert.DoesNotContain("__ms_", descriptor.MslSource);
 
         if (MetalCompiler.IsAvailable)

@@ -1,5 +1,4 @@
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Operations;
 
 namespace SharpCompute.SourceGenerators;
@@ -70,32 +69,15 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// An operand of an <c>[MslBinaryOperator]</c> call. MSL's matrix operators are templates, which
-    /// do not deduce through the implicit conversion of a <c>packed_*</c> vector, so a vector read
-    /// straight from boundary storage is converted explicitly: <c>(m * float3(points[i]))</c>.
+    /// do not deduce through the implicit conversion of a <c>packed_*</c> vector, and a packed value is
+    /// not only a direct read of a buffer: a conditional between two reads, a swizzle of one, or
+    /// anything else built from them can still have the packed type. Rather than try to recognize
+    /// those, every vector operand whose type has a different packed form is converted explicitly,
+    /// <c>(m * float3(v))</c>; on a value that already is a <c>float3</c> that is a no-op.
     /// </summary>
     private Expr NativeOperand(IOperation operand, Expr expression) =>
         _types.Resolve(operand.Type) is { Kind: GpuTypeKind.Vector, HasPackedForm: true, NeedsExplicitPacking: false } type &&
-        type.BoundaryName != type.MslName &&
-        ReadsBoundaryStorage(operand)
+        type.BoundaryName != type.MslName
             ? Call(type.MslName, expression.Text)
             : expression;
-
-    /// <summary>True when the operation is a direct read of a buffer element, a struct field, or captured state.</summary>
-    private bool ReadsBoundaryStorage(IOperation operation)
-    {
-        while (operation is IConversionOperation { IsImplicit: true } conversion && conversion.GetConversion().IsIdentity)
-        {
-            operation = conversion.Operand;
-        }
-
-        return operation switch
-        {
-            IPropertyReferenceOperation { Property.IsIndexer: true, Instance.Type: { } bufferType } when TypeResolver.IsBufferType(bufferType, out _) => true,
-            IPropertyReferenceOperation { Instance.Type: { } instanceType } => _types.Resolve(instanceType) is { Kind: GpuTypeKind.Struct },
-            IFieldReferenceOperation { Instance: IInstanceReferenceOperation } field => _captures.TryGet(field.Field, out _),
-            IFieldReferenceOperation { Instance.Type: { } instanceType } => _types.Resolve(instanceType) is { Kind: GpuTypeKind.Struct },
-            IParameterReferenceOperation parameter => _captures.TryGet(parameter.Parameter, out _),
-            _ => false,
-        };
-    }
 }

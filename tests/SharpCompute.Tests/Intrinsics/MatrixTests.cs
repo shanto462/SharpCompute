@@ -198,6 +198,46 @@ public class MatrixTests
         }
     }
 
+    [MetalFact]
+    public void Mul_AcceptsPackedOperandsThatAreNotDirectBufferReads()
+    {
+        // A conditional between two buffer elements, a helper's result and a swizzle all have the
+        // packed type in MSL, which the matrix operators reject unless the operand is converted.
+        // This used to fail when the pipeline was compiled, at the first dispatch.
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        Float3[] data = [new Float3(1, 1, 1), new Float3(1, 2, 3), new Float3(4, 5, 6), new Float3(7, 8, 9)];
+        Float3 offset = new(10, 20, 30);
+        using ReadWriteBuffer<Float3> points = device.AllocateReadWriteBuffer<Float3>(data);
+        using ReadWriteBuffer<Float3> gpu = device.AllocateReadWriteBuffer<Float3>(data.Length * 4);
+        using ReadWriteBuffer<Float3> cpu = device.AllocateReadWriteBuffer<Float3>(data.Length * 4);
+
+        device.For(data.Length, new MulPackedOperands(points, gpu, offset));
+        device.ForCpu(data.Length, new MulPackedOperands(points, cpu, offset));
+
+        // M = rows (2, 0, 0), (0, 3, 0), (1, 0, 4). M * v = (2x, 3y, x + 4z); v * M = (2x + z, 3y, 4z).
+        static Float3 MatrixTimes(Float3 v) => new((2 * v.X), 3 * v.Y, v.X + (4 * v.Z));
+        static Float3 TimesMatrix(Float3 v) => new((2 * v.X) + v.Z, 3 * v.Y, 4 * v.Z);
+
+        Float3[] results = gpu.ToArray();
+
+        for (int i = 0; i < data.Length; i++)
+        {
+            Float3 chosen = i > 1 ? data[i] : data[0];
+            Float3 chosenOrOffset = i > 1 ? data[i] : offset;
+
+            Assert.Equal(Floats(MatrixTimes(chosen)), Floats(results[(i * 4) + 0]));
+            Assert.Equal(Floats(TimesMatrix(chosenOrOffset)), Floats(results[(i * 4) + 1]));
+            Assert.Equal(Floats(MatrixTimes(data[i]) + TimesMatrix(data[0])), Floats(results[(i * 4) + 2]));
+
+            // R = rows (0, 1), (-1, 0): R * (x, y) = (y, -x); (z, x) * R = (-x, z).
+            Assert.Equal([data[i].Y - data[i].X, -data[i].X + data[i].Z, 0f], Floats(results[(i * 4) + 3]));
+        }
+
+        Assert.Equal(cpu.ToArray().SelectMany(Floats), results.SelectMany(Floats));
+    }
+
+    private static float[] Floats(Float3 v) => [v.X, v.Y, v.Z];
+
     [Fact]
     public void Float4x4_OnTheCpu_HasTheLayoutTheShaderAsserts()
     {

@@ -302,6 +302,9 @@ public class HelperTests
     [Fact]
     public void GpuMul_SwapsItsOperands()
     {
+        // Vector operands are always written as a conversion to the native type, `float2(v)`: MSL's
+        // matrix operators are templates and reject a packed_float2, which is what a value read from a
+        // buffer (or built from such reads) has. On a float2 the conversion does nothing.
         ShaderDescriptor descriptor = RunBody(
             """
             Float2 v = new Float2(buffer[0], buffer[1]);
@@ -316,12 +319,59 @@ public class HelperTests
             """
             float2 v = float2(buffer[0], buffer[1]);
             float2x2 m = float2x2(1.0f, 2.0f, 3.0f, 4.0f);
-            float2 a = (m * v);
-            float2 b = (v * m);
+            float2 a = (m * float2(v));
+            float2 b = (float2(v) * m);
             float2x2 c = (m * 2.0f * m);
-            buffer[2] = a.x + b.y + (a * c).x;
+            buffer[2] = a.x + b.y + (float2(a) * c).x;
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
+    }
+
+    [Fact]
+    public void GpuMul_ConvertsPackedOperands_HoweverTheyAreBuilt()
+    {
+        // The type of `c ? points[i] : points[0]` is packed_float3 in MSL, and so is whatever else is
+        // built from buffer elements; none of it is a direct read of the buffer. Metal compiles all of it.
+        GeneratorRun run = GeneratorHarness.Run("""
+            using SharpCompute;
+
+            public struct Vertex { public Float3 Position; public Float2 Uv; }
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct Transform(ReadWriteBuffer<Float3> points, ReadWriteBuffer<Vertex> vertices, Float3 offset) : IComputeShader
+            {
+                private Float3 Pick(int index) => points[index];
+
+                private static Float3 Twice(Float3 v) => v * 2;
+
+                public void Execute()
+                {
+                    int i = ThreadIds.X;
+                    Float3x3 m = new Float3x3(2f, 0f, 0f, 0f, 3f, 0f, 0f, 0f, 4f);
+                    Float2x2 r = new Float2x2(0f, 1f, -1f, 0f);
+                    Float3 a = Gpu.Mul(m, i > 1 ? points[i] : points[0]);
+                    Float3 b = Gpu.Mul(i > 1 ? points[i] : offset, m);
+                    Float3 c = Gpu.Mul(m, Pick(i)) + Gpu.Mul(Twice(points[i]), m);
+                    Float2 d = Gpu.Mul(r, points[i].XY) + Gpu.Mul(vertices[i].Uv, r) + Gpu.Mul(r, vertices[i].Position.ZX);
+                    Float3 e = Gpu.Mul(m, Gpu.Abs(points[i])) + Gpu.Mul(m, points[i] + offset) + Gpu.Mul(m, (points[i]));
+                    points[i] = a + b + c + e + new Float3(d, 0f);
+                }
+            }
+            """);
+
+        Assert.Equal(
+            """
+            int i = int(__tid.x);
+            float3x3 m = float3x3(2.0f, 0.0f, 0.0f, 0.0f, 3.0f, 0.0f, 0.0f, 0.0f, 4.0f);
+            float2x2 r = float2x2(0.0f, 1.0f, -1.0f, 0.0f);
+            float3 a = (float3(i > 1 ? points[i] : points[0]) * m);
+            float3 b = (m * float3(i > 1 ? points[i] : __c.offset));
+            float3 c = (float3(::Pick(i, points)) * m) + (m * float3(::Twice(points[i])));
+            float2 d = (float2(points[i].xy) * r) + (r * float2(vertices[i].Uv)) + (float2(vertices[i].Position.zx) * r);
+            float3 e = (float3(metal::abs(points[i])) * m) + (float3(points[i] + __c.offset) * m) + (float3(points[i]) * m);
+            points[i] = a + b + c + e + float3(d, 0.0f);
+            """.ReplaceLineEndings("\n"),
+            run.Verify("Transform").KernelBody);
     }
 
     [MetalFact]
@@ -389,7 +439,7 @@ public class HelperTests
             m += ::Rotation(__c.factor);
             m -= m / 4.0f;
             m *= 2.0f;
-            buffer[0] = (0.5f * m * float2(1.0f, 0.0f)).x;
+            buffer[0] = (0.5f * m * float2(float2(1.0f, 0.0f))).x;
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
     }

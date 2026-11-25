@@ -333,3 +333,25 @@ public readonly partial struct SmallMatrixMath(ReadOnlyBuffer<float> elements, R
         results[o + 15] = Gpu.Determinant(Gpu.Mul(m3, m3));
     }
 }
+
+/// <summary>
+/// Matrix products whose vector operand has the packed type without being a direct read of a buffer:
+/// a conditional between two elements, a helper's result, a swizzle, a struct field.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MulPackedOperands(ReadWriteBuffer<Float3> points, ReadWriteBuffer<Float3> results, Float3 offset) : IComputeShader
+{
+    private Float3 Pick(int index) => points[index];
+
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+        Float3x3 m = new Float3x3(2f, 0f, 0f, 0f, 3f, 0f, 1f, 0f, 4f);
+        Float2x2 r = new Float2x2(0f, 1f, -1f, 0f);
+
+        results[(i * 4) + 0] = Gpu.Mul(m, i > 1 ? points[i] : points[0]);
+        results[(i * 4) + 1] = Gpu.Mul(i > 1 ? points[i] : offset, m);
+        results[(i * 4) + 2] = Gpu.Mul(m, Pick(i)) + Gpu.Mul(Pick(0), m);
+        results[(i * 4) + 3] = new Float3(Gpu.Mul(r, points[i].XY) + Gpu.Mul(points[i].ZX, r), 0f);
+    }
+}
