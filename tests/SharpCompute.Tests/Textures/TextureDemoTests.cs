@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
+using SharpCompute.Imaging;
 using SharpCompute.Presentation;
 using SharpCompute.Samples.Textures;
 using SharpCompute.Tests.CpuExecution;
@@ -1155,6 +1156,76 @@ public sealed class TextureDemoTests
         }
     }
 
+    // ---- --image ----------------------------------------------------------------------------------
+
+    [MetalFact]
+    public void Image_LoadsIntoEveryFormat_AndTheFirstPassReadsIt()
+    {
+        string directory = Directory.CreateTempSubdirectory("sharpcompute-textures-image-").FullName;
+
+        try
+        {
+            // A 6 × 3 picture: the explorer keeps its 2:1 shape.
+            GraphicsDevice device = GraphicsDevice.GetDefault();
+            Rgba32[] pixels = [.. Enumerable.Range(0, 18).Select(static i => new Rgba32((byte)(i * 14), (byte)(255 - (i * 9)), (byte)(i % 3 * 100), 255))];
+            string path = Path.Combine(directory, "picture.png");
+
+            using (ReadOnlyTexture2D<Rgba32> picture = device.AllocateReadOnlyTexture2D<Rgba32>(pixels, 6, 3))
+            {
+                ImageSaver.Save(picture, path);
+            }
+
+            using TextureDemo demo = new(device, path);
+            using ReadWriteTexture2D<Rgba32> target = device.AllocateReadWriteTexture2D<Rgba32>(Width, Height);
+            SamplerExplorer explorer = demo.Explorer;
+
+            Assert.Equal(("picture.png", 6, 3, 2f), (explorer.ImageName, explorer.Width, explorer.Height, explorer.Aspect));
+
+            // Format 1 (Rgba32) reads the file's bytes / 255; format 8 (Float4) the loader's linear floats.
+            demo.Render(target);
+            Assert.Equal(pixels.Select(static p => new Float4(p.R / 255f, p.G / 255f, p.B / 255f, 1f)), explorer.Decoded.ToArray());
+
+            explorer.Format = 7;
+            demo.Render(target);
+            Float4 linear = explorer.Decoded[1, 0];
+            Assert.Equal(MathF.Pow(((14 / 255f) + 0.055f) / 1.055f, 2.4f), linear.X, 2e-4f);
+
+            // Every format renders.
+            for (int format = 0; format < SourceImage.Formats.Length; format++)
+            {
+                explorer.Format = format;
+                demo.Render(target);
+            }
+
+            // The panel's middle looks at the picture's middle, and a texture width spans twice as
+            // many pixels as a texture height.
+            ExplorerLayout layout = new(Width, Height);
+            Float2 origin = layout.PanelOrigin(0);
+            int cx = (int)origin.X + 200, cy = (int)origin.Y + 165;
+            Float2 middle = layout.Uv(0, cx, cy, explorer.Zoom, explorer.Pan, explorer.Angle, explorer.Aspect);
+            Float2 right = layout.Uv(0, cx + 100, cy, explorer.Zoom, explorer.Pan, explorer.Angle, explorer.Aspect);
+            Float2 down = layout.Uv(0, cx, cy + 100, explorer.Zoom, explorer.Pan, explorer.Angle, explorer.Aspect);
+            Assert.Equal(0.5f, middle.X, 0.01f);
+            Assert.Equal(0.5f, middle.Y, 0.01f);
+            Assert.Equal(2f * (right.X - middle.X), down.Y - middle.Y, 1e-4f);
+
+            // Dragging moves the picture with the pointer on both axes.
+            Float2 under = layout.Uv(0, cx, cy, explorer.Zoom, explorer.Pan, explorer.Angle, explorer.Aspect);
+            explorer.DragBy(37, -21, layout);
+            Float2 moved = layout.Uv(0, cx + 37, cy - 21, explorer.Zoom, explorer.Pan, explorer.Angle, explorer.Aspect);
+            Assert.Equal(under.X, moved.X, 1e-4f);
+            Assert.Equal(under.Y, moved.Y, 1e-4f);
+
+            // The headless mode takes the same option.
+            Assert.Equal(0, Program.Main(["--headless", "--out", Path.Combine(directory, "frames"), "--size", "640x360", "--image", path]));
+            Assert.True(File.Exists(Path.Combine(directory, "frames", "samplers-float4.png")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [MetalTheory]
     [InlineData(0, "--help")]
     [InlineData(1, "--headless")]
@@ -1162,6 +1233,8 @@ public sealed class TextureDemoTests
     [InlineData(1, "--size", "12x12", "--headless")]
     [InlineData(1, "--format", "9")]
     [InlineData(1, "--mode", "other")]
+    [InlineData(1, "--headless", "--out", "unused", "--image", "/no/such/image.png")]
+    [InlineData(1, "--image")]
     public void Main_RejectsBadArguments_WithoutOpeningAWindow(int exitCode, params string[] arguments)
     {
         Assert.Equal(exitCode, Program.Main(arguments));

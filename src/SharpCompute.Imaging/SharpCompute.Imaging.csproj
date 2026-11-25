@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SharpCompute.Imaging: loads PNG, JPEG, HEIC (anything macOS ImageIO reads) straight into texture
+    memory, and saves textures as PNG, JPEG or HEIC. Kept out of the core library so that SharpCompute
+    itself links nothing but Metal and the Objective-C runtime.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <RootNamespace>SharpCompute.Imaging</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpCompute\SharpCompute.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpCompute.Tests" />
+  </ItemGroup>
+</Project>

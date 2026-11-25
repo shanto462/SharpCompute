@@ -29,11 +29,13 @@ public sealed class TextureDemo : IDisposable
     private TextLayer? _labels;
     private (DemoMode Mode, int Format, bool Paused) _drawn;
 
-    public TextureDemo(GraphicsDevice device)
+    /// <param name="device">The device.</param>
+    /// <param name="imagePath">An image file for the sampler explorer instead of its generated tile, or null.</param>
+    public TextureDemo(GraphicsDevice device, string? imagePath = null)
     {
         _device = device;
         _context = device.CreateComputeContext();
-        Explorer = new SamplerExplorer(device);
+        Explorer = new SamplerExplorer(device, imagePath);
         Reaction = new ReactionDiffusion(device);
     }
 

@@ -18,6 +18,7 @@ public enum FilterKind
     Invert,
     Posterize,
     Grayscale,
+    Lens,
 }
 
 /// <summary>One numeric argument of a filter, with its default and allowed range.</summary>
@@ -46,6 +47,7 @@ public sealed class FilterSpec
         new(FilterKind.Invert, "invert", "invert the color", []),
         new(FilterKind.Posterize, "posterize", "quantize each channel to N levels", [new("levels", 4, 2, 256, IsInteger: true)]),
         new(FilterKind.Grayscale, "grayscale", "Rec. 709 luma", []),
+        new(FilterKind.Lens, "lens", "barrel/pincushion lens distortion with color fringing, sampled from a texture (LinearClamp)", [new("strength", 0.3f, -0.5f, 1), new("fringe", 0.006f, 0, 0.05f)]),
     ];
 
     private readonly float[] _arguments;

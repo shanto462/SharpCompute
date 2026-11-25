@@ -4,15 +4,15 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
+using SharpCompute.Imaging;
 using SharpCompute.Samples.Imaging;
 using static System.FormattableString;
 
 namespace SharpCompute.Samples.ImageProcessing;
 
 /// <summary>
-/// <c>imgproc</c>: decodes a JPEG/PNG/HEIC through macOS ImageIO straight into a GPU buffer, runs a
-/// GPU filter and encodes the result from GPU memory, with no copies in between; with
+/// <c>imgproc</c>: decodes a JPEG/PNG/HEIC with SharpCompute.Imaging straight into a texture, runs a
+/// GPU filter and encodes the result from a texture in GPU memory, with no copies in between; with
 /// <c>--compare</c> it also runs the same filter on the CPU and reports the speedups.
 /// </summary>
 public static class Program
@@ -35,8 +35,8 @@ public static class Program
         <input>   any image macOS ImageIO reads (JPEG, PNG, HEIC, TIFF, ...)
         <output>  .png, .jpg/.jpeg or .heic
         --compare also run the filter on the CPU (Parallel.For, same math), time the whole pipeline
-                  (decoded RGBA8 → filter → RGBA8) zero copy, with copies and on the CPU, and check
-                  that no channel differs by more than 1/255
+                  (decoded texture → filter → texture to encode) zero copy, with copies and on the
+                  CPU, and check that no channel differs by more than 1/255
 
         Run it with: dotnet run -c Release --project samples/SharpCompute.Samples.ImageProcessing -- <args>
         """;
@@ -133,28 +133,30 @@ public static class Program
         }
 
         GraphicsDevice device = GraphicsDevice.GetDefault();
-        bool straightAlpha = ImageFile.UsesStraightAlpha(outputPath);
 
-        // Zero copy end to end: ImageIO decodes into the GPU buffer's shared memory, the GPU converts
-        // to floats, filters and converts back, and the encoder reads the GPU's output in place.
+        // Zero copy end to end: ImageIO decodes into the input texture's shared memory, the GPU
+        // converts to premultiplied floats, filters and converts back into the output texture, and
+        // ImageIO encodes that texture in place.
         long start = Stopwatch.GetTimestamp();
-        using ReadWriteBuffer<uint> packedInput = ImageFile.LoadRgba8(inputPath, device, out int width, out int height);
+        using ReadOnlyTexture2D<Rgba32> input = ImageLoader.LoadTexture2D<Rgba32>(device, inputPath);
         double loadMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        int width = input.Width;
+        int height = input.Height;
         int pixelCount = width * height;
 
-        Console.WriteLine(Invariant($"Input:   {Path.GetFileName(inputPath)} {width}×{height} ({pixelCount / 1e6:F1} MP), decoded into a GPU buffer in {loadMs:F0} ms"));
+        Console.WriteLine(Invariant($"Input:   {Path.GetFileName(inputPath)} {width}×{height} ({pixelCount / 1e6:F1} MP), decoded into a texture in {loadMs:F0} ms"));
         Console.WriteLine($"Filter:  {filter} on {device.Name}");
 
         using ReadWriteBuffer<Float4> source = device.AllocateReadWriteBuffer<Float4>(pixelCount);
         using ReadWriteBuffer<Float4> destination = device.AllocateReadWriteBuffer<Float4>(pixelCount);
-        using ReadWriteBuffer<uint> packedOutput = device.AllocateReadWriteBuffer<uint>(pixelCount);
+        using ReadWriteTexture2D<Rgba32> output = device.AllocateReadWriteTexture2D<Rgba32>(width, height);
         using GpuFilters gpu = new(device, width, height);
 
         void ZeroCopyPipeline()
         {
-            device.For(pixelCount, new UnpackRgba8(packedInput, source));
+            device.For(width, height, new UnpackTexture(input, source));
             gpu.Apply(filter, source, destination);
-            device.For(pixelCount, new PackRgba8(destination, packedOutput, straightAlpha ? 1 : 0));
+            device.For(width, height, new PackTexture(destination, output));
         }
 
         double firstMs = Time(ZeroCopyPipeline);
@@ -162,31 +164,30 @@ public static class Program
 
         if (!compare)
         {
-            Console.WriteLine(Invariant($"GPU:     {firstMs:F1} ms (decode buffer → floats → filter → RGBA8, first run, includes compiling the shaders)"));
+            Console.WriteLine(Invariant($"GPU:     {firstMs:F1} ms (texture → floats → filter → texture, first run, includes compiling the shaders)"));
         }
         else
         {
-            exitCode = Compare(filter, device, gpu, packedInput, source, destination, packedOutput, straightAlpha, width, height, ZeroCopyPipeline, firstMs);
+            exitCode = Compare(filter, gpu, input, source, destination, width, height, ZeroCopyPipeline, firstMs);
         }
 
         start = Stopwatch.GetTimestamp();
-        ImageFile.SaveRgba8(outputPath, packedOutput.AsReadOnlySpan(), width, height);
-        Console.WriteLine(Invariant($"Saved:   {Path.GetFullPath(outputPath)} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms (encoded from the GPU buffer in place)"));
+        ImageSaver.Save(output, ImageFile.PrepareOutput(outputPath), jpegQuality: ImageFile.Quality);
+        Console.WriteLine(Invariant($"Saved:   {Path.GetFullPath(outputPath)} in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F0} ms (encoded from the output texture in place)"));
         return exitCode;
     }
 
     /// <summary>
     /// Times three ways to get from decoded RGBA8 pixels to filtered RGBA8 pixels, all warm and best
     /// of <see cref="TimedRuns"/>: the zero-copy GPU pipeline, the same GPU filter fed through
-    /// managed arrays (CPU conversions plus copies in and out of the buffers, the only option before
-    /// zero-copy decoding), and the CPU. Then checks GPU/CPU parity on the filter output.
+    /// managed arrays (CPU conversions plus copies in and out of the buffers, the only option without
+    /// decoding into GPU memory), and the CPU. Then checks GPU/CPU parity on the filter output.
     /// </summary>
     private static int Compare(
-        FilterSpec filter, GraphicsDevice device, GpuFilters gpu, ReadWriteBuffer<uint> packedInput, ReadWriteBuffer<Float4> source,
-        ReadWriteBuffer<Float4> destination, ReadWriteBuffer<uint> packedOutput, bool straightAlpha, int width, int height,
-        Action zeroCopyPipeline, double firstMs)
+        FilterSpec filter, GpuFilters gpu, ReadOnlyTexture2D<Rgba32> input, ReadWriteBuffer<Float4> source,
+        ReadWriteBuffer<Float4> destination, int width, int height, Action zeroCopyPipeline, double firstMs)
     {
-        byte[] decoded = MemoryMarshal.AsBytes(packedInput.AsReadOnlySpan()).ToArray();
+        Rgba32[] decoded = input.ToArray();
 
         double zeroCopyMs = Best(zeroCopyPipeline);
         double kernelMs = Best(() => gpu.Apply(filter, source, destination));
@@ -196,24 +197,13 @@ public static class Program
         Float4[] cpuInput = new Float4[source.Length];
         Float4[] staged = new Float4[source.Length];
         Float4[] cpuResult = new Float4[source.Length];
-        byte[] encodedPremultiplied = new byte[decoded.Length];
-        Rgba32[] encodedStraight = new Rgba32[source.Length];
+        Rgba32[] encoded = new Rgba32[source.Length];
 
-        void Encode(Float4[] pixels)
-        {
-            if (straightAlpha)
-            {
-                PixelConversion.ToStraightRgba32(pixels, encodedStraight);
-            }
-            else
-            {
-                PixelConversion.ToPremultipliedRgba8(pixels, encodedPremultiplied);
-            }
-        }
+        void Encode(Float4[] pixels) => PixelConversion.ToStraightRgba32(pixels, encoded);
 
         void CopyPathPipeline()
         {
-            PixelConversion.FromPremultipliedRgba8(decoded, staged);
+            PixelConversion.FromStraightRgba32(decoded, staged);
             source.CopyFrom(staged);
             gpu.Apply(filter, source, destination);
             destination.CopyTo(staged);
@@ -222,7 +212,7 @@ public static class Program
 
         void CpuPipeline()
         {
-            PixelConversion.FromPremultipliedRgba8(decoded, cpuInput);
+            PixelConversion.FromStraightRgba32(decoded, cpuInput);
             CpuFilters.Apply(filter, cpuInput, cpuResult, width, height);
             Encode(cpuResult);
         }
@@ -230,7 +220,7 @@ public static class Program
         CopyPathPipeline();
         double copyPathMs = Best(CopyPathPipeline);
 
-        PixelConversion.FromPremultipliedRgba8(decoded, cpuInput);
+        PixelConversion.FromStraightRgba32(decoded, cpuInput);
         CpuFilters.Apply(filter, cpuInput, cpuResult, width, height);
         double cpuKernelMs = Best(() => CpuFilters.Apply(filter, cpuInput, cpuResult, width, height));
         CpuPipeline();
@@ -244,7 +234,7 @@ public static class Program
         Console.WriteLine(Invariant($"GPU:     filter {kernelMs:F2} ms (best of {TimedRuns}; the first full run took {firstMs:F1} ms including shader compilation)"));
         Console.WriteLine(Invariant($"CPU:     filter {cpuKernelMs:F1} ms (best of {TimedRuns} after a warm-up; Parallel.For over rows, {Environment.ProcessorCount} threads, same plain Float4 math, not SIMD-tuned)"));
         Console.WriteLine("Pipeline: decoded RGBA8 → floats → filter → RGBA8 ready to encode (best of 5, warm):");
-        Console.WriteLine(Invariant($"  GPU, zero copy    {zeroCopyMs,8:F2} ms  conversions on the GPU, in the decoder's buffer"));
+        Console.WriteLine(Invariant($"  GPU, zero copy    {zeroCopyMs,8:F2} ms  conversions on the GPU, from the decoded texture to the one ImageIO encodes"));
         Console.WriteLine(Invariant($"  GPU, with copies  {copyPathMs,8:F2} ms  CPU conversions + copies into and out of the GPU buffers"));
         Console.WriteLine(Invariant($"  CPU               {cpuMs,8:F2} ms  CPU conversions + CPU filter"));
         Console.WriteLine(Invariant($"Speedup: {cpuKernelMs / kernelMs:F1}× filter only; pipeline {cpuMs / zeroCopyMs:F1}× zero copy, {cpuMs / copyPathMs:F1}× with copies"));

@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SharpCompute.Tests" />
+    <!-- Decodes images straight into a texture's backing buffer: needs its address, row pitch and lease. -->
+    <InternalsVisibleTo Include="SharpCompute.Imaging" />
   </ItemGroup>
 </Project>

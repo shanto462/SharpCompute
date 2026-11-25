@@ -62,6 +62,9 @@ here as an original game built on SharpCompute.
 - **Textures in shaders.** `ReadOnlyTexture2D<T>` is read and sampled (point or bilinear; clamp,
   repeat or mirror), `ReadWriteTexture2D<T>` is read and written, in eight pixel formats from 8-bit
   to float. A texture one pass wrote can be sampled by the next.
+- **Images in and out.** The `SharpCompute.Imaging` library loads PNG, JPEG, HEIC (anything macOS
+  ImageIO reads) straight into a texture's memory, upright and converted to sRGB or linear float,
+  and saves textures as PNG, JPEG or HEIC. See [Loading and saving images](#loading-and-saving-images).
 - **Threadgroup shared memory and barriers.** `[GroupShared] static readonly float[] tile = new float[256];`
   is memory the threads of a threadgroup share, `Gpu.GroupMemoryBarrierWithGroupSync()` is where they
   meet, and `GroupSize`, `GroupIds.Index` and `ThreadGroupCount` tell a thread where it is: what
@@ -130,8 +133,8 @@ full size.
 </td>
 <td width="50%" valign="top">
 <a href="docs/screenshots/textures-samplers.png"><img src="docs/screenshots/thumbs/textures-samplers.png" width="100%" alt="The Textures demo's sampler explorer: one small picture magnified through the six samplers, point and linear filtering in rows, clamp, repeat and mirror addressing in columns"></a>
-<br><b>Textures</b>: one picture through all six samplers, in any of the eight texture formats (<a href="docs/screenshots/textures-format-rg16.png">Rg16</a>), and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it (<a href="docs/screenshots/textures-pingpong.png">ping-pong</a>).
-<br><code>scripts/demo-textures.sh [--mode pingpong] [--headless]</code>
+<br><b>Textures</b>: one picture through all six samplers, in any of the eight texture formats (<a href="docs/screenshots/textures-format-rg16.png">Rg16</a>), and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it (<a href="docs/screenshots/textures-pingpong.png">ping-pong</a>). <code>--image</code> explores your own picture instead, loaded into each format with SharpCompute.Imaging (<a href="docs/screenshots/textures-image.png">a photo</a>).
+<br><code>scripts/demo-textures.sh [--mode pingpong] [--image photo.jpg] [--headless]</code>
 <br><sub>Tab switch · F format · wheel or +/- zoom · drag pans or paints · S save PNG · Esc quit</sub>
 </td>
 </tr>
@@ -157,8 +160,8 @@ full size.
 <br><sub>no window: writes files</sub>
 </td>
 <td width="50%" valign="top">
-<a href="docs/screenshots/imgproc.png"><img src="docs/screenshots/thumbs/imgproc.png" width="100%" alt="ImageProcessing's 4K test image and three filters of it, two by two: the original, a bokeh blur, an edge detection and a color grade"></a>
-<br><b>ImageProcessing</b>: GPU against CPU image filters on a 4K test image or your own photo (JPEG, PNG, HEIC), zero copy from decode to encode. Clockwise from the top left: the input, bokeh 12, grade, edges.
+<a href="docs/screenshots/imgproc.png"><img src="docs/screenshots/thumbs/imgproc.png" width="100%" alt="ImageProcessing's 4K test image and three filters of it, two by two: the original, a bokeh blur, an edge detection and a barrel lens distortion with color fringes"></a>
+<br><b>ImageProcessing</b>: GPU against CPU image filters on a 4K test image or your own photo (JPEG, PNG, HEIC), loaded into a texture and saved from one with SharpCompute.Imaging, zero copy from decode to encode. <code>lens</code> samples a texture bilinearly. Clockwise from the top left: the input, bokeh 12, lens, edges.
 <br><code>scripts/demo-imgproc.sh [photo] [filter args]</code>
 <br><sub>no window: writes files and timings</sub>
 </td>
@@ -285,13 +288,15 @@ The full guide, with how to choose an API and the lifetime rules that come with 
 
 Requirements: macOS 15 or later on Apple Silicon, and the .NET 11 SDK.
 
-Reference the runtime, and the generator as an analyzer:
+Reference the runtime, and the generator as an analyzer (and `SharpCompute.Imaging` to load and
+save images):
 
 ```xml
 <ItemGroup>
   <ProjectReference Include="path/to/src/SharpCompute/SharpCompute.csproj" />
   <ProjectReference Include="path/to/src/SharpCompute.SourceGenerators/SharpCompute.SourceGenerators.csproj"
                     OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  <ProjectReference Include="path/to/src/SharpCompute.Imaging/SharpCompute.Imaging.csproj" />
 </ItemGroup>
 ```
 
@@ -401,7 +406,8 @@ using (ComputeContext context = device.CreateComputeContext())
 ```
 
 `scripts/demo-textures.sh` shows all of this live: the six samplers side by side on any of the eight
-formats, and a simulation that ping-pongs between two textures while you paint into it:
+formats (on your own picture with `--image photo.jpg`), and a simulation that ping-pongs between two
+textures while you paint into it:
 
 ![The Textures demo's ping-pong mode: a reaction-diffusion growing from a painted stroke, computed back and forth between two read-write textures and displayed through a linear-repeat sampler](docs/screenshots/textures-pingpong.gif)
 
@@ -414,6 +420,60 @@ address modes. The CPU is exact where the GPU (measured on an M4 Pro) is not qui
 - Point sampling picks the same pixel with Clamp, for coordinates in [0, 1) and for power-of-two
   sizes. With Repeat or Mirror outside [0, 1) on other sizes, a coordinate within float rounding of
   a pixel boundary can pick the neighbouring pixel on the GPU.
+
+### Loading and saving images
+
+`SharpCompute.Imaging` (a separate library, so the runtime itself links nothing but Metal) loads
+images into textures through macOS ImageIO: PNG, JPEG, HEIC and the other formats ImageIO reads.
+ImageIO decodes, and vImage writes the converted pixels straight into the new texture's shared
+memory with its row pitch: no intermediate array, and no upload.
+
+```csharp
+using SharpCompute.Imaging;
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct Vignette(ReadOnlyTexture2D<Rgba32> photo) : IComputeShader<Float4>
+{
+    public Float4 Execute()
+    {
+        Float2 uv = ThreadIds.Normalized.XY;
+        float edge = Gpu.Length(uv - 0.5f);
+        return new Float4(photo.Sample(Sampler.LinearClamp, uv).XYZ * Gpu.Saturate(1.25f - (2f * edge * edge)), 1f);
+    }
+}
+
+// sRGB bytes, as stored; any T below works, from a path, a byte span or a stream.
+using ReadOnlyTexture2D<Rgba32> photo = ImageLoader.LoadTexture2D<Rgba32>(device, "photo.heic");
+using ReadWriteTexture2D<Rgba32> result = device.AllocateReadWriteTexture2D<Rgba32>(photo.Width, photo.Height);
+
+device.ForEach(result, new Vignette(photo));              // a pixel shader that samples the photo
+ImageSaver.Save(result, "vignette.jpg", jpegQuality: 85); // encoded from the texture's memory
+
+ImageInfo info = ImageLoader.GetInfo("photo.heic");       // size, color model, alpha, orientation: no decoding
+```
+
+The element type decides what the pixels are converted to, from whatever color space the file is in:
+
+| `T` | Holds | Shaders read |
+|---|---|---|
+| `Rgba32` | sRGB bytes | `byte / 255`, still sRGB-encoded |
+| `Rgba32Srgb` | the same bytes | linear (the GPU decodes sRGB) |
+| `R8` | gray, 2.2 gamma (luminance of a color image) | `(gray / 255, 0, 0, 1)` |
+| `Rgba16Float`, `Float4` | linear extended sRGB (wide-gamut and HDR colors outside 0..1); 16-bit files keep their precision | linear light |
+
+Alpha is straight, not premultiplied, in every type, as PNG stores it, so a PNG saved and loaded
+again comes back bit for bit, translucent pixels included. The EXIF orientation is applied, so a
+camera's portrait photo loads upright. `LoadReadWriteTexture2D` loads into a texture shaders also
+write. Saving takes the format from the extension (`.png`, `.jpg`, `.heic`) or an `ImageFormat`; a
+float texture is saved as a 16-bit sRGB PNG. A missing file, data ImageIO can't read, and an image
+larger than 16384 pixels (the texture limit) each throw a clear exception.
+
+On an Apple M4 Pro, a 3840 × 2160 image decodes into an `Rgba32` texture in 27 ms from a JPEG and
+50 ms from a PNG, and saves in 24 ms as a JPEG and 169 ms as a PNG (medians of three runs of the
+ImageProcessing sample). The ImageProcessing demo loads its input and saves its output this
+way, and `--image` puts your own picture into the Textures demo's sampler explorer:
+
+![The Textures demo's sampler explorer on a loaded image: a small dusk photo with a hue ring, a moon, city lights, a stripe chart and a color checker, magnified through the six samplers, keeping its wide shape](docs/screenshots/textures-image.png)
 
 ### Threadgroup shared memory and barriers
 
@@ -1152,6 +1212,10 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   not supported.
 - Textures are 2D with one mip level (a wrapped mipmapped texture uses level 0); samplers are the
   six fixed ones.
+- `SharpCompute.Imaging` loads the first image of a file (not the other frames of a GIF or HEIC
+  sequence) and saves one image. ImageIO does not report a file cut off inside its pixel data, so
+  such a file loads with the missing part zero. An oriented image with translucent pixels goes through
+  ImageIO's premultiplied thumbnail path and can lose a little precision in those pixels.
 - Wrapped Metal resources must use tracked hazard tracking, and `EncodeInto` cannot detect an
   encoder the app left open on its command buffer.
 - 8- and 16-bit integer fields aren't supported inside shaders; pack them into `uint`

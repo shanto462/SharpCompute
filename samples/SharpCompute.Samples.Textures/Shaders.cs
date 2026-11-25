@@ -72,9 +72,10 @@ public readonly partial struct DecodeFloat4(ReadOnlyTexture2D<Float4> source, Re
 /// <param name="zoom">How many texture heights fit in a panel's height.</param>
 /// <param name="pan">The texture coordinate offset of the view.</param>
 /// <param name="angle">The rotation of the view, in radians.</param>
+/// <param name="aspect">The picture's width over its height, so that it keeps its shape.</param>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct SamplerGrid(
-    ReadOnlyTexture2D<Float4> image, ReadOnlyTexture2D<R8> labels, Float2 origin, Float2 cell, float gap, float zoom, Float2 pan, float angle)
+    ReadOnlyTexture2D<Float4> image, ReadOnlyTexture2D<R8> labels, Float2 origin, Float2 cell, float gap, float zoom, Float2 pan, float angle, float aspect)
     : IComputeShader<Float4>
 {
     private static readonly Float3 Backdrop = new(0.05f, 0.06f, 0.08f);
@@ -94,13 +95,14 @@ public readonly partial struct SamplerGrid(
 
             if (Gpu.Min(margin.X, margin.Y) >= gap)
             {
-                Float2 uv = PanelUv(local, cell, zoom, pan, angle);
+                Float2 uv = ImageUv(local, cell, zoom, pan, angle, aspect);
                 color = Pick((int)index.X + ((int)index.Y * 3), uv).XYZ;
 
                 // The texture itself covers [0, 1]; everything outside the outline is the address mode.
-                Float2 fromCenter = Gpu.Abs(uv - 0.5f);
+                // Measured in texture heights, so the outline is equally thick on every side.
+                Float2 fromCenter = Gpu.Abs(uv - 0.5f) * new Float2(aspect, 1f);
 
-                if (Gpu.Abs(Gpu.Max(fromCenter.X, fromCenter.Y) - 0.5f) < 1.25f * zoom / cell.Y)
+                if (Gpu.Abs(Gpu.Max(fromCenter.X - (0.5f * aspect), fromCenter.Y - 0.5f)) < 1.25f * zoom / cell.Y)
                 {
                     color = Gpu.Lerp(color, new Float3(1f, 1f, 1f), 0.85f);
                 }
@@ -126,14 +128,21 @@ public readonly partial struct SamplerGrid(
     /// center looks at the texture's center plus <paramref name="pan"/>, and its height spans
     /// <paramref name="zoom"/> texture heights.
     /// </summary>
-    public static Float2 PanelUv(Float2 local, Float2 cell, float zoom, Float2 pan, float angle)
+    public static Float2 PanelUv(Float2 local, Float2 cell, float zoom, Float2 pan, float angle) => ImageUv(local, cell, zoom, pan, angle, 1f);
+
+    /// <summary>
+    /// <see cref="PanelUv"/> for a picture <paramref name="aspect"/> times as wide as it is tall: a
+    /// texture height is still <c>panel height / zoom</c> pixels, and a texture width that many times
+    /// <paramref name="aspect"/>, so the picture is not stretched.
+    /// </summary>
+    public static Float2 ImageUv(Float2 local, Float2 cell, float zoom, Float2 pan, float angle, float aspect)
     {
         Float2 p = (local - 0.5f) * new Float2(cell.X / cell.Y, 1f);
         float sine = Gpu.Sin(angle);
         float cosine = Gpu.Cos(angle);
         Float2 rotated = new Float2((p.X * cosine) - (p.Y * sine), (p.X * sine) + (p.Y * cosine));
 
-        return new Float2(0.5f, 0.5f) + (rotated * zoom) + pan;
+        return new Float2(0.5f, 0.5f) + (rotated * zoom * new Float2(1f / aspect, 1f)) + pan;
     }
 
     /// <summary>The six samplers, in the order of the panels: Point then Linear, each Clamp, Repeat, Mirror.</summary>

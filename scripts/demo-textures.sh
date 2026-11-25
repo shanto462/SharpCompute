@@ -14,6 +14,7 @@
 #   scripts/demo-textures.sh                    # the window
 #   scripts/demo-textures.sh --mode pingpong    # start in the ping-pong mode
 #   scripts/demo-textures.sh --format 2         # start with the second format (Rgba32Srgb)
+#   scripts/demo-textures.sh --image photo.jpg  # explore your own picture, loaded with SharpCompute.Imaging
 #   scripts/demo-textures.sh --headless         # no window: one PNG per format and mode in demo-output/textures/
 source "$(dirname "$0")/_common.sh"
 build samples/SharpCompute.Samples.Textures

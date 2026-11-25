@@ -13,6 +13,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <!-- For the explorer's image option. -->
+    <ProjectReference Include="..\..\src\SharpCompute.Imaging\SharpCompute.Imaging.csproj" />
     <!-- For PngEncoder only; the sample itself is MIT. -->
     <ProjectReference Include="..\SharpCompute.Samples.Shaders\SharpCompute.Samples.Shaders.csproj" />
     <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />

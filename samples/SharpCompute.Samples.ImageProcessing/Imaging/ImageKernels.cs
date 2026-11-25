@@ -225,60 +225,78 @@ public readonly partial struct PointFilter(ReadWriteBuffer<Float4> source, ReadW
 }
 
 /// <summary>
-/// Converts premultiplied RGBA8 pixels (bytes R, G, B, A in memory, as CoreGraphics' premultiplied-last
-/// bitmap contexts write them; one little-endian <c>uint</c> per pixel) to premultiplied floats, on
-/// the GPU, so a decoded image goes from the decoder's memory to the filters without a CPU pass.
-/// Same math as <see cref="PixelConversion.FromPremultipliedRgba8"/>. 1D dispatch over the pixel count.
+/// Converts a loaded image (an <see cref="Rgba32"/> texture of straight-alpha sRGB bytes, as
+/// <c>ImageLoader</c> decodes it) to the filters' premultiplied floats, on the GPU, so a decoded image
+/// goes from the texture to the filters without a CPU pass. Same math as
+/// <see cref="PixelConversion.FromStraightRgba32(ReadOnlySpan{Rgba32})"/>. 2D dispatch over the image.
 /// </summary>
 [GeneratedComputeShaderDescriptor]
-public readonly partial struct UnpackRgba8(ReadWriteBuffer<uint> packed, ReadWriteBuffer<Float4> pixels) : IComputeShader
+public readonly partial struct UnpackTexture(ReadOnlyTexture2D<Rgba32> image, ReadWriteBuffer<Float4> pixels) : IComputeShader
 {
     public void Execute()
     {
-        uint p = packed[ThreadIds.X];
-        pixels[ThreadIds.X] = new Float4(
-            (p & 0xFFu) / 255f, ((p >> 8) & 0xFFu) / 255f, ((p >> 16) & 0xFFu) / 255f, (p >> 24) / 255f);
+        // A texture read gives byte / 255 per channel.
+        Float4 p = image[ThreadIds.XY];
+        pixels[(ThreadIds.Y * image.Width) + ThreadIds.X] = new Float4(p.XYZ * p.W, p.W);
     }
 }
 
 /// <summary>
-/// Converts premultiplied floats back to 8-bit RGBA on the GPU, rounding to nearest, either
-/// premultiplied (for CoreGraphics/ImageIO; same math as <see cref="PixelConversion.ToPremultipliedRgba8"/>)
-/// or straight alpha (for PNG; same math as <see cref="PixelConversion.ToStraight"/>). 1D dispatch over the pixel count.
+/// Converts premultiplied floats back to straight alpha in an <see cref="Rgba32"/> texture, which
+/// <c>ImageSaver</c> encodes in place; the texture write rounds each channel to the nearest byte.
+/// Same math as <see cref="PixelConversion.ToStraight"/>. 2D dispatch over the image.
 /// </summary>
 [GeneratedComputeShaderDescriptor]
-public readonly partial struct PackRgba8(ReadWriteBuffer<Float4> pixels, ReadWriteBuffer<uint> packed, int straightAlpha) : IComputeShader
+public readonly partial struct PackTexture(ReadWriteBuffer<Float4> pixels, ReadWriteTexture2D<Rgba32> image) : IComputeShader
 {
     public void Execute()
     {
-        Float4 p = pixels[ThreadIds.X];
+        Float4 p = pixels[(ThreadIds.Y * image.Width) + ThreadIds.X];
         float a = Gpu.Saturate(p.W);
-        uint alpha = Quantize(a);
-        uint r, g, b;
 
-        if (straightAlpha != 0)
+        // A pixel whose alpha rounds to 0 is stored as transparent black, as on the CPU.
+        if (float.IsNaN(p.W) || a < 0.5f / 255f)
         {
-            if (alpha == 0u)
-            {
-                packed[ThreadIds.X] = 0u;
-                return;
-            }
-
-            r = Quantize(p.X / a);
-            g = Quantize(p.Y / a);
-            b = Quantize(p.Z / a);
-        }
-        else
-        {
-            // A NaN channel stays 0 rather than becoming min(NaN, a) = a, matching Math.Min on the CPU.
-            r = float.IsNaN(p.X) ? 0u : Quantize(Gpu.Min(p.X, a));
-            g = float.IsNaN(p.Y) ? 0u : Quantize(Gpu.Min(p.Y, a));
-            b = float.IsNaN(p.Z) ? 0u : Quantize(Gpu.Min(p.Z, a));
+            image[ThreadIds.XY] = new Float4(0f, 0f, 0f, 0f);
+            return;
         }
 
-        packed[ThreadIds.X] = r | (g << 8) | (b << 16) | (alpha << 24);
+        image[ThreadIds.XY] = new Float4(Gpu.Saturate(p.XYZ / a), a);
+    }
+}
+
+/// <summary>
+/// A lens: barrel (positive <c>strength</c>) or pincushion (negative) distortion with color fringing,
+/// red and blue magnified slightly more and less than green by <c>fringe</c>. Each output pixel
+/// samples the source three times with <see cref="Sampler.LinearClamp"/>, at coordinates that fall
+/// between pixels, which is what texture sampling does in hardware. 2D dispatch over the image.
+/// </summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct LensDistortion(
+    ReadOnlyTexture2D<Float4> source, ReadWriteBuffer<Float4> destination, int width, int height, float strength, float fringe) : IComputeShader
+{
+    public void Execute()
+    {
+        Float2 size = new(width, height);
+        Float2 pixel = new Float2(ThreadIds.X, ThreadIds.Y) + 0.5f;
+        Float4 red = source.Sample(Sampler.LinearClamp, SourceUv(pixel, size, strength, 1f + fringe));
+        Float4 green = source.Sample(Sampler.LinearClamp, SourceUv(pixel, size, strength, 1f));
+        Float4 blue = source.Sample(Sampler.LinearClamp, SourceUv(pixel, size, strength, 1f - fringe));
+
+        destination[(ThreadIds.Y * width) + ThreadIds.X] = new Float4(Gpu.Min(red.X, green.W), green.Y, Gpu.Min(blue.Z, green.W), green.W);
     }
 
-    /// <summary>Same as <see cref="PixelConversion.Quantize"/>: clamp to 0..1, scale to 0..255, round to nearest; NaN → 0.</summary>
-    private static uint Quantize(float value) => float.IsNaN(value) ? 0u : (uint)((Gpu.Saturate(value) * 255f) + 0.5f);
+    /// <summary>
+    /// The normalized source coordinate for the output pixel center <paramref name="pixel"/>: its
+    /// offset from the image center scaled by <c>1 + strength · r²</c> (r = 1 at the corners), and
+    /// by <paramref name="scale"/>. A barrel is divided by <c>1 + strength</c> so its corners stay at the corners.
+    /// </summary>
+    public static Float2 SourceUv(Float2 pixel, Float2 size, float strength, float scale)
+    {
+        Float2 center = size * 0.5f;
+        Float2 offset = pixel - center;
+        float r2 = Gpu.Dot(offset, offset) / Gpu.Dot(center, center);
+        float factor = (1f + (strength * r2)) / (1f + Gpu.Max(strength, 0f)) * scale;
+        return (center + (offset * factor)) / size;
+    }
 }
