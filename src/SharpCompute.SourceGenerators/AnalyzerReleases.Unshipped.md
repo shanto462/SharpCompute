@@ -52,4 +52,8 @@ SCG0044 | SharpCompute | Warning | [GroupShared] array in a shader without [Thre
 SCG0045 | SharpCompute | Error | Computed property is assigned in a shader
 SCG0046 | SharpCompute | Error | Generic method cannot be specialized
 SCG0047 | SharpCompute | Error | No atomic operation for this element type
+SCG0048 | SharpCompute | Error | Wave matrix cannot be stored
+SCG0049 | SharpCompute | Error | Wave matrix cannot be loaded from or stored to this memory
+SCG0050 | SharpCompute | Error | Wave matrix in a static field
+SCG0051 | SharpCompute | Warning | Wave matrix in a threadgroup that is not a multiple of 32 threads
 SCG9999 | SharpCompute | Error | Internal generator error

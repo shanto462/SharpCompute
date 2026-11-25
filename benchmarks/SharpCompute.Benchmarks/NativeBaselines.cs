@@ -64,7 +64,7 @@ public sealed record NativeBaselineData(
 /// <summary>
 /// The native baselines (<c>--native-baselines</c>): each workload's generated kernel next to the
 /// same kernel written by hand in MSL and, for SGEMM, next to Apple's
-/// <c>MPSMatrixMultiplication</c> and a hand-written kernel on Metal's matrix units, timed by the GPU's
+/// <c>MPSMatrixMultiplication</c> and a kernel on Metal's matrix units (by hand and in C#), timed by the GPU's
 /// own clock, plus probes that measure the machine's FP32 and memory-bandwidth ceilings so that each
 /// row can be placed under them (a roofline). The bandwidth probes need
 /// <see cref="BandwidthLength"/> floats twice: 2 GiB of memory while they run.
@@ -118,6 +118,13 @@ public static class NativeBaselines
     /// end of a thread is not counted.
     /// </summary>
     public const int NBodyFlopsPerInteraction = 20;
+
+    /// <summary>
+    /// The SGEMM kernel on Metal's matrix units, under one name for the hand-written MSL and for the
+    /// C# shader on <c>WaveMatrix8x8</c> that generates the same kernel: the name is what pairs a
+    /// generated row with its hand-written twin in the report.
+    /// </summary>
+    public const string MatrixUnitsVariant = "simdgroup_matrix, 2×4 accumulators";
 
     private sealed record Variant(string Name, string Kind, Func<(double Gpu, double Wall)> Sample, double Flops = 0, double Bytes = 0, double Rounds = 0);
 
@@ -225,7 +232,8 @@ public static class NativeBaselines
 
         Measure("SGEMM", Invariant($"{n}×{n}"), values,
             new Variant("MPSMatrixMultiplication", NativeKinds.Mps, sgemm.Mps.Run, flops),
-            new Variant("simdgroup_matrix, 2×4 accumulators", NativeKinds.HandWritten, Dispatch(device, sgemm.HandWrittenSimdgroup), flops),
+            new Variant(MatrixUnitsVariant, NativeKinds.HandWritten, Dispatch(device, sgemm.HandWrittenSimdgroup), flops),
+            new Variant(MatrixUnitsVariant, NativeKinds.Generated, Dispatch(device, sgemm.GeneratedWaveMatrix), flops),
             new Variant("threadgroup-tiled 16×16", NativeKinds.Generated, Dispatch(device, sgemm.GeneratedTiled), flops),
             new Variant("naive", NativeKinds.Generated, Dispatch(device, sgemm.GeneratedNaive), flops),
             new Variant("naive", NativeKinds.HandWritten, Dispatch(device, sgemm.HandWrittenNaive), flops));

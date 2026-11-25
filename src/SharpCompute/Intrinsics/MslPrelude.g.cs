@@ -7,8 +7,9 @@ namespace SharpCompute;
 /// MSL helpers and types that have no <c>metal::</c> equivalent. The generator emits
 /// <see cref="Source"/> after <c>using namespace metal;</c> when a shader uses one of them. They
 /// are named <c>__ms_*</c> and are referenced by <c>[MslIntrinsic("__ms_...")]</c> and
-/// <c>[MslAtomic("__ms_...")]</c> on the matching <see cref="Gpu"/> methods, and by
-/// <c>[MslType(..., Packed = "__ms_...")]</c> on <see cref="Float4x4"/>.
+/// <c>[MslAtomic("__ms_...")]</c> on the matching <see cref="Gpu"/> methods, by
+/// <c>[MslType(..., Packed = "__ms_...")]</c> on <see cref="Float4x4"/>, and by the generator for the
+/// loads and products of <see cref="WaveMatrix8x8"/> and <see cref="WaveMatrixHalf8x8"/>.
 /// </summary>
 public static class MslPrelude
 {
@@ -103,5 +104,9 @@ public static class MslPrelude
         inline bool __ms_wave_all_equal(half2 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
         inline bool __ms_wave_all_equal(half3 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
         inline bool __ms_wave_all_equal(half4 v) { return metal::simd_all(metal::all(v == metal::simd_broadcast_first(v))); }
+        template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const device T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
+        template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
+        template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
+        template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
         """;
 }

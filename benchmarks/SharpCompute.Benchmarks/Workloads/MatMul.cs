@@ -106,6 +106,21 @@ public sealed class MatMul : IDisposable
         return GpuC[GpuC.Length / 2];
     }
 
+    /// <summary>
+    /// The same product on the GPU's matrix units (<see cref="MatMulWaveMatrix"/>): one threadgroup of
+    /// 128 threads per 32 × 64 tile of C. N must be a multiple of 64.
+    /// </summary>
+    public float GpuWaveMatrix()
+    {
+        if (N % MatMulWaveMatrix.TileColumns != 0)
+        {
+            throw new InvalidOperationException($"The wave-matrix product needs a size that is a multiple of {MatMulWaveMatrix.TileColumns}, not {N}.");
+        }
+
+        Device.For(N / MatMulWaveMatrix.TileColumns * MatMulWaveMatrix.GroupThreads, N / MatMulWaveMatrix.TileRows, new MatMulWaveMatrix(GpuA, GpuB, GpuC, N));
+        return GpuC[GpuC.Length / 2];
+    }
+
     public void Dispose()
     {
         GpuA.Dispose();

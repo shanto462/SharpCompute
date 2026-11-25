@@ -56,6 +56,15 @@ internal enum SimdOp : byte
     QuadReadAcrossY,
     QuadReadAcrossDiagonal,
     QuadReadLaneAt,
+
+    // The matrix operations of WaveMatrix8x8 and WaveMatrixHalf8x8 (see CpuWaveMatrix). They come
+    // last: SimdCall.IsMatrix tells them from everything above by their position.
+    MatrixFilled,
+    MatrixDiagonal,
+    MatrixLoad,
+    MatrixStore,
+    MatrixMultiply,
+    MatrixMultiplyAccumulate,
 }
 
 /// <summary>The component type of the value a SIMD-group operation works on; vectors are 2 to 4 of them.</summary>
@@ -129,12 +138,28 @@ internal struct SimdValue
 }
 
 /// <summary>
+/// What a lane takes away from a meeting: its value, or for a matrix operation the matrix the group
+/// made (null for a store), or the exception the operation ended with.
+/// </summary>
+internal readonly record struct SimdResult(SimdValue Value, float[]? Matrix, Exception? Failure)
+{
+    /// <summary>This result, or its <see cref="Failure"/> thrown: every lane of the meeting reports the same failure.</summary>
+    internal SimdResult Checked() => Failure is null ? this : throw Failure;
+}
+
+/// <summary>
 /// A call site of a SIMD-group operation as the CPU sees it: the operation, the type of its value and
 /// where the call is in the source (the file and line the C# compiler passed along). The lanes of a
 /// SIMD group meet when they are all at the same one.
 /// </summary>
 internal readonly record struct SimdCall(SimdOp Op, SimdScalar Scalar, int Components, string File, int Line)
 {
+    /// <summary>True for an operation on a wave matrix, which is a member of the matrix type rather than of <see cref="Gpu"/>.</summary>
+    internal bool IsMatrix => Op >= SimdOp.MatrixFilled;
+
+    /// <summary>The public type that declares <see cref="Method"/>, for messages.</summary>
+    internal string Owner => !IsMatrix ? nameof(Gpu) : Scalar == SimdScalar.Half ? nameof(WaveMatrixHalf8x8) : nameof(WaveMatrix8x8);
+
     /// <summary>The public method behind <see cref="Op"/>, for messages.</summary>
     internal string Method => Op switch
     {
@@ -182,11 +207,17 @@ internal readonly record struct SimdCall(SimdOp Op, SimdScalar Scalar, int Compo
         SimdOp.QuadReadAcrossX => "QuadReadAcrossX",
         SimdOp.QuadReadAcrossY => "QuadReadAcrossY",
         SimdOp.QuadReadAcrossDiagonal => "QuadReadAcrossDiagonal",
+        SimdOp.MatrixFilled => "Filled",
+        SimdOp.MatrixDiagonal => "Diagonal",
+        SimdOp.MatrixLoad => "Load",
+        SimdOp.MatrixStore => "Store",
+        SimdOp.MatrixMultiply => "Multiply",
+        SimdOp.MatrixMultiplyAccumulate => "MultiplyAccumulate",
         _ => "QuadReadLaneAt",
     };
 
     public override string ToString() =>
-        File.Length == 0 ? $"Gpu.{Method} (line {Line})" : $"Gpu.{Method} ({System.IO.Path.GetFileName(File)}, line {Line})";
+        File.Length == 0 ? $"{Owner}.{Method} (line {Line})" : $"{Owner}.{Method} ({System.IO.Path.GetFileName(File)}, line {Line})";
 }
 
 /// <summary>
@@ -277,20 +308,28 @@ internal static class CpuSimdGroup
         where T : unmanaged =>
         Meet(new SimdCall(op, SimdScalar.UInt, Unsafe.SizeOf<T>() / sizeof(uint), callerFile, callerLine), SimdValue.From(value), SimdValue.From(fill), argument).To<T>();
 
-    private static SimdValue Meet(in SimdCall call, SimdValue value, SimdValue fill, int argument)
-    {
-        CpuThread thread = CpuThread.Current;
+    /// <summary>
+    /// The matrix operations: every lane brings the same <paramref name="arguments"/>, and they all get
+    /// the one matrix that was made of them (null for a store, which makes none).
+    /// </summary>
+    internal static float[]? MeetMatrix(in SimdCall call, in WaveMatrixArguments arguments) =>
+        Groups(in call).Meet(CpuThread.Current, in call, default, default, 0, in arguments).Matrix;
 
-        if (thread.Group?.Simd is not { } simd)
+    private static SimdValue Meet(in SimdCall call, SimdValue value, SimdValue fill, int argument) =>
+        Groups(in call).Meet(CpuThread.Current, in call, value, fill, argument, default).Value;
+
+    private static CpuSimdGroups Groups(in SimdCall call)
+    {
+        if (CpuThread.Current.Group?.Simd is not { } simd)
         {
             // Generated descriptors report their SIMD-group operations, so this is a hand-written one that does not.
             throw new InvalidOperationException(
-                $"Gpu.{call.Method} was called by a shader whose descriptor does not report UsesSimdGroups, so the lanes of its SIMD groups " +
+                $"{call.Owner}.{call.Method} was called by a shader whose descriptor does not report UsesSimdGroups, so the lanes of its SIMD groups " +
                 "were not run side by side on the CPU. Let the generator write the descriptor ([GeneratedComputeShaderDescriptor]), " +
                 "or return true from IComputeShaderDescriptor<T>.UsesSimdGroups.");
         }
 
-        return simd.Meet(thread, in call, value, fill, argument);
+        return simd;
     }
 }
 
@@ -379,9 +418,18 @@ internal sealed class CpuSimdGroups
     /// A lane arrives at <paramref name="call"/> with its <paramref name="value"/>. Returns the lane's
     /// result once every lane of its SIMD group that is still running has arrived at the same call.
     /// </summary>
-    /// <exception cref="NotSupportedException">The lanes of the group are not at the same call (divergent control flow).</exception>
+    /// <remarks>
+    /// A matrix operation (<see cref="SimdCall.IsMatrix"/>) brings <paramref name="matrix"/> instead of a
+    /// value: arguments that have to be the same in every lane, which is checked here, as each lane
+    /// arrives. Its result is one matrix for the whole group, or the exception the operation ended
+    /// with (an element out of range, a group that is not full), which every lane then throws.
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// The lanes of the group are not at the same call (divergent control flow), or bring different
+    /// arguments to a matrix operation.
+    /// </exception>
     /// <exception cref="CpuThreadgroupAbortedException">Another thread of the threadgroup threw; this one unwinds.</exception>
-    internal SimdValue Meet(CpuThread thread, in SimdCall call, SimdValue value, SimdValue fill, int argument)
+    internal SimdResult Meet(CpuThread thread, in SimdCall call, SimdValue value, SimdValue fill, int argument, in WaveMatrixArguments matrix)
     {
         int index = thread.GroupIndex;
         int lane = index % Width;
@@ -398,12 +446,21 @@ internal sealed class CpuSimdGroups
             if (meeting.Arrived == 0)
             {
                 meeting.Call = call;
+                meeting.Matrix = matrix;
             }
             else if (meeting.Call != call)
             {
                 throw new NotSupportedException(
                     $"{DivergenceMessage} The lanes of a SIMD group have to reach the same call together, but lane {lane} is at {call} " +
                     $"while other lanes of its group wait at {meeting.Call}.");
+            }
+            else if (call.IsMatrix && !meeting.Matrix.Same(in matrix))
+            {
+                throw new NotSupportedException(
+                    $"{call}: lane {lane} brings other arguments than the lanes of its SIMD group that arrived before it. A wave matrix belongs to the whole " +
+                    "group, so every lane has to pass the same matrices, the same buffer or array, offset, stride and transpose flag, and the same value: " +
+                    "compute them from what the group shares (SimdGroupIds.Index, the threadgroup's position, constants), not from the thread's or the " +
+                    "lane's index. The GPU does not check this; there each lane loads, fills and stores the two elements it holds with its own arguments.");
             }
 
             meeting.Values[lane] = value;
@@ -417,8 +474,7 @@ internal sealed class CpuSimdGroups
 
             if (meeting.Arrived == meeting.Live)
             {
-                Complete(meeting, lane);
-                return meeting.Results[lane];
+                return Complete(meeting, lane).Checked();
             }
 
             _parked++;
@@ -429,12 +485,12 @@ internal sealed class CpuSimdGroups
             }
         }
 
-        if (!parker.Wait(out SimdValue result))
+        if (!parker.Wait(out SimdResult result))
         {
             throw new CpuThreadgroupAbortedException();
         }
 
-        return result;
+        return result.Checked();
     }
 
     /// <summary>
@@ -537,23 +593,48 @@ internal sealed class CpuSimdGroups
 
     /// <summary>
     /// Computes the result of every lane that arrived and wakes the ones that are parked
-    /// (<paramref name="lane"/>, the caller that completed the meeting, takes its result itself).
+    /// (<paramref name="lane"/>, the caller that completed the meeting, gets its result returned; -1
+    /// when the meeting was completed by a lane that left).
     /// </summary>
-    private void Complete(Meeting meeting, int lane)
+    private SimdResult Complete(Meeting meeting, int lane)
     {
-        meeting.Compute();
+        float[]? matrix = null;
+        Exception? failure = null;
+
+        if (meeting.Call.IsMatrix)
+        {
+            // A matrix operation can fail (an element out of range, a group that is not full), and
+            // this may be running on the thread of a lane that is leaving and has nothing to do with
+            // the call: the failure goes to the lanes that made it, each of which throws it.
+            try
+            {
+                matrix = CpuWaveMatrix.Compute(in meeting.Call, in meeting.Matrix, meeting.Arrived);
+            }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or ObjectDisposedException)
+            {
+                failure = e;
+            }
+
+            // The arguments hold the operands and the buffer; nothing needs them after this.
+            meeting.Matrix = default;
+        }
+        else
+        {
+            meeting.Compute();
+        }
 
         for (int other = 0; other < Width; other++)
         {
             if (other != lane && (meeting.ArrivedMask & (1u << other)) != 0)
             {
-                _parkers[meeting.Slots[other]].Deliver(meeting.Results[other]);
+                _parkers[meeting.Slots[other]].Deliver(new SimdResult(meeting.Results[other], matrix, failure));
                 _parked--;
             }
         }
 
         meeting.ArrivedMask = 0;
         meeting.Arrived = 0;
+        return lane < 0 ? default : new SimdResult(meeting.Results[lane], matrix, failure);
     }
 
     /// <summary>One SIMD group's rendezvous: what its lanes brought to the call they are meeting at.</summary>
@@ -575,11 +656,17 @@ internal sealed class CpuSimdGroups
 
         internal SimdCall Call;
 
+        /// <summary>For a matrix operation: the arguments of the first lane to arrive, which the others have to match.</summary>
+        internal WaveMatrixArguments Matrix;
+
         internal void Reset(int live)
         {
             Live = live;
             Arrived = 0;
             ArrivedMask = 0;
+
+            // A group that was abandoned in the middle of a matrix operation left its arguments here.
+            Matrix = default;
         }
 
         private bool Has(int lane) => (uint)lane < Width && (ArrivedMask & (1u << lane)) != 0;
@@ -879,10 +966,10 @@ internal sealed class CpuSimdGroups
         private const int Waiting = 0, Delivered = 1, Aborted = 2;
 
         private readonly object _gate = new();
-        private SimdValue _result;
+        private SimdResult _result;
         private int _state;
 
-        internal void Deliver(SimdValue result)
+        internal void Deliver(SimdResult result)
         {
             lock (_gate)
             {
@@ -902,7 +989,7 @@ internal sealed class CpuSimdGroups
         }
 
         /// <summary>Returns false when the wait ended without a result because the threadgroup was aborted.</summary>
-        internal bool Wait(out SimdValue result)
+        internal bool Wait(out SimdResult result)
         {
             lock (_gate)
             {
@@ -913,6 +1000,9 @@ internal sealed class CpuSimdGroups
 
                 bool delivered = _state == Delivered;
                 result = _result;
+
+                // Not kept: a matrix would otherwise live until the lane's next meeting.
+                _result = default;
                 _state = Waiting;
                 return delivered;
             }

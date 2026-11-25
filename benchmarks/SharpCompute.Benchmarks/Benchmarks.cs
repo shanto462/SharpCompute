@@ -120,6 +120,7 @@ public class MatMulBenchmarks
     {
         _matmul = new MatMul(Sizes.MatMul, GraphicsDevice.GetDefault());
         _matmul.Gpu();
+        _matmul.GpuWaveMatrix();
     }
 
     [GlobalCleanup]
@@ -133,6 +134,9 @@ public class MatMulBenchmarks
 
     [Benchmark(Description = "GPU generated shader")]
     public float Gpu() => _matmul.Gpu();
+
+    [Benchmark(Description = "GPU wave matrices (WaveMatrix8x8, matrix units)")]
+    public float GpuWaveMatrix() => _matmul.GpuWaveMatrix();
 }
 
 [BenchmarkCategory("N-body")]
