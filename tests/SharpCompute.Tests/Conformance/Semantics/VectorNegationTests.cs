@@ -6,12 +6,11 @@ namespace SharpCompute.Tests.Conformance.Semantics;
 /// <summary>
 /// The 21 shapes of <see cref="VectorNegationShader"/>, one test case each: the GPU must match
 /// <c>ForCpu</c> on every slot of the group, over 256 threads of small operands. The Metal compiler
-/// miscompiles some of these negations, so they are skipped until the generator works around it.
+/// miscompiles integer vector negation when a lane of it is never read; the generator works around it.
 /// </summary>
 [Trait("Category", "Conformance")]
 public class VectorNegationTests
 {
-    private const string Pending = "Pending the integer vector negation workaround";
     private const int Threads = 256;
 
     private static readonly Lazy<int[][]> Outputs = new(Run);
@@ -22,13 +21,24 @@ public class VectorNegationTests
         { 24, 31, "Int2 and Int4" }, { 32, 39, "UInt3: 0 - u and u * uint.MaxValue" }, { 40, 43, "packed element of a buffer" },
         { 44, 49, "struct in a buffer" }, { 50, 53, "group-shared" }, { 54, 57, "in a helper" }, { 58, 61, "inside a chain" },
         { 62, 65, "*= -1 on a struct field" }, { 66, 69, "*= -1 on a buffer element" }, { 70, 74, "all lanes read" },
-        { 75, 78, "(0, 5, 0) - v" }, { 79, 82, "v * (-1, 7, -1)" }, { 83, 86, "~v + 1" }, { 87, 90, "v - 2 * v" },
-        { 91, 95, "floats" },
+        { 75, 78, "(0, 5, 0) - v" }, { 79, 82, "v * (-1, 7, -1)" }, { 91, 95, "floats" },
     };
 
-    [MetalTheory(Skip = Pending)]
+    /// <summary>Negations written without a negation operator, which the workaround does not recognize; the GPU still differs on them.</summary>
+    public static TheoryData<int, int, string> UnrecognizedGroups() => new()
+    {
+        { 83, 86, "~v + 1" }, { 87, 90, "v - 2 * v" },
+    };
+
+    [MetalTheory]
     [MemberData(nameof(Groups))]
-    public void Negation_MatchesForCpu(int from, int to, string shape)
+    public void Negation_MatchesForCpu(int from, int to, string shape) => AssertGroup(from, to, shape);
+
+    [MetalTheory(Skip = "The Metal compiler still miscompiles these forms of integer vector negation; the generator does not work around them yet")]
+    [MemberData(nameof(UnrecognizedGroups))]
+    public void NegationWithoutTheOperator_MatchesForCpu(int from, int to, string shape) => AssertGroup(from, to, shape);
+
+    private static void AssertGroup(int from, int to, string shape)
     {
         int[] gpu = Outputs.Value[0], cpu = Outputs.Value[1];
         const int slots = VectorNegationShader.Slots;
