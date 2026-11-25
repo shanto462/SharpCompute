@@ -79,6 +79,9 @@ internal sealed class CpuThread
 
     internal int GroupIndex => (((GroupZ * GroupExtentY) + GroupY) * GroupExtentX) + GroupX;
 
+    /// <summary>The threads the current threadgroup really has, which its SIMD groups are counted from.</summary>
+    internal int GroupThreadCount => GroupExtentX * GroupExtentY * GroupExtentZ;
+
     // ceil(grid / group size), written so that it cannot overflow for a grid near int.MaxValue.
     internal int GroupCountX => ((GridX - 1) / GroupSizeX) + 1;
 
@@ -98,7 +101,8 @@ internal sealed class CpuThread
     /// <summary>The CPU side of the threadgroup barriers on <see cref="Gpu"/>.</summary>
     internal void Barrier()
     {
-        if (Group is null)
+        // Null: independent threads. Lanes only: the threads of one SIMD group at a time, not of a threadgroup.
+        if (Group is null || Group.RunsLanesOnly)
         {
             // Generated descriptors report barriers, so this is a hand-written one that does not.
             throw new InvalidOperationException(

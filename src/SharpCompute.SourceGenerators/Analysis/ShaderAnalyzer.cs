@@ -495,7 +495,8 @@ internal sealed class ShaderAnalyzer
             gridWindowIndex,
             translator.UsesAtomics,
             usesThreadgroupMemory: groupShared.Count > 0 || translator.UsesBarriers,
-            threadgroupMemoryLength: (int)threadgroupMemory);
+            threadgroupMemoryLength: (int)threadgroupMemory,
+            usesSimdGroups: translator.UsesSimdGroups);
 
         return translation;
     }
@@ -826,7 +827,8 @@ internal sealed class ShaderAnalyzer
         int gridWindowIndex = -1,
         bool usesAtomics = false,
         bool usesThreadgroupMemory = false,
-        int threadgroupMemoryLength = 0)
+        int threadgroupMemoryLength = 0,
+        bool usesSimdGroups = false)
     {
         var types = new List<TypeDeclarationInfo>();
 
@@ -866,7 +868,8 @@ internal sealed class ShaderAnalyzer
             UsesAtomics: usesAtomics,
             UsesThreadgroupMemory: usesThreadgroupMemory,
             ThreadgroupMemoryLength: threadgroupMemoryLength,
-            CompileOptions: _compileOptions);
+            CompileOptions: _compileOptions,
+            UsesSimdGroups: usesSimdGroups);
     }
 
     // ---------------------------------------------------------------------------------------------

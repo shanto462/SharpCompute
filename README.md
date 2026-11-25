@@ -66,6 +66,10 @@ here as an original game built on SharpCompute.
   is memory the threads of a threadgroup share, `Gpu.GroupMemoryBarrierWithGroupSync()` is where they
   meet, and `GroupSize`, `GroupIds.Index` and `ThreadGroupCount` tell a thread where it is: what
   reductions, prefix sums and tiled algorithms are built from. Such shaders run on the CPU too.
+- **SIMD-group operations.** HLSL's wave intrinsics on Apple GPUs: `Gpu.WaveActiveSum`,
+  `WaveActiveBallot`, `WavePrefixSum`, `WaveShuffleUp` and the rest reduce, vote, scan and exchange
+  values across the 32 threads of a SIMD group in one step, with no shared memory and no barrier. Such
+  shaders run on the CPU too.
 - **HLSL-like shader library.** `Float2..4`, `Int2..4`, `UInt2..4` with every swizzle,
   `Float2x2`/`Float3x3`/`Float4x4` with `Gpu.Mul`, `Half`, user structs, and about 60 `Gpu.*`
   intrinsics (`MathF.*`, `BitOperations.*` and `BitConverter.*` work too). Static and instance helper
@@ -118,6 +122,7 @@ Each script builds in Release, writes to `demo-output/` and opens the result (`N
 | `scripts/demo-textures.sh` | **Live window:** textures in shaders at a glance. One picture magnified through all six samplers side by side (Point/Linear × Clamp/Repeat/Mirror), in any of the eight texture formats, and a reaction-diffusion that ping-pongs between two read-write textures while you paint into it. Tab switches, F cycles formats, the scroll wheel (or a two-finger scroll) zooms around the pointer, +/- zoom, drag pans or paints. `--headless` writes a PNG per format and mode |
 | `scripts/demo-computelab.sh` | **Live window:** *ComputeLab*, one page per core compute feature. Each page runs the feature on the GPU, checks the result against the CPU (`ForCpu` of the same shader) and shows GPU ms vs CPU ms. **Histogram:** a 256-bin luminance histogram of an animated image with `Gpu.AtomicAdd`; C folds it into 4 bins to show what contention costs. **Compaction:** keeps the passing elements of a million through one atomic counter, and shows why their order is not kept. **Bits:** popcount, bit reversal, clz/ctz, float bit patterns and unorm8 packing as pictures. **Indirect:** a compaction pass counts its survivors, and the follow-up pass is dispatched over exactly that many with `ForIndirect`, in one execution; D steps through the two full-array alternatives (after the same compaction, and with no compaction) for comparison. **FastMath:** one transcendental-heavy kernel with and without `[ShaderOptions(FastMath = true)]`: GPU ms both ways and the error against the CPU. ←/→ switch page, Space pause, S save PNG. `--headless` writes a PNG per page and a summary |
 | `scripts/demo-groupshared.sh` | **Live window:** threadgroup shared memory and barriers, one page per algorithm. The sum of 16.7M floats by a tree in shared memory (and why it is more accurate than a loop), a work-efficient prefix sum of 1M flags used for order-preserving stream compaction, a 1024 × 1024 matrix product in 16 × 16 shared-memory tiles against the naive kernel, in GFLOP/s, and a separable blur that loads a tile plus apron into shared memory. Every page checks the GPU against plain C# and shows GPU ms vs CPU ms. ←/→ switch, V variant, Up/Down threshold or radius. `--headless` writes a PNG per page and a summary |
+| `scripts/demo-simdgroups.sh` | **Live window:** SIMD-group operations, three pages, each checked against the CPU and timed. A reduction race (the sum of 16M floats three ways), a stream compaction of 32,768 particles built from `WaveActiveBallot` and `WavePrefixSum` with no atomics, and a signal smoothed inside each SIMD group with `WaveShuffleUp`/`Down`, so the group edges show. `--headless` writes a PNG per page and a summary |
 | `scripts/run-benchmarks.sh` | The GPU vs CPU benchmark suite, written to `benchmarks/RESULTS.md` |
 | `scripts/run-demos.sh` | Everything that doesn't need a window (`--video`, `--test`) |
 
@@ -379,6 +384,107 @@ device.For((count + 255) / 256 * 256, new SumBlocks(input, sums, count)); // who
 
 `scripts/demo-groupshared.sh` runs a reduction, a prefix sum, a tiled matrix product and a tiled blur
 built this way, each checked against plain C#.
+
+### SIMD-group operations
+
+An Apple GPU executes a threadgroup 32 threads at a time, in *SIMD groups* whose threads ("lanes")
+run together. The `Gpu.Wave*` methods let the lanes of one group combine or exchange values in a
+single step, without threadgroup memory, barriers or atomics; the `Gpu.Quad*` methods do the same
+among the four lanes of a quad. The names and meanings are those of HLSL's wave and quad
+intrinsics; they map to Metal's `simd_*` and `quad_*` functions.
+
+```csharp
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct SumGroups(ReadOnlyBuffer<float> input, ReadWriteBuffer<float> partials) : IComputeShader
+{
+    public void Execute()
+    {
+        int i = ThreadIds.X;
+
+        if (i >= input.Length)
+        {
+            return;                              // a lane that returned takes no part in what follows
+        }
+
+        float sum = Gpu.WaveActiveSum(input[i]); // the sum over the group's lanes, in every lane
+
+        if (Gpu.WaveIsFirstLane())
+        {
+            partials[i / 32] = sum;              // one lane stores it: nothing to synchronize
+        }
+    }
+}
+
+device.For(count, new SumGroups(input, partials)); // 32 elements become one; repeat on the partials
+```
+
+| | Methods of `Gpu` | Metal |
+|---|---|---|
+| Lanes | `WaveGetLaneIndex()`, `WaveGetLaneCount()`, `WaveIsFirstLane()`, and the built-ins `SimdGroupIds.Index`, `SimdGroupIds.Count` | `thread_index_in_simdgroup`, `threads_per_simdgroup`, `simd_is_first`, `simdgroup_index_in_threadgroup`, `simdgroups_per_threadgroup` |
+| Votes | `WaveActiveAnyTrue(b)`, `WaveActiveAllTrue(b)`, `WaveActiveBallot(b)` (a `uint`, bit *i* = lane *i*), `WaveActiveCountBits(b)`, `WavePrefixCountBits(b)`, `WaveActiveAllEqual(v)` | `simd_any`, `simd_all`, `simd_ballot`, `simd_sum` and `simd_prefix_exclusive_sum` of 0/1, `simd_all(v == simd_broadcast_first(v))` |
+| Reductions | `WaveActiveSum`, `WaveActiveProduct`, `WaveActiveMin`, `WaveActiveMax`; for integers also `WaveActiveBitAnd`, `WaveActiveBitOr`, `WaveActiveBitXor` | `simd_sum`, `simd_product`, `simd_min`, `simd_max`, `simd_and`, `simd_or`, `simd_xor` |
+| Scans | `WavePrefixSum`, `WavePrefixProduct` (exclusive, as in HLSL), `WaveInclusivePrefixSum`, `WaveInclusivePrefixProduct` | `simd_prefix_exclusive_sum`/`_product`, `simd_prefix_inclusive_sum`/`_product` |
+| Exchange | `WaveReadLaneAt(v, lane)`, `WaveReadLaneFirst(v)`, `WaveShuffleUp(v, delta)`, `WaveShuffleDown(v, delta)`, `WaveShuffleXor(v, mask)`, `WaveRotateUp(v, delta)`, `WaveRotateDown(v, delta)`, `WaveShuffleUpAndFill(v, fill, delta)`, `WaveShuffleDownAndFill(v, fill, delta)` | `simd_shuffle`, `simd_broadcast_first`, `simd_shuffle_up`/`_down`/`_xor`, `simd_shuffle_rotate_up`/`_down`, `simd_shuffle_and_fill_up`/`_down` |
+| Quads | `QuadActiveAnyTrue(b)`, `QuadActiveAllTrue(b)`, `QuadActiveBallot(b)`; `QuadActiveSum`, `Product`, `Min`, `Max`, `BitAnd`, `BitOr`, `BitXor`; `QuadPrefixSum`, `QuadPrefixProduct`, `QuadInclusivePrefixSum`, `QuadInclusivePrefixProduct`; `QuadReadAcrossX(v)`, `QuadReadAcrossY(v)`, `QuadReadAcrossDiagonal(v)`, `QuadReadLaneAt(v, lane)` | `quad_any`, `quad_all`, `quad_ballot`; `quad_sum` … `quad_xor`; `quad_prefix_*`; `quad_shuffle_xor` with 1, 2, 3; `quad_shuffle` |
+
+Values are `float`, `int`, `uint` and their 2- to 4-component vectors (componentwise). They work in
+compute and pixel shaders and in helper methods. What they mean, measured on an Apple M4 Pro and
+pinned by the tests:
+
+- **How groups are formed.** The threads of a threadgroup are numbered row by row (`GroupIds.Index`:
+  `(z * sizeY + y) * sizeX + x`, with the real size of a threadgroup cut off at the edge of the
+  grid); lane `index % 32` of SIMD group `index / 32` is thread `index`. A threadgroup of 256 has 8
+  groups; in a 16 × 16 one each group is two rows; 12 × 12 gives four full groups and one of 16 lanes.
+  Metal does not document this layout.
+- **Which lanes take part.** Only *active* lanes: the ones executing this very call. A lane that
+  returned earlier, a lane in the other branch of an `if`, and the lanes a partial group does not
+  have (a grid or threadgroup that is not a multiple of 32) contribute nothing. A scan numbers the
+  active lanes without gaps, and `WaveIsFirstLane` is the lowest active lane.
+- **Shuffles at the edges.** `WaveShuffleUp(v, delta)` gives lane *i* the value of lane *i − delta*;
+  the lowest `delta` lanes get their own value back. `WaveShuffleDown` mirrors that at the top of a
+  full group. The `...AndFill` forms hand those lanes a fill instead, the `fill` argument of the lane
+  32 further on (so pass the same fill everywhere to shift in a constant), and the rotations wrap
+  around the 32 lanes.
+- **Reading a lane that is not active** (the shuffles and rotations, `WaveReadLaneAt`, the quad reads)
+  is undefined in Metal; Apple GPUs return 0. That includes the top of a partial group for
+  `WaveShuffleDown`, so guard it: `lane + delta < Gpu.WaveActiveCountBits(true) ? shuffled : own`.
+- **`WaveActiveBallot` returns a `uint`**, not HLSL's `uint4`: a SIMD group has 32 lanes on every
+  Apple GPU. A dispatch checks the compiled kernel's width and refuses a wider GPU rather than drop votes.
+- **`WaveActiveAllEqual` answers for the whole value**, also for a vector (HLSL answers per component).
+- **Quads** are four consecutive lanes (`x = lane & 1`, `y = (lane >> 1) & 1`): 2 × 2 blocks of the
+  grid in a threadgroup that is 2 threads wide, four threads in a row otherwise.
+- **Float reductions** combine the lanes in an order of the GPU's choosing; compare with a tolerance.
+  Integer results are exact and wrap.
+
+**On the CPU** (`ForCpu`, `ForIndirectCpu`, `ForSplit`) the lanes of a SIMD group run on threads of
+their own, 32 at a
+time, and meet at every operation: a lane waits until every lane of its group that has not returned
+from `Execute` is at the same call, and the result is computed from what they brought, in lane
+order (where reading a lane that takes no part gives 0, as on Apple GPUs). A shader that also uses
+threadgroup memory or barriers runs whole threadgroups instead, and `ForSplit` cuts between
+threadgroups, so a SIMD group is never divided between the devices. This reproduces the GPU when the
+lanes that are still running make the same SIMD-group calls in the same order: calls at the top
+level of `Execute` after any early returns, and calls in loops and branches that every lane takes
+alike. It costs about a quarter of a millisecond per operation and SIMD group, so it is for
+checking and debugging a shader, not for bulk work.
+
+- **Divergent control flow that shows is refused.** If the lanes of a group arrive at different
+  calls (one branch of an `if` calls an operation and the other does not, or calls another), or some
+  wait at an operation while others wait at a barrier, the dispatch throws `NotSupportedException`
+  ("SIMD-group operation in divergent control flow is not supported on the CPU; it is supported on
+  the GPU"). It does not hang, and it does not guess.
+- **Limitation: divergence that does not show.** Lanes that reach the *same* call site along
+  different paths meet as if control flow were uniform, and the result then includes lanes the GPU
+  would have kept apart. That is the case for a call in a loop when lanes are in different
+  iterations (a lane skipped an iteration, or its loop ran longer), and for a helper method that
+  contains the call and is called from both branches of an `if`. `ForCpu` cannot detect this; such
+  shaders are right on the GPU and should be checked there.
+- Every operation ends in two parameters the compiler fills in, `callerFile` and `callerLine` (leave
+  them out). With the operation they are the call site the lanes have to agree on, so keep two calls
+  of the same operation on separate lines (SCG0035 warns otherwise).
+
+`scripts/demo-simdgroups.sh` shows three uses live: a reduction race over 16M floats, a stream
+compaction built from ballots and prefix sums, and a signal smoothed with shuffles.
 
 ### Batching and async dispatch
 
@@ -669,6 +775,9 @@ The vector, matrix and intrinsic sources are generated by `tools/gen_vectors.py`
 ## Limitations
 
 - Apple Silicon and macOS 15+ only, for now.
+- On the CPU, SIMD-group operations need uniform control flow: `ForCpu` refuses lanes that arrive at
+  different operations, and cannot tell lanes apart that reach one call site along different paths
+  (a loop iteration some lanes skip, a helper called from two branches). The GPU handles both.
 - Atomics work on buffer elements of `int`, `uint` and (add only) `float`, not on struct fields
   and not on `[GroupShared]` memory.
 - Textures are 2D with one mip level; samplers are the six fixed ones.

@@ -22,6 +22,12 @@ internal enum Builtins
     ThreadsPerThreadgroup = 16,
     ThreadgroupsPerGrid = 32,
     ThreadIndexInThreadgroup = 64,
+
+    // The SIMD-group built-ins, which are scalars (see BuiltinInfo.Type).
+    ThreadIndexInSimdgroup = 128,
+    ThreadsPerSimdgroup = 256,
+    SimdgroupIndexInThreadgroup = 512,
+    SimdgroupsPerThreadgroup = 1024,
 }
 
 internal static class BuiltinInfo
@@ -35,7 +41,15 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerThreadgroup,
         Builtins.ThreadgroupsPerGrid,
         Builtins.ThreadIndexInThreadgroup,
+        Builtins.ThreadIndexInSimdgroup,
+        Builtins.ThreadsPerSimdgroup,
+        Builtins.SimdgroupIndexInThreadgroup,
+        Builtins.SimdgroupsPerThreadgroup,
     };
+
+    /// <summary>The SIMD-group built-ins: scalars, and the same in every part of a windowed dispatch (windows are threadgroup aligned).</summary>
+    public const Builtins SimdGroup =
+        Builtins.ThreadIndexInSimdgroup | Builtins.ThreadsPerSimdgroup | Builtins.SimdgroupIndexInThreadgroup | Builtins.SimdgroupsPerThreadgroup;
 
     public static string Name(Builtins builtin) => builtin switch
     {
@@ -45,11 +59,19 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerThreadgroup => "__gsize",
         Builtins.ThreadgroupsPerGrid => "__groups",
         Builtins.ThreadIndexInThreadgroup => "__gindex",
+        Builtins.ThreadIndexInSimdgroup => "__lane",
+        Builtins.ThreadsPerSimdgroup => "__lanes",
+        Builtins.SimdgroupIndexInThreadgroup => "__sgid",
+        Builtins.SimdgroupsPerThreadgroup => "__sgroups",
         _ => "__gid",
     };
 
-    /// <summary>The MSL type of the built-in: a <c>uint3</c>, except for the flat index in the threadgroup.</summary>
-    public static string Type(Builtins builtin) => builtin == Builtins.ThreadIndexInThreadgroup ? "uint" : "uint3";
+    /// <summary>
+    /// The MSL type of the built-in's kernel argument: a <c>uint3</c>, except for the flat index in the
+    /// threadgroup and the SIMD-group built-ins, which are scalars.
+    /// </summary>
+    public static string Type(Builtins builtin) =>
+        builtin == Builtins.ThreadIndexInThreadgroup || (builtin & SimdGroup) != 0 ? "uint" : "uint3";
 
     /// <summary>
     /// The built-ins a partial-grid (windowed) dispatch has to rebase: the thread and threadgroup
@@ -85,6 +107,10 @@ internal static class BuiltinInfo
         Builtins.ThreadsPerThreadgroup => "threads_per_threadgroup",
         Builtins.ThreadgroupsPerGrid => "threadgroups_per_grid",
         Builtins.ThreadIndexInThreadgroup => "thread_index_in_threadgroup",
+        Builtins.ThreadIndexInSimdgroup => "thread_index_in_simdgroup",
+        Builtins.ThreadsPerSimdgroup => "threads_per_simdgroup",
+        Builtins.SimdgroupIndexInThreadgroup => "simdgroup_index_in_threadgroup",
+        Builtins.SimdgroupsPerThreadgroup => "simdgroups_per_threadgroup",
         _ => "threadgroup_position_in_grid",
     };
 }
@@ -444,6 +470,12 @@ internal sealed partial class MslTranslator
 
     /// <summary>Every local and parameter name that was emitted, used to detect clashes with struct names.</summary>
     public HashSet<string> LocalNames { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when the kernel (or a helper it calls) uses a SIMD-group operation or built-in: its lanes
+    /// compute results together, which the descriptor reports to the runtime.
+    /// </summary>
+    public bool UsesSimdGroups { get; private set; }
 
     /// <summary>Set when the user's code contains compile errors; the generator then stays quiet.</summary>
     public bool SawInvalidCode { get; private set; }

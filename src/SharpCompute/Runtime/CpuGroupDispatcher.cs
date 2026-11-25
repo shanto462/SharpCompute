@@ -5,10 +5,30 @@ using System.Threading;
 
 namespace SharpCompute;
 
+/// <summary>How the SIMD-group operations of a shader shape its CPU dispatch (see <see cref="CpuGroupDispatcher"/>).</summary>
+internal enum CpuSimdMode
+{
+    /// <summary>The shader uses no SIMD-group operations.</summary>
+    None,
+
+    /// <summary>
+    /// It uses them along with threadgroup memory or barriers: a whole threadgroup runs at once, and the
+    /// lanes of each of its SIMD groups meet among its threads.
+    /// </summary>
+    WholeThreadgroups,
+
+    /// <summary>
+    /// It uses them and nothing else that ties a threadgroup together: one SIMD group runs at a time, on
+    /// at most 32 threads. Lanes only ever meet within their SIMD group, so the results are the same.
+    /// </summary>
+    LanesOnly,
+}
+
 /// <summary>
-/// Runs a box of the grid on the CPU for a shader whose threads cooperate within a threadgroup: one
-/// that uses <see cref="GroupSharedAttribute"/> memory or a barrier
-/// (<see cref="IComputeShaderDescriptor{TSelf}.UsesThreadgroupMemory"/>).
+/// Runs a box of the grid on the CPU for a shader whose threads cooperate: one that uses
+/// <see cref="GroupSharedAttribute"/> memory or a barrier
+/// (<see cref="IComputeShaderDescriptor{TSelf}.UsesThreadgroupMemory"/>), or SIMD-group operations
+/// (<see cref="IComputeShaderDescriptor{TSelf}.UsesSimdGroups"/>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,6 +50,15 @@ namespace SharpCompute;
 /// This is built to be correct, not fast: each barrier costs a block and a wake-up of every thread of
 /// the group, a few microseconds per thread. It is meant for checking shaders against the GPU and for
 /// the CPU part of a split, not for bulk work.
+/// </para>
+/// <para>
+/// <b>SIMD groups.</b> A SIMD-group operation is a meeting of the up to 32 lanes of one SIMD group
+/// (<see cref="CpuSimdGroups"/>), so those lanes need threads of their own as well. In a shader that
+/// also has threadgroup memory or barriers they are simply the threads of the threadgroup
+/// (<see cref="CpuSimdMode.WholeThreadgroups"/>). In one that has not, nothing connects two SIMD groups
+/// of a threadgroup, so the dispatch runs one SIMD group after another on at most 32 threads
+/// (<see cref="CpuSimdMode.LanesOnly"/>): the same results with an eighth of the threads for the
+/// default threadgroup, no limit on the threadgroup size, and no need for the shader type's gate.
 /// </para>
 /// </remarks>
 internal static class CpuGroupDispatcher
@@ -53,12 +82,15 @@ internal static class CpuGroupDispatcher
     /// threadgroup boundary. If a thread throws, the rest of its group is stopped at the next barrier
     /// each thread reaches, no further group runs, and the first exception is rethrown.
     /// <paramref name="gate"/> is held for the whole dispatch: it is the lock of the shader type, whose
-    /// static group-shared arrays this dispatch uses.
+    /// static group-shared arrays this dispatch uses (any object of the dispatch's own for a shader that
+    /// has none). <paramref name="simd"/> says whether the shader's lanes meet at SIMD-group operations
+    /// and, if so, whether whole threadgroups or single SIMD groups run at a time; the thread limit
+    /// applies to whole threadgroups only.
     /// </summary>
     /// <exception cref="NotSupportedException">A threadgroup has more than <paramref name="maxGroupThreads"/> threads.</exception>
     internal static void Run<TKernel>(
         TKernel kernel, int gridX, int gridY, int gridZ, Extent3 groupSize, Extent3 origin, Extent3 count, object gate, Type shaderType,
-        int maxGroupThreads = MaxGroupThreads)
+        int maxGroupThreads = MaxGroupThreads, CpuSimdMode simd = CpuSimdMode.None)
         where TKernel : struct, ICpuKernel
     {
         if ((long)count.X * count.Y * count.Z == 0)
@@ -72,8 +104,14 @@ internal static class CpuGroupDispatcher
         // threads dispatched in groups of 256 need ten.
         Extent3 slots = new(Math.Min(groupSize.X, count.X), Math.Min(groupSize.Y, count.Y), Math.Min(groupSize.Z, count.Z));
         long threads = (long)slots.X * slots.Y * slots.Z;
+        bool lanesOnly = simd == CpuSimdMode.LanesOnly;
 
-        if (threads > maxGroupThreads)
+        if (lanesOnly)
+        {
+            // One SIMD group at a time: its lanes are all the threads there are, whatever the threadgroup.
+            threads = Math.Min(threads, CpuSimdGroup.Width);
+        }
+        else if (threads > maxGroupThreads)
         {
             throw new NotSupportedException(
                 $"Shader '{shaderType}' uses threadgroup memory or barriers, which the CPU runs with one dedicated thread per thread of a threadgroup. " +
@@ -83,26 +121,23 @@ internal static class CpuGroupDispatcher
 
         lock (gate)
         {
-            CpuThreadgroup group = new((int)threads);
+            CpuThreadgroup group = new((int)threads, simd);
             Thread[] workers = new Thread[threads];
             int started = 0;
 
             try
             {
-                for (int z = 0; z < slots.Z; z++)
+                // A worker is a position of the threadgroup (the same in every group that has it), or, with
+                // lanes only, a lane (the same in every SIMD group that has it).
+                for (int i = 0; i < threads; i++)
                 {
-                    for (int y = 0; y < slots.Y; y++)
-                    {
-                        for (int x = 0; x < slots.X; x++)
-                        {
-                            Worker<TKernel> worker = new(kernel, group, started, new Extent3(x, y, z), new CpuThread(gridX, gridY, gridZ, groupSize) { Group = group, Slot = started });
+                    Extent3 position = new(i % slots.X, i / slots.X % slots.Y, i / (slots.X * slots.Y));
+                    Worker<TKernel> worker = new(kernel, group, started, position, lanesOnly, new CpuThread(gridX, gridY, gridZ, groupSize) { Group = group, Slot = started });
 
-                            // Background threads: a shader that never returns must not keep the process alive.
-                            workers[started] = new Thread(worker.Run, WorkerStackSize) { IsBackground = true, Name = "SharpCompute threadgroup" };
-                            workers[started].Start();
-                            started++;
-                        }
-                    }
+                    // Background threads: a shader that never returns must not keep the process alive.
+                    workers[started] = new Thread(worker.Run, WorkerStackSize) { IsBackground = true, Name = "SharpCompute threadgroup" };
+                    workers[started].Start();
+                    started++;
                 }
 
                 Extent3 end = new(origin.X + count.X, origin.Y + count.Y, origin.Z + count.Z);
@@ -114,7 +149,22 @@ internal static class CpuGroupDispatcher
                         for (int x = origin.X; x < end.X && !group.IsAborted; x += groupSize.X)
                         {
                             Extent3 extent = new(Math.Min(groupSize.X, end.X - x), Math.Min(groupSize.Y, end.Y - y), Math.Min(groupSize.Z, end.Z - z));
-                            group.RunGroup(new Extent3(x, y, z), extent, slots);
+
+                            if (lanesOnly)
+                            {
+                                // The SIMD groups of this threadgroup, one after another: 32 consecutive
+                                // threads of its linear order each, fewer in the last.
+                                int total = extent.X * extent.Y * extent.Z;
+
+                                for (int first = 0; first < total && !group.IsAborted; first += CpuSimdGroup.Width)
+                                {
+                                    group.RunLanes(new Extent3(x, y, z), extent, first, Math.Min(CpuSimdGroup.Width, total - first));
+                                }
+                            }
+                            else
+                            {
+                                group.RunGroup(new Extent3(x, y, z), extent, slots);
+                            }
                         }
                     }
                 }
@@ -134,8 +184,12 @@ internal static class CpuGroupDispatcher
         }
     }
 
-    /// <summary>One thread of the threadgroup: the same position in every group that has it.</summary>
-    private sealed class Worker<TKernel>(TKernel kernel, CpuThreadgroup group, int slot, Extent3 position, CpuThread thread)
+    /// <summary>
+    /// One thread of the threadgroup: the same position in every group that has it. With
+    /// <paramref name="lanesOnly"/> it is one lane instead, whose position the threadgroup hands out
+    /// anew for every SIMD group.
+    /// </summary>
+    private sealed class Worker<TKernel>(TKernel kernel, CpuThreadgroup group, int slot, Extent3 position, bool lanesOnly, CpuThread thread)
         where TKernel : struct, ICpuKernel
     {
         private TKernel _kernel = kernel;
@@ -146,13 +200,16 @@ internal static class CpuGroupDispatcher
 
             while (group.WaitForGroup(slot, out Extent3 origin))
             {
+                // Set also when the group is already aborted: leaving its SIMD group below goes by the position.
+                Extent3 local = lanesOnly ? group.LanePosition(slot) : position;
+                thread.X = origin.X + local.X;
+                thread.Y = origin.Y + local.Y;
+                thread.Z = origin.Z + local.Z;
+
                 try
                 {
                     if (!group.IsAborted)
                     {
-                        thread.X = origin.X + position.X;
-                        thread.Y = origin.Y + position.Y;
-                        thread.Z = origin.Z + position.Z;
                         _kernel.Invoke(thread);
                     }
                 }
@@ -166,6 +223,9 @@ internal static class CpuGroupDispatcher
                 }
                 finally
                 {
+                    // Its SIMD group first, whose other lanes may have been waiting only for this one,
+                    // and while this thread still counts as running in the threadgroup.
+                    group.Simd?.Leave(thread);
                     group.Leave(slot);
                 }
             }
@@ -224,6 +284,10 @@ internal sealed class CpuThreadgroup
     private Extent3 _origin;
     private long _generation;
 
+    // With lanes only: the extent of the threadgroup being run and the linear index of lane 0 in it.
+    private Extent3 _laneExtent;
+    private int _firstLane;
+
     private bool _groupDone;
 
     // 0, or 1 once a thread has thrown. Set with an interlocked operation: see Barrier.
@@ -231,7 +295,7 @@ internal sealed class CpuThreadgroup
     private volatile bool _stopped;
     private ExceptionDispatchInfo? _failure;
 
-    internal CpuThreadgroup(int threads)
+    internal CpuThreadgroup(int threads, CpuSimdMode simd = CpuSimdMode.None)
     {
         _slots = new Slot[threads];
 
@@ -239,10 +303,32 @@ internal sealed class CpuThreadgroup
         {
             _slots[i] = new Slot();
         }
+
+        RunsLanesOnly = simd == CpuSimdMode.LanesOnly;
+        Simd = simd == CpuSimdMode.None ? null : new CpuSimdGroups(this, threads, RunsLanesOnly);
     }
 
     /// <summary>True once a thread has thrown: the dispatch is being abandoned.</summary>
     internal bool IsAborted => Volatile.Read(ref _aborted) != 0;
+
+    /// <summary>Where the lanes of the SIMD groups meet; null for a shader without SIMD-group operations.</summary>
+    internal CpuSimdGroups? Simd { get; }
+
+    /// <summary>
+    /// True when the threads are the lanes of one SIMD group at a time rather than a threadgroup
+    /// (<see cref="CpuSimdMode.LanesOnly"/>): there is then no threadgroup for a barrier to gather.
+    /// </summary>
+    internal bool RunsLanesOnly { get; }
+
+    /// <summary>The threads still inside <c>Execute</c> and, of those, the ones parked at the barrier, read together.</summary>
+    internal (int Live, int Waiting) LiveAndWaiting
+    {
+        get
+        {
+            long state = Volatile.Read(ref _state);
+            return ((int)(state >> 32), (int)state);
+        }
+    }
 
     // ---- the dispatching thread --------------------------------------------------------------
 
@@ -255,6 +341,7 @@ internal sealed class CpuThreadgroup
     {
         _origin = origin;
         _generation++;
+        Simd?.Begin(extent.X * extent.Y * extent.Z);
         Volatile.Write(ref _state, (long)(extent.X * extent.Y * extent.Z) << 32);
 
         for (int z = 0; z < extent.Z; z++)
@@ -270,6 +357,45 @@ internal sealed class CpuThreadgroup
             }
         }
 
+        WaitUntilDone();
+    }
+
+    /// <summary>
+    /// Runs one SIMD group of the threadgroup at <paramref name="origin"/> and returns when its lanes have
+    /// returned (or been stopped): the <paramref name="lanes"/> threads from linear index
+    /// <paramref name="first"/> of the threadgroup, whose real size is <paramref name="extent"/>. Worker
+    /// <c>i</c> is lane <c>i</c>. To the workers this is a group like any other, with a number of its own.
+    /// </summary>
+    internal void RunLanes(Extent3 origin, Extent3 extent, int first, int lanes)
+    {
+        _origin = origin;
+        _laneExtent = extent;
+        _firstLane = first;
+        _generation++;
+        Simd?.Begin(lanes);
+        Volatile.Write(ref _state, (long)lanes << 32);
+
+        for (int lane = 0; lane < lanes; lane++)
+        {
+            Volatile.Write(ref _slots[lane].Start, 1);
+            _slots[lane].Signal();
+        }
+
+        WaitUntilDone();
+    }
+
+    /// <summary>
+    /// With lanes only: where in its threadgroup worker <paramref name="slot"/> is for the SIMD group
+    /// that was just started (written by the dispatching thread before it signalled the worker).
+    /// </summary>
+    internal Extent3 LanePosition(int slot)
+    {
+        int index = _firstLane + slot;
+        return new Extent3(index % _laneExtent.X, index / _laneExtent.X % _laneExtent.Y, index / (_laneExtent.X * _laneExtent.Y));
+    }
+
+    private void WaitUntilDone()
+    {
         lock (_idle)
         {
             while (!_groupDone)
@@ -372,6 +498,10 @@ internal sealed class CpuThreadgroup
             }
             else if (Interlocked.CompareExchange(ref _state, state + 1, state) == state)
             {
+                // If the threads this one now waits for are lanes waiting at a SIMD-group operation for
+                // it, nobody can move: the group is failed, whose scan then takes this announcement.
+                Simd?.CheckStall();
+
                 // Parked until a scan takes the announcement: the last arrival's, that of a departure
                 // which left only parked threads, or Fail's.
                 self.Wait();
@@ -434,6 +564,11 @@ internal sealed class CpuThreadgroup
                         Monitor.Pulse(_idle);
                     }
                 }
+                else
+                {
+                    // The rest may now all be parked, some at the barrier and some at a SIMD-group operation.
+                    Simd?.CheckStall();
+                }
 
                 return;
             }
@@ -451,6 +586,21 @@ internal sealed class CpuThreadgroup
         // Interlocked, and before the scan: see Barrier.
         Interlocked.Exchange(ref _aborted, 1);
         WakeWaiting(_slots[slot].Generation);
+        Simd?.Abort();
+    }
+
+    /// <summary>
+    /// Fails the group that is running now, from a thread that may no longer be one of its own: the
+    /// stall check of the SIMD groups, which a departing thread can still be in when the next group
+    /// has started. A stalled group cannot finish, so the group that is running when this is called
+    /// is the stalled one, and its number is the one its barrier's waiters announced.
+    /// </summary>
+    internal void FailRunning(Exception exception)
+    {
+        Interlocked.CompareExchange(ref _failure, ExceptionDispatchInfo.Capture(exception), null);
+        Interlocked.Exchange(ref _aborted, 1);
+        WakeWaiting(Volatile.Read(ref _generation));
+        Simd?.Abort();
     }
 
     /// <summary>

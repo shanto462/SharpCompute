@@ -279,7 +279,15 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    // SCG0035 to SCG0039 are left free: the threadgroup diagnostics are a block of their own.
+    public static readonly DiagnosticDescriptor SimdGroupCallSitesShareLine = new(
+        id: "SCG0035",
+        title: "SIMD-group operations share a line",
+        messageFormat: "'{0}' is called more than once on line {1}. When the shader runs on the CPU, the lanes of a SIMD group meet at a call site, which is the operation plus the file and line of the call, so these calls cannot be told apart there (and lanes in two branches would be taken for lanes in one); put each call on a line of its own.",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    // SCG0036 to SCG0039 are left free: the threadgroup diagnostics are a block of their own.
 
     public static readonly DiagnosticDescriptor InvalidGroupSharedField = new(
         id: "SCG0040",

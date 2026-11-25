@@ -76,6 +76,20 @@ public interface IComputeShaderDescriptor<TSelf>
     static virtual ShaderCompileOptions CompileOptions => ShaderCompileOptions.None;
 
     /// <summary>
+    /// True when the kernel uses a SIMD-group operation (the <c>Wave*</c> and <c>Quad*</c> methods of
+    /// <see cref="Gpu"/>) or reads <see cref="SimdGroupIds"/>. The lanes of a SIMD group of such a shader
+    /// compute their results together, so the CPU (<c>GraphicsDevice.ForCpu</c>, <c>ForIndirectCpu</c>, <c>ForSplit</c>) runs
+    /// each lane on a dedicated thread and lets the lanes of a group meet at every operation: one SIMD
+    /// group of 32 at a time, or whole threadgroups when the shader also reports
+    /// <see cref="UsesThreadgroupMemory"/>. A GPU dispatch checks that the compiled kernel's SIMD groups
+    /// are at most 32 threads wide, which <see cref="Gpu.WaveActiveBallot"/> relies on. False, the
+    /// default, for hand-written descriptors and for generated shaders that use none; a shader that
+    /// calls an operation without reporting it gets an <see cref="System.InvalidOperationException"/>
+    /// from the operation on the CPU.
+    /// </summary>
+    static virtual bool UsesSimdGroups => false;
+
+    /// <summary>
     /// Binds the shader's captured state. The binding order is generator-internal; the runtime
     /// assumes nothing beyond the writer calls made here.
     /// </summary>
