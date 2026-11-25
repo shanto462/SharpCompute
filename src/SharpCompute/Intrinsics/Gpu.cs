@@ -11,8 +11,13 @@ namespace SharpCompute;
 /// <remarks>
 /// <para>
 /// Scalar overloads live here; the componentwise vector overloads and the geometric functions are
-/// generated into <c>Gpu.g.cs</c> by <c>tools/gen_vectors.py</c>. C# names are the PascalCase MSL
-/// names, except <c>metal::mix</c>, which is exposed as <see cref="Lerp(float, float, float)"/>.
+/// generated into <c>Gpu.g.cs</c>, and the matrix functions into <c>Gpu.Matrices.g.cs</c>, by
+/// <c>tools/gen_vectors.py</c>; the atomics are in <c>Gpu.Atomics.cs</c>. C# names are the
+/// PascalCase MSL names, except where .NET or HLSL already has a name for the function:
+/// <c>metal::mix</c> is <see cref="Lerp(float, float, float)"/>, <c>popcount</c>, <c>clz</c> and
+/// <c>ctz</c> are <see cref="CountBits(uint)"/>, <see cref="LeadingZeroCount(uint)"/> and
+/// <see cref="TrailingZeroCount(uint)"/>, <c>isinf</c> is <see cref="IsInfinity(float)"/>, and the
+/// unorm8 packing functions are <see cref="PackUnorm4x8(Float4)"/> and <see cref="UnpackUnorm4x8(uint)"/>.
 /// </para>
 /// <para>
 /// The CPU implementations were compared bit for bit against an Apple GPU with the runtime's compile
