@@ -21,7 +21,8 @@ internal sealed partial class MslTranslator
 
         if (conflict is not null && !ContainsInvalid(operation))
         {
-            _diagnostics.Report(DiagnosticDescriptors.UnsequencedModification, operation.Syntax.GetLocation(), conflict.Name);
+            // In a member of a user struct, the struct itself is tracked under its type (see ThisContext).
+            _diagnostics.Report(DiagnosticDescriptors.UnsequencedModification, operation.Syntax.GetLocation(), conflict is INamedTypeSymbol ? "this" : conflict.Name);
         }
 
         return Expression(operation).Text;
@@ -109,6 +110,17 @@ internal sealed partial class MslTranslator
             case IParameterReferenceOperation parameter when _function.Names.ContainsKey(parameter.Parameter):
                 return Read(parameter.Parameter);
 
+            // In a member of a user struct, `this` is a variable like any other: `X++ + X`.
+            case IInstanceReferenceOperation when _function.This is { } self:
+                return Read(self.Symbol);
+
+            case IParameterReferenceOperation parameter when _function.This is { } self && IsKeptParameter(parameter.Parameter, self.Method.ContainingType):
+                return Read(self.Symbol);
+
+            // A getter that modifies its struct is a call that writes the struct.
+            case IPropertyReferenceOperation { Instance: { } receiver } property when MutatesReceiver(property.Property.GetMethod, receiver):
+                return MutatingCall(receiver, property.Arguments, ref conflict);
+
             case ISimpleAssignmentOperation assignment:
                 return Store(assignment.Target, assignment.Value, readsTarget: false, ref conflict);
 
@@ -150,10 +162,36 @@ internal sealed partial class MslTranslator
     /// </summary>
     private Effects Call(IInvocationOperation invocation, ref ISymbol? conflict)
     {
-        Effects arguments = Analyze(invocation.Instance, ref conflict);
+        if (invocation.Instance is { } receiver && MutatesReceiver(invocation.TargetMethod, receiver))
+        {
+            return MutatingCall(receiver, invocation.Arguments, ref conflict);
+        }
+
+        return Call(Analyze(invocation.Instance, ref conflict), new Effects(), invocation.Arguments, ref conflict);
+    }
+
+    /// <summary>
+    /// A call of a method that modifies the struct it is called on: the struct is read and written by
+    /// the callee, like a variable passed by <c>ref</c> (<c>v.Normalize() + v.X</c> is a conflict).
+    /// </summary>
+    private Effects MutatingCall(IOperation receiver, System.Collections.Immutable.ImmutableArray<IArgumentOperation> arguments, ref ISymbol? conflict)
+    {
+        Effects target = TargetEffects(receiver, out ISymbol? stored, ref conflict);
         var callee = new Effects();
 
-        foreach (IArgumentOperation argument in invocation.Arguments)
+        if (stored is not null)
+        {
+            callee.Writes.Add(stored);
+            callee.Reads.Add(stored);
+        }
+
+        return Call(target, callee, arguments, ref conflict);
+    }
+
+    private Effects Call(Effects arguments, Effects callee, System.Collections.Immutable.ImmutableArray<IArgumentOperation> invocationArguments, ref ISymbol? conflict)
+    {
+
+        foreach (IArgumentOperation argument in invocationArguments)
         {
             if (LocalArrayPassedToHelper(argument, out bool writable) is { } array)
             {
@@ -252,6 +290,14 @@ internal sealed partial class MslTranslator
             case IDeclarationExpressionOperation { Expression: ILocalReferenceOperation declared }:
                 // `out float x`: a new variable that the call writes.
                 stored = declared.Local;
+                return Effects.None;
+
+            case IInstanceReferenceOperation when _function.This is { } self:
+                stored = self.Symbol;
+                return Effects.None;
+
+            case IParameterReferenceOperation parameter when _function.This is { } self && IsKeptParameter(parameter.Parameter, self.Method.ContainingType):
+                stored = self.Symbol;
                 return Effects.None;
 
             case IFieldReferenceOperation { Instance: { } instance }:

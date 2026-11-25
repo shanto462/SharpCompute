@@ -100,9 +100,10 @@ public static class LabTopics
     public const string Simd = "SIMD groups";
     public const string Dispatch = "Dispatch";
     public const string Math = "Math";
+    public const string CodeReuse = "Code reuse";
 
     /// <summary>Every topic, in ←/→ order: a page of a topic comes after every page of the topics before it.</summary>
-    public static IReadOnlyList<string> All { get; } = [Atomics, SharedMemory, LocalArrays, Simd, Dispatch, Math];
+    public static IReadOnlyList<string> All { get; } = [Atomics, SharedMemory, LocalArrays, Simd, Dispatch, Math, CodeReuse];
 }
 
 /// <summary>The pages, in ←/→ order: by topic (<see cref="LabTopics.All"/>), then as listed here.</summary>
@@ -135,6 +136,9 @@ public static class LabPages
         // Math.
         new BitsPage(device),
         new FastMathPage(device),
+
+        // Code reuse: shaders built from static helpers and struct members that are not their own.
+        new SharedCodePage(device),
     ];
 
     /// <summary>

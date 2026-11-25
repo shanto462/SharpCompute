@@ -1,4 +1,6 @@
 // Original SharpCompute sample (MIT).
+using SharpCompute.Samples.Shared;
+
 namespace SharpCompute.Samples.Shooter.Rendering;
 
 /// <summary>
@@ -325,11 +327,11 @@ public readonly partial struct DrawScene(
             int cx = (int)Gpu.Floor(d.X / cell);
             int cy = (int)Gpu.Floor(d.Y / cell);
             uint seed = 50u + (uint)layer;
-            float h = Hash(cx, cy, seed);
+            float h = PixelShading.Hash(cx, cy, seed);
 
             if (h > 0.9f)
             {
-                Float2 star = new(((float)cx + 0.2f + (0.6f * Hash(cx, cy, seed + 10u))) * cell, ((float)cy + 0.2f + (0.6f * Hash(cx, cy, seed + 20u))) * cell);
+                Float2 star = new(((float)cx + 0.2f + (0.6f * PixelShading.Hash(cx, cy, seed + 10u))) * cell, ((float)cy + 0.2f + (0.6f * PixelShading.Hash(cx, cy, seed + 20u))) * cell);
                 float b = Gpu.Saturate(1f - (Gpu.Length(d - star) / (0.8f + (0.4f * l))));
                 float twinkle = 0.6f + (0.4f * Gpu.Sin((time * (1f + (h * 3f))) + (h * 50f)));
                 color += new Float3(0.35f, 0.45f, 0.75f) * (b * b * twinkle * (0.2f + (0.25f * l)));
@@ -376,19 +378,11 @@ public readonly partial struct DrawScene(
         float v = p.Y - fy;
         u = u * u * (3f - (2f * u));
         v = v * v * (3f - (2f * v));
-        float a = Hash(ix, iy, seed);
-        float b = Hash(ix + 1, iy, seed);
-        float c = Hash(ix, iy + 1, seed);
-        float d = Hash(ix + 1, iy + 1, seed);
+        float a = PixelShading.Hash(ix, iy, seed);
+        float b = PixelShading.Hash(ix + 1, iy, seed);
+        float c = PixelShading.Hash(ix, iy + 1, seed);
+        float d = PixelShading.Hash(ix + 1, iy + 1, seed);
         return Gpu.Lerp(Gpu.Lerp(a, b, u), Gpu.Lerp(c, d, u), v);
-    }
-
-    private static float Hash(int x, int y, uint seed)
-    {
-        uint h = ((uint)x * 374761393u) + ((uint)y * 668265263u) + (seed * 2246822519u);
-        h = (h ^ (h >> 13)) * 1274126177u;
-        h ^= h >> 16;
-        return (float)(h & 0xFFFFFFu) / 16777215f;
     }
 }
 
@@ -515,17 +509,13 @@ public readonly partial struct Composite(
             int gx = x - g.X;
             int gy = y - g.Y;
 
-            if (gx >= 0 && gy >= 0 && gx < 3 * g.Scale && gy < 5 * g.Scale && ((font[g.Index] >> (((gy / g.Scale) * 3) + (gx / g.Scale))) & 1u) != 0u)
+            if (PixelShading.GlyphCovers(font, g.Index, gx, gy, g.Scale))
             {
                 color = g.Color;
             }
         }
 
-        color = Gpu.Saturate(color);
-        uint red = (uint)((color.X * 255f) + 0.5f);
-        uint green = (uint)((color.Y * 255f) + 0.5f);
-        uint blue = (uint)((color.Z * 255f) + 0.5f);
-        output[(y * width) + x] = red | (green << 8) | (blue << 16) | 0xFF000000u;
+        output[(y * width) + x] = PixelShading.PackRgb(color);
     }
 
     private Float3 SampleHdr(Float2 at)
@@ -590,7 +580,6 @@ public readonly partial struct UpscaleFrame(ReadWriteBuffer<uint> source, int so
             return new Float4(0f, 0f, 0f, 1f);
         }
 
-        uint c = source[(sy * sourceWidth) + sx];
-        return new Float4((float)(c & 0xFFu) / 255f, (float)((c >> 8) & 0xFFu) / 255f, (float)((c >> 16) & 0xFFu) / 255f, 1f);
+        return new Float4(PixelShading.UnpackRgb(source[(sy * sourceWidth) + sx]), 1f);
     }
 }

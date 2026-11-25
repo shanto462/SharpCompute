@@ -141,16 +141,6 @@ public sealed class HistogramPage : ILabPage
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct GenerateImage(ReadWriteBuffer<uint> image, int size, float time) : IComputeShader
 {
-    private static uint Hash(uint x)
-    {
-        x ^= x >> 16;
-        x *= 0x7FEB352Du;
-        x ^= x >> 15;
-        x *= 0x846CA68Bu;
-        x ^= x >> 16;
-        return x;
-    }
-
     public void Execute()
     {
         int x = ThreadIds.X;
@@ -165,7 +155,7 @@ public readonly partial struct GenerateImage(ReadWriteBuffer<uint> image, int si
 
         // Noise that changes ten times a second, so the histogram's fine structure flickers.
         uint tick = (uint)(int)(time * 10f);
-        float noise = (Hash((uint)x + (Hash((uint)y + (tick * 7919u)) * 31u)) >> 8) * (1f / 16777216f);
+        float noise = (ShaderMath.Hash((uint)x + (ShaderMath.Hash((uint)y + (tick * 7919u)) * 31u)) >> 8) * (1f / 16777216f);
 
         // Kept inside 0.06..0.96, so the noise spreads the dark and bright ends instead of clipping them.
         Float3 color = (new Float3(0.78f, 0.3f, 0.12f) * a) + (new Float3(0.08f, 0.3f, 0.7f) * b * b);

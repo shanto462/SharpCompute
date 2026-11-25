@@ -414,7 +414,7 @@ internal sealed partial class MslTranslator
     private readonly HashSet<string> _reservedLocalNames;
     private readonly CancellationToken _cancellationToken;
     private readonly Dictionary<SyntaxTree, SemanticModel> _semanticModels = new();
-    private readonly Dictionary<IMethodSymbol, HelperFunction?> _helpers = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<HelperKey, HelperFunction?> _helpers = new();
     private readonly List<HelperFunction> _helperOrder = new();
     private readonly List<IMethodSymbol> _callStack = new();
     private readonly HashSet<ISymbol> _failedSymbols = new(SymbolEqualityComparer.Default);
@@ -546,7 +546,9 @@ internal sealed partial class MslTranslator
 
         foreach (SyntaxReference reference in method.DeclaringSyntaxReferences)
         {
-            if (reference.GetSyntax(_cancellationToken) is LocalFunctionStatementSyntax localFunction)
+            SyntaxNode syntax = reference.GetSyntax(_cancellationToken);
+
+            if (syntax is LocalFunctionStatementSyntax localFunction)
             {
                 if (GetSemanticModel(localFunction.SyntaxTree).GetOperation(localFunction, _cancellationToken) is ILocalFunctionOperation operation)
                 {
@@ -556,64 +558,96 @@ internal sealed partial class MslTranslator
                 continue;
             }
 
-            if (reference.GetSyntax(_cancellationToken) is not BaseMethodDeclarationSyntax declaration ||
-                (declaration.Body is null && declaration.ExpressionBody is null))
+            // A method, operator or conversion; an accessor with a body; or the `=> value` of a property.
+            SyntaxNode? bodySyntax = syntax switch
+            {
+                BaseMethodDeclarationSyntax declaration => (SyntaxNode?)declaration.Body ?? declaration.ExpressionBody,
+                AccessorDeclarationSyntax accessor => (SyntaxNode?)accessor.Body ?? accessor.ExpressionBody,
+                ArrowExpressionClauseSyntax arrow => arrow,
+                _ => null,
+            };
+
+            if (bodySyntax is null)
             {
                 continue;
             }
 
-            SemanticModel model = GetSemanticModel(declaration.SyntaxTree);
+            SemanticModel model = GetSemanticModel(syntax.SyntaxTree);
 
-            if (model.GetOperation(declaration, _cancellationToken) is IMethodBodyOperation methodBody)
+            switch (model.GetOperation(syntax, _cancellationToken))
             {
-                return methodBody.BlockBody ?? methodBody.ExpressionBody;
+                case IMethodBodyBaseOperation methodBody:
+                    return methodBody.BlockBody ?? methodBody.ExpressionBody;
+                case IBlockOperation block:
+                    return block;
             }
 
-            SyntaxNode bodySyntax = (SyntaxNode?)declaration.Body ?? declaration.ExpressionBody!;
-
-            if (model.GetOperation(bodySyntax, _cancellationToken) is IBlockOperation block)
+            if (model.GetOperation(bodySyntax, _cancellationToken) is IBlockOperation bodyBlock)
             {
-                return block;
+                return bodyBlock;
             }
         }
 
         return null;
     }
 
-    private HelperFunction? GetHelper(IMethodSymbol method, IOperation callSite)
+    /// <summary>
+    /// The MSL function for <paramref name="method"/>, translated on first use. <paramref name="mode"/>
+    /// says how a member of a user struct receives the struct (see <see cref="ReceiverMode"/>); it is
+    /// <see cref="ReceiverMode.None"/> for everything else.
+    /// </summary>
+    private HelperFunction? GetHelper(IMethodSymbol method, IOperation callSite, ReceiverMode mode = ReceiverMode.None)
     {
-        method = method.OriginalDefinition;
+        method = Specialize(method);
 
-        if (_helpers.TryGetValue(method, out HelperFunction? existing))
+        // A local function may name the type parameters of the generic method around it, so it is
+        // one function per instantiation of that method.
+        IMethodSymbol? instantiation = method.MethodKind == MethodKind.LocalFunction ? _function.Instantiation : null;
+        var key = new HelperKey(method, mode, instantiation);
+
+        if (_helpers.TryGetValue(key, out HelperFunction? existing))
         {
             return existing;
         }
 
-        int index = _callStack.FindIndex(m => SymbolEqualityComparer.Default.Equals(m, method));
+        int index = _callStack.FindIndex(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, method.OriginalDefinition));
 
         if (index >= 0)
         {
-            string cycle = string.Join(" -> ", _callStack.Skip(index).Select(static m => m.Name).Concat(new[] { method.Name }));
-            _diagnostics.Report(DiagnosticDescriptors.RecursiveHelperMethod, callSite.Syntax.GetLocation(), method.Name, cycle);
+            string cycle = string.Join(" -> ", _callStack.Skip(index).Select(DisplayName).Concat(new[] { DisplayName(method) }));
+            _diagnostics.Report(DiagnosticDescriptors.RecursiveHelperMethod, callSite.Syntax.GetLocation(), DisplayName(method), cycle);
             return null;
         }
 
         FunctionContext caller = _function;
-        _function = new FunctionContext(FunctionKind.Helper);
+        IReadOnlyDictionary<ITypeParameterSymbol, ITypeSymbol>? callerTypeArguments = _types.TypeArguments;
+
+        _function = new FunctionContext(FunctionKind.Helper)
+        {
+            Instantiation = method.MethodKind == MethodKind.LocalFunction ? instantiation : (method.IsGenericMethod ? method : null),
+        };
+
+        if (method.MethodKind != MethodKind.LocalFunction)
+        {
+            // Inside the function, `T` means the type argument of this instantiation.
+            _types.TypeArguments = TypeArgumentMap(method);
+        }
+
         _callStack.Add(method);
         HelperFunction? helper = null;
 
         try
         {
-            helper = TranslateHelper(method, callSite);
+            helper = TranslateHelper(key, callSite);
         }
         finally
         {
             _callStack.RemoveAt(_callStack.Count - 1);
             _function = caller;
+            _types.TypeArguments = callerTypeArguments;
         }
 
-        _helpers[method] = helper;
+        _helpers[key] = helper;
 
         if (helper is not null)
         {
@@ -623,24 +657,34 @@ internal sealed partial class MslTranslator
         return helper;
     }
 
-    private HelperFunction? TranslateHelper(IMethodSymbol method, IOperation callSite)
+    private HelperFunction? TranslateHelper(HelperKey key, IOperation callSite)
     {
+        // The parameters and the body are those of the definition; for a generic method the type
+        // resolver replaces its type parameters with the arguments of this instantiation.
+        IMethodSymbol method = key.Method.OriginalDefinition;
+        bool isConstructor = method.MethodKind == MethodKind.Constructor;
         SyntaxNode? declaration = (method.PartialImplementationPart ?? method).DeclaringSyntaxReferences
             .Select(r => r.GetSyntax(_cancellationToken))
-            .FirstOrDefault(static s => s is MethodDeclarationSyntax or LocalFunctionStatementSyntax);
+            .FirstOrDefault();
         TypeSyntax? returnTypeSyntax = declaration switch
         {
             MethodDeclarationSyntax m => m.ReturnType,
             LocalFunctionStatementSyntax f => f.ReturnType,
+            OperatorDeclarationSyntax o => o.ReturnType,
+            ConversionOperatorDeclarationSyntax c => c.Type,
+            AccessorDeclarationSyntax { Parent.Parent: BasePropertyDeclarationSyntax property } => property.Type,
+            ArrowExpressionClauseSyntax { Parent: BasePropertyDeclarationSyntax property } => property.Type,
             _ => null,
         };
 
         Location fallback = callSite.Syntax.GetLocation();
         bool failed = false;
 
+        // A constructor becomes a function that returns the struct it builds.
+        ITypeSymbol returnSymbol = isConstructor ? method.ContainingType : method.ReturnType;
         GpuType? returnType = ReturnsLocalArray(method, returnTypeSyntax?.GetLocation() ?? fallback)
             ? null
-            : _types.Resolve(method.ReturnType, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
+            : _types.Resolve(returnSymbol, _diagnostics, returnTypeSyntax?.GetLocation() ?? fallback);
 
         if (_function.ReturnsLocalArray)
         {
@@ -667,6 +711,24 @@ internal sealed partial class MslTranslator
         }
 
         var parameters = new List<string>();
+
+        if (key.Mode != ReceiverMode.None || isConstructor)
+        {
+            // A member of a user struct: the struct is `__this`, the first parameter (or, in a
+            // constructor, the local that is returned).
+            if (_types.Resolve(method.ContainingType) is not { Kind: GpuTypeKind.Struct } self)
+            {
+                return null;
+            }
+
+            _function.This = new ThisContext(method, self, isConstructor ? ReceiverMode.Thread : key.Mode);
+            _function.IsConstructor = isConstructor;
+
+            if (!isConstructor)
+            {
+                parameters.Add(ThisParameter(self, key.Mode));
+            }
+        }
 
         foreach (IParameterSymbol parameter in method.Parameters)
         {
@@ -734,22 +796,32 @@ internal sealed partial class MslTranslator
             parameters.Add(parameterType.ParameterTypeName + " " + parameterName);
         }
 
-        IBlockOperation? body = GetBody(method);
-
-        if (body is null)
+        if (isConstructor)
         {
-            _diagnostics.Report(DiagnosticDescriptors.UnsupportedMethodCall, fallback, method.Name, "it has no body in source");
-            return null;
+            if (!ConstructorBody(method, _function.This!.Type, callSite))
+            {
+                return null;
+            }
         }
-
-        if (method.MethodKind == MethodKind.LocalFunction && !CheckLocalFunction(method, body))
+        else
         {
-            return null;
-        }
+            IBlockOperation? body = GetBody(method);
 
-        foreach (IOperation statement in body.Operations)
-        {
-            Statement(statement);
+            if (body is null)
+            {
+                _diagnostics.Report(DiagnosticDescriptors.UnsupportedMethodCall, fallback, DisplayName(method), "it has no body in source");
+                return null;
+            }
+
+            if (method.MethodKind == MethodKind.LocalFunction && !CheckLocalFunction(method, body))
+            {
+                return null;
+            }
+
+            foreach (IOperation statement in body.Operations)
+            {
+                Statement(statement);
+            }
         }
 
         if (failed)
@@ -760,26 +832,10 @@ internal sealed partial class MslTranslator
         HiddenInputs inputs = _function.Inputs;
         parameters.AddRange(inputs.Parameters());
 
-        string name = _globalNames.Allocate(MslNames.Escape(HelperName(method)));
+        string name = _globalNames.Allocate(MslNames.Escape(HelperName(key)));
         string signature = "static " + returnType!.MslName + " " + name + "(" + string.Join(", ", parameters) + ")";
 
         return new HelperFunction(name, signature, _function.Writer.ToString(), inputs);
-    }
-
-    /// <summary>
-    /// The preferred MSL name of a helper. Local functions are hoisted to program scope, so their name
-    /// is prefixed with the methods that contain them (<c>Execute_Mod</c>, <c>Box_SDBox</c>).
-    /// </summary>
-    private static string HelperName(IMethodSymbol method)
-    {
-        string name = method.Name;
-
-        for (ISymbol? container = method.ContainingSymbol; container is IMethodSymbol containingMethod; container = container.ContainingSymbol)
-        {
-            name = containingMethod.Name + "_" + name;
-        }
-
-        return name;
     }
 
     private static string RefKindText(RefKind kind) => kind == RefKind.Out ? "out" : "ref";
@@ -1022,6 +1078,15 @@ internal sealed partial class MslTranslator
         public bool IsKernel => Kind == FunctionKind.Kernel;
 
         public bool IsGlobalInitializer => Kind == FunctionKind.GlobalInitializer;
+
+        /// <summary>For a member of a user struct: the struct it was called on, which is <c>__this</c> in the function.</summary>
+        public ThisContext? This { get; set; }
+
+        /// <summary>True in the function a constructor of a user struct becomes, which returns <c>__this</c>.</summary>
+        public bool IsConstructor { get; set; }
+
+        /// <summary>The constructed generic method whose type arguments are in effect, if any.</summary>
+        public IMethodSymbol? Instantiation { get; set; }
 
         /// <summary>For <see cref="FunctionKind.GlobalInitializer"/>: the field being initialized.</summary>
         public IFieldSymbol? Global { get; set; }

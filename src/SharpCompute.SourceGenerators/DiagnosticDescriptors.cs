@@ -361,6 +361,22 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    public static readonly DiagnosticDescriptor ComputedPropertyAssigned = new(
+        id: "SCG0045",
+        title: "Computed property is assigned in a shader",
+        messageFormat: "Property '{0}' of '{1}' has accessors with bodies, and only its getter is translated; assign the fields it stores to, or do the work in a method",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor UnsupportedTypeArgument = new(
+        id: "SCG0046",
+        title: "Generic method cannot be specialized",
+        messageFormat: "Generic method '{0}' cannot be specialized for the type argument '{1}': {2}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor InternalError = new(
         id: "SCG9999",
         title: "Internal generator error",

@@ -101,6 +101,11 @@ internal sealed partial class MslTranslator
                 Writer.Line("return;");
                 break;
 
+            case IReturnOperation { Kind: OperationKind.Return, ReturnedValue: null } when _function.IsConstructor:
+                // A constructor's function returns the struct it has built so far.
+                Writer.Line("return " + MslNames.This + ";");
+                break;
+
             case IReturnOperation { Kind: OperationKind.Return } returnOperation:
                 HoistDeclarations(returnOperation.ReturnedValue);
                 Writer.Line(returnOperation.ReturnedValue is null ? "return;" : "return " + FullExpression(returnOperation.ReturnedValue) + ";");

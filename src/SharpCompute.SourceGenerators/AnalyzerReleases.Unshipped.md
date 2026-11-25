@@ -49,4 +49,6 @@ SCG0041 | SharpCompute | Error | [GroupShared] array length is not a compile-tim
 SCG0042 | SharpCompute | Error | Unsupported [GroupShared] element type
 SCG0043 | SharpCompute | Error | Too much threadgroup memory
 SCG0044 | SharpCompute | Warning | [GroupShared] array in a shader without [ThreadGroupSize]
+SCG0045 | SharpCompute | Error | Computed property is assigned in a shader
+SCG0046 | SharpCompute | Error | Generic method cannot be specialized
 SCG9999 | SharpCompute | Error | Internal generator error

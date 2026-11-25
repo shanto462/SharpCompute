@@ -211,16 +211,6 @@ public sealed class CompactionPage : ILabPage
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct GenerateField(ReadWriteBuffer<uint> source, int size, float time) : IComputeShader
 {
-    private static uint Hash(uint x)
-    {
-        x ^= x >> 16;
-        x *= 0x7FEB352Du;
-        x ^= x >> 15;
-        x *= 0x846CA68Bu;
-        x ^= x >> 16;
-        return x;
-    }
-
     public void Execute()
     {
         int x = ThreadIds.X;
@@ -231,7 +221,7 @@ public readonly partial struct GenerateField(ReadWriteBuffer<uint> source, int s
         Float2 c1 = new Float2(0.5f + (0.35f * Gpu.Cos(time * 0.31f)), 0.5f + (0.35f * Gpu.Sin(time * 0.43f)));
         Float2 c2 = new Float2(0.5f - (0.3f * Gpu.Sin(time * 0.27f)), 0.5f + (0.3f * Gpu.Cos(time * 0.19f)));
         float waves = Gpu.Sin((Gpu.Length(uv - c1) * 38f) - (time * 1.7f)) + Gpu.Sin((Gpu.Length(uv - c2) * 27f) + (time * 1.1f));
-        float grain = (Hash((uint)x + (Hash((uint)y) * 31u)) >> 8) * (1f / 16777216f);
+        float grain = (ShaderMath.Hash((uint)x + (ShaderMath.Hash((uint)y) * 31u)) >> 8) * (1f / 16777216f);
         float value = Gpu.Saturate(0.5f + (0.22f * waves) + ((grain - 0.5f) * 0.18f));
 
         source[(y * size) + x] = (uint)(value * 65535f);

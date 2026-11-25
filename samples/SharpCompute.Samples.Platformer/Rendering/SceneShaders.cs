@@ -1,4 +1,6 @@
 // Original SharpCompute sample (MIT).
+using SharpCompute.Samples.Shared;
+
 namespace SharpCompute.Samples.Platformer.Rendering;
 
 /// <summary>A sprite to draw this frame: screen position of its 16 × 16 cell, atlas frame and flags.</summary>
@@ -150,7 +152,7 @@ public readonly partial struct RenderScene(
 
                 if (alpha != 0u)
                 {
-                    albedo = Unpack(texel);
+                    albedo = PixelShading.UnpackRgb(texel);
                     emissive = alpha == 128u ? 1f : 0f;
                     surface = 1f;
                 }
@@ -217,19 +219,13 @@ public readonly partial struct RenderScene(
             int gx = x - g.X;
             int gy = y - g.Y;
 
-            int s = g.Scale;
-
-            if (gx >= 0 && gx < 3 * s && gy >= 0 && gy < 5 * s && ((font[g.Index] >> (((gy / s) * 3) + (gx / s))) & 1u) != 0u)
+            if (PixelShading.GlyphCovers(font, g.Index, gx, gy, g.Scale))
             {
-                color = Unpack(g.Color);
+                color = PixelShading.UnpackRgb(g.Color);
             }
         }
 
-        color = Gpu.Saturate(color);
-        uint r = (uint)((color.X * 255f) + 0.5f);
-        uint gr = (uint)((color.Y * 255f) + 0.5f);
-        uint b = (uint)((color.Z * 255f) + 0.5f);
-        output[(y * width) + x] = r | (gr << 8) | (b << 16) | 0xFF000000u;
+        output[(y * width) + x] = PixelShading.PackRgb(color);
     }
 
     /// <summary>Tile kind at a tile coordinate; outside the level is rock, above it is open air.</summary>
@@ -278,7 +274,7 @@ public readonly partial struct RenderScene(
         int fy = y + (cameraY / 5);
         int gx = fx / 6;
         int gy = fy / 6;
-        float h = Hash(gx, gy, 29u);
+        float h = PixelShading.Hash(gx, gy, 29u);
 
         if (h > 0.996f && fx - (gx * 6) == 3 && fy - (gy * 6) == 3)
         {
@@ -296,9 +292,9 @@ public readonly partial struct RenderScene(
         int localX = px - (column * spacing);
         int bandIndex = py / band;
         int localY = py - (bandIndex * band);
-        float h = Hash(column, bandIndex, seed);
+        float h = PixelShading.Hash(column, bandIndex, seed);
         float length = 20f + (h * (float)band * 0.45f);
-        float half = (float)spacing * (0.25f + (Hash(column, bandIndex, seed + 1u) * 0.2f));
+        float half = (float)spacing * (0.25f + (PixelShading.Hash(column, bandIndex, seed + 1u) * 0.2f));
         float dx = Gpu.Abs((float)localX - ((float)spacing * 0.5f));
 
         return (float)localY < length * (1f - (dx / half)) ? spireColor : color;
@@ -307,8 +303,8 @@ public readonly partial struct RenderScene(
     /// <summary>Stone in 2 × 2 pixel grains, with a pale rim and a little moss on open tops.</summary>
     private Float3 Rock(int wx, int wy, int lx, int ly)
     {
-        float n = Hash(wx >> 1, wy >> 1, 5u);
-        float cell = Hash(wx >> 4, wy >> 4, 17u);
+        float n = PixelShading.Hash(wx >> 1, wy >> 1, 5u);
+        float cell = PixelShading.Hash(wx >> 4, wy >> 4, 17u);
         Float3 color = Gpu.Lerp(new Float3(0.22f, 0.18f, 0.29f), new Float3(0.33f, 0.27f, 0.41f), (n * 0.6f) + (cell * 0.4f));
 
         bool openAbove = Tile((wx >> 4), (wy >> 4) - 1) != 1u;
@@ -318,10 +314,10 @@ public readonly partial struct RenderScene(
 
         if (openAbove && ly < 2)
         {
-            float moss = Hash(wx, 3, 41u);
+            float moss = PixelShading.Hash(wx, 3, 41u);
             color = moss > 0.35f ? new Float3(0.2f, 0.42f, 0.36f) : new Float3(0.36f, 0.31f, 0.43f);
         }
-        else if (openAbove && ly < 4 && Hash(wx, wy, 43u) > 0.6f)
+        else if (openAbove && ly < 4 && PixelShading.Hash(wx, wy, 43u) > 0.6f)
         {
             color = new Float3(0.17f, 0.33f, 0.29f);
         }
@@ -350,7 +346,7 @@ public readonly partial struct RenderScene(
             return new Float3(0.2f, 0.12f, 0.1f);
         }
 
-        float grain = Hash(wx >> 2, ly, 59u);
+        float grain = PixelShading.Hash(wx >> 2, ly, 59u);
         return Gpu.Lerp(new Float3(0.36f, 0.23f, 0.16f), new Float3(0.45f, 0.29f, 0.19f), grain) * (ly == 3 ? 0.7f : 1f);
     }
 
@@ -371,16 +367,6 @@ public readonly partial struct RenderScene(
         return 0.4f + (0.6f * (fromBottom / Gpu.Max(height, 1f))) * (offset < 0.75f ? 1f : 0.7f);
     }
 
-    private static float Hash(int x, int y, uint seed)
-    {
-        uint h = ((uint)x * 374761393u) + ((uint)y * 668265263u) + (seed * 2246822519u);
-        h = (h ^ (h >> 13)) * 1274126177u;
-        h ^= h >> 16;
-        return (float)(h & 0xFFFFFFu) / 16777215f;
-    }
-
-    private static Float3 Unpack(uint c) =>
-        new((float)(c & 0xFFu) / 255f, (float)((c >> 8) & 0xFFu) / 255f, (float)((c >> 16) & 0xFFu) / 255f);
 }
 
 /// <summary>
@@ -408,7 +394,6 @@ public readonly partial struct UpscaleFrame(ReadWriteBuffer<uint> source, int so
             return new Float4(0f, 0f, 0f, 1f);
         }
 
-        uint c = source[(sy * sourceWidth) + sx];
-        return new Float4((float)(c & 0xFFu) / 255f, (float)((c >> 8) & 0xFFu) / 255f, (float)((c >> 16) & 0xFFu) / 255f, 1f);
+        return new Float4(PixelShading.UnpackRgb(source[(sy * sourceWidth) + sx]), 1f);
     }
 }

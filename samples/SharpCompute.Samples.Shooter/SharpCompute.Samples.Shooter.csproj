@@ -12,6 +12,13 @@
     <AssemblyName>SharpCompute.Samples.Shooter</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!--
+      Shader helpers shared with the other game. Linked as source, not referenced as a library: the
+      generator translates a helper from its C# source, which must be part of this compilation.
+    -->
+    <Compile Include="..\SharpCompute.Samples.Shared\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
     <ProjectReference Include="..\SharpCompute.Samples.Audio\SharpCompute.Samples.Audio.csproj" />
     <!-- For PngEncoder only; the game code itself is MIT. -->

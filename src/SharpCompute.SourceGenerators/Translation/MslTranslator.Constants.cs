@@ -33,6 +33,13 @@ internal sealed partial class MslTranslator
         return false;
     }
 
+    /// <summary>
+    /// True for a static readonly field that can be lowered to a program-scope constant: one of the
+    /// shader (or a type containing it), or of any other type whose source is part of this compilation.
+    /// </summary>
+    private bool IsGlobalSource(IFieldSymbol field) =>
+        IsShaderOrContainingType(field.ContainingType) || (HasSource(field) && field.ContainingType is { IsGenericType: false });
+
     /// <summary>Returns the program-scope constant for <paramref name="field"/>, translating it on first use.</summary>
     private GlobalConstant? GlobalReference(IOperation reference, IFieldSymbol field)
     {
@@ -137,7 +144,10 @@ internal sealed partial class MslTranslator
             }
         }
 
-        string name = _globalNames.Allocate(MslNames.Escape(field.Name));
+        // A constant of another type carries the type's name, like its methods do: two classes of
+        // helpers can each have a `Scale`.
+        string preferred = IsShaderOrContainingType(field.ContainingType) ? field.Name : field.ContainingType.Name + "_" + field.Name;
+        string name = _globalNames.Allocate(MslNames.Escape(preferred));
         return new GlobalConstant(name, type.MslName, initializer);
     }
 

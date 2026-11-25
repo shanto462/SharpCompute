@@ -180,9 +180,15 @@ internal sealed partial class MslTranslator
         operation is IArrayCreationOperation || IsStackAlloc(operation) ||
         (operation is ICollectionExpressionOperation collection && IsLocalArrayType(collection.Type));
 
+    /// <summary>
+    /// True for a call that becomes an MSL function: a local function, a method of the shader, or a
+    /// method of another type that is translated from source (a shared static helper, a method of a
+    /// user struct). The methods of <c>Span&lt;T&gt;</c> and arrays themselves have no source here.
+    /// </summary>
     private bool IsHelperCall(IInvocationOperation invocation) =>
         invocation.TargetMethod.MethodKind == MethodKind.LocalFunction ||
-        SymbolEqualityComparer.Default.Equals(invocation.TargetMethod.ContainingType, _shaderType);
+        SymbolEqualityComparer.Default.Equals(invocation.TargetMethod.ContainingType, _shaderType) ||
+        (invocation.TargetMethod.MethodKind == MethodKind.Ordinary && UserMethodProblem(invocation.TargetMethod) is null);
 
     /// <summary>Reports SCG0039 for <paramref name="operation"/>, unless the C# compiler already reports it.</summary>
     private Expr LocalArrayMisuse(IOperation operation, string reason)

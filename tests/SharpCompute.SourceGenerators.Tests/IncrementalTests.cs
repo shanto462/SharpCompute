@@ -109,6 +109,62 @@ public class IncrementalTests
     }
 
     [Fact]
+    public void EditingASharedHelperInAnotherFile_RegeneratesTheShadersThatUseIt_AndOnlyThose()
+    {
+        const string Uses = """
+            using SharpCompute;
+
+            namespace App;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct Uses(ReadWriteBuffer<float> buffer) : IComputeShader
+            {
+                public void Execute() => buffer[ThreadIds.X] = Shared.Twice(buffer[ThreadIds.X]);
+            }
+            """;
+
+        const string Shared = """
+            namespace App;
+
+            public static class Shared
+            {
+                public static float Twice(float value) => value * 2;
+
+                public static float Unused(float value) => value + 1;
+            }
+            """;
+
+        CSharpCompilation compilation = GeneratorHarness.CreateCompilation(ShaderSource, Uses, Shared);
+        GeneratorDriver driver = GeneratorHarness.CreateDriver().RunGenerators(compilation);
+
+        // The helper is in a file of its own: the shader's MSL depends on a file the shader is not in.
+        SyntaxTree shared = compilation.SyntaxTrees.Single(static t => t.FilePath == "Source2.cs");
+        CSharpCompilation edited = compilation.ReplaceSyntaxTree(
+            shared,
+            CSharpSyntaxTree.ParseText(Shared.Replace("value * 2", "value * 3"), GeneratorHarness.ParseOptions, path: "Source2.cs"));
+
+        driver = driver.RunGenerators(edited);
+        GeneratorRunResult second = driver.GetRunResult().Results.Single();
+
+        Assert.Equal(
+            new[] { IncrementalStepRunReason.Modified, IncrementalStepRunReason.Unchanged },
+            Reasons(second, ComputeShaderGenerator.ShaderResultStep).OrderBy(static r => r.ToString()).ToArray());
+        Assert.Contains("return value * 3.0f;", second.GeneratedSources.Single(static s => s.HintName.Contains("Uses")).SourceText.ToString());
+
+        // An edit to a helper that no shader calls regenerates nothing.
+        edited = edited.ReplaceSyntaxTree(
+            edited.SyntaxTrees.Single(static t => t.FilePath == "Source2.cs"),
+            CSharpSyntaxTree.ParseText(Shared.Replace("value * 2", "value * 3").Replace("value + 1", "value + 2"), GeneratorHarness.ParseOptions, path: "Source2.cs"));
+
+        driver = driver.RunGenerators(edited);
+        GeneratorRunResult third = driver.GetRunResult().Results.Single();
+
+        Assert.All(Reasons(third, ComputeShaderGenerator.ShaderResultStep), static reason =>
+            Assert.True(reason is IncrementalStepRunReason.Unchanged or IncrementalStepRunReason.Cached, reason.ToString()));
+        Assert.All(OutputReasons(third), static reason => Assert.Equal(IncrementalStepRunReason.Cached, reason));
+    }
+
+    [Fact]
     public void EditingTheShader_RegeneratesIt()
     {
         CSharpCompilation compilation = GeneratorHarness.CreateCompilation(ShaderSource, UnrelatedSource);

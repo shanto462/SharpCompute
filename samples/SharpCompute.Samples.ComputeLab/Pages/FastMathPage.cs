@@ -159,16 +159,20 @@ public sealed class FastMathPage : ILabPage
 }
 
 /// <summary>
-/// The feature kernel with the default compile options: per value, a sum of
-/// <see cref="FastMathPage.Octaves"/> octaves of trigonometric, exponential and power terms (about 0..4).
+/// What both variants of the feature kernel compute. A static method of a class of its own, so that
+/// two shaders can call it: each gets the function in its own MSL, compiled with its own options.
 /// </summary>
-[GeneratedComputeShaderDescriptor]
-public readonly partial struct WaveField(ReadWriteBuffer<float> field, int size, float time) : IComputeShader
+public static class WaveMath
 {
-    public void Execute()
+    /// <summary>
+    /// The value at (<paramref name="x"/>, <paramref name="y"/>) of a <paramref name="size"/> ×
+    /// <paramref name="size"/> field: a sum of <see cref="FastMathPage.Octaves"/> octaves of
+    /// trigonometric, exponential and power terms (about 0..4).
+    /// </summary>
+    public static float Value(int x, int y, int size, float time)
     {
-        float u = (ThreadIds.X * 6f) / size;
-        float v = (ThreadIds.Y * 6f) / size;
+        float u = (x * 6f) / size;
+        float v = (y * 6f) / size;
         float sum = 2f;
 
         for (int k = 1; k <= FastMathPage.Octaves; k++)
@@ -181,36 +185,26 @@ public readonly partial struct WaveField(ReadWriteBuffer<float> field, int size,
             sum += Gpu.Pow(Gpu.Abs(Gpu.Cos(f * (u + v))) + 0.001f, 1.5f) * 0.05f;
         }
 
-        field[(ThreadIds.Y * size) + ThreadIds.X] = sum;
+        return sum;
     }
 }
 
+/// <summary>The feature kernel with the default compile options.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct WaveField(ReadWriteBuffer<float> field, int size, float time) : IComputeShader
+{
+    public void Execute() => field[(ThreadIds.Y * size) + ThreadIds.X] = WaveMath.Value(ThreadIds.X, ThreadIds.Y, size, time);
+}
+
 /// <summary>
-/// <see cref="WaveField"/> compiled with fast math. The body is the same, statement for statement (a
-/// shader can only call its own methods, so it is repeated): only the Metal compile options differ.
+/// <see cref="WaveField"/> compiled with fast math: the same call of <see cref="WaveMath.Value"/>, so
+/// only the Metal compile options differ.
 /// </summary>
 [ShaderOptions(FastMath = true)]
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct WaveFieldFast(ReadWriteBuffer<float> field, int size, float time) : IComputeShader
 {
-    public void Execute()
-    {
-        float u = (ThreadIds.X * 6f) / size;
-        float v = (ThreadIds.Y * 6f) / size;
-        float sum = 2f;
-
-        for (int k = 1; k <= FastMathPage.Octaves; k++)
-        {
-            float f = k * 1.7f;
-            float wave = Gpu.Sin((u * f) + time) * Gpu.Cos((v * f) - (time * 0.7f));
-
-            sum += wave / k;
-            sum += Gpu.Exp(-Gpu.Abs(Gpu.Sin((u - v) * f))) * 0.08f;
-            sum += Gpu.Pow(Gpu.Abs(Gpu.Cos(f * (u + v))) + 0.001f, 1.5f) * 0.05f;
-        }
-
-        field[(ThreadIds.Y * size) + ThreadIds.X] = sum;
-    }
+    public void Execute() => field[(ThreadIds.Y * size) + ThreadIds.X] = WaveMath.Value(ThreadIds.X, ThreadIds.Y, size, time);
 }
 
 /// <summary>Draws the field on the left and the error map on the right.</summary>
