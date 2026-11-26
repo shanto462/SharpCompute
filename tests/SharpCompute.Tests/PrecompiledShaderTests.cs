@@ -364,7 +364,7 @@ public class PrecompiledShaderTests
         // and 8- and 16-bit types, a constants struct with explicit offsets, and the prelude's helper
         // for the float to long conversion.
         string msl = Source<IntegerSweep>();
-        Assert.Contains("__ms_float_to_long(", msl);
+        Assert.Contains("__ms_sat_long(", msl);
         Assert.Contains("static_assert(__builtin_offsetof(__Constants, ", msl);
         Assert.Matches(@"\bulong\b", msl);
         Assert.Matches(@"\buchar\b", msl);

@@ -386,6 +386,10 @@ public class ShaderSnapshotTests
 
             using namespace metal;
 
+            // SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+            inline int2 __ms_sat_int2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); int2 r = int2(metal::clamp(y, float2(-2147483648.0f), float2(2147483520.0f))); return metal::select(r, int2(2147483647), x >= 2147483648.0f); }
+            inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
+
             static_assert(sizeof(packed_float3) == 12, "SharpCompute: size of 'packed_float3' does not match its C# layout");
 
             struct Particle
@@ -455,7 +459,7 @@ public class ShaderSnapshotTests
                 p.Age = int(uint(p.Age) + 1u);
                 particles[i] = p;
                 particles[i].Velocity.xy = p.Velocity.xy * float(__c.damping);
-                particles[i].Cell = int2(p.Position.xy);
+                particles[i].Cell = __ms_sat_int2(p.Position.xy);
             }
             """),
             Normalize(descriptor.MslSource));

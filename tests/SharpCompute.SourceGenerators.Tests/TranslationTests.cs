@@ -138,10 +138,10 @@ public class TranslationTests
         AssertKernel(
             """
             float f = buffer[0];
-            int i = int(f);
+            int i = __ms_sat_int(f);
             uint u = uint(i);
             float g = float(u) + float(i);
-            int j = int(uint(int(f * 2.0f)) + u);
+            int j = int(uint(__ms_sat_int(f * 2.0f)) + u);
             half h = half(f);
             float k = float(h) + f;
             buffer[0] = g + float(j) + k;
@@ -608,7 +608,7 @@ public class TranslationTests
             float2 f = -e.yx;
             float2 g = metal::fmod(e, b);
             float2 h = float2(1.5f);
-            int2 i = int2(e);
+            int2 i = __ms_sat_int2(e);
             int2 j = int2((__ms_add(uint2(i), uint2(i))) * 2u) & (i >> 1);
             int2 k = ~j % i;
             float2 l = float2(k);

@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
 struct __Constants
@@ -56,7 +60,7 @@ kernel void SharpCompute_Samples_Imaging_BokehBlur(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int x = int(__tid.x);
     int y = int(__tid.y);
-    int reach = int(metal::ceil(__c.radius));
+    int reach = __ms_sat_int(metal::ceil(__c.radius));
     float4 sum = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float total = 0.0f;
     for (int dy = int(-uint(reach)); dy <= reach; dy = int(uint(dy) + 1u))

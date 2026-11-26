@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 constant int FieldX = 32;
 constant int FieldY = 64;
 constant int StripX = 60;
@@ -48,7 +52,7 @@ static uint Pack(float3 color);
 static uint Pack(float3 color)
 {
     float3 c = metal::round(metal::saturate(color) * 255.0f);
-    return uint(metal::max(c.x, 0.0f)) | (uint(metal::max(c.y, 0.0f)) << 8) | (uint(metal::max(c.z, 0.0f)) << 16) | 4278190080u;
+    return __ms_sat_uint(c.x) | (__ms_sat_uint(c.y) << 8) | (__ms_sat_uint(c.z) << 16) | 4278190080u;
 }
 
 kernel void SharpCompute_Samples_ComputeLab_Pages_Simd_DrawCompaction(

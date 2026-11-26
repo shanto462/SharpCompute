@@ -68,8 +68,8 @@ public class HalfBoolVectorTests
             """
             float3 f = float3(buffer[0]);
             half3 h = half3(f);
-            int3 i = int3(h);
-            uint3 u = uint3(h);
+            int3 i = __ms_sat_int3(h);
+            uint3 u = __ms_sat_uint3(h);
             h = half3(i) + half3(u);
             f = float3(h);
             half2 zero = half2(0);
@@ -576,8 +576,8 @@ public class HalfBoolVectorTests
             """
             float3 f = float3(buffer[0], 1.0f, 2.0f);
             half3 h = half3(f);
-            int3 i = int3(f);
-            uint3 u = uint3(f);
+            int3 i = __ms_sat_int3(f);
+            uint3 u = __ms_sat_uint3(f);
             bool3 m = f < f * 2.0f;
             m = f <= 1.0f;
             m = 0.5f > f;
@@ -622,7 +622,7 @@ public class HalfBoolVectorTests
         AssertKernel(
             """
             float3 f = float3(buffer[0], 1.0f, 2.0f);
-            int2 i = int2(f.xy);
+            int2 i = __ms_sat_int2(f.xy);
             bool3 e = (float3(f) == float3(__c.threshold));
             bool3 d = (float3(f) != 1.0f);
             bool2 k = (int2(i) == int2(vectors[0]));

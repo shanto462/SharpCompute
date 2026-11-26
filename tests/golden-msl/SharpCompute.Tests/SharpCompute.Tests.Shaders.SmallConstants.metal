@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 constant int Stride = 8;
 
 struct __Constants
@@ -51,6 +55,6 @@ kernel void SharpCompute_Tests_Shaders_SmallConstants(
     output[int(uint(o) + 3u)] = int(__c.d);
     output[int(uint(o) + 4u)] = int(__c.e);
     output[int(uint(o) + 5u)] = int(__c.f);
-    output[int(uint(o) + 6u)] = int(__c.g);
+    output[int(uint(o) + 6u)] = __ms_sat_int(__c.g);
     output[int(uint(o) + 7u)] = int(uint(__c.a) + uint(__c.c) + uint(__c.d) + uint(__c.e) + uint(__c.f));
 }

@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int2 __ms_sat_int2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); int2 r = int2(metal::clamp(y, float2(-2147483648.0f), float2(2147483520.0f))); return metal::select(r, int2(2147483647), x >= 2147483648.0f); }
+inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
 struct Item
@@ -62,7 +66,7 @@ kernel void SharpCompute_Tests_EndToEnd_Swizzles(
     float2 b = float3(v.w, 2.0f, 3.0f).zx;
     float3 z = float3(0);
     float2 n = float2(0);
-    int2 ii = int2(v.xy * 10.0f);
+    int2 ii = __ms_sat_int2(v.xy * 10.0f);
     uint3 uu = uint3(int3(ii.x, ii.y, 7));
     float2 back = float2(ii) + float2(uu.xy);
     v.xw = b;

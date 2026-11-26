@@ -31,6 +31,26 @@ public class KnownDifferencesTests
         Assert.Equal(new long[] { 255, 255, 0, 127, 0, 0, 0, 65535, -32768, 255, 0 }, cpu);
     }
 
+    /// <summary>
+    /// Fixed: MSL leaves a float to integer conversion out of range undefined, and the compiler used
+    /// that where it could see the value or bound it. <c>(int)(b ? float.NaN : 1e10f)</c> was 0
+    /// instead of int.MaxValue, <c>(int)h == int.MinValue</c> was false for <c>h = -∞</c> (the
+    /// conversion itself saturated to int.MinValue), and <c>-(long)(int)h</c> was negated in 32 bits,
+    /// because a finite half converts to a value within ±65504. Every conversion now clamps in the
+    /// float domain first (<c>__ms_sat_int</c> and the rest of <c>MslPrelude.Conversions</c>).
+    /// </summary>
+    [MetalFact]
+    public void OutOfRangeConversions_SaturateOnTheGpuAsWithForCpu()
+    {
+        ulong[] input = [0, 0xFC00];
+
+        long[] gpu = Run(input, ConversionFoldRepro.Slots, static (d, i, o) => d.For(1, new ConversionFoldRepro(i, o)));
+        long[] cpu = Run(input, ConversionFoldRepro.Slots, static (d, i, o) => d.ForCpu(1, new ConversionFoldRepro(i, o)));
+
+        Assert.Equal(cpu, gpu);
+        Assert.Equal(new long[] { int.MaxValue, 0, 2147483648 }, cpu);
+    }
+
     private const string Unfixed = "A difference between the GPU and ForCpu that is not fixed (see the summary of this test and KnownDifferencesTests).";
 
     /// <summary>
@@ -54,14 +74,14 @@ public class KnownDifferencesTests
     public void RsqrtOfZeroConsumed() => AssertSame([0x80000000, 0x653C, 0x8000], RsqrtOfZeroRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new RsqrtOfZeroRepro(i, o)));
 
     /// <summary>
-    /// MSL leaves a float to integer conversion out of range undefined, and the compiler uses that
-    /// where it can see the value or bound it: <c>(int)(b ? float.NaN : 1e10f)</c> is 0 instead of
-    /// int.MaxValue, <c>(int)h == int.MinValue</c> is false for <c>h = -∞</c> (the conversion itself
-    /// saturates to int.MinValue), and <c>-(long)(int)h</c> is negated in 32 bits, because a finite
-    /// half converts to a value within ±65504.
+    /// A float converted to a half where the compiler can see or bound it beyond the range of a
+    /// half is 65504, the largest half, where C# gives +∞: <c>(Half4)Gpu.Max(v, new Float4(1e30f, ...))</c>
+    /// in the lane that is at least 1e30, and <c>(Half)(float)(int)x</c> for a float <c>x</c> of 3e9,
+    /// where the compiler folds the conversion of the int.MaxValue that <c>(int)x</c> saturates to.
+    /// A float the compiler cannot bound converts to ±∞ as in C#.
     /// </summary>
     [MetalFact(Skip = Unfixed)]
-    public void OutOfRangeConversion() => AssertSame([0, 0xFC00], ConversionFoldRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new ConversionFoldRepro(i, o)));
+    public void OutOfRangeHalfConversion() => AssertSame([0xB6FE8FF0, 0x807FFFFF, 0x7F800000, 0x429F0C1F, 0x4F32D05E], HalfConversionFoldRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new HalfConversionFoldRepro(i, o)));
 
     /// <summary>A 64-bit integer converted to a half: 65510L gives +∞ instead of 65504, and a huge one converted on to an int wraps.</summary>
     [MetalFact(Skip = Unfixed)]
@@ -211,6 +231,24 @@ public readonly partial struct ConversionFoldRepro(ReadOnlyBuffer<ulong> input, 
         output[0] = (int)(b ? float.NaN : 1e10f);
         output[1] = t == int.MinValue ? 0 : 1;
         output[2] = -(long)(int)h;
+    }
+}
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct HalfConversionFoldRepro(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 5;
+
+    public void Execute()
+    {
+        Float4 v = new(Gpu.AsFloat((uint)input[0]), Gpu.AsFloat((uint)input[1]), Gpu.AsFloat((uint)input[2]), Gpu.AsFloat((uint)input[3]));
+        Half4 h = (Half4)Gpu.Max(v, new Float4(1e30f, float.PositiveInfinity, -3f, 1.5f));
+        float f3e9 = Gpu.AsFloat((uint)input[4]);
+        output[0] = Gpu.AsUShort(h.X);
+        output[1] = Gpu.AsUShort(h.Y);
+        output[2] = Gpu.AsUShort(h.Z);
+        output[3] = Gpu.AsUShort(h.W);
+        output[4] = Gpu.AsUShort((Half)(float)(int)f3e9);
     }
 }
 

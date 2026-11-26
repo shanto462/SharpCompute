@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 constant int SHAPE = 0;
 
 struct __Constants
@@ -166,7 +170,7 @@ static float CalculateAO(float3 p, float3 n, constant __Constants& __c)
 {
     float sca = 2.0f;
     float occ = 0.0f;
-    for (int i = int(metal::min(__c.time, 0.0f)); i < 5; i = int(uint(i) + 1u))
+    for (int i = __ms_sat_int(metal::min(__c.time, 0.0f)); i < 5; i = int(uint(i) + 1u))
     {
         float hr = (float(i) + 1.0f) * 0.15f / 5.0f;
         float d = ::M_1(p + (n * hr));

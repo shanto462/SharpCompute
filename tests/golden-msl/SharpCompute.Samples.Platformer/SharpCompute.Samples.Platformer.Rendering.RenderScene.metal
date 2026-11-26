@@ -3,51 +3,11 @@
 
 using namespace metal;
 
-// SharpCompute integer division (MslPrelude.IntegerDivision).
-inline char __ms_nonzero(char x) { return char(x | (metal::clz(x) >> 3)); }
-inline char2 __ms_nonzero(char2 x) { return char2(x | (metal::clz(x) >> 3)); }
-inline char3 __ms_nonzero(char3 x) { return char3(x | (metal::clz(x) >> 3)); }
-inline char4 __ms_nonzero(char4 x) { return char4(x | (metal::clz(x) >> 3)); }
-inline uchar __ms_nonzero(uchar x) { return uchar(x | (metal::clz(x) >> 3)); }
-inline uchar2 __ms_nonzero(uchar2 x) { return uchar2(x | (metal::clz(x) >> 3)); }
-inline uchar3 __ms_nonzero(uchar3 x) { return uchar3(x | (metal::clz(x) >> 3)); }
-inline uchar4 __ms_nonzero(uchar4 x) { return uchar4(x | (metal::clz(x) >> 3)); }
-inline short __ms_nonzero(short x) { return short(x | (metal::clz(x) >> 4)); }
-inline short2 __ms_nonzero(short2 x) { return short2(x | (metal::clz(x) >> 4)); }
-inline short3 __ms_nonzero(short3 x) { return short3(x | (metal::clz(x) >> 4)); }
-inline short4 __ms_nonzero(short4 x) { return short4(x | (metal::clz(x) >> 4)); }
-inline ushort __ms_nonzero(ushort x) { return ushort(x | (metal::clz(x) >> 4)); }
-inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(x | (metal::clz(x) >> 4)); }
-inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(x | (metal::clz(x) >> 4)); }
-inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(x | (metal::clz(x) >> 4)); }
-inline int __ms_nonzero(int x) { return int(x | (metal::clz(x) >> 5)); }
-inline int2 __ms_nonzero(int2 x) { return int2(x | (metal::clz(x) >> 5)); }
-inline int3 __ms_nonzero(int3 x) { return int3(x | (metal::clz(x) >> 5)); }
-inline int4 __ms_nonzero(int4 x) { return int4(x | (metal::clz(x) >> 5)); }
-inline uint __ms_nonzero(uint x) { return uint(x | (metal::clz(x) >> 5)); }
-inline uint2 __ms_nonzero(uint2 x) { return uint2(x | (metal::clz(x) >> 5)); }
-inline uint3 __ms_nonzero(uint3 x) { return uint3(x | (metal::clz(x) >> 5)); }
-inline uint4 __ms_nonzero(uint4 x) { return uint4(x | (metal::clz(x) >> 5)); }
-inline long __ms_nonzero(long x) { return long(x | (metal::clz(x) >> 6)); }
-inline long2 __ms_nonzero(long2 x) { return long2(x | (metal::clz(x) >> 6)); }
-inline long3 __ms_nonzero(long3 x) { return long3(x | (metal::clz(x) >> 6)); }
-inline long4 __ms_nonzero(long4 x) { return long4(x | (metal::clz(x) >> 6)); }
-inline ulong __ms_nonzero(ulong x) { return ulong(x | (metal::clz(x) >> 6)); }
-inline ulong2 __ms_nonzero(ulong2 x) { return ulong2(x | (metal::clz(x) >> 6)); }
-inline ulong3 __ms_nonzero(ulong3 x) { return ulong3(x | (metal::clz(x) >> 6)); }
-inline ulong4 __ms_nonzero(ulong4 x) { return ulong4(x | (metal::clz(x) >> 6)); }
-inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
-inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
-inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
-inline ulong __ms_rem_near_max(ulong a, ulong b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
-inline uint2 __ms_div_near_max(uint2 a, uint2 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint2(0u), b > a); }
-inline uint2 __ms_rem_near_max(uint2 a, uint2 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline uint3 __ms_div_near_max(uint3 a, uint3 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint3(0u), b > a); }
-inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline uint4 __ms_div_near_max(uint4 a, uint4 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint4(0u), b > a); }
-inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
-inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
 
 constant int AtlasWidth = 128;
 
@@ -179,9 +139,9 @@ static float PixelShading_Hash(int x, int y, uint seed)
 
 static float3 Spires(float3 color, int px, int py, int spacing, int band, float3 spireColor, uint seed)
 {
-    int column = px / __ms_nonzero(spacing);
+    int column = px / spacing;
     int localX = int(uint(px) - (uint(column) * uint(spacing)));
-    int bandIndex = py / __ms_nonzero(band);
+    int bandIndex = py / band;
     int localY = int(uint(py) - (uint(bandIndex) * uint(band)));
     float h = ::PixelShading_Hash(column, bandIndex, seed);
     float length = 20.0f + (h * float(band) * 0.45f);
@@ -283,12 +243,12 @@ static float3 PixelShading_UnpackRgb(uint pixel)
 static bool Occluded(float2 p, float2 lightPosition, float distance, const device uint* tiles, constant __Constants& __c)
 {
     float2 direction = (lightPosition - p) / metal::max(distance, 0.001f);
-    int steps = int(distance / 3.0f);
+    int steps = __ms_sat_int(distance / 3.0f);
     for (int k = 2; k < steps; k = int(uint(k) + 1u))
     {
         float2 q = p + (direction * (float(k) * 3.0f));
-        int tx = (int(uint(int(metal::floor(q.x))) + uint(__c.cameraX))) >> 4;
-        int ty = (int(uint(int(metal::floor(q.y))) + uint(__c.cameraY))) >> 4;
+        int tx = (int(uint(__ms_sat_int(metal::floor(q.x))) + uint(__c.cameraX))) >> 4;
+        int ty = (int(uint(__ms_sat_int(metal::floor(q.y))) + uint(__c.cameraY))) >> 4;
         if (::Tile(tx, ty, tiles, __c) == 1u)
         {
             return true;
@@ -299,15 +259,15 @@ static bool Occluded(float2 p, float2 lightPosition, float distance, const devic
 
 static bool PixelShading_GlyphCovers(const device uint* __local_font, int glyph, int gx, int gy, int scale)
 {
-    return gx >= 0 && gy >= 0 && gx < int(uint(3) * uint(scale)) && gy < int(uint(5) * uint(scale)) && ((__local_font[glyph] >> (int((uint(gy / __ms_nonzero(scale)) * uint(3)) + uint(gx / __ms_nonzero(scale))))) & 1u) != 0u;
+    return gx >= 0 && gy >= 0 && gx < int(uint(3) * uint(scale)) && gy < int(uint(5) * uint(scale)) && ((__local_font[glyph] >> (int((uint(gy / scale) * uint(3)) + uint(gx / scale)))) & 1u) != 0u;
 }
 
 static uint PixelShading_PackRgb(float3 color)
 {
     color = metal::saturate(color);
-    uint red = uint(metal::max((color.x * 255.0f) + 0.5f, 0.0f));
-    uint green = uint(metal::max((color.y * 255.0f) + 0.5f, 0.0f));
-    uint blue = uint(metal::max((color.z * 255.0f) + 0.5f, 0.0f));
+    uint red = __ms_sat_uint((color.x * 255.0f) + 0.5f);
+    uint green = __ms_sat_uint((color.y * 255.0f) + 0.5f);
+    uint blue = __ms_sat_uint((color.z * 255.0f) + 0.5f);
     return red | (green << 8) | (blue << 16) | 4278190080u;
 }
 

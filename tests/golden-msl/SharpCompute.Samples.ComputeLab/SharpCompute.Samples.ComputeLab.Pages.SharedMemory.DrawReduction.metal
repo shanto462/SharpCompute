@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 constant int PanelY = 104;
 constant int PanelSize = 512;
 constant int PanelX = 32;
@@ -58,7 +62,7 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_SharedMemory_DrawReduction(
         {
             int bar = py / 2;
             float mean = sums[bar] / (16.0f * float(__c.side));
-            bool filled = bx < int(mean * 208.0f);
+            bool filled = bx < __ms_sat_int(mean * 208.0f);
             color = filled ? metal::mix(float3(0.1f, 0.35f, 0.75f), float3(1.0f, 0.82f, 0.4f), mean) * ((bar & 1) == 0 ? 1.0f : 0.82f) : float3(0.03f, 0.04f, 0.06f);
         }
     }

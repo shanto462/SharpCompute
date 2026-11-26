@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 constant int BlockShift = 10;
 
 struct VoiceEvent
@@ -148,7 +152,7 @@ static float Oscillator(int wave, float phase, float dt, float duty, uint seed)
     {
         return metal::sin(6.2831855f * p);
     }
-    uint h = ::Hash(uint(metal::max(metal::floor(phase), 0.0f)) ^ (seed * 2654435769u));
+    uint h = ::Hash(__ms_sat_uint(metal::floor(phase)) ^ (seed * 2654435769u));
     return (float(h >> 8) * (1.0f / 8388608.0f)) - 1.0f;
 }
 
