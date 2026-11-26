@@ -51,7 +51,9 @@ also compiles the pipeline that `ForSplit` runs on the GPU (see
 - Integer results are identical: conversions from float saturate, shift counts are masked, and
   arithmetic wraps on both, signed and unsigned (see [Integers](shader-language.md#integers)).
 - The CPU implementations of `Gpu.*` are bit-for-bit for arithmetic, rounding functions, `sqrt` and
-  `fmod`, and within a few ULP for transcendentals. With `[ShaderOptions(FpContract = false)]`,
+  `fmod`, and within a few ULP for transcendentals, apart from the
+  [known differences](limitations.md#shader-language) (a half division by a constant, `sqrt` of a
+  half converted to float, and the others listed there). With `[ShaderOptions(FpContract = false)]`,
   arithmetic that uses only `+ - * /` and `Gpu.Sqrt` gives the same bits on both (subnormal results
   aside, which the GPU flushes to zero).
 - Both run the shader's expressions in the same order: one whose result would depend on C#'s
@@ -131,6 +133,6 @@ repro for each in `KnownDifferencesTests` of that project.
 | Atomics | `Interlocked` operations; final values match. A shader with atomics on buffer elements is never split | [Atomics](atomics.md#on-the-cpu-and-between-devices) |
 | Textures | The same reads, writes and address modes, exact where the GPU rounds | [Textures on the CPU](resources.md#textures-on-the-cpu) |
 | Local arrays | Real C# arrays and spans, bounds-checked. `new T[N]` allocates per thread: prefer `stackalloc` | [Local arrays](local-arrays.md#rules) |
-| Half precision | Reproduces the GPU's half arithmetic bit for bit, subnormals included | [Half precision](half-precision.md#what-it-computes) |
+| Half precision | Reproduces the GPU's half arithmetic bit for bit, subnormals included, except a division by a constant ([Limitations](limitations.md#shader-language)) | [Half precision](half-precision.md#what-it-computes) |
 | Shared code | The same methods, unchanged | [Sharing code](shared-code.md#rules) |
 | Matrix units | The lanes meet at every matrix operation and the matrix is storage the group shares; lanes at different calls, different arguments or fewer than 32 lanes are refused | [Matrix units](matrix-units.md#on-the-cpu) |

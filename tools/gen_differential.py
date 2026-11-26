@@ -1512,7 +1512,7 @@ def build_and_run(source: Path, report: Path, work: Path) -> list[dict]:
     if report.exists():
         report.unlink()
     env = dict(os.environ, SHARPCOMPUTE_DIFFERENTIAL_REPORT=str(report))
-    test = run(["dotnet", "test", str(PROJECT), "-nologo", "--no-build", "--filter", "Category=Differential"], env=env)
+    test = run(["dotnet", "test", str(PROJECT), "-nologo", "--no-build", "--filter", "FullyQualifiedName~SharpCompute.Differential.Tests.DifferentialTests.RandomExpressions_GiveTheSameResultsOnTheGpuAsWithForCpu"], env=env)
     if not report.exists():
         if test.returncode == 0:
             return []

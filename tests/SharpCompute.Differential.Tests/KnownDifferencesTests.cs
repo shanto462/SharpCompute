@@ -78,12 +78,13 @@ public class KnownDifferencesTests
 
     /// <summary>
     /// A guard against division by zero is dropped when the divisor is itself chosen by a ternary:
-    /// with <c>t = l == long.MinValue ? 0 : Math.Abs(l)</c>, <c>t == 0 ? 0 : x % t</c> is <c>x</c>
-    /// for <c>l = long.MinValue</c>, and with <c>t = d == 0 ? 0 : a / d</c>, <c>t == 0 ? 0 : x % t</c>
-    /// is <c>x</c> for <c>d = 0</c>.
+    /// with <c>t = l == long.MinValue ? 0 : Math.Abs(l)</c>, <c>t == 0 ? 0 : x % t</c> is
+    /// <c>x % long.MinValue</c> (2 for x = 2) instead of 0 for <c>l = long.MinValue</c>. Guards around
+    /// a chain of 32-bit divisions (<c>t = d == 0 ? 0 : a / d; t == 0 ? 0 : x % t</c>) were dropped
+    /// the same way inside larger random expressions, but not in a shader of that chain alone.
     /// </summary>
     [MetalFact(Skip = Unfixed)]
-    public void GuardedDivisionChain() => AssertSame([2, unchecked((ulong)long.MinValue), 0, 31, 0x6120], GuardedDivisionRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new GuardedDivisionRepro(i, o)));
+    public void GuardedDivisionChain() => AssertSame([2, unchecked((ulong)long.MinValue)], GuardedDivisionRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new GuardedDivisionRepro(i, o)));
 
     /// <summary>
     /// <c>Sqrt</c> and <c>Rsqrt</c> of a half converted to float are one ULP off the correctly
@@ -247,7 +248,7 @@ public readonly partial struct BitsOfSmallIntegerRepro(ReadOnlyBuffer<ulong> inp
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct GuardedDivisionRepro(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 2;
+    public const int Slots = 1;
 
     public void Execute()
     {
@@ -255,12 +256,6 @@ public readonly partial struct GuardedDivisionRepro(ReadOnlyBuffer<ulong> input,
         long l = (long)input[1];
         long t = l == long.MinValue ? 0 : Math.Abs(l);
         output[0] = t == 0 ? 0 : x % t;
-
-        uint d = (uint)input[2];
-        uint a = (uint)input[3];
-        uint y = (uint)Gpu.AsHalf((ushort)input[4]);
-        uint q = d == 0 ? 0 : a / d;
-        output[1] = q == 0 ? 0 : y % q;
     }
 }
 

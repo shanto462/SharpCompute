@@ -120,7 +120,9 @@ build error `SCG0052`).
   `uchar(float(i))` into a truncation of `i` on that ground, so a conversion to an 8- or 16-bit
   integer goes through a clamped `int` (`uchar(metal::clamp(int(x), 0, 255))`) and one to `uint`
   or `ulong` clamps the negative values first (`uint(metal::max(x, 0.0f))`). `int` is a plain MSL
-  cast. Integer to float rounds to nearest even.
+  cast. A value out of range that the compiler can see or bound (a constant, or a half, which is
+  finite within ±65504) can still give another result: see
+  [Limitations](limitations.md#shader-language). Integer to float rounds to nearest even.
 - **Literals** keep their C# type: `(byte)5` is `uchar(5)`, `5L` is `5L`, `ulong.MaxValue` is
   `18446744073709551615UL`.
 - **Layout.** A `byte` is aligned to 1, a `short` to 2 and a `long` to 8, in C# and in MSL alike, so
@@ -309,7 +311,9 @@ public readonly partial struct Orbit(...) : IComputeShader { ... }
   On ComputeLab's FastMath page it takes 0.39 ms against 1.2 ms, with a 3.6e-6 error against the CPU
   where safe math has 3.3e-6. But a comparison such as `x != x` is compiled away.
 - **`FpContract = false`**: arithmetic that uses only `+ - * /` and `Gpu.Sqrt` then gives the same
-  bits on the GPU as on the CPU (subnormal results aside, which the GPU flushes to zero). The unfused
+  bits on the GPU as on the CPU (subnormal results aside, which the GPU flushes to zero, and the
+  half division by a constant and `Sqrt` of a converted half in
+  [Limitations](limitations.md#shader-language)). The unfused
   Mandelbrot kernel is 12 % slower, and saxpy is unchanged.
 
 ![ComputeLab's FastMath page: a field of a million values computed by a kernel of sines, cosines, exponentials and powers on the left, its error against the CPU on the right, and under the field the lines "default: IEEE-safe, precise functions" and "kernel: precompiled"](screenshots/computelab-fastmath.png)
