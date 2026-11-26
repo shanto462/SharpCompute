@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -14,9 +15,36 @@ namespace SharpCompute.SourceGenerators;
 // `-`, `*`, negation, their compound assignments, `++` and `--`, and explicit conversions that can
 // overflow. A `checked` block around float arithmetic, or around a widening conversion, changes
 // nothing and is accepted, and so is `unchecked`.
+//
+// Where the context comes from decides how it is reported. `checked(...)` and `checked { }` are
+// deliberate, and each operation in them is reported where it is written. The project-wide switch
+// makes every integer operation checked, so it is reported once per shader, on the shader's
+// declaration, with the count and the first operation (ShaderAnalyzer reports it).
 internal sealed partial class MslTranslator
 {
-    /// <summary>Reports <paramref name="operation"/> when it is checked arithmetic, and returns whether it was.</summary>
+    // The operations that are checked only because of the project's CheckForOverflowUnderflow. They
+    // are reported once for the shader (see ProjectCheckedCount), not one by one: the switch makes
+    // every integer operation checked, and a diagnostic per operation buries the one fix that matters.
+    // Keyed by syntax node, since a helper can be translated more than once (once per receiver mode).
+    private readonly HashSet<SyntaxNode> _projectChecked = new();
+    private SyntaxNode? _firstProjectChecked;
+
+    /// <summary>
+    /// How many operations of the shader, in the kernel and in the helpers it reaches, are checked
+    /// only because the project enables <c>CheckForOverflowUnderflow</c>. Valid after <see cref="TranslateKernel"/>.
+    /// </summary>
+    public int ProjectCheckedCount => _projectChecked.Count;
+
+    /// <summary>The first of those operations to be translated, or null when there are none.</summary>
+    public SyntaxNode? FirstProjectChecked => _firstProjectChecked;
+
+    /// <summary>
+    /// Reports <paramref name="operation"/> when it is checked arithmetic, and returns whether it was
+    /// reported here (the caller then stops translating it).
+    /// Explicit <c>checked(...)</c> and <c>checked { }</c> are reported where they are written, since
+    /// they are deliberate; what the project switch alone makes checked is collected for one
+    /// diagnostic on the shader.
+    /// </summary>
     private bool ReportIfChecked(IOperation operation)
     {
         if (!IsCheckedArithmetic(operation))
@@ -24,12 +52,24 @@ internal sealed partial class MslTranslator
             return false;
         }
 
-        // The project-wide switch is easy to miss: every shader then reports its arithmetic.
-        string projectHint = _compilation.Options.CheckOverflow && !InsideCheckedSyntax(operation.Syntax)
-            ? "; the project enables CheckForOverflowUnderflow, which makes all integer arithmetic checked: turn it off, or put the shader's code in 'unchecked { }'"
-            : string.Empty;
+        if (_compilation.Options.CheckOverflow && !InsideCheckedSyntax(operation.Syntax))
+        {
+            if (_projectChecked.Add(operation.Syntax))
+            {
+                _firstProjectChecked ??= operation.Syntax;
+            }
 
-        _diagnostics.Report(DiagnosticDescriptors.CheckedArithmetic, operation.Syntax.GetLocation(), operation.Syntax.ToString(), projectHint);
+            // Translation goes on, so that the operands, and the helpers they call, are counted too.
+            // The shader's diagnostic is an error, so none of this MSL is used.
+            return false;
+        }
+
+        string text = operation.Syntax.ToString();
+        _diagnostics.Report(
+            DiagnosticDescriptors.CheckedArithmetic,
+            operation.Syntax.GetLocation(),
+            $"'{text}' is checked arithmetic",
+            $"Write it unchecked, as 'unchecked({text})' or inside 'unchecked {{ }}', which wraps on both, or test the operands before the operation");
         return true;
     }
 

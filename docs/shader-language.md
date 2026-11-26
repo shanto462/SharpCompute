@@ -98,6 +98,9 @@ build error `SCG0052`).
 - **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
   with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
   and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
+  `checked(...)` and `checked { }` are reported on each operation in them; the project-wide switch
+  is reported once per shader, on its declaration, with the number of checked operations and the
+  first of them.
 - **Float to integer** conversions truncate, give 0 for NaN and saturate at the bounds of the target
   type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
   `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range
