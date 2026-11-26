@@ -55,9 +55,9 @@ to the page that explains it.
   builds.
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
-  - *A product with `Gpu.Step`* can be +0 where C# gives -0: the compiler writes `Gpu.Step(e, x) * c`
-    as a select, so a zero step times a negative `c` is +0. And `Gpu.Step(x, x)` is 1 also for a NaN
-    `x`, where C# (`x >= x`) gives 0.
+  - *The product of `Gpu.Step` and a constant* can be +0 where C# gives -0: the compiler writes
+    `Gpu.Step(e, x) * -2.5f` as a select, so a zero step times a negative constant is +0. A
+    product with a value that is not a constant keeps its sign.
   - *A half division by a constant* is a multiplication by the constant's reciprocal, up to one
     half ULP off: `h / (Half)3f` is 931 for 2794. Divide by a value read from a buffer for the
     correctly rounded quotient.

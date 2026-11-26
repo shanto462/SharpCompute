@@ -257,7 +257,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2(
     char c1_0 = sb2;
     c1_0 += int(sb1);
     output[int(uint(p) + 4u)] = long(__ms_rotate_right(sh0, int((uint(b1 ? by2 : by1) - uint(c1_0)) + uint(us2))));
-    ulong c2_0 = metal::rotate(metal::reverse_bits(ul1 << (-1)), ulong(uint(int(uint(metal::min(uchar(31), by1)) + uint(by1))) & 63u));
+    ulong c2_0 = metal::rotate(metal::reverse_bits(ul1 << 63), ulong(uint(int(uint(metal::min(uchar(31), by1)) + uint(by1))) & 63u));
     output[int(uint(p) + 5u)] = long((c2_0 == 0UL) ? 0UL : ul2 / __ms_nonzero(c2_0));
     output[int(uint(p) + 6u)] = (metal::all(((u4a / __ms_nonzero(metal::select(u4b, uint4(1u), (uint4(u4b) == 0u)))) & uint4(u2)) > metal::clamp(u3a.yyyz, uint(ul2), uint(sh1)))) ? 1L : 0L;
     ulong c4_0 = ul0;

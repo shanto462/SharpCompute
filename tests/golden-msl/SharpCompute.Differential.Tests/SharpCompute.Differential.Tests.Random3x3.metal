@@ -277,7 +277,7 @@ kernel void SharpCompute_Differential_Tests_Random3x3(
         c7_0 /= __ms_nonzero(int(c7_1));
     }
     ushort c7_2 = us1;
-    c7_2 >>= 33;
+    c7_2 >>= 1;
     uchar c7_3 = b2 ? by0 : by2;
     uchar c7_4 = by2;
     c7_3 |= int(c7_4);

@@ -309,7 +309,7 @@ kernel void SharpCompute_Differential_Tests_Random3x7(
     half c13_6 = c13_5--;
     output[int(uint(p) + 19u)] = (metal::clamp(c13_2, l0, __ms_sat_long(__ms_half_rem(half(1.5f), c13_6))));
     short c14_0 = __ms_rotate_right(sh1, i0);
-    c14_0 >>= (int(by0) >> 65535);
+    c14_0 >>= (int(by0) >> 31);
     int c14_1 = int(uint(sh0) + uint(by1));
     output[int(uint(p) + 20u)] = long(+int(__ms_rotate_left(c14_0, c14_1)));
     uint2 c15_0 = __ms_clz(u4a.yy);

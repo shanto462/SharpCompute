@@ -419,6 +419,38 @@ internal static partial class DifferentialHarness
         return text.ToString();
     }
 
+    /// <summary>
+    /// In the long mode (with <see cref="ReportVariable"/> set), records a shader whose pipeline
+    /// Metal's compiler crashed building (XPC_ERROR_CONNECTION_INTERRUPTED) and returns true, so the
+    /// run goes on: random shaders hit compiler crashes that no single case of them causes (see
+    /// docs/limitations.md), and the cases of such a shader cannot be compared. Returns false in the
+    /// default mode, and for any other compilation error, which fails the test.
+    /// </summary>
+    public static bool ReportCompilerCrash(DifferentialShader shader, ShaderCompilationException exception)
+    {
+        if (!exception.Message.Contains("XPC_ERROR_CONNECTION_INTERRUPTED", StringComparison.Ordinal) ||
+            Environment.GetEnvironmentVariable(ReportVariable) is not { Length: > 0 } path)
+        {
+            return false;
+        }
+
+        using MemoryStream stream = new();
+        using (Utf8JsonWriter json = new(stream))
+        {
+            json.WriteStartObject();
+            json.WriteString("crash", shader.Name);
+            json.WriteNumber("cases", shader.Cases.Length);
+            json.WriteEndObject();
+        }
+
+        lock (s_reportLock)
+        {
+            File.AppendAllText(path, Encoding.UTF8.GetString(stream.ToArray()) + "\n");
+        }
+
+        return true;
+    }
+
     private static void AppendReport(string path, IReadOnlyList<DifferentialMismatch> mismatches)
     {
         StringBuilder lines = new();

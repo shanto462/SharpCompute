@@ -128,8 +128,8 @@ public class IntegerMiscompileTests
 
         Assert.Equal(
             [
-                "inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }",
-                "inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }",
+                "inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }",
+                "inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }",
                 "inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }",
                 "inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }",
                 "inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }",

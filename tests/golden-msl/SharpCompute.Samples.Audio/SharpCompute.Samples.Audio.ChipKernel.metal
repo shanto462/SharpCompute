@@ -7,8 +7,6 @@ using namespace metal;
 inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
 inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
 
-constant int BlockShift = 10;
-
 struct VoiceEvent
 {
     int StartSample;
@@ -196,7 +194,7 @@ kernel void SharpCompute_Samples_Audio_ChipKernel(
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
-    int block = i >> ::BlockShift;
+    int block = i >> 10;
     int last = blockStarts[int(uint(block) + 1u)];
     float sum = 0.0f;
     for (int k = blockStarts[block]; k < last; k = int(uint(k) + 1u))

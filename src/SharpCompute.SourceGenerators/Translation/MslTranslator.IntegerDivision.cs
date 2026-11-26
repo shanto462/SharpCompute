@@ -29,7 +29,10 @@ namespace SharpCompute.SourceGenerators;
 /// on <c>t == 0</c>, and the GPU compiler folded <c>clz(t) &gt;&gt; 5</c> and the top bit of
 /// <c>(t - 1) &amp; ~t</c> in some shaders (random shaders, and one specialized by a function
 /// constant, with the lanes of a SIMD group dividing by different values). It costs a bit reversal,
-/// a compare and an or. Measured on an M4 Pro (median of 14 runs of 4M threads): in a loop that does
+/// a compare and an or. A divisor the front end can evaluate, after inlining and folding, is left
+/// as it is (<c>__builtin_constant_p</c>, lane by lane for a vector): the reversal would hide the
+/// constant from the front end, and the GPU compiler folds a division of two constants wrongly for
+/// most even divisors, where the front end folds it right or turns it into a multiplication. Measured on an M4 Pro (median of 14 runs of 4M threads): in a loop that does
 /// nothing but divide, 9% of a 32-bit unsigned division, 13% of a signed one and 1% of a 64-bit one;
 /// in a 3 x 3 box filter that finds its pixel with <c>i / width</c> and <c>i % width</c>, 1%.
 /// </para>
@@ -108,18 +111,24 @@ internal sealed partial class MslTranslator
     private void UseIntegerHelper(string helper, string type)
     {
         _integerHelpers.Add(helper + "(" + type);
+        string scalar = type.TrimEnd('2', '3', '4');
 
-        if (helper == MslNames.NonZero && type.TrimEnd('2', '3', '4') is "char" or "uchar" or "short" or "ushort")
+        if (helper == MslNames.NonZero && scalar is "char" or "uchar" or "short" or "ushort")
         {
             // The 8- and 16-bit ones divide as int, as MSL promotes them: `__ms_nonzero(int3(x))`.
-            _integerHelpers.Add(helper + "(int" + type.Substring(type.TrimEnd('2', '3', '4').Length));
+            UseIntegerHelper(helper, "int" + type.Substring(scalar.Length));
+        }
+        else if (helper == MslNames.NonZero && scalar != type)
+        {
+            // A vector one calls the scalar one for each lane.
+            _integerHelpers.Add(helper + "(" + scalar);
         }
         else if (helper is MslNames.DivideNearMax or MslNames.RemainderNearMax)
         {
             // The long ones divide the magnitudes as ulong; each divides by a nonzero divisor.
             string unsigned = type == "long" ? "ulong" : type;
             _integerHelpers.Add(helper + "(" + unsigned);
-            _integerHelpers.Add(MslNames.NonZero + "(" + unsigned);
+            UseIntegerHelper(MslNames.NonZero, unsigned);
         }
     }
 

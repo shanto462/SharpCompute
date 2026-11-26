@@ -266,7 +266,7 @@ kernel void SharpCompute_Differential_Tests_Random1x6(
     ulong c7_2 = ul2;
     ulong c7_3 = ++c7_2;
     output[int(uint(p) + 9u)] = long(short(metal::min((c7_1 == 0UL) ? 0UL : c7_0 / __ms_nonzero(c7_1), c7_3)));
-    uint c8_0 = metal::rotate(u0 >> (-1), (0u - uint(int(short(255)) >> i1)) & 31u);
+    uint c8_0 = metal::rotate(u0 >> 31, (0u - uint(int(short(255)) >> i1)) & 31u);
     c8_0 -= (metal::rotate(256u, uint(i1) & 31u) + uint(sb1));
     output[int(uint(p) + 10u)] = (long(c8_0) ^ long(int(__ms_rotate_left(ulong(by0) + ul2, i4a.x))));
     half4 c9_0 = (h4b * h4b) + h4a;

@@ -262,7 +262,7 @@ kernel void SharpCompute_Differential_Tests_Random1x3(
     uchar c5_2 = c5_1;
     uchar c5_3 = uchar(__ms_sat_long(h2));
     short c5_4 = short(32767);
-    c5_4 = short(uint(int(c5_4)) >> (-2147483647 - 1));
+    c5_4 = short(uint(int(c5_4)) >> 0);
     c5_3 <<= (int(__ms_sat_short(f0)) ^ int(c5_4));
     uchar c5_5 = c5_3;
     if (!(int(c5_5) == 0))

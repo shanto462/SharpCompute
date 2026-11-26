@@ -286,7 +286,7 @@ kernel void SharpCompute_Differential_Tests_Random1x3Model(
     uchar c5_v0_2 = c5_v0_1;
     uchar c5_v0_3 = uchar(__ms_sat_long(h2));
     short c5_v0_4 = short(32767);
-    c5_v0_4 = short(uint(int(c5_v0_4)) >> (-2147483647 - 1));
+    c5_v0_4 = short(uint(int(c5_v0_4)) >> 0);
     c5_v0_3 <<= (int(__ms_sat_short(::GpuModel_Flush(f0))) ^ int(c5_v0_4));
     uchar c5_v0_5 = c5_v0_3;
     if (!(int(c5_v0_5) == 0))
@@ -301,7 +301,7 @@ kernel void SharpCompute_Differential_Tests_Random1x3Model(
     uchar c5_v1_2 = c5_v1_1;
     uchar c5_v1_3 = uchar(__ms_sat_long(h2));
     short c5_v1_4 = short(32767);
-    c5_v1_4 = short(uint(int(c5_v1_4)) >> (-2147483647 - 1));
+    c5_v1_4 = short(uint(int(c5_v1_4)) >> 0);
     c5_v1_3 <<= (int(__ms_sat_short(::GpuModel_Flush(f0))) ^ int(c5_v1_4));
     uchar c5_v1_5 = c5_v1_3;
     if (!(int(c5_v1_5) == 0))
@@ -316,7 +316,7 @@ kernel void SharpCompute_Differential_Tests_Random1x3Model(
     uchar c5_v2_2 = c5_v2_1;
     uchar c5_v2_3 = uchar(__ms_sat_long(h2));
     short c5_v2_4 = short(32767);
-    c5_v2_4 = short(uint(int(c5_v2_4)) >> (-2147483647 - 1));
+    c5_v2_4 = short(uint(int(c5_v2_4)) >> 0);
     c5_v2_3 <<= (int(__ms_sat_short(f0)) ^ int(c5_v2_4));
     uchar c5_v2_5 = c5_v2_3;
     if (!(int(c5_v2_5) == 0))

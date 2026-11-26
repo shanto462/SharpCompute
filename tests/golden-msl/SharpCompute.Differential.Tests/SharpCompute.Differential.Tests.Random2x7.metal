@@ -202,7 +202,7 @@ kernel void SharpCompute_Differential_Tests_Random2x7(
     output[int(uint(p) + 8u)] = long(as_type<uint>(c5_0.y));
     output[int(uint(p) + 9u)] = long(as_type<uint>(c5_0.z));
     long c6_0 = l2;
-    c6_0 <<= 65535;
+    c6_0 <<= 63;
     float c6_1 = metal::fma(f2, f0, f0);
     output[int(uint(p) + 10u)] = long(ushort(__ms_rotate_right(metal::ctz(c6_0), metal::isnan(c6_1) ? 0 : int(metal::sign(c6_1)))));
     long c7_0 = __ms_math_clamp(l1, metal::min(l1, l2), metal::max(l1, l2));
@@ -219,7 +219,7 @@ kernel void SharpCompute_Differential_Tests_Random2x7(
     short c11_1 = short(metal::min(char(2), sb0));
     output[int(uint(p) + 16u)] = (long(ulong(c11_0 * uint(__ms_rotate_left(us2, i0))) - ulong(c11_1)));
     uint c12_0 = u1;
-    c12_0 >>= -2147483647 - 1;
+    c12_0 >>= 0;
     uint4 c12_1 = uint3(uint(i1), c12_0, u2 >> i0).yyyy;
     output[int(uint(p) + 17u)] = long(c12_1.x);
     output[int(uint(p) + 18u)] = long(c12_1.y);

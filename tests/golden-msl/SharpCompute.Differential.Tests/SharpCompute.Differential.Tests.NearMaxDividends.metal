@@ -17,7 +17,7 @@ inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) 
 inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
 inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
 
-constant int Slots = 24;
+constant int Slots = 27;
 constant uint Constant = 4294967280u;
 constant uint ReadOnlyMax = 4294967295u;
 
@@ -72,4 +72,10 @@ kernel void SharpCompute_Differential_Tests_NearMaxDividends(
     output[int(uint(o) + 21u)] = long(r.z);
     output[int(uint(o) + 22u)] = long(2147483647u / __ms_nonzero(x));
     output[int(uint(o) + 23u)] = 4294967296L / __ms_nonzero(y);
+    uint m = 4294967295u;
+    long n = -4294967200L;
+    uint3 w = uint3(4294967168u, 3u, 4294967295u);
+    output[int(uint(o) + 24u)] = long(__ms_div_near_max(m, x));
+    output[int(uint(o) + 25u)] = __ms_rem_near_max(n, y);
+    output[int(uint(o) + 26u)] = long((__ms_div_near_max(w, v)).z);
 }

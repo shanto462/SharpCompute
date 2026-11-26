@@ -989,9 +989,14 @@ def is_constant_expression(n: Node) -> bool:
 
 def folds_to_constant(n: Node) -> bool:
     """Whether the compiler may fold n to a constant although an operand is not one: `x | C` (all
-    ones), Min, Max and Clamp with a constant bound, and an operator of one value twice (`x - x`)."""
+    ones, or the bits x cannot have) and `t |= C`, `t &= C` (0), a rotate of a constant (all ones),
+    Min, Max and Clamp with a constant bound, and an operator of one value twice (`x - x`)."""
+    if n.kind == "compound":
+        return n.text in ("|=", "&=") and has_constant_part(n.args[1])
     if n.kind != "op" or len(n.args) < 2:
         return False
+    if "Rotate" in n.text and has_constant_part(n.args[0]):
+        return True
     if len({render_key(a) for a in n.args}) < len(n.args):
         return True
     return any(a.kind == "lit" for a in n.args) and (" | " in n.text or any(f in n.text for f in ("Min(", "Max(", "Clamp(")))
@@ -1019,11 +1024,19 @@ def through_swizzles(n: Node) -> Node:
 
 
 def has_constant_lane(n: Node) -> bool:
-    """has_constant_part, or a componentwise Gpu function of an operand with one: the compiler folds
-    Gpu.Abs(new Half4(-65504, h, h, 1)) to a vector with constant lanes."""
+    """has_constant_part, or a componentwise Gpu function, a conversion or arithmetic of operands
+    with one: the compiler folds Gpu.Abs(new Half4(-65504, h, h, 1)), (Half4)new Float4(f, -0.5f, ...)
+    and new Half3(10, 0, h) + new Half3(1000, -0, h) to vectors with constant lanes."""
+    n = through_locals(n)
     if has_constant_part(n):
         return True
-    return n.kind == "op" and n.text.startswith("Gpu.") and any(has_constant_lane(a) for a in n.args)
+    if n.kind != "op":
+        return False
+    if n.text.startswith("Gpu.") or (n.text.startswith("((") and len(n.args) == 1):
+        return any(has_constant_lane(a) for a in n.args)
+    if n.t.vector and "arith" in n.flags:
+        return all(has_constant_lane(a) for a in n.args)
+    return False
 
 
 def may_be_large(n: Node) -> bool:
@@ -1039,10 +1052,14 @@ def is_division(n: Node) -> bool:
     return (n.kind == "op" and "div" in n.flags) or (n.kind == "compound" and n.text in ("/=", "%="))
 
 
+BITS_TO_FLOAT = ("Gpu.AsFloat(", "BitConverter.Int32BitsToSingle(", "BitConverter.UInt32BitsToSingle(")
+
+
 def known_difference(root: Node) -> str | None:
     """The known difference the tree would run into, or None. Each name but ZeroSignOfMinMax,
-    SameOperands and ConstantSubnormal (policy: what IEEE leaves open, an exact simplification the
-    GPU makes, and constants the compiler folds without flushing) is a test of
+    SameOperands, ConstantSubnormal and SubnormalFromBits (policy: what IEEE leaves open, an exact
+    simplification the GPU makes, constants the compiler folds without flushing, and subnormals the
+    Near check cannot see among the inputs) is a test of
     KnownDifferencesTests.cs that holds a minimal repro: skipped, or, for ConstantDividend, the
     repro of the shapes the generator works around."""
     for n in root.walk():
@@ -1082,9 +1099,12 @@ def known_difference(root: Node) -> str | None:
             # The GPU's pow of a base next to 1 (Fract gives 0.99999994) and a large exponent
             # overflows where the result is finite.
             return "PowNearOne"
-        if n.text.startswith("Gpu.Step(") and render_key(n.args[0]) == render_key(n.args[1]):
-            # Policy: the GPU simplifies step(x, x) to 1, which C# (x >= x) gives except for NaN.
-            return "SameOperands"
+        if "near" in n.flags and any(m.kind == "op" and m.text.startswith(BITS_TO_FLOAT) and elem_of(m.args[0].t).kind == "int" for m in n.walk()):
+            # Policy: the Near check allows a flushed intermediate result on a thread whose float
+            # inputs come within 2^-64 of zero; a float made from the bits of an integer can be
+            # subnormal (Gpu.AsFloat(65568) is 9.2e-41) without such an input, and the GPU flushes
+            # what it feeds (Reflect of it: 0 where ForCpu gives -0.0156).
+            return "SubnormalFromBits"
         if "tol" in n.flags and len({render_key(a) for a in n.args}) < len(n.args):
             # Policy: the GPU simplifies mix(x, x, t) to x; ForCpu evaluates the GPU's formula, which cancels.
             return "SameOperands"
@@ -1424,8 +1444,8 @@ def result_kind(t: Ty) -> str:
     return {"float": "Float", "half": "Half"}.get(e.kind, "Integer")
 
 
-# Step: the GPU compiler writes a product with a Step as a select, whose zero is +0 where a zero
-# Step times a negative value is -0 (step(2, 1) * -2.5f is +0).
+# Step: the GPU compiler writes the product of a Step and a constant as a select, whose zero is +0
+# where a zero Step times a negative constant is -0 (step(2, 1) * -2.5f is +0).
 ZERO_SIGN_OPEN = ("Min(", "Max(", "Clamp(", "Saturate(", "Step(")
 
 
@@ -1584,7 +1604,14 @@ def build_and_run(source: Path, report: Path, work: Path) -> list[dict]:
             return []
         (work / "test.log").write_text(test.stdout + test.stderr)
         sys.exit(f"the test run failed without reporting a mismatch; see {work / 'test.log'}")
-    return [json.loads(line) for line in report.read_text().splitlines() if line.strip()]
+    entries = [json.loads(line) for line in report.read_text().splitlines() if line.strip()]
+    CRASHES.extend(e["crash"] for e in entries if "crash" in e)
+    return [e for e in entries if "case" in e]
+
+
+# The shaders whose pipeline Metal's compiler crashed building (XPC_ERROR_CONNECTION_INTERRUPTED) in
+# this run: their cases are not compared, and the run goes on (DifferentialHarness.ReportCompilerCrash).
+CRASHES: list[str] = []
 
 
 def shrink_candidates(root: Node) -> list[Node]:
@@ -1710,6 +1737,11 @@ def fuzz_and_shrink(seed: int, count: int, batch: int, keep: bool) -> int:
         for f in found:
             failures.setdefault(f["case"], f)
         print(f"  cases {start}..{start + n - 1}: {len(found)} mismatching", flush=True)
+
+    crashed = sorted(set(CRASHES))
+    if crashed:
+        print(f"  {len(crashed)} shader(s) crashed Metal's compiler building their pipeline, not compared: {', '.join(crashed)}", flush=True)
+        CRASHES.clear()
 
     if not failures:
         print(f"fuzz: no mismatches in {count} expressions (seed {seed})")

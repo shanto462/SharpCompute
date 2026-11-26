@@ -140,6 +140,14 @@ public class KnownDifferencesTests
     [MetalFact(Skip = Unfixed)]
     public void PowNearOne() => AssertSame([0x3F7FFFFF, 0xCE94D225], PowNearOneRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new PowNearOneRepro(i, o)));
 
+    /// <summary>
+    /// <c>Gpu.Step(e, x) * -2.5f</c> with a zero step is +0 on the GPU where C# gives -0: the compiler
+    /// writes the product of a Step and a constant as a select. The fuzzer treats the sign of a zero
+    /// in a tree with a Step as open.
+    /// </summary>
+    [MetalFact(Skip = Unfixed)]
+    public void StepTimesConstant() => AssertSame([0x40000000, 0x3F800000], StepTimesConstantRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new StepTimesConstantRepro(i, o)));
+
     private static void Dispatch<TShader>(GraphicsDevice device, bool cpu, in TShader shader)
         where TShader : struct, IComputeShader, IComputeShaderDescriptor<TShader> => DifferentialHarness.Dispatch(device, cpu, 1, shader);
 
@@ -334,4 +342,12 @@ public readonly partial struct PowNearOneRepro(ReadOnlyBuffer<ulong> input, Read
     public const int Slots = 1;
 
     public void Execute() => output[0] = float.IsInfinity(Gpu.Pow(Gpu.AsFloat((uint)input[0]), Gpu.AsFloat((uint)input[1]))) ? 1 : 0;
+}
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct StepTimesConstantRepro(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 1;
+
+    public void Execute() => output[0] = Gpu.AsUInt(Gpu.Step(Gpu.AsFloat((uint)input[0]), Gpu.AsFloat((uint)input[1])) * -2.5f);
 }

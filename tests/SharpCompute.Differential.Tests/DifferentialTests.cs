@@ -24,7 +24,19 @@ public class DifferentialTests(ITestOutputHelper output)
     public void RandomExpressions_GiveTheSameResultsOnTheGpuAsWithForCpu(string name)
     {
         DifferentialShader shader = DifferentialShaders.All.Single(s => s.Name == name);
-        DifferentialResult result = DifferentialHarness.Run(GraphicsDevice.GetDefault(), shader);
+        DifferentialResult result;
+
+        try
+        {
+            result = DifferentialHarness.Run(GraphicsDevice.GetDefault(), shader);
+        }
+        catch (ShaderCompilationException e) when (DifferentialHarness.ReportCompilerCrash(shader, e))
+        {
+            // The long mode records a shader that crashes Metal's compiler and goes on (see
+            // ReportCompilerCrash); the default mode fails on it.
+            output.WriteLine($"{shader.Name}: the Metal compiler crashed building its pipeline");
+            return;
+        }
 
         output.WriteLine($"{result.Name}: {result.Cases} cases, {result.Comparisons} comparisons");
         Assert.True(result.Passed, "\n" + DifferentialHarness.Report(result));

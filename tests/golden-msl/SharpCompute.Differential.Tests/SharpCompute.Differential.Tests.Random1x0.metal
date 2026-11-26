@@ -277,7 +277,7 @@ kernel void SharpCompute_Differential_Tests_Random1x0(
     output[int(uint(p) + 15u)] = long(as_type<ushort>(metal::select(h2a, metal::max(h2b, half(1E-05f)) - (h1 / h0), (i3a > i3b).xx).y));
     char c11_0 = sb0;
     char c11_1 = char(0);
-    c11_1 >>= 65535;
+    c11_1 >>= 7;
     output[int(uint(p) + 16u)] = long(int(short(metal::max(c11_0, c11_1))));
     output[int(uint(p) + 17u)] = long(int(__ms_sat_short((half(1.0f) + h2) * half(by1))) << i0);
     output[int(uint(p) + 18u)] = long(metal::abs(sh1));

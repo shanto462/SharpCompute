@@ -6,7 +6,7 @@ using namespace metal;
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
 
-constant int Slots = 39;
+constant int Slots = 54;
 
 struct __GridWindow
 {
@@ -97,19 +97,58 @@ kernel void SharpCompute_Tests_Conformance_ConformanceLongOperators(
     t10 = long(ulong(t10) >> n);
     output[int(uint(o) + 30u)] = (t10);
     long t11 = x;
-    long u11 = long(reinterpret_cast<thread ulong&>(t11)++);
-    output[int(uint(o) + 31u)] = (u11);
-    output[int(uint(o) + 32u)] = (t11);
+    t11 <<= 17;
+    output[int(uint(o) + 31u)] = (t11);
     long t12 = x;
-    long u12 = long(reinterpret_cast<thread ulong&>(t12)--);
-    output[int(uint(o) + 33u)] = (u12);
-    output[int(uint(o) + 34u)] = (t12);
+    t12 <<= 33;
+    output[int(uint(o) + 32u)] = (t12);
     long t13 = x;
-    long u13 = long(++reinterpret_cast<thread ulong&>(t13));
-    output[int(uint(o) + 35u)] = (u13);
-    output[int(uint(o) + 36u)] = (t13);
+    t13 <<= 21;
+    output[int(uint(o) + 33u)] = (t13);
     long t14 = x;
-    long u14 = long(--reinterpret_cast<thread ulong&>(t14));
-    output[int(uint(o) + 37u)] = (u14);
-    output[int(uint(o) + 38u)] = (t14);
+    t14 <<= 63;
+    output[int(uint(o) + 34u)] = (t14);
+    long t15 = x;
+    t15 >>= 17;
+    output[int(uint(o) + 35u)] = (t15);
+    long t16 = x;
+    t16 >>= 33;
+    output[int(uint(o) + 36u)] = (t16);
+    long t17 = x;
+    t17 >>= 21;
+    output[int(uint(o) + 37u)] = (t17);
+    long t18 = x;
+    t18 >>= 63;
+    output[int(uint(o) + 38u)] = (t18);
+    long t19 = x;
+    t19 = long(ulong(t19) >> 17);
+    output[int(uint(o) + 39u)] = (t19);
+    long t20 = x;
+    t20 = long(ulong(t20) >> 33);
+    output[int(uint(o) + 40u)] = (t20);
+    long t21 = x;
+    t21 = long(ulong(t21) >> 21);
+    output[int(uint(o) + 41u)] = (t21);
+    long t22 = x;
+    t22 = long(ulong(t22) >> 63);
+    output[int(uint(o) + 42u)] = (t22);
+    output[int(uint(o) + 43u)] = (x << 33);
+    output[int(uint(o) + 44u)] = (x >> 33);
+    output[int(uint(o) + 45u)] = (long(ulong(x) >> 33));
+    long t23 = x;
+    long u23 = long(reinterpret_cast<thread ulong&>(t23)++);
+    output[int(uint(o) + 46u)] = (u23);
+    output[int(uint(o) + 47u)] = (t23);
+    long t24 = x;
+    long u24 = long(reinterpret_cast<thread ulong&>(t24)--);
+    output[int(uint(o) + 48u)] = (u24);
+    output[int(uint(o) + 49u)] = (t24);
+    long t25 = x;
+    long u25 = long(++reinterpret_cast<thread ulong&>(t25));
+    output[int(uint(o) + 50u)] = (u25);
+    output[int(uint(o) + 51u)] = (t25);
+    long t26 = x;
+    long u26 = long(--reinterpret_cast<thread ulong&>(t26));
+    output[int(uint(o) + 52u)] = (u26);
+    output[int(uint(o) + 53u)] = (t26);
 }
