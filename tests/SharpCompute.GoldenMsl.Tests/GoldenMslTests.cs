@@ -206,6 +206,22 @@ public class GoldenMslTests(ITestOutputHelper output)
         Assert.Contains("and 5 more", failure, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Compare_ShadersWithoutASnapshot_DoNotUseUpTheDescribedDifferences()
+    {
+        // More new shaders than the cap, sorted ahead of the one shader whose MSL changed.
+        GoldenShader[] shaders = [.. Enumerable.Range(0, MaxDetailed + 2).Select(static i => Shader($"N.New{i:00}", "new\n")), Shader("N.Old", "x = 2;\n")];
+
+        string failure = Compare(shaders, static path => path == "App/N.Old.metal" ? "x = 1;\n" : null, ["App/N.Old.metal"])!;
+
+        Assert.Contains($"{MaxDetailed + 3} of {MaxDetailed + 3} shaders", failure, StringComparison.Ordinal);
+        Assert.Contains($"N.New{MaxDetailed + 1:00} (App) has no snapshot", failure, StringComparison.Ordinal);
+        Assert.Contains("N.Old (App) differs from tests/golden-msl/App/N.Old.metal, line 1", failure, StringComparison.Ordinal);
+        Assert.Contains("- x = 1;", failure, StringComparison.Ordinal);
+        Assert.Contains("+ x = 2;", failure, StringComparison.Ordinal);
+        Assert.DoesNotContain("more shaders", failure, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Null when the snapshots are exactly the shaders; otherwise the failure message: each shader
     /// that differs with its file and first differing lines, each shader without a snapshot and each
@@ -214,7 +230,11 @@ public class GoldenMslTests(ITestOutputHelper output)
     private static string? Compare(IReadOnlyList<GoldenShader> shaders, Func<string, string?> readSnapshot, IReadOnlyList<string> snapshotFiles)
     {
         List<string> problems = [];
-        int different = 0;
+
+        // Counted apart: only shaders whose text differs are capped, so a batch of new shaders
+        // (each one line here) never uses up the detailed diffs.
+        int missing = 0;
+        int changed = 0;
 
         foreach (GoldenShader shader in shaders)
         {
@@ -222,12 +242,12 @@ public class GoldenMslTests(ITestOutputHelper output)
 
             if (readSnapshot(shader.RelativePath) is not { } snapshot)
             {
-                different++;
+                missing++;
                 problems.Add($"{shader.TypeName} ({shader.Assembly}) has no snapshot: {file} does not exist.");
             }
             else if (GoldenCorpus.FirstDifference(snapshot, shader.Text) is var (line, expected, actual))
             {
-                if (++different > MaxDetailed)
+                if (++changed > MaxDetailed)
                 {
                     continue;
                 }
@@ -257,7 +277,8 @@ public class GoldenMslTests(ITestOutputHelper output)
             return null;
         }
 
-        int undescribed = different - problems.Count + stale.Length;
+        int different = missing + changed;
+        int undescribed = changed - MaxDetailed;
         string rest = undescribed > 0 ? $"\n\n... and {undescribed} more shaders that differ from their snapshots." : string.Empty;
 
         return $"The emitted MSL of {different} of {shaders.Count} shaders is not what {GoldenCorpus.SnapshotFolder} holds"
