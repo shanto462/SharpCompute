@@ -1058,7 +1058,7 @@ def known_difference(root: Node) -> str | None:
         if "f2i" in n.flags and is_division(through_locals(n.args[0])) and any(has_constant_part(a) for a in through_locals(n.args[0]).args):
             # fmod(100, x) is within ±100 or NaN, and the conversion of that NaN is not 0.
             return "OutOfRangeConversion"
-        if "f2h" in n.flags and "Fract(" in through_locals(n.args[0]).text:
+        if "f2h" in n.flags and any("Fract(" in m.text for m in n.args[0].walk() if m.kind == "op"):
             return "HalfOfFract"
         if n is not root and "f2i" in n.flags and elem_of(n.args[0].t) is HALF:
             # A half is finite within ±65504, and the compiler narrows what it computes from the

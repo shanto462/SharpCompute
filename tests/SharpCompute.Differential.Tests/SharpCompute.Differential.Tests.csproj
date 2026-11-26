@@ -36,18 +36,16 @@
     <Compile Include="..\SharpCompute.Tests\FloatBits.cs" Link="FloatBits.cs" />
   </ItemGroup>
   <!--
-    Always runs (it takes a fraction of a second); the script rewrites the file only when its text
-    changes, so an unchanged generator does not recompile the project.
+    The generated shaders are Compile items from the start, so that switching between the default
+    file and a long-mode one changes the item list, which MSBuild hashes to decide whether to compile.
+    The generation always runs (it takes a fraction of a second); the script rewrites the file only
+    when its text changes, so an unchanged generator does not recompile the project.
   -->
-  <Target Name="GenerateDifferentialShaders" BeforeTargets="CoreCompile" Condition="'$(DifferentialSource)' == ''">
+  <ItemGroup>
+    <Compile Include="$(DifferentialGenerated)" Condition="'$(DifferentialSource)' == ''" />
+    <Compile Include="$(DifferentialSource)" Condition="'$(DifferentialSource)' != ''" />
+  </ItemGroup>
+  <Target Name="GenerateDifferentialShaders" BeforeTargets="BeforeBuild;CoreCompile" Condition="'$(DifferentialSource)' == ''">
     <Exec Command="python3 -I &quot;$(MSBuildThisFileDirectory)..\..\tools\gen_differential.py&quot; generate --out &quot;$(DifferentialGenerated)&quot;" />
-    <ItemGroup>
-      <Compile Include="$(DifferentialGenerated)" />
-    </ItemGroup>
-  </Target>
-  <Target Name="IncludeDifferentialSource" BeforeTargets="CoreCompile" Condition="'$(DifferentialSource)' != ''">
-    <ItemGroup>
-      <Compile Include="$(DifferentialSource)" />
-    </ItemGroup>
   </Target>
 </Project>
