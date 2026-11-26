@@ -23,14 +23,15 @@ The workarounds were verified with:
 |---|---|
 | macOS | 27.2.1 (26B131) |
 | Xcode | 27.2 (27B52) |
-| Metal compiler | 32023.922 (`metalfe-32023.922.4`) |
+| Metal compiler (Xcode toolchain, `xcrun metal --version`) | 32023.922 (`metalfe-32023.922.4`) |
 | GPU | Apple M4 Pro |
 
 Two compilers are involved. At run time, shaders are compiled by the Metal compiler that ships with
 **macOS**. When shaders are [precompiled](precompiled-shaders.md), the **Xcode** Metal Toolchain
 compiles them to intermediate code at build time, and the GPU driver of the macOS that runs the app
 finishes the job on first use. So the macOS version matters to everyone, and the Xcode version only to
-projects that precompile.
+projects that precompile. The division and bit-count bugs are in that last stage (the intermediate
+code is correct), so precompiling with another Xcode does not avoid them.
 
 SharpCompute supports macOS 15 and later. Other macOS and Xcode versions may fix some of these bugs,
 or have other ones. If something on this page doesn't hold on your versions, please
@@ -44,8 +45,8 @@ Costs are GPU time on an Apple M4 Pro, from the pull request that added each wor
 |---|---|---|---|---|
 | **Lane dropped from integer vector arithmetic** | When an integer vector is negated (`-v`, or anything the compiler reduces to it, such as `~v + 1` or `v - 2 * v`), a lane of the negation is never read, and the same vector is subtracted in an add/subtract chain elsewhere, that chain lost the lane. | Every `+`, `-` and negation of an integer vector is computed lane by lane (`__ms_add`, `__ms_sub`, `__ms_neg`). | none measurable | FB25732151 |
 | **Division guard dropped** | `t == 0 ? 0 : x % t` divided by a nonzero value when `t` came from a conditional (`t = l == C ? 0 : Math.Abs(l)`): the compiler moved the division ahead of its guard and then took the divisor to be nonzero. | An integer `/` or `%` by anything but a nonzero constant divides by `__ms_nonzero(t)`, which is `t`, or 1 for 0. | +1% on a box filter; +9 to 13% in a loop that only divides | |
-| **Constant dividend near 2^32** | A 32-bit unsigned `/` or `%` whose dividend is a constant from 0xFFFFFF80 to 0xFFFFFFFF, by a variable, gave wrong results: `4294967295u / 3` was 3579139454. | When the generator can see the constant, `__ms_div_near_max(c, x)` divides `c - x` instead. | none on other divisions | |
-| **Bit counts of sign-extended 16-bit values** | `Gpu.CountBits` and `Gpu.LeadingZeroCount` of a 32- or 64-bit value holding a sign-extended 16-bit one counted it as zero-extended: `CountBits` of the `short` -2 was 31 instead of 15. | Popcounts are `popcount(reverse_bits(x))`; a 32- or 64-bit leading-zero count is `x < 0 ? 0 : clz(x)`. | none in a Hamming-distance kernel; +27% (popcount), +9% (clz) in a loop that only counts | |
+| **Constant dividend near 2^32** | A 32-bit unsigned `/` or `%` whose dividend is a constant from 0xFFFFFF80 to 0xFFFFFFFF, by a variable, gave wrong results: `4294967295u / x` was 3579139454 for `x = 3`. | When the generator can see the constant, `__ms_div_near_max(c, x)` divides `c - x` instead. | none on other divisions | |
+| **Bit counts of 16-bit values** | `Gpu.LeadingZeroCount` of a 32- or 64-bit value holding a sign-extended 16-bit one counted it as zero-extended: `Gpu.LeadingZeroCount((uint)(short)i)` was 16 instead of 0 for a negative short. And a 16-bit count of a value computed in a wider register counted the bits above it: `Gpu.CountBits(b ? s : t)` of the short -2 was 31 instead of 15. | Popcounts are `popcount(reverse_bits(x))`; a 32- or 64-bit leading-zero count is `x < 0 ? 0 : clz(x)`. | none in a Hamming-distance kernel; +27% (popcount), +9% (clz) in a loop that only counts | |
 | **Out-of-range float to integer** | MSL leaves these conversions undefined, and the compiler folded them or assumed a range: `(byte)(float)i` became `i & 255`. | Every float and half to integer conversion saturates as in C# (NaN gives 0), through `__ms_sat_*` helpers. | up to +2.6% (a noise kernel with eight `(int)Floor` per pixel), +0.5% colour packing | not a bug: undefined in MSL |
 | **Float to half overflow** | A float the compiler could bound beyond the half range converted to 65504 instead of infinity: `(Half4)Gpu.Max(v, 1e30f)`. | Float to half conversions select ±∞ for a magnitude of 65520 or more (`__ms_to_half`). | under 1% | |
 
@@ -53,8 +54,9 @@ Costs are GPU time on an Apple M4 Pro, from the pull request that added each wor
 
 ## What is left
 
-- **A constant dividend near 2^32 that only the Metal compiler sees**, through a local or a helper's
-  parameter (`uint m = uint.MaxValue; ... m / x`), can still divide wrongly. Write the constant in
+- **A constant dividend near 2^32 that only the Metal compiler sees**, through a local, a helper's
+  parameter or an expression only it folds (`uint m = uint.MaxValue; ... m / x`, or
+  `BitOperations.RotateLeft(uint.MaxValue, n) / x`), can still divide wrongly. Write the constant in
   the division, or read it from a buffer.
 - **Two forms are build errors** (`SCG0012`), because the lane-by-lane workaround would have to name
   a target with side effects twice: `v *= -1` on such a target, and `+=` or `-=` on components of one
@@ -72,7 +74,7 @@ away. After updating macOS or Xcode, run:
 
 ```sh
 dotnet test SharpCompute.slnx                  # includes BackendMiscompileTests and the conformance suite
-scripts/fuzz-differential.sh --seed 1 --count 20000
+scripts/fuzz-differential.sh --seed 2026 --count 20000
 scripts/validate-gpu.sh                        # Metal's API and shader validation layers
 ```
 
