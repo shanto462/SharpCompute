@@ -235,7 +235,7 @@ public class VectorNegationTests
     [Theory]
     [InlineData("vectors[0] = v * 1;", "vectors[0] = int3(uint3(v) * 1u);")]
     [InlineData("vectors[0] = v % -1;", "vectors[0] = v % -1;")]
-    [InlineData("vectors[0] = -1 / v;", "vectors[0] = -1 / __ms_nonzero(v);")]
+    [InlineData("vectors[0] = -1 / v;", "vectors[0] = -1 / __ms_nonzero_c(v);")]
     [InlineData("vectors[0] = v * a;", "vectors[0] = int3(uint3(v) * uint(a));")]
     // No lane of this constant is minus one.
     [InlineData("vectors[0] = v * new Int3(2, 7, 1);", "vectors[0] = int3(uint3(v) * uint3(int3(2, 7, 1)));")]

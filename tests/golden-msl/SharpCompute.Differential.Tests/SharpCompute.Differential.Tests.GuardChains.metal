@@ -8,6 +8,7 @@ inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(me
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
 inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
 
 constant int Slots = 5;
 
@@ -45,7 +46,7 @@ kernel void SharpCompute_Differential_Tests_GuardChains(
     }
     output[int(uint(o) + 0u)] = long(r0);
     uint d1 = uint(b);
-    uint q1 = d1 == 0u ? 0u : 65536u / __ms_nonzero(d1);
+    uint q1 = d1 == 0u ? 0u : 65536u / __ms_nonzero_c(d1);
     output[int(uint(o) + 1u)] = long(q1 == 0u ? 0u : uint(a) % __ms_nonzero(q1));
     ulong q2 = int(b) == 0 ? 0UL : ulong(ushort(a)) / __ms_nonzero(ulong(b));
     output[int(uint(o) + 2u)] = long(q2 == 0UL ? 0UL : ulong(c) % __ms_nonzero(q2));

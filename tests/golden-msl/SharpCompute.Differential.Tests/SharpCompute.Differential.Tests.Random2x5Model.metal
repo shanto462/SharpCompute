@@ -9,8 +9,7 @@ inline short __ms_sat_short(half x) { return __ms_sat_short(float(x)); }
 inline int2 __ms_sat_int2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); int2 r = int2(metal::clamp(y, float2(-2147483648.0f), float2(2147483520.0f))); return metal::select(r, int2(2147483647), x >= 2147483648.0f); }
 inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
-inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+inline uint3 __ms_nonzero_c(uint3 x) { uint3 u = uint3(x); return uint3(u | (((u - 1u) & ~u) >> 31)); }
 inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 
@@ -128,21 +127,21 @@ kernel void SharpCompute_Differential_Tests_Random2x5Model(
     short c12_v0_0 = sh0;
     c12_v0_0 &= int(short(0));
     uint3 c12_v0_1 = uint3(2147483649u, 256u, 65535u);
-    uint3 c12_v0_2 = (!(int(__ms_sat_short(::GpuModel_Flush(f0))) >= int(c12_v0_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_v0_1 / __ms_nonzero(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
+    uint3 c12_v0_2 = (!(int(__ms_sat_short(::GpuModel_Flush(f0))) >= int(c12_v0_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_v0_1 / __ms_nonzero_c(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
     output[int(uint(p) + 12u)] = long(c12_v0_2.x);
     output[int(uint(p) + 13u)] = long(c12_v0_2.y);
     output[int(uint(p) + 14u)] = long(c12_v0_2.z);
     short c12_v1_0 = sh0;
     c12_v1_0 &= int(short(0));
     uint3 c12_v1_1 = uint3(2147483649u, 256u, 65535u);
-    uint3 c12_v1_2 = (!(int(__ms_sat_short(::GpuModel_Flush(f0))) >= int(c12_v1_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_v1_1 / __ms_nonzero(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
+    uint3 c12_v1_2 = (!(int(__ms_sat_short(::GpuModel_Flush(f0))) >= int(c12_v1_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_v1_1 / __ms_nonzero_c(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
     output[int(uint(p) + 15u)] = long(c12_v1_2.x);
     output[int(uint(p) + 16u)] = long(c12_v1_2.y);
     output[int(uint(p) + 17u)] = long(c12_v1_2.z);
     short c12_v2_0 = sh0;
     c12_v2_0 &= int(short(0));
     uint3 c12_v2_1 = uint3(2147483649u, 256u, 65535u);
-    uint3 c12_v2_2 = (!(int(__ms_sat_short(f0)) >= int(c12_v2_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_v2_1 / __ms_nonzero(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
+    uint3 c12_v2_2 = (!(int(__ms_sat_short(f0)) >= int(c12_v2_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_v2_1 / __ms_nonzero_c(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
     output[int(uint(p) + 18u)] = long(c12_v2_2.x);
     output[int(uint(p) + 19u)] = long(c12_v2_2.y);
     output[int(uint(p) + 20u)] = long(c12_v2_2.z);

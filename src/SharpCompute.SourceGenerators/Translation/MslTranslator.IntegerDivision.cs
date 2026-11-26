@@ -100,9 +100,21 @@ internal sealed partial class MslTranslator
             return new Expr(text + BinaryOperand(right, Expr.Multiplicative, isRight: true), Expr.Multiplicative);
         }
 
-        UseIntegerHelper(MslNames.NonZero, divisor.MslName);
-        return new Expr(text + Call(MslNames.NonZero, right.Text).Text, Expr.Multiplicative);
+        // A constant dividend the generator can see divides by __ms_nonzero_c, whose barrier the front
+        // end folds when the divisor becomes a constant late (an unrolled loop): the GPU compiler
+        // folds a constant divided by a constant it gets through __ms_nonzero's reverse_bits wrongly.
+        string nonZero = IsConstantDividend(operation.LeftOperand) ? MslNames.NonZeroOfConstant : MslNames.NonZero;
+        UseIntegerHelper(nonZero, divisor.MslName);
+        return new Expr(text + Call(nonZero, right.Text).Text, Expr.Multiplicative);
     }
+
+    /// <summary>
+    /// True when <paramref name="dividend"/> is a constant the generator can see: a C# constant, one
+    /// the folder evaluates (a <c>static readonly</c> value, a constant vector), or a never-written
+    /// local initialized with one.
+    /// </summary>
+    private bool IsConstantDividend(IOperation dividend) =>
+        dividend.ConstantValue.HasValue || Folder.TryEvaluate(dividend, out _, out _) || ConstantLocalValue(dividend) is not null;
 
     /// <summary>
     /// Records that the shader calls the overload of <c>MslPrelude.Integers</c>' <paramref name="helper"/>
@@ -113,7 +125,7 @@ internal sealed partial class MslTranslator
         _integerHelpers.Add(helper + "(" + type);
         string scalar = type.TrimEnd('2', '3', '4');
 
-        if (helper == MslNames.NonZero && scalar is "char" or "uchar" or "short" or "ushort")
+        if (helper is MslNames.NonZero or MslNames.NonZeroOfConstant && scalar is "char" or "uchar" or "short" or "ushort")
         {
             // The 8- and 16-bit ones divide as int, as MSL promotes them: `__ms_nonzero(int3(x))`.
             UseIntegerHelper(helper, "int" + type.Substring(scalar.Length));
@@ -128,7 +140,7 @@ internal sealed partial class MslTranslator
             // The long ones divide the magnitudes as ulong; each divides by a nonzero divisor.
             string unsigned = type == "long" ? "ulong" : type;
             _integerHelpers.Add(helper + "(" + unsigned);
-            UseIntegerHelper(MslNames.NonZero, unsigned);
+            UseIntegerHelper(MslNames.NonZeroOfConstant, unsigned);
         }
     }
 
@@ -279,11 +291,20 @@ internal sealed partial class MslTranslator
         IOperation child = reference;
         IOperation? parent = reference.Parent;
 
-        // A tuple element of a deconstruction target is written like the target itself.
-        while (parent is ITupleOperation)
+        // A tuple element of a deconstruction target is written like the target itself, and so is a
+        // field, property or swizzle of the local (`v.X = x`, `v.X++`, `F(ref v.X)`).
+        while (parent is ITupleOperation ||
+               parent is IFieldReferenceOperation field && field.Instance == child ||
+               parent is IPropertyReferenceOperation property && property.Instance == child)
         {
             child = parent;
             parent = parent.Parent;
+        }
+
+        if (parent is IInvocationOperation invocation && invocation.Instance == child)
+        {
+            // A method of the local's struct may change it.
+            return true;
         }
 
         return parent switch

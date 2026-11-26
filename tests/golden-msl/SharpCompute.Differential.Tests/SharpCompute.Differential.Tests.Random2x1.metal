@@ -118,6 +118,8 @@ inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
+inline int __ms_nonzero_c(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
+inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
 inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
@@ -194,7 +196,7 @@ kernel void SharpCompute_Differential_Tests_Random2x1(
     output[int(uint(p) + 0u)] = long(c0_0);
     uint c1_0 = 65536u;
     uint c1_1 = uint(by1);
-    uint3 c1_2 = ((((c1_1 == 0u) ? 0u : c1_0 / __ms_nonzero(c1_1)) + uint(sb2)) >> (i2b.y << int(l2))) * (uint3(u1, u2, u1) * uint3(__ms_rotate_right(u0, i1), u2a << i0));
+    uint3 c1_2 = ((((c1_1 == 0u) ? 0u : c1_0 / __ms_nonzero_c(c1_1)) + uint(sb2)) >> (i2b.y << int(l2))) * (uint3(u1, u2, u1) * uint3(__ms_rotate_right(u0, i1), u2a << i0));
     output[int(uint(p) + 1u)] = long(c1_2.x);
     output[int(uint(p) + 2u)] = long(c1_2.y);
     output[int(uint(p) + 3u)] = long(c1_2.z);
@@ -225,7 +227,7 @@ kernel void SharpCompute_Differential_Tests_Random2x1(
     char c8_0 = char(127);
     int c8_1 = int(c8_0);
     int c8_2 = int(uchar(l1));
-    int4 c8_3 = int4(metal::ctz(int(uint(by2) + uint(sh0))), int(uint(int(__ms_sat_short(h0))) >> (int(sh0) ^ int(by2))), (c8_2 == 0 || (c8_1 == -2147483647 - 1 && c8_2 == -1)) ? 0 : c8_1 % __ms_nonzero(c8_2), i0);
+    int4 c8_3 = int4(metal::ctz(int(uint(by2) + uint(sh0))), int(uint(int(__ms_sat_short(h0))) >> (int(sh0) ^ int(by2))), (c8_2 == 0 || (c8_1 == -2147483647 - 1 && c8_2 == -1)) ? 0 : c8_1 % __ms_nonzero_c(c8_2), i0);
     output[int(uint(p) + 14u)] = long(c8_3.x);
     output[int(uint(p) + 15u)] = long(c8_3.y);
     output[int(uint(p) + 16u)] = long(c8_3.z);
@@ -248,7 +250,7 @@ kernel void SharpCompute_Differential_Tests_Random2x1(
     uint c12_2 = uint(uchar(100)) * u2;
     int c12_3 = 31;
     int c12_4 = int(sh1);
-    int c12_5 = (c12_4 == 0 || (c12_3 == -2147483647 - 1 && c12_4 == -1)) ? 0 : c12_3 / __ms_nonzero(c12_4);
+    int c12_5 = (c12_4 == 0 || (c12_3 == -2147483647 - 1 && c12_4 == -1)) ? 0 : c12_3 / __ms_nonzero_c(c12_4);
     int c12_6 = __ms_clz(i1);
     if (!(c12_6 == 0 || (c12_5 == -2147483647 - 1 && c12_6 == -1)))
     {

@@ -177,6 +177,7 @@ inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(me
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline uint4 __ms_nonzero(uint4 x) { return uint4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
 inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline int __ms_nonzero_c(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
 inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
 inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
 
@@ -300,7 +301,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2(
     c9_4 = short(uint(int(c9_4)) >> i0);
     int c9_5 = 65535;
     int c9_6 = int(sh1);
-    int c9_7 = int(uint(c9_4) - uint((c9_6 == 0 || (c9_5 == -2147483647 - 1 && c9_6 == -1)) ? 0 : c9_5 % __ms_nonzero(c9_6)));
+    int c9_7 = int(uint(c9_4) - uint((c9_6 == 0 || (c9_5 == -2147483647 - 1 && c9_6 == -1)) ? 0 : c9_5 % __ms_nonzero_c(c9_6)));
     int c9_8 = int(__ms_ilogb(-f0));
     reinterpret_cast<thread uint3&>(c9_1) *= uint(__ms_math_clamp((c9_3 == 0 || (c9_2 == -2147483647 - 1 && c9_3 == -1)) ? 0 : c9_2 / __ms_nonzero(c9_3), metal::min(c9_7, c9_8), metal::max(c9_7, c9_8)));
     int3 c9_9 = c9_1;

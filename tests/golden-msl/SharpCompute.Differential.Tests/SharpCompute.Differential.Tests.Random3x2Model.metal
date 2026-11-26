@@ -172,6 +172,7 @@ inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = 
 inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline int __ms_nonzero_c(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
 
 constant int Slots = 61;
 
@@ -323,7 +324,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     c9_v0_4 = short(uint(int(c9_v0_4)) >> i0);
     int c9_v0_5 = 65535;
     int c9_v0_6 = int(sh1);
-    int c9_v0_7 = int(uint(c9_v0_4) - uint((c9_v0_6 == 0 || (c9_v0_5 == -2147483647 - 1 && c9_v0_6 == -1)) ? 0 : c9_v0_5 % __ms_nonzero(c9_v0_6)));
+    int c9_v0_7 = int(uint(c9_v0_4) - uint((c9_v0_6 == 0 || (c9_v0_5 == -2147483647 - 1 && c9_v0_6 == -1)) ? 0 : c9_v0_5 % __ms_nonzero_c(c9_v0_6)));
     int c9_v0_8 = int(__ms_ilogb(-f0));
     reinterpret_cast<thread uint3&>(c9_v0_1) *= uint(__ms_math_clamp((c9_v0_3 == 0 || (c9_v0_2 == -2147483647 - 1 && c9_v0_3 == -1)) ? 0 : c9_v0_2 / __ms_nonzero(c9_v0_3), metal::min(c9_v0_7, c9_v0_8), metal::max(c9_v0_7, c9_v0_8)));
     int3 c9_v0_9 = c9_v0_1;
@@ -338,7 +339,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     c9_v1_4 = short(uint(int(c9_v1_4)) >> i0);
     int c9_v1_5 = 65535;
     int c9_v1_6 = int(sh1);
-    int c9_v1_7 = int(uint(c9_v1_4) - uint((c9_v1_6 == 0 || (c9_v1_5 == -2147483647 - 1 && c9_v1_6 == -1)) ? 0 : c9_v1_5 % __ms_nonzero(c9_v1_6)));
+    int c9_v1_7 = int(uint(c9_v1_4) - uint((c9_v1_6 == 0 || (c9_v1_5 == -2147483647 - 1 && c9_v1_6 == -1)) ? 0 : c9_v1_5 % __ms_nonzero_c(c9_v1_6)));
     int c9_v1_8 = int(__ms_ilogb(-f0));
     reinterpret_cast<thread uint3&>(c9_v1_1) *= uint(__ms_math_clamp((c9_v1_3 == 0 || (c9_v1_2 == -2147483647 - 1 && c9_v1_3 == -1)) ? 0 : c9_v1_2 / __ms_nonzero(c9_v1_3), metal::min(c9_v1_7, c9_v1_8), metal::max(c9_v1_7, c9_v1_8)));
     int3 c9_v1_9 = c9_v1_1;
@@ -353,7 +354,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     c9_v2_4 = short(uint(int(c9_v2_4)) >> i0);
     int c9_v2_5 = 65535;
     int c9_v2_6 = int(sh1);
-    int c9_v2_7 = int(uint(c9_v2_4) - uint((c9_v2_6 == 0 || (c9_v2_5 == -2147483647 - 1 && c9_v2_6 == -1)) ? 0 : c9_v2_5 % __ms_nonzero(c9_v2_6)));
+    int c9_v2_7 = int(uint(c9_v2_4) - uint((c9_v2_6 == 0 || (c9_v2_5 == -2147483647 - 1 && c9_v2_6 == -1)) ? 0 : c9_v2_5 % __ms_nonzero_c(c9_v2_6)));
     int c9_v2_8 = int(__ms_ilogb(-f0));
     reinterpret_cast<thread uint3&>(c9_v2_1) *= uint(__ms_math_clamp((c9_v2_3 == 0 || (c9_v2_2 == -2147483647 - 1 && c9_v2_3 == -1)) ? 0 : c9_v2_2 / __ms_nonzero(c9_v2_3), metal::min(c9_v2_7, c9_v2_8), metal::max(c9_v2_7, c9_v2_8)));
     int3 c9_v2_9 = c9_v2_1;

@@ -179,6 +179,7 @@ inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(me
 inline int2 __ms_nonzero(int2 x) { return int2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline ulong __ms_nonzero_c(ulong x) { ulong u = ulong(x); return ulong(u | (((u - 1UL) & ~u) >> 63)); }
 inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
@@ -266,7 +267,7 @@ kernel void SharpCompute_Differential_Tests_Random2x3(
     output[int(uint(p) + 8u)] = long(__ms_rotate_right(metal::abs(metal::reverse_bits(metal::max(by2, by2))), ~int(__ms_sat_uchar(float(us1) - f2))));
     ulong c6_0 = 1UL;
     ulong c6_1 = ulong(us2);
-    ulong c6_2 = (c6_1 == 0UL) ? 0UL : c6_0 / __ms_nonzero(c6_1);
+    ulong c6_2 = (c6_1 == 0UL) ? 0UL : c6_0 / __ms_nonzero_c(c6_1);
     ulong c6_3 = ul0;
     --c6_3;
     ulong c6_4 = c6_3;

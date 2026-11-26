@@ -122,6 +122,7 @@ inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 inline int3 __ms_nonzero(int3 x) { return int3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+inline int3 __ms_nonzero_c(int3 x) { uint3 u = uint3(x); return int3(u | (((u - 1u) & ~u) >> 31)); }
 
 constant int Slots = 23;
 
@@ -228,7 +229,7 @@ kernel void SharpCompute_Differential_Tests_Random3x5(
     int3 c7_1 = (int(sh0) >= int(sh1)) ? (i3a % __ms_nonzero(metal::select(i3b, int3(1), (int3(i3b) == 0) | ((int3(i3a) == -2147483647 - 1) & (int3(i3b) == -1))))) : int3(i0, i1, i0);
     int3 c7_2 = i3a % __ms_nonzero(metal::select(c7_0, int3(1), (int3(c7_0) == 0) | ((int3(i3a) == -2147483647 - 1) & (int3(c7_0) == -1))));
     int3 c7_3 = int3(1, 1, 256);
-    int3 c7_4 = metal::select(c7_3 % __ms_nonzero(metal::select(i3a, int3(1), (int3(i3a) == 0) | ((int3(c7_3) == -2147483647 - 1) & (int3(i3a) == -1)))), c7_1 / __ms_nonzero(metal::select(c7_2, int3(1), (int3(c7_2) == 0) | ((int3(c7_1) == -2147483647 - 1) & (int3(c7_2) == -1)))), as_type<uint3>(f3b) <= __ms_sat_uint3(-f3a));
+    int3 c7_4 = metal::select(c7_3 % __ms_nonzero_c(metal::select(i3a, int3(1), (int3(i3a) == 0) | ((int3(c7_3) == -2147483647 - 1) & (int3(i3a) == -1)))), c7_1 / __ms_nonzero(metal::select(c7_2, int3(1), (int3(c7_2) == 0) | ((int3(c7_1) == -2147483647 - 1) & (int3(c7_2) == -1)))), as_type<uint3>(f3b) <= __ms_sat_uint3(-f3a));
     output[int(uint(p) + 12u)] = long(c7_4.x);
     output[int(uint(p) + 13u)] = long(c7_4.y);
     output[int(uint(p) + 14u)] = long(c7_4.z);
