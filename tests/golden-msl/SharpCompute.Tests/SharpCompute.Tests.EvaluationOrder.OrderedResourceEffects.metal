@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 struct __Constants
 {
     uint __length_data;
@@ -93,10 +97,10 @@ kernel void SharpCompute_Tests_EvaluationOrder_OrderedResourceEffects(
     tile[1] = int(uint(tile[1]) + uint(tile[0]));
     result[11] = tile[1];
     float pixel = image.read(uint2(0, 0)).x;
-    result[14] = int(uint(int(pixel)) + uint(::Paint(0, image)));
-    result[15] = int(image.read(uint2(0, 0)).x);
+    result[14] = int(uint(__ms_sat_int(pixel)) + uint(::Paint(0, image)));
+    result[15] = __ms_sat_int(image.read(uint2(0, 0)).x);
     texture2d<float, access::read_write> alias = image;
     data[34] = ::PaintAlias(1, image);
-    result[13] = int(alias.read(uint2(1, 0)).x);
+    result[13] = __ms_sat_int(alias.read(uint2(1, 0)).x);
     reinterpret_cast<device uint&>(data[::Next(data)]) += 5u;
 }

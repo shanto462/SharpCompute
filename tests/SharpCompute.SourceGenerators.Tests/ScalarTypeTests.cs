@@ -397,7 +397,7 @@ public class ScalarTypeTests
     // ---- conversions ------------------------------------------------------------------------------
 
     [Fact]
-    public void FloatToLong_GoesThroughTheSaturatingPreludeHelper_AndNothingElseDoes()
+    public void FloatToInteger_GoesThroughTheSaturatingHelperOfTheTargetType()
     {
         GeneratorRun run = RunBody(
             """
@@ -421,23 +421,22 @@ public class ScalarTypeTests
 
         ShaderDescriptor descriptor = run.Verify(Shader);
 
-        // On an Apple GPU `long(x)` wraps for a float beyond the range of a long, where .NET
-        // saturates; every other float to integer conversion saturates as .NET does. The 8- and
-        // 16-bit and the unsigned ones are written so that the Metal compiler cannot fold a
-        // conversion of an integer through a float into a truncation (FloatToSmallInteger_...).
+        // MSL leaves a float to integer conversion out of range undefined, and the Metal compiler
+        // folds on that ground; C# saturates. Every such conversion goes through a helper that clamps
+        // in the float domain first. The integer conversions and those to float are plain casts.
         Assert.Equal(
             """
             float f = floats[0];
             half h = half(f);
-            longs[0] = __ms_float_to_long(f);
-            longs[1] = __ms_float_to_long(h);
-            ulongs[0] = ulong(metal::max(f, 0.0f));
-            bytes[0] = uchar(metal::clamp(int(f), 0, 255));
-            sbytes[0] = char(metal::clamp(int(f), -128, 127));
-            shorts[0] = short(metal::clamp(int(f), -32768, 32767));
-            ushorts[0] = ushort(metal::clamp(int(f), 0, 65535));
-            ints[0] = int(f);
-            uints[0] = uint(metal::max(f, 0.0f));
+            longs[0] = __ms_sat_long(f);
+            longs[1] = __ms_sat_long(h);
+            ulongs[0] = __ms_sat_ulong(f);
+            bytes[0] = __ms_sat_uchar(f);
+            sbytes[0] = __ms_sat_char(f);
+            shorts[0] = __ms_sat_short(f);
+            ushorts[0] = __ms_sat_ushort(f);
+            ints[0] = __ms_sat_int(f);
+            uints[0] = __ms_sat_uint(f);
             floats[1] = float(longs[2]);
             floats[2] = float(ulongs[2]);
             floats[3] = float(bytes[2]) + float(shorts[2]);
@@ -445,19 +444,38 @@ public class ScalarTypeTests
             longs[4] = long(ulongs[3]);
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
-        Assert.Contains("inline long __ms_float_to_long(float x) { return x >= 9223372036854775808.0f ? 9223372036854775807L :", descriptor.MslSource);
+
+        // The bounds are floats: the largest below 2^31 (2^32, 2^63, 2^64), and a select for the rest.
+        Assert.Contains("inline uchar __ms_sat_uchar(float x) { float y = x > 0.0f ? x : 0.0f; return uchar(metal::min(y, 255.0f)); }", descriptor.MslSource);
+        Assert.Contains("inline char __ms_sat_char(float x) { float y = x == x ? x : 0.0f; return char(metal::clamp(y, -128.0f, 127.0f)); }", descriptor.MslSource);
+        Assert.Contains(
+            "inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }",
+            descriptor.MslSource);
+        Assert.Contains(
+            "inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }",
+            descriptor.MslSource);
+        Assert.Contains(
+            "inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }",
+            descriptor.MslSource);
+        Assert.Contains(
+            "inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = ulong(metal::min(y, 18446742974197923840.0f)); return x >= 18446744073709551616.0f ? 18446744073709551615UL : r; }",
+            descriptor.MslSource);
+        Assert.Contains("inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }", descriptor.MslSource);
+
+        // The helpers are a block of their own, of which the shader carries the ones it calls: not
+        // the rest of the prelude, and not the conversions to a vector.
+        Assert.DoesNotContain("__ms_radians", descriptor.MslSource);
+        Assert.DoesNotContain("__ms_sat_int2", descriptor.MslSource);
     }
 
     /// <summary>
-    /// MSL leaves a float to integer conversion out of range undefined, so the Metal compiler folds
-    /// <c>uchar(float(i))</c> into a truncation of <c>i</c> and <c>uint(float(s))</c> of a small signed
-    /// <c>s</c> into a zero extension: (byte)(float)300 was 44 and (uint)(float)(short)-1 was 65535 on
-    /// the GPU. The conversion to a small type goes through <c>int</c>, which a float does not fold
-    /// into, and is clamped there; the unsigned ones clamp the negative values (and NaN) to 0 first.
-    /// The GPU side is pinned in SharpCompute.Differential.Tests (ConversionRegressionTests).
+    /// The conversions of an integer that went through a float or a half, which the Metal compiler
+    /// folded when they were plain casts (<c>uchar(float(i))</c> into a truncation of <c>i</c>,
+    /// <c>uint(float(s))</c> into a zero extension), and of vectors. The GPU side is pinned in
+    /// SharpCompute.Differential.Tests (KnownDifferencesTests) and in SaturatingConversionTests.
     /// </summary>
     [Fact]
-    public void FloatToSmallInteger_GoesThroughAClampedInt_AndFloatToUnsignedClampsAtZero()
+    public void FloatToInteger_OfConvertedIntegersAndOfVectors_GoesThroughTheHelpersToo()
     {
         GeneratorRun run = RunBody(
             """
@@ -470,21 +488,53 @@ public class ScalarTypeTests
             uints[0] = (uint)(float)s;
             ulongs[0] = (ulong)h;
             ints[1] = (int)(float)s;
+            Int3 v = (Int3)new Float3(floats[0], floats[1], floats[2]);
+            UInt2 u = (UInt2)new Half2(h, h);
+            ints[2] = v.X + (int)u.Y;
             """);
+
+        ShaderDescriptor descriptor = run.Verify(Shader);
 
         Assert.Equal(
             """
             int i = ints[0];
             short s = shorts[0];
             half h = half(floats[0]);
-            bytes[0] = uchar(metal::clamp(int(float(i)), 0, 255));
-            sbytes[0] = char(metal::clamp(int(h), -128, 127));
-            ushorts[0] = ushort(metal::clamp(int(half(s)), 0, 65535));
-            uints[0] = uint(metal::max(float(s), 0.0f));
-            ulongs[0] = ulong(metal::max(h, 0.0h));
-            ints[1] = int(float(s));
+            bytes[0] = __ms_sat_uchar(float(i));
+            sbytes[0] = __ms_sat_char(h);
+            ushorts[0] = __ms_sat_ushort(half(s));
+            uints[0] = __ms_sat_uint(float(s));
+            ulongs[0] = __ms_sat_ulong(h);
+            ints[1] = __ms_sat_int(float(s));
+            int3 v = __ms_sat_int3(float3(floats[0], floats[1], floats[2]));
+            uint2 u = __ms_sat_uint2(half2(h, h));
+            ints[2] = int(uint(v.x) + u.y);
             """.ReplaceLineEndings("\n"),
-            run.Verify(Shader).KernelBody);
+            descriptor.KernelBody);
+        Assert.Contains(
+            "inline int3 __ms_sat_int3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); int3 r = int3(metal::clamp(y, float3(-2147483648.0f), float3(2147483520.0f))); return metal::select(r, int3(2147483647), x >= 2147483648.0f); }",
+            descriptor.MslSource);
+        Assert.Contains("inline uint2 __ms_sat_uint2(half2 x) { return __ms_sat_uint2(float2(x)); }", descriptor.MslSource);
+    }
+
+    /// <summary>C# folds the conversion of a constant, and the MSL holds what C# folded it to: the value <c>ForCpu</c> runs with.</summary>
+    [Fact]
+    public void FloatToInteger_OfAConstant_IsTheConstantCSharpFolded()
+    {
+        AssertKernel(
+            """
+            ints[0] = 7;
+            ints[1] = int(uint(ints[0]) + uint(250));
+            bytes[0] = uchar(200);
+            longs[0] = -3L;
+            """,
+            """
+            ints[0] = (int)(Scale * 2f);
+            ints[1] = ints[0] + (int)(Scale * 71.6f);
+            bytes[0] = (byte)(Scale * 57.3f);
+            longs[0] = (long)(-Scale);
+            """,
+            "private const float Scale = 3.5f;");
     }
 
     /// <summary>
@@ -510,15 +560,15 @@ public class ScalarTypeTests
     }
 
     [Fact]
-    public void ShaderWithoutAFloatToLongConversion_HasNoPrelude()
+    public void ShaderWithoutAFloatToIntegerConversion_HasNoPrelude()
     {
-        ShaderDescriptor descriptor = RunBody("longs[0] = (long)ulongs[0] + bytes[0] + (long)(int)floats[0];").Verify(Shader);
+        ShaderDescriptor descriptor = RunBody("longs[0] = (long)ulongs[0] + bytes[0] + (long)(int)uints[0]; floats[0] = (float)(Half)floats[1] + ints[0];").Verify(Shader);
 
         Assert.DoesNotContain("__ms_", descriptor.MslSource);
     }
 
     [Fact]
-    public void FloatToLong_InAProgramScopeInitializer_IsFoldedByCSharpOrDiagnosed()
+    public void FloatToInteger_InAProgramScopeInitializer_IsFoldedByCSharpOrWrittenOutAsAConstantExpression()
     {
         // A constant conversion is folded by C#, so no call is needed.
         ShaderDescriptor folded = RunBody(
@@ -527,14 +577,37 @@ public class ScalarTypeTests
 
         Assert.Contains("constant long Scaled = long(ulong(2L) * 1000UL);", folded.MslSource);
 
-        // One that reads another program-scope constant would need the helper, which an initializer cannot call.
-        GeneratorRun run = RunBody(
-            "longs[0] = Scaled;",
-            "private static readonly float Factor = 2.75f;\n    private static readonly long Scaled = (long)Factor;");
+        // One that reads another program-scope constant cannot call the helper: an initializer must
+        // not call a function. It is the same saturation as a constant expression of comparisons.
+        ShaderDescriptor written = RunBody(
+            "longs[0] = Scaled + Small + Count;",
+            """
+            private static readonly float Factor = 2.75f;
+                private static readonly Half Tiny = (Half)(-3f);
+                private static readonly long Scaled = (long)Factor;
+                private static readonly sbyte Small = (sbyte)(Factor * 100f);
+                private static readonly uint Count = (uint)Tiny;
+            """).Verify(Shader);
 
         Assert.Contains(
-            "a conversion from a floating-point value to 'long' is a function call in MSL",
-            run.AssertOnlyDiagnostic("SCG0024", "(long)Factor").GetMessage());
+            "constant long Scaled = long(::Factor >= 9223372036854775808.0f ? 9223372036854775807L : (::Factor >= -9223372036854775808.0f ? long(::Factor) : (::Factor < 0.0f ? (-9223372036854775807L - 1L) : 0L)));",
+            written.MslSource);
+        Assert.Contains(
+            "constant char Small = char((::Factor * 100.0f) >= 128.0f ? 127 : ((::Factor * 100.0f) >= -128.0f ? char(::Factor * 100.0f) : ((::Factor * 100.0f) < 0.0f ? -128 : 0)));",
+            written.MslSource);
+        Assert.Contains(
+            "constant uint Count = uint(float(::Tiny) >= 4294967296.0f ? 4294967295u : (float(::Tiny) > 0.0f ? uint(float(::Tiny)) : 0u));",
+            written.MslSource);
+        Assert.DoesNotContain("__ms_", written.MslSource);
+
+        // A vector's conversion is a call, and there is no constant expression for it.
+        GeneratorRun run = RunBody(
+            "ints[0] = Cell.X;",
+            "private static readonly Float3 Point = new(1.5f, 2.5f, 3.5f);\n    private static readonly Int3 Cell = (Int3)Point;");
+
+        Assert.Contains(
+            "a conversion from a floating-point vector to 'int3' is a function call in MSL",
+            run.AssertOnlyDiagnostic("SCG0024", "(Int3)Point").GetMessage());
     }
 
     [Fact]

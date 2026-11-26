@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
 struct __Constants
@@ -46,5 +50,5 @@ kernel void SharpCompute_Benchmarks_Shaders_BlurRgba8Vertical(
         sum += source[int((uint(metal::clamp(int(uint(y) + uint(k)), 0, int(uint(__c.height) - 1u))) * uint(__c.width)) + uint(x))] * weights[int(uint(k) + uint(__c.radius))];
     }
     float4 q = (metal::saturate(sum) * 255.0f) + 0.5f;
-    destination[int((uint(y) * uint(__c.width)) + uint(x))] = uint(metal::max(q.x, 0.0f)) | (uint(metal::max(q.y, 0.0f)) << 8) | (uint(metal::max(q.z, 0.0f)) << 16) | (uint(metal::max(q.w, 0.0f)) << 24);
+    destination[int((uint(y) * uint(__c.width)) + uint(x))] = __ms_sat_uint(q.x) | (__ms_sat_uint(q.y) << 8) | (__ms_sat_uint(q.z) << 16) | (__ms_sat_uint(q.w) << 24);
 }

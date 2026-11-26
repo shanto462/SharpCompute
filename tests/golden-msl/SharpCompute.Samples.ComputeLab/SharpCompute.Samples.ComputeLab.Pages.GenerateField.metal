@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 struct __Constants
 {
     int size;
@@ -52,5 +56,5 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_GenerateField(
     float waves = metal::sin((metal::length(uv - c1) * 38.0f) - (__c.time * 1.7f)) + metal::sin((metal::length(uv - c2) * 27.0f) + (__c.time * 1.1f));
     float grain = float(::ShaderMath_Hash(uint(x) + (::ShaderMath_Hash(uint(y)) * 31u)) >> 8) * (1.0f / 16777216.0f);
     float value = metal::saturate(0.5f + (0.22f * waves) + ((grain - 0.5f) * 0.18f));
-    source[int((uint(y) * uint(__c.size)) + uint(x))] = uint(metal::max(value * 65535.0f, 0.0f));
+    source[int((uint(y) * uint(__c.size)) + uint(x))] = __ms_sat_uint(value * 65535.0f);
 }

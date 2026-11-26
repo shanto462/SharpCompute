@@ -468,6 +468,15 @@ internal sealed partial class MslTranslator
     public bool UsesVectorArithmetic { get; private set; }
 
     /// <summary>
+    /// The saturating float to integer conversions the shader calls (<c>__ms_sat_int</c>,
+    /// <c>__ms_sat_uint3</c>), in name order: the MSL needs those functions of
+    /// <c>MslPrelude.Conversions</c>, and carries no other.
+    /// </summary>
+    public IReadOnlyCollection<string> ConversionHelpers => _conversionHelpers;
+
+    private readonly SortedSet<string> _conversionHelpers = new(System.StringComparer.Ordinal);
+
+    /// <summary>
     /// True when an <c>[MslAtomic]</c> call was translated, in the kernel or in a helper it reaches
     /// (helpers are only translated when called), on a buffer element or on threadgroup memory.
     /// </summary>

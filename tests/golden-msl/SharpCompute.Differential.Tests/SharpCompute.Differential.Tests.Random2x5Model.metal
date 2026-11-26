@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline int2 __ms_sat_int2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); int2 r = int2(metal::clamp(y, float2(-2147483648.0f), float2(2147483520.0f))); return metal::select(r, int2(2147483647), x >= 2147483648.0f); }
+inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
+
 constant int Slots = 24;
 
 struct __GridWindow
@@ -61,7 +67,6 @@ kernel void SharpCompute_Differential_Tests_Random2x5Model(
     char sb1 = char(input[int(uint(o) + 7u)]);
     char sb2 = char(input[int(uint(o) + 8u)]);
     short sh1 = short(input[int(uint(o) + 10u)]);
-    short sh2 = short(input[int(uint(o) + 11u)]);
     ushort us0 = ushort(input[int(uint(o) + 12u)]);
     ushort us1 = ushort(input[int(uint(o) + 13u)]);
     int i0 = int(input[int(uint(o) + 15u)]);
@@ -72,12 +77,14 @@ kernel void SharpCompute_Differential_Tests_Random2x5Model(
     uint u2 = uint(input[int(uint(o) + 20u)]);
     long l1 = long(input[int(uint(o) + 22u)]);
     long l2 = long(input[int(uint(o) + 23u)]);
+    ulong ul0 = input[int(uint(o) + 24u)];
     float f0 = as_type<float>(uint(input[int(uint(o) + 27u)]));
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
     float f2 = as_type<float>(uint(input[int(uint(o) + 29u)]));
+    half h0 = as_type<half>(ushort(input[int(uint(o) + 30u)]));
+    half h2 = as_type<half>(ushort(input[int(uint(o) + 32u)]));
     float2 f2a = float2(as_type<float>(uint(input[int(uint(o) + 33u)])), as_type<float>(uint(input[int(uint(o) + 34u)])));
     float2 f2b = float2(as_type<float>(uint(input[int(uint(o) + 35u)])), as_type<float>(uint(input[int(uint(o) + 36u)])));
-    half2 h2a = half2(as_type<half>(ushort(input[int(uint(o) + 51u)])), as_type<half>(ushort(input[int(uint(o) + 52u)])));
     int3 i3b = int3(int(input[int(uint(o) + 76u)]), int(input[int(uint(o) + 77u)]), int(input[int(uint(o) + 78u)]));
     uint3 u3a = uint3(uint(input[int(uint(o) + 91u)]), uint(input[int(uint(o) + 92u)]), uint(input[int(uint(o) + 93u)]));
     uint3 u3b = uint3(uint(input[int(uint(o) + 94u)]), uint(input[int(uint(o) + 95u)]), uint(input[int(uint(o) + 96u)]));
@@ -92,13 +99,13 @@ kernel void SharpCompute_Differential_Tests_Random2x5Model(
     output[int(uint(p) + 3u)] = long(as_type<uint>(::GpuModel_Flush(metal::fract(::GpuModel_Flush(metal::abs(::GpuModel_Flush(metal::sqrt(::GpuModel_Flush(float(sh1))))))))));
     output[int(uint(p) + 4u)] = long(as_type<uint>(::GpuModel_Flush(metal::fract(::GpuModel_Flush(metal::abs(::GpuModel_Flush(metal::sqrt(::GpuModel_Flush(float(sh1))))))))));
     output[int(uint(p) + 5u)] = long(as_type<uint>(::GpuModel_Flush(metal::fract(metal::abs(::GpuModel_Flush(metal::sqrt(float(sh1))))))));
-    int2 c7_v0_0 = int2(::GpuModel_Flush_1(-::GpuModel_Flush_1(metal::min(::GpuModel_Flush_1(float2(f1, f0)), ::GpuModel_Flush_1(::GpuModel_Flush_1(::GpuModel_Flush_1(f2a) / ::GpuModel_Flush_1(f2b)))))));
+    int2 c7_v0_0 = __ms_sat_int2(::GpuModel_Flush_1(-::GpuModel_Flush_1(metal::min(::GpuModel_Flush_1(float2(f1, f0)), ::GpuModel_Flush_1(::GpuModel_Flush_1(::GpuModel_Flush_1(f2a) / ::GpuModel_Flush_1(f2b)))))));
     output[int(uint(p) + 6u)] = long(c7_v0_0.x);
     output[int(uint(p) + 7u)] = long(c7_v0_0.y);
-    int2 c7_v1_0 = int2(::GpuModel_Flush_1(-::GpuModel_Flush_1(metal::min(::GpuModel_Flush_1(float2(f1, f0)), ::GpuModel_Flush_1(::GpuModel_FlushTiny_1(::GpuModel_Flush_1(f2a) / ::GpuModel_Flush_1(f2b)))))));
+    int2 c7_v1_0 = __ms_sat_int2(::GpuModel_Flush_1(-::GpuModel_Flush_1(metal::min(::GpuModel_Flush_1(float2(f1, f0)), ::GpuModel_Flush_1(::GpuModel_FlushTiny_1(::GpuModel_Flush_1(f2a) / ::GpuModel_Flush_1(f2b)))))));
     output[int(uint(p) + 8u)] = long(c7_v1_0.x);
     output[int(uint(p) + 9u)] = long(c7_v1_0.y);
-    int2 c7_v2_0 = int2(-::GpuModel_Flush_1(metal::min(float2(f1, f0), ::GpuModel_FlushTiny_1(f2a / f2b))));
+    int2 c7_v2_0 = __ms_sat_int2(-::GpuModel_Flush_1(metal::min(float2(f1, f0), ::GpuModel_FlushTiny_1(f2a / f2b))));
     output[int(uint(p) + 10u)] = long(c7_v2_0.x);
     output[int(uint(p) + 11u)] = long(c7_v2_0.y);
     output[int(uint(p) + 12u)] = long(as_type<uint>(::GpuModel_Flush(::GpuModel_Flush(float(u0)) + ::GpuModel_Flush(1E-10f))));
@@ -125,9 +132,9 @@ kernel void SharpCompute_Differential_Tests_Random2x5Model(
     c10_v2_2 = ::GpuModel_Flush(c10_v2_2 - 1.0f);
     float c10_v2_3 = c10_v2_2;
     output[int(uint(p) + 17u)] = long(as_type<uint>(-c10_v2_3));
-    output[int(uint(p) + 18u)] = long(int(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f2) + ::GpuModel_Flush(f0))) - ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f1)))))) >> int(long(ulong(metal::min(l2, l1)) * (ulong(l2) - ulong(l2)))));
-    output[int(uint(p) + 19u)] = long(int(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f2) + ::GpuModel_Flush(f0))) - ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f1)))))) >> int(long(ulong(metal::min(l2, l1)) * (ulong(l2) - ulong(l2)))));
-    output[int(uint(p) + 20u)] = long(int(::GpuModel_Flush(::GpuModel_Flush(f2 + f0) - ::GpuModel_Flush(f0 + f1))) >> int(long(ulong(metal::min(l2, l1)) * (ulong(l2) - ulong(l2)))));
+    output[int(uint(p) + 18u)] = long(__ms_sat_int(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f2) + ::GpuModel_Flush(f0))) - ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f1)))))) >> int(long(ulong(metal::min(l2, l1)) * (ulong(l2) - ulong(l2)))));
+    output[int(uint(p) + 19u)] = long(__ms_sat_int(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f2) + ::GpuModel_Flush(f0))) - ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f1)))))) >> int(long(ulong(metal::min(l2, l1)) * (ulong(l2) - ulong(l2)))));
+    output[int(uint(p) + 20u)] = long(__ms_sat_int(::GpuModel_Flush(::GpuModel_Flush(f2 + f0) - ::GpuModel_Flush(f0 + f1))) >> int(long(ulong(metal::min(l2, l1)) * (ulong(l2) - ulong(l2)))));
     output[int(uint(p) + 21u)] = long(metal::clz(as_type<int>(-f1)));
     output[int(uint(p) + 22u)] = long(metal::clz(as_type<int>(-f1)));
     output[int(uint(p) + 23u)] = long(metal::clz(as_type<int>(-f1)));

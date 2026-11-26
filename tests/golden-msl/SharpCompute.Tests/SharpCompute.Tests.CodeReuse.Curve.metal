@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 struct __Constants
 {
     float scale;
@@ -54,7 +58,7 @@ static float Unit()
 
 static float Apply(float x, constant __Constants& __c)
 {
-    return ::Item(int(x), __c) + ::Choose_float(::Unit(), -::Unit(), __c);
+    return ::Item(__ms_sat_int(x), __c) + ::Choose_float(::Unit(), -::Unit(), __c);
 }
 
 static float2 Choose_float2(float2 a, float2 b, constant __Constants& __c)

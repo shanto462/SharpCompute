@@ -975,7 +975,7 @@ def has_constant_part(n: Node) -> bool:
     return False
 
 
-# Literals beyond the range of some integer or of a half: a conversion the compiler can see them in is folded as undefined.
+# Literals beyond the range of a half: a conversion to half the compiler can see them in is folded to the largest half.
 OUT_OF_RANGE = ("NaN", "Infinity", "MaxValue", "MinValue", "e10f", "e30f", "16777216f", "2147483648f", "4294967296f", "65504f")
 
 
@@ -989,21 +989,12 @@ def through_locals(n: Node) -> Node:
     return n
 
 
-COMPARES = re.compile(r"\{0\} (==|!=|<|<=|>|>=) \{1\}|Gpu\.(Equal|NotEqual|Min|Max|Clamp|Abs)\(|Math\.(Min|Max|Clamp|Abs)\(|MinValue")
-
-
 def is_swizzle(n: Node) -> bool:
     return n.kind == "op" and n.text.startswith("{0}.")
 
 
 def through_swizzles(n: Node) -> Node:
     while n.kind == "let" or is_swizzle(n):
-        n = n.args[0]
-    return n
-
-
-def through_int_casts(n: Node) -> Node:
-    while n.kind == "let" or (n.kind == "op" and n.t.kind == "int" and n.text.startswith("((") and len(n.args) == 1 and n.args[0].t.kind == "int"):
         n = n.args[0]
     return n
 
@@ -1050,20 +1041,15 @@ def known_difference(root: Node) -> str | None:
         if "tol" in n.flags and len({render_key(a) for a in n.args}) < len(n.args):
             # Policy: the GPU simplifies mix(x, x, t) to x; ForCpu evaluates the GPU's formula, which cancels.
             return "SameOperands"
-        if ("f2i" in n.flags or "f2h" in n.flags) and (has_constant_part(n.args[0]) or any(
+        if "f2h" in n.flags and (has_constant_part(n.args[0]) or any(
                 m.kind == "lit" and any(x in m.text for x in OUT_OF_RANGE) for m in n.args[0].walk())):
-            return "OutOfRangeConversion"
-        if COMPARES.search(n.text) and any("f2i" in through_int_casts(a).flags for a in n.args):
-            return "OutOfRangeConversion"
-        if "f2i" in n.flags and is_division(through_locals(n.args[0])) and any(has_constant_part(a) for a in through_locals(n.args[0]).args):
-            # fmod(100, x) is within ±100 or NaN, and the conversion of that NaN is not 0.
-            return "OutOfRangeConversion"
+            return "OutOfRangeHalfConversion"
+        if elem_of(n.t) is HALF and n.text.startswith("((") and any("f2i" in m.flags for m in n.args[0].walk()):
+            # A float to integer conversion saturates to a bound the compiler can see, and the
+            # conversion of that bound on to a half is folded the same way.
+            return "OutOfRangeHalfConversion"
         if "f2h" in n.flags and any("Fract(" in m.text for m in n.args[0].walk() if m.kind == "op"):
             return "HalfOfFract"
-        if n is not root and "f2i" in n.flags and elem_of(n.args[0].t) is HALF:
-            # A half is finite within ±65504, and the compiler narrows what it computes from the
-            # conversion on that ground, which an infinity breaks.
-            return "OutOfRangeConversion"
         if "l2h" in n.flags:
             return "LongToHalf"
         if "bits" in n.flags and any(elem_of(m.t) in (BYTE, SBYTE, SHORT, USHORT) for m in n.args[0].walk()):

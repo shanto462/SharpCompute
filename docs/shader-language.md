@@ -112,17 +112,21 @@ build error `SCG0052`).
   `checked(...)` and `checked { }` are reported on each operation in them; the project-wide switch
   is reported once per shader, on its declaration, with the number of checked operations and the
   first of them.
-- **Float to integer** conversions truncate, give 0 for NaN and saturate at the bounds of the target
-  type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
-  `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range
-  of a `long` (2^63 becomes `long.MinValue`), so that one conversion goes through a prelude helper
-  that clamps first. MSL leaves the others undefined out of range, and the Metal compiler folds
-  `uchar(float(i))` into a truncation of `i` on that ground, so a conversion to an 8- or 16-bit
-  integer goes through a clamped `int` (`uchar(metal::clamp(int(x), 0, 255))`) and one to `uint`
-  or `ulong` clamps the negative values first (`uint(metal::max(x, 0.0f))`). `int` is a plain MSL
-  cast. A value out of range that the compiler can see or bound (a constant, or a half, which is
-  finite within ±65504) can still give another result: see
-  [Limitations](limitations.md#shader-language). Integer to float rounds to nearest even.
+- **Float to integer** conversions saturate exactly as C# does (.NET 9 and later), for `float` and
+  `Half`, scalars and vectors, at every width: they truncate, give 0 for NaN and the target's
+  `MinValue` or `MaxValue` for a value beyond its range. `(byte)300f` is 255, `(sbyte)-129f` is
+  -128, `(ulong)-1f` is 0, `(int)float.PositiveInfinity` is `int.MaxValue`, `(long)1e30f` is
+  `long.MaxValue`. MSL leaves such a conversion undefined out of range, and the Metal compiler
+  folds on that ground wherever it can see or bound the operand, so the generator never emits the
+  plain cast: `(int)x` is `__ms_sat_int(x)`, a helper that replaces NaN by 0 and clamps in the
+  float domain before it converts (to the largest float below 2^31, with a select for the values
+  from 2^31 up, since `(float)int.MaxValue` is 2^31). A shader carries only the helpers it calls.
+  A conversion C# folds is the constant C# folded it to, and one in a `static readonly`
+  initializer is written out as a constant expression. On an Apple M4 Pro the clamps cost nothing
+  measurable in kernels that pack colours and 2.6% of the GPU time of a noise kernel that converts
+  eight times per pixel. With `[ShaderOptions(FastMath = true)]` the compiler may assume there is
+  no NaN and no infinity, so the result for those two is unspecified; finite values still
+  saturate. Integer to float rounds to nearest even.
 - **Literals** keep their C# type: `(byte)5` is `uchar(5)`, `5L` is `5L`, `ulong.MaxValue` is
   `18446744073709551615UL`.
 - **Layout.** A `byte` is aligned to 1, a `short` to 2 and a `long` to 8, in C# and in MSL alike, so
@@ -167,7 +171,8 @@ layout that drifted is a compile error, not corrupt data.
 | `Float4x4` | `float4x4` | four `packed_float4` columns | 64 (4) |
 
 Vectors convert to each other explicitly, `(Int3)v`, as MSL's `int3(v)` does. Float and half to
-integer truncate and saturate (NaN gives 0); float to half rounds to the nearest half. Comparing two
+integer truncate and saturate per lane as in C# (NaN gives 0), through the same helpers as the
+[scalars](#integers); float to half rounds to the nearest half. Comparing two
 vectors gives a [bool vector](#bool-vectors). The half vectors have a page of their own:
 [Half precision](half-precision.md).
 
@@ -309,7 +314,8 @@ public readonly partial struct Orbit(...) : IComputeShader { ... }
 
 - **Fast math** makes a kernel that is mostly `sin`, `cos`, `exp` and `pow` about three times faster.
   On ComputeLab's FastMath page it takes 0.39 ms against 1.2 ms, with a 3.6e-6 error against the CPU
-  where safe math has 3.3e-6. But a comparison such as `x != x` is compiled away.
+  where safe math has 3.3e-6. But a comparison such as `x != x` is compiled away, and the
+  conversion of a NaN or an infinity to an integer is unspecified (finite values still saturate).
 - **`FpContract = false`**: arithmetic that uses only `+ - * /` and `Gpu.Sqrt` then gives the same
   bits on the GPU as on the CPU (subnormal results aside, which the GPU flushes to zero, and the
   half division by a constant and `Sqrt` of a converted half in

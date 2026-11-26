@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 struct __GridWindow
 {
     packed_uint3 offset;
@@ -24,6 +28,6 @@ kernel void SharpCompute_Tests_Intrinsics_AtomicFloatSum(
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     float before = metal::atomic_fetch_add_explicit((device metal::atomic<float>*)&(sums[0]), 1.0f, metal::memory_order_relaxed);
-    order[int(before)] = int(uint(order[int(before)]) + 1u);
+    order[__ms_sat_int(before)] = int(uint(order[__ms_sat_int(before)]) + 1u);
     metal::atomic_fetch_add_explicit((device metal::atomic<float>*)&(sums[1]), float(int(__tid.x) & 3) * 0.25f, metal::memory_order_relaxed);
 }

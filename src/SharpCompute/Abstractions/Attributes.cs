@@ -85,7 +85,9 @@ public sealed class ShaderOptionsAttribute : Attribute
     /// heuristic). Do not use it when the kernel relies on NaN or infinity propagating, tests for them,
     /// or must match the CPU closely: a comparison such as <c>x != x</c> is compiled to <c>false</c>,
     /// and Metal makes no promise for <c>Gpu.IsNaN</c>, <c>Gpu.IsInfinity</c> and <c>Gpu.IsFinite</c>
-    /// either (an Apple M4 Pro was measured to still answer <c>Gpu.IsNaN</c> correctly).
+    /// either (an Apple M4 Pro was measured to still answer <c>Gpu.IsNaN</c> correctly). For the same
+    /// reason the conversion of a NaN or an infinity to an integer, which otherwise gives 0 and the
+    /// bounds of the target type as in C#, is unspecified; a finite value still saturates.
     /// </remarks>
     public bool FastMath { get; init; }
 

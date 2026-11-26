@@ -25,7 +25,6 @@ inline uint __ms_atomic_compare_exchange(device metal::atomic_uint* location, ui
 inline int __ms_atomic_compare_exchange(threadgroup metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
 inline uint __ms_atomic_compare_exchange(threadgroup metal::atomic_uint* location, uint comparand, uint value) { uint expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
 inline float __ms_atomic_fetch_add_float(threadgroup metal::atomic_uint* location, float value) { uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }
-inline long __ms_float_to_long(float x) { return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }
 inline float __ms_math_min(float x, float y) { return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }
 inline float __ms_math_max(float x, float y) { return x != y ? (metal::isnan(x) ? x : (y < x ? x : y)) : (metal::signbit(y) ? x : y); }
 inline float __ms_math_clamp(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
@@ -166,6 +165,11 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
+inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
+inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }
+inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 
 constant int Slots = 30;
 
@@ -209,6 +213,7 @@ kernel void SharpCompute_Differential_Tests_Random3x7(
     uint u1 = uint(input[int(uint(o) + 19u)]);
     uint u2 = uint(input[int(uint(o) + 20u)]);
     long l0 = long(input[int(uint(o) + 21u)]);
+    long l1 = long(input[int(uint(o) + 22u)]);
     long l2 = long(input[int(uint(o) + 23u)]);
     ulong ul0 = input[int(uint(o) + 24u)];
     ulong ul1 = input[int(uint(o) + 25u)];
@@ -247,7 +252,7 @@ kernel void SharpCompute_Differential_Tests_Random3x7(
     output[int(uint(p) + 9u)] = long(c5_0.y);
     ushort c6_0 = us2;
     ushort c6_1 = c6_0++;
-    ushort c6_2 = (int(by0) == int(by2)) ? ushort(metal::clamp(int(f1), 0, 65535)) : c6_1;
+    ushort c6_2 = (int(by0) == int(by2)) ? __ms_sat_ushort(f1) : c6_1;
     output[int(uint(p) + 10u)] = long(metal::max(ushort(ulong((l2 == 0L || (l0 == -9223372036854775807L - 1L && l2 == -1L)) ? 0L : l0 / l2)), c6_2));
     uchar c7_0 = uchar(ul1);
     c7_0 &= int(uchar(us2));
@@ -283,8 +288,16 @@ kernel void SharpCompute_Differential_Tests_Random3x7(
     output[int(uint(p) + 22u)] = long(as_type<uint>(c12_1.x));
     output[int(uint(p) + 23u)] = long(as_type<uint>(c12_1.y));
     output[int(uint(p) + 24u)] = long(as_type<uint>(c12_1.z));
-    ulong c13_0 = +(ul0 << i0);
-    output[int(uint(p) + 25u)] = long(int(c13_0));
+    uint c13_0 = u0;
+    c13_0 += u1;
+    int c13_1 = 33;
+    long c13_2 = long(ulong(c13_0) - ulong(c13_1));
+    long c13_3 = l2 << i1;
+    long c13_4 = __ms_math_clamp(l1, metal::min(l2, l0), metal::max(l2, l0));
+    c13_2 = long(ulong(c13_2) + ulong((c13_4 == 0L || (c13_3 == -9223372036854775807L - 1L && c13_4 == -1L)) ? 0L : c13_3 / c13_4));
+    half c13_5 = h2;
+    half c13_6 = c13_5--;
+    output[int(uint(p) + 25u)] = (metal::clamp(c13_2, l0, __ms_sat_long(__ms_half_rem(half(1.5f), c13_6))));
     int2 c14_0 = i2b;
     c14_0 |= i2a;
     int2 c14_1 = int2(__ms_sub(uint2(metal::isnan(f2 - f2) ? (metal::abs(i1) & c14_0) : (i2a.xy << (int(uint(i2) - uint(sb1))))), uint2(i2a)));

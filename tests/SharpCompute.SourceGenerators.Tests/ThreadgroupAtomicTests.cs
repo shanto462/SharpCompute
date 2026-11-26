@@ -378,7 +378,7 @@ public class ThreadgroupAtomicTests
         Assert.Equal(
             """
             float before = __ms_atomic_fetch_add_float((threadgroup metal::atomic_uint*)&(sums[int(__gtid.x) & 3]), 0.5f);
-            output[int(__tid.x)] = int(before + ::Total(float(__c.seed), sums));
+            output[int(__tid.x)] = __ms_sat_int(before + ::Total(float(__c.seed), sums));
             """.ReplaceLineEndings("\n"),
             Statements(descriptor));
 

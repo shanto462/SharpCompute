@@ -37,7 +37,6 @@ public static class MslPrelude
         inline int __ms_atomic_compare_exchange(threadgroup metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
         inline uint __ms_atomic_compare_exchange(threadgroup metal::atomic_uint* location, uint comparand, uint value) { uint expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
         inline float __ms_atomic_fetch_add_float(threadgroup metal::atomic_uint* location, float value) { uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }
-        inline long __ms_float_to_long(float x) { return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }
         inline float __ms_math_min(float x, float y) { return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }
         inline float __ms_math_max(float x, float y) { return x != y ? (metal::isnan(x) ? x : (y < x ? x : y)) : (metal::signbit(y) ? x : y); }
         inline float __ms_math_clamp(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
@@ -189,5 +188,82 @@ public static class MslPrelude
         template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
         template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
         template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+        """;
+
+    /// <summary>
+    /// The float and half to integer conversions (<c>__ms_sat_int</c>, <c>__ms_sat_uchar</c>,
+    /// <c>__ms_sat_uint3</c> and so on: one per target type, overloaded on the source), which saturate
+    /// as C# does: NaN gives 0, a value beyond the target's range its MinValue or MaxValue. The
+    /// generator emits the functions a shader calls, after <see cref="Source"/>: one per line here,
+    /// which is how it picks them. MSL leaves such a conversion undefined out of range and the Metal
+    /// compiler folds on that ground, so each helper clamps in the float domain before it converts. With
+    /// <c>[ShaderOptions(FastMath = true)]</c> the result for NaN and the infinities is unspecified.
+    /// </summary>
+    public const string Conversions = """
+        // SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+        inline char __ms_sat_char(float x) { float y = x == x ? x : 0.0f; return char(metal::clamp(y, -128.0f, 127.0f)); }
+        inline char __ms_sat_char(half x) { return __ms_sat_char(float(x)); }
+        inline char2 __ms_sat_char2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); return char2(metal::clamp(y, float2(-128.0f), float2(127.0f))); }
+        inline char2 __ms_sat_char2(half2 x) { return __ms_sat_char2(float2(x)); }
+        inline char3 __ms_sat_char3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); return char3(metal::clamp(y, float3(-128.0f), float3(127.0f))); }
+        inline char3 __ms_sat_char3(half3 x) { return __ms_sat_char3(float3(x)); }
+        inline char4 __ms_sat_char4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); return char4(metal::clamp(y, float4(-128.0f), float4(127.0f))); }
+        inline char4 __ms_sat_char4(half4 x) { return __ms_sat_char4(float4(x)); }
+        inline uchar __ms_sat_uchar(float x) { float y = x > 0.0f ? x : 0.0f; return uchar(metal::min(y, 255.0f)); }
+        inline uchar __ms_sat_uchar(half x) { return __ms_sat_uchar(float(x)); }
+        inline uchar2 __ms_sat_uchar2(float2 x) { float2 y = metal::select(float2(0.0f), x, x > 0.0f); return uchar2(metal::min(y, float2(255.0f))); }
+        inline uchar2 __ms_sat_uchar2(half2 x) { return __ms_sat_uchar2(float2(x)); }
+        inline uchar3 __ms_sat_uchar3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); return uchar3(metal::min(y, float3(255.0f))); }
+        inline uchar3 __ms_sat_uchar3(half3 x) { return __ms_sat_uchar3(float3(x)); }
+        inline uchar4 __ms_sat_uchar4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); return uchar4(metal::min(y, float4(255.0f))); }
+        inline uchar4 __ms_sat_uchar4(half4 x) { return __ms_sat_uchar4(float4(x)); }
+        inline short __ms_sat_short(float x) { float y = x == x ? x : 0.0f; return short(metal::clamp(y, -32768.0f, 32767.0f)); }
+        inline short __ms_sat_short(half x) { return __ms_sat_short(float(x)); }
+        inline short2 __ms_sat_short2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); return short2(metal::clamp(y, float2(-32768.0f), float2(32767.0f))); }
+        inline short2 __ms_sat_short2(half2 x) { return __ms_sat_short2(float2(x)); }
+        inline short3 __ms_sat_short3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); return short3(metal::clamp(y, float3(-32768.0f), float3(32767.0f))); }
+        inline short3 __ms_sat_short3(half3 x) { return __ms_sat_short3(float3(x)); }
+        inline short4 __ms_sat_short4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); return short4(metal::clamp(y, float4(-32768.0f), float4(32767.0f))); }
+        inline short4 __ms_sat_short4(half4 x) { return __ms_sat_short4(float4(x)); }
+        inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
+        inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
+        inline ushort2 __ms_sat_ushort2(float2 x) { float2 y = metal::select(float2(0.0f), x, x > 0.0f); return ushort2(metal::min(y, float2(65535.0f))); }
+        inline ushort2 __ms_sat_ushort2(half2 x) { return __ms_sat_ushort2(float2(x)); }
+        inline ushort3 __ms_sat_ushort3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); return ushort3(metal::min(y, float3(65535.0f))); }
+        inline ushort3 __ms_sat_ushort3(half3 x) { return __ms_sat_ushort3(float3(x)); }
+        inline ushort4 __ms_sat_ushort4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); return ushort4(metal::min(y, float4(65535.0f))); }
+        inline ushort4 __ms_sat_ushort4(half4 x) { return __ms_sat_ushort4(float4(x)); }
+        inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+        inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+        inline int2 __ms_sat_int2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); int2 r = int2(metal::clamp(y, float2(-2147483648.0f), float2(2147483520.0f))); return metal::select(r, int2(2147483647), x >= 2147483648.0f); }
+        inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
+        inline int3 __ms_sat_int3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); int3 r = int3(metal::clamp(y, float3(-2147483648.0f), float3(2147483520.0f))); return metal::select(r, int3(2147483647), x >= 2147483648.0f); }
+        inline int3 __ms_sat_int3(half3 x) { return __ms_sat_int3(float3(x)); }
+        inline int4 __ms_sat_int4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); int4 r = int4(metal::clamp(y, float4(-2147483648.0f), float4(2147483520.0f))); return metal::select(r, int4(2147483647), x >= 2147483648.0f); }
+        inline int4 __ms_sat_int4(half4 x) { return __ms_sat_int4(float4(x)); }
+        inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+        inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+        inline uint2 __ms_sat_uint2(float2 x) { float2 y = metal::select(float2(0.0f), x, x > 0.0f); uint2 r = uint2(metal::min(y, float2(4294967040.0f))); return metal::select(r, uint2(4294967295u), x >= 4294967296.0f); }
+        inline uint2 __ms_sat_uint2(half2 x) { return __ms_sat_uint2(float2(x)); }
+        inline uint3 __ms_sat_uint3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); uint3 r = uint3(metal::min(y, float3(4294967040.0f))); return metal::select(r, uint3(4294967295u), x >= 4294967296.0f); }
+        inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
+        inline uint4 __ms_sat_uint4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); uint4 r = uint4(metal::min(y, float4(4294967040.0f))); return metal::select(r, uint4(4294967295u), x >= 4294967296.0f); }
+        inline uint4 __ms_sat_uint4(half4 x) { return __ms_sat_uint4(float4(x)); }
+        inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }
+        inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
+        inline long2 __ms_sat_long2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); long2 r = long2(metal::clamp(y, float2(-9223372036854775808.0f), float2(9223371487098961920.0f))); return metal::select(r, long2(9223372036854775807L), x >= 9223372036854775808.0f); }
+        inline long2 __ms_sat_long2(half2 x) { return __ms_sat_long2(float2(x)); }
+        inline long3 __ms_sat_long3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); long3 r = long3(metal::clamp(y, float3(-9223372036854775808.0f), float3(9223371487098961920.0f))); return metal::select(r, long3(9223372036854775807L), x >= 9223372036854775808.0f); }
+        inline long3 __ms_sat_long3(half3 x) { return __ms_sat_long3(float3(x)); }
+        inline long4 __ms_sat_long4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); long4 r = long4(metal::clamp(y, float4(-9223372036854775808.0f), float4(9223371487098961920.0f))); return metal::select(r, long4(9223372036854775807L), x >= 9223372036854775808.0f); }
+        inline long4 __ms_sat_long4(half4 x) { return __ms_sat_long4(float4(x)); }
+        inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = ulong(metal::min(y, 18446742974197923840.0f)); return x >= 18446744073709551616.0f ? 18446744073709551615UL : r; }
+        inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
+        inline ulong2 __ms_sat_ulong2(float2 x) { float2 y = metal::select(float2(0.0f), x, x > 0.0f); ulong2 r = ulong2(metal::min(y, float2(18446742974197923840.0f))); return metal::select(r, ulong2(18446744073709551615UL), x >= 18446744073709551616.0f); }
+        inline ulong2 __ms_sat_ulong2(half2 x) { return __ms_sat_ulong2(float2(x)); }
+        inline ulong3 __ms_sat_ulong3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); ulong3 r = ulong3(metal::min(y, float3(18446742974197923840.0f))); return metal::select(r, ulong3(18446744073709551615UL), x >= 18446744073709551616.0f); }
+        inline ulong3 __ms_sat_ulong3(half3 x) { return __ms_sat_ulong3(float3(x)); }
+        inline ulong4 __ms_sat_ulong4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); ulong4 r = ulong4(metal::min(y, float4(18446742974197923840.0f))); return metal::select(r, ulong4(18446744073709551615UL), x >= 18446744073709551616.0f); }
+        inline ulong4 __ms_sat_ulong4(half4 x) { return __ms_sat_ulong4(float4(x)); }
         """;
 }

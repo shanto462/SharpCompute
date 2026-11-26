@@ -25,7 +25,6 @@ inline uint __ms_atomic_compare_exchange(device metal::atomic_uint* location, ui
 inline int __ms_atomic_compare_exchange(threadgroup metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
 inline uint __ms_atomic_compare_exchange(threadgroup metal::atomic_uint* location, uint comparand, uint value) { uint expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
 inline float __ms_atomic_fetch_add_float(threadgroup metal::atomic_uint* location, float value) { uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }
-inline long __ms_float_to_long(float x) { return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }
 inline float __ms_math_min(float x, float y) { return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }
 inline float __ms_math_max(float x, float y) { return x != y ? (metal::isnan(x) ? x : (y < x ? x : y)) : (metal::signbit(y) ? x : y); }
 inline float __ms_math_clamp(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
@@ -166,6 +165,11 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline char __ms_sat_char(float x) { float y = x == x ? x : 0.0f; return char(metal::clamp(y, -128.0f, 127.0f)); }
+inline char __ms_sat_char(half x) { return __ms_sat_char(float(x)); }
+inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = ulong(metal::min(y, 18446742974197923840.0f)); return x >= 18446744073709551616.0f ? 18446744073709551615UL : r; }
+inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 
 constant int Slots = 22;
 
@@ -193,7 +197,9 @@ kernel void SharpCompute_Differential_Tests_Random1x4(
     int p = int(__tid.x * uint(::Slots));
     bool b2 = (input[int(uint(o) + 2u)] & 1UL) != 0UL;
     uchar by0 = uchar(input[int(uint(o) + 3u)]);
+    uchar by1 = uchar(input[int(uint(o) + 4u)]);
     uchar by2 = uchar(input[int(uint(o) + 5u)]);
+    char sb0 = char(input[int(uint(o) + 6u)]);
     char sb1 = char(input[int(uint(o) + 7u)]);
     char sb2 = char(input[int(uint(o) + 8u)]);
     short sh2 = short(input[int(uint(o) + 11u)]);
@@ -240,7 +246,7 @@ kernel void SharpCompute_Differential_Tests_Random1x4(
     half c3_0 = h2 * half(6E-08f);
     half c3_1 = c3_0++;
     half c3_2 = h2;
-    output[int(uint(p) + 5u)] = long(ulong(metal::max(c3_1 * (-c3_2), 0.0h)));
+    output[int(uint(p) + 5u)] = long(__ms_sat_ulong(c3_1 * (-c3_2)));
     output[int(uint(p) + 6u)] = long(as_type<uint>(metal::log10((f2 - float(sb1)) - float(metal::clamp(short(2), short(255), sh2)))));
     half2 c5_0 = h2a;
     c5_0 *= h2a;
@@ -274,13 +280,9 @@ kernel void SharpCompute_Differential_Tests_Random1x4(
     char c11_1 = char(c11_0);
     --c11_1;
     output[int(uint(p) + 17u)] = long(as_type<uint>(float(c11_1)));
-    uchar c12_0 = by0;
-    c12_0 <<= i0;
-    uchar c12_1 = by2;
-    uchar c12_2 = metal::max(c12_0, c12_1);
-    --c12_2;
-    uchar c12_3 = c12_2;
-    output[int(uint(p) + 18u)] = long(c12_3);
+    long c12_0 = -9223372036854775807L - 1L;
+    long c12_1 = long(reinterpret_cast<thread ulong&>(c12_0)--);
+    output[int(uint(p) + 18u)] = (long((ulong(uchar(sb0)) - ulong(false ? c12_1 : l1)) * ulong(int(uint(__ms_sat_char(h0)) * uint(by1)))));
     char c13_0 = sb2;
     --c13_0;
     char c13_1 = c13_0;

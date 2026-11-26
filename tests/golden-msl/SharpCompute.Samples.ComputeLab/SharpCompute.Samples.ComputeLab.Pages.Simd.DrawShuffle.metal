@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 constant int PlotX = 40;
 constant int PlotY = 132;
 constant int PlotWidth = 1200;
@@ -65,7 +71,7 @@ static float3 CurveColor(int curve)
 static float Value(int curve, float position, device float* plot, constant __Constants& __c)
 {
     float p = metal::clamp(position, 0.0f, float(__c.count) - 1.0f);
-    int i = int(p);
+    int i = __ms_sat_int(p);
     int j = metal::min(int(uint(i) + 1u), int(uint(__c.count) - 1u));
     return metal::mix(plot[int((uint(curve) * uint(__c.count)) + uint(i))], plot[int((uint(curve) * uint(__c.count)) + uint(j))], p - float(i));
 }
@@ -73,7 +79,7 @@ static float Value(int curve, float position, device float* plot, constant __Con
 static uint Pack(float3 color)
 {
     float3 c = metal::round(metal::saturate(color) * 255.0f);
-    return uint(metal::max(c.x, 0.0f)) | (uint(metal::max(c.y, 0.0f)) << 8) | (uint(metal::max(c.z, 0.0f)) << 16) | 4278190080u;
+    return __ms_sat_uint(c.x) | (__ms_sat_uint(c.y) << 8) | (__ms_sat_uint(c.z) << 16) | 4278190080u;
 }
 
 kernel void SharpCompute_Samples_ComputeLab_Pages_Simd_DrawShuffle(

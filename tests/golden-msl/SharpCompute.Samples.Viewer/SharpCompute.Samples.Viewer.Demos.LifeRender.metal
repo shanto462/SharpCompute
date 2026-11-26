@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline uint3 __ms_sat_uint3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); uint3 r = uint3(metal::min(y, float3(4294967040.0f))); return metal::select(r, uint3(4294967295u), x >= 4294967296.0f); }
+inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
+
 struct __Constants
 {
     int gridWidth;
@@ -33,7 +39,7 @@ static uint PackRgba(float3 color);
 
 static uint PackRgba(float3 color)
 {
-    uint3 c = uint3((metal::saturate(color) * 255.0f) + float3(0.5f, 0.5f, 0.5f));
+    uint3 c = __ms_sat_uint3((metal::saturate(color) * 255.0f) + float3(0.5f, 0.5f, 0.5f));
     return c.x | (c.y << 8) | (c.z << 16) | (255u << 24);
 }
 
@@ -49,8 +55,8 @@ kernel void SharpCompute_Samples_Viewer_Demos_LifeRender(
     int py = int(__tid.y);
     float fx = (float(px) + 0.5f) * float(__c.gridWidth) / float(__c.imageWidth);
     float fy = (float(py) + 0.5f) * float(__c.gridHeight) / float(__c.imageHeight);
-    int cx = metal::min(int(fx), int(uint(__c.gridWidth) - 1u));
-    int cy = metal::min(int(fy), int(uint(__c.gridHeight) - 1u));
+    int cx = metal::min(__ms_sat_int(fx), int(uint(__c.gridWidth) - 1u));
+    int cy = metal::min(__ms_sat_int(fy), int(uint(__c.gridHeight) - 1u));
     uint age = cells[int((uint(cy) * uint(__c.gridWidth)) + uint(cx))];
     float3 color = float3(0.035f, 0.04f, 0.07f);
     if (age != 0u)

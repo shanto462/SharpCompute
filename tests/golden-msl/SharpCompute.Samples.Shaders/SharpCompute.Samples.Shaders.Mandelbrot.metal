@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline uint3 __ms_sat_uint3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); uint3 r = uint3(metal::min(y, float3(4294967040.0f))); return metal::select(r, uint3(4294967295u), x >= 4294967296.0f); }
+inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
+
 struct __Constants
 {
     int width;
@@ -37,7 +41,7 @@ static uint PackRgba(float3 color);
 
 static uint PackRgba(float3 color)
 {
-    uint3 c = uint3((metal::saturate(color) * 255.0f) + float3(0.5f, 0.5f, 0.5f));
+    uint3 c = __ms_sat_uint3((metal::saturate(color) * 255.0f) + float3(0.5f, 0.5f, 0.5f));
     return c.x | (c.y << 8) | (c.z << 16) | (255u << 24);
 }
 

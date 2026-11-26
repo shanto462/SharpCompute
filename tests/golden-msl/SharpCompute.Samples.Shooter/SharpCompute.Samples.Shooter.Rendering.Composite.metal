@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
 struct Ripple
@@ -84,8 +90,8 @@ static uint PixelShading_PackRgb(float3 color);
 
 static int4 Corners(float2 at, int w, int h)
 {
-    int x0 = int(metal::floor(at.x - 0.5f));
-    int y0 = int(metal::floor(at.y - 0.5f));
+    int x0 = __ms_sat_int(metal::floor(at.x - 0.5f));
+    int y0 = __ms_sat_int(metal::floor(at.y - 0.5f));
     return int4(metal::clamp(x0, 0, int(uint(w) - 1u)), metal::clamp(y0, 0, int(uint(h) - 1u)), metal::clamp(int(uint(x0) + 1u), 0, int(uint(w) - 1u)), metal::clamp(int(uint(y0) + 1u), 0, int(uint(h) - 1u)));
 }
 
@@ -130,9 +136,9 @@ static bool PixelShading_GlyphCovers(const device uint* __local_font, int glyph,
 static uint PixelShading_PackRgb(float3 color)
 {
     color = metal::saturate(color);
-    uint red = uint(metal::max((color.x * 255.0f) + 0.5f, 0.0f));
-    uint green = uint(metal::max((color.y * 255.0f) + 0.5f, 0.0f));
-    uint blue = uint(metal::max((color.z * 255.0f) + 0.5f, 0.0f));
+    uint red = __ms_sat_uint((color.x * 255.0f) + 0.5f);
+    uint green = __ms_sat_uint((color.y * 255.0f) + 0.5f);
+    uint blue = __ms_sat_uint((color.z * 255.0f) + 0.5f);
     return red | (green << 8) | (blue << 16) | 4278190080u;
 }
 

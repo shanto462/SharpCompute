@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 struct __GridWindow
 {
     packed_uint3 offset;
@@ -37,7 +41,7 @@ kernel void SharpCompute_Tests_EndToEnd_Ints(
     float g = float(v / 2);
     float h = float(v) / 2.0f;
     float k = float(i);
-    a[i] = int(uint(q) + uint(r) * 10u + uint(s) * 100u + uint(m ^ n) + uint(b) + w + uint(int(h * 3.7f)) + uint(int(-h * 3.7f)));
+    a[i] = int(uint(q) + uint(r) * 10u + uint(s) * 100u + uint(m ^ n) + uint(b) + w + uint(__ms_sat_int(h * 3.7f)) + uint(__ms_sat_int(-h * 3.7f)));
     a[i] = int(uint(a[i]) + 1u);
     u[i] = x;
     u[i] >>= 1;

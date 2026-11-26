@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int4 __ms_sat_int4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); int4 r = int4(metal::clamp(y, float4(-2147483648.0f), float4(2147483520.0f))); return metal::select(r, int4(2147483647), x >= 2147483648.0f); }
+inline int4 __ms_sat_int4(half4 x) { return __ms_sat_int4(float4(x)); }
+inline uint4 __ms_sat_uint4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); uint4 r = uint4(metal::min(y, float4(4294967040.0f))); return metal::select(r, uint4(4294967295u), x >= 4294967296.0f); }
+inline uint4 __ms_sat_uint4(half4 x) { return __ms_sat_uint4(float4(x)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 static_assert(sizeof(packed_int4) == 16, "SharpCompute: size of 'packed_int4' does not match its C# layout");
 static_assert(sizeof(packed_half4) == 8, "SharpCompute: size of 'packed_half4' does not match its C# layout");
@@ -38,6 +44,6 @@ kernel void SharpCompute_Tests_Intrinsics_HalfConversions(
     toHalf[int((uint(i) * 3u) + 1u)] = half4(ints[i]);
     toHalf[int((uint(i) * 3u) + 2u)] = half4(uint4(ints[i]));
     toFloat[i] = float4(halves[i]);
-    toInt[i] = int4(halves[i]);
-    toUInt[i] = uint4(halves[i]);
+    toInt[i] = __ms_sat_int4(halves[i]);
+    toUInt[i] = __ms_sat_uint4(halves[i]);
 }

@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 constant int FirstRow = 6;
 constant int RowsPerMethod = 7;
 constant int Bars = 7;
@@ -38,7 +44,7 @@ static uint Pack(float3 color);
 static uint Pack(float3 color)
 {
     float3 c = metal::round(metal::saturate(color) * 255.0f);
-    return uint(metal::max(c.x, 0.0f)) | (uint(metal::max(c.y, 0.0f)) << 8) | (uint(metal::max(c.z, 0.0f)) << 16) | 4278190080u;
+    return __ms_sat_uint(c.x) | (__ms_sat_uint(c.y) << 8) | (__ms_sat_uint(c.z) << 16) | 4278190080u;
 }
 
 kernel void SharpCompute_Samples_ComputeLab_Pages_Simd_DrawReduction(
@@ -70,7 +76,7 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_Simd_DrawReduction(
             if (length >= 0.0f && v >= 3 && v < 29)
             {
                 int u = int(uint(x) - uint(::BarX));
-                int filled = metal::max(3, int(metal::saturate(length) * 1080.0f));
+                int filled = metal::max(3, __ms_sat_int(metal::saturate(length) * 1080.0f));
                 if (u < filled)
                 {
                     bool isError = (bar & 1) == 1;

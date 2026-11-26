@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
+inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+
 constant int AtlasWidth = 128;
 
 struct SpriteInstance
@@ -237,12 +243,12 @@ static float3 PixelShading_UnpackRgb(uint pixel)
 static bool Occluded(float2 p, float2 lightPosition, float distance, const device uint* tiles, constant __Constants& __c)
 {
     float2 direction = (lightPosition - p) / metal::max(distance, 0.001f);
-    int steps = int(distance / 3.0f);
+    int steps = __ms_sat_int(distance / 3.0f);
     for (int k = 2; k < steps; k = int(uint(k) + 1u))
     {
         float2 q = p + (direction * (float(k) * 3.0f));
-        int tx = (int(uint(int(metal::floor(q.x))) + uint(__c.cameraX))) >> 4;
-        int ty = (int(uint(int(metal::floor(q.y))) + uint(__c.cameraY))) >> 4;
+        int tx = (int(uint(__ms_sat_int(metal::floor(q.x))) + uint(__c.cameraX))) >> 4;
+        int ty = (int(uint(__ms_sat_int(metal::floor(q.y))) + uint(__c.cameraY))) >> 4;
         if (::Tile(tx, ty, tiles, __c) == 1u)
         {
             return true;
@@ -259,9 +265,9 @@ static bool PixelShading_GlyphCovers(const device uint* __local_font, int glyph,
 static uint PixelShading_PackRgb(float3 color)
 {
     color = metal::saturate(color);
-    uint red = uint(metal::max((color.x * 255.0f) + 0.5f, 0.0f));
-    uint green = uint(metal::max((color.y * 255.0f) + 0.5f, 0.0f));
-    uint blue = uint(metal::max((color.z * 255.0f) + 0.5f, 0.0f));
+    uint red = __ms_sat_uint((color.x * 255.0f) + 0.5f);
+    uint green = __ms_sat_uint((color.y * 255.0f) + 0.5f);
+    uint blue = __ms_sat_uint((color.z * 255.0f) + 0.5f);
     return red | (green << 8) | (blue << 16) | 4278190080u;
 }
 
