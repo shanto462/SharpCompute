@@ -164,6 +164,7 @@ internal sealed partial class MslTranslator
     private AtomicLocation? AtomicTarget(IOperation target, IMethodSymbol method, bool hasThreadgroupFloat)
     {
         if (target is IPropertyReferenceOperation { Property.IsIndexer: true, Arguments.Length: 1, Instance: { } buffer } element &&
+            !TypeResolver.IsInstanceExtensionMember(element.Property) &&
             TypeResolver.IsBufferType(buffer.Type, out bool isReadOnly))
         {
             if (isReadOnly)

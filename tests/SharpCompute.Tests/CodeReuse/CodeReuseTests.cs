@@ -175,4 +175,29 @@ public class CodeReuseTests
         Assert.Equal(1, Count(bodies, "static float Body_Energy(Body __this)\n{"));
         Assert.Equal(1, Count(bodies, "static float2 Body_Momentum(Body __this)\n{"));
     }
+
+    [MetalFact]
+    public void StaticExtensionMembersAndExtensionOperators_MatchTheCpuExactly()
+    {
+        GraphicsDevice device = GraphicsDevice.GetDefault();
+        const int threads = 64;
+        using ReadWriteBuffer<float> gpu = device.AllocateReadWriteBuffer<float>(threads * StaticExtensions.Slots);
+        using ReadWriteBuffer<float> cpu = device.AllocateReadWriteBuffer<float>(threads * StaticExtensions.Slots);
+
+        device.For(threads, new StaticExtensions(gpu));
+        device.ForCpu(threads, new StaticExtensions(cpu));
+
+        // Small integers in floats: exact on both sides.
+        Assert.Equal(cpu.ToArray(), gpu.ToArray());
+
+        // Thread 3: a = (3, 4, 5) + (1, 0, 0) = (4, 4, 5); a ^ (5, 7, 11) = (28, 44, 25). The struct's
+        // operator adds its 1000 once: (28 + 28, 1 + 1 + 1000).
+        Assert.Equal([28f, 69f, 56f, 1002f], cpu.ToArray()[(3 * StaticExtensions.Slots)..(4 * StaticExtensions.Slots)]);
+
+        // The operators are the user's functions, not native MSL operators.
+        string msl = Msl<StaticExtensions>();
+        Assert.DoesNotContain(" ^ ", msl);
+        Assert.Contains("ExtensionMath__op_ExclusiveOr(", msl);
+        Assert.Contains("ExtensionMath__op_Addition(", msl);
+    }
 }

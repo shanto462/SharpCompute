@@ -11,6 +11,15 @@ internal sealed partial class MslTranslator
     private static string MemberName(ISymbol member) =>
         member.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat);
 
+    /// <summary>
+    /// Why an instance extension property or indexer is rejected (see
+    /// <see cref="TypeResolver.IsInstanceExtensionMember"/>): its getter would be a helper taking the
+    /// receiver, which is not translated yet.
+    /// </summary>
+    private const string InstanceExtensionMembers =
+        "instance extension properties and indexers (declared in an 'extension(...)' block) are not supported yet; " +
+        "call a static method or a static extension member instead";
+
     private Expr UnsupportedMember(IOperation operation, ISymbol member, string reason)
     {
         _diagnostics.Report(DiagnosticDescriptors.UnsupportedMember, operation.Syntax.GetLocation(), MemberName(member), reason);
@@ -615,7 +624,9 @@ internal sealed partial class MslTranslator
 
     /// <summary>The indexer access when <paramref name="operation"/> is a pixel of a texture (<c>texture[x, y]</c>), otherwise null.</summary>
     private static IPropertyReferenceOperation? TextureElement(IOperation operation) =>
-        operation is IPropertyReferenceOperation { Property.IsIndexer: true } pixel && TypeResolver.IsTextureType(WithoutImplicitConversions(pixel.Instance)?.Type, out _)
+        operation is IPropertyReferenceOperation { Property.IsIndexer: true } pixel &&
+        !TypeResolver.IsInstanceExtensionMember(pixel.Property) &&
+        TypeResolver.IsTextureType(WithoutImplicitConversions(pixel.Instance)?.Type, out _)
             ? pixel
             : null;
 

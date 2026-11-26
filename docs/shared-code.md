@@ -94,6 +94,7 @@ public readonly partial struct Depth(ReadWriteBuffer<float> depth, ReadOnlyBuffe
 | C# | MSL |
 |---|---|
 | A static method of any class or struct: `ShaderMath.Hash(x)`, an extension method `x.Squared()` | `static uint ShaderMath_Hash(uint x)`, named after its type so that two types can each have a `Hash` |
+| A C# 14 static extension member or extension operator: `Float3.Unit`, `a ^ b` | a function named after the containing class, like any static method; instance extension members are not supported ([Extension members](shader-language.md#extension-members)) |
 | A generic method: `ShaderMath.Pick(c, a, b)` | one function per set of type arguments: `ShaderMath_Pick_float`, `ShaderMath_Pick_float3` |
 | A `const` or `static readonly` field of any type | a `const` is inlined; a `static readonly` field is a program-scope `constant` (`ShaderMath_SunDirection`) |
 | A method or computed property of a struct: `ray.At(t)`, `body.Energy`, an indexer | a function that takes the struct first: `Ray_At(Ray __this, float distance)` |
