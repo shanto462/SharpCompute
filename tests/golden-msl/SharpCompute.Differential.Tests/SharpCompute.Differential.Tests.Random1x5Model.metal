@@ -72,6 +72,8 @@ inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits
 inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }
+inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
 inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
 inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
 inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
@@ -247,17 +249,17 @@ kernel void SharpCompute_Differential_Tests_Random1x5Model(
     c7_v0_0 += metal::pack_float_to_unorm4x8(::GpuModel_Flush_1(f4b));
     uint c7_v0_1 = c7_v0_0;
     uint c7_v0_2 = ++c7_v0_1;
-    output[int(uint(p) + 6u)] = (metal::clz((true ^ b2) ? l0 : (long(ulong(i0) - 4294967294UL))) | long(c7_v0_2));
+    output[int(uint(p) + 6u)] = (__ms_clz((true ^ b2) ? l0 : (long(ulong(i0) - 4294967294UL))) | long(c7_v0_2));
     uint c7_v1_0 = u2 - u0;
     c7_v1_0 += metal::pack_float_to_unorm4x8(::GpuModel_Flush_1(f4b));
     uint c7_v1_1 = c7_v1_0;
     uint c7_v1_2 = ++c7_v1_1;
-    output[int(uint(p) + 7u)] = (metal::clz((true ^ b2) ? l0 : (long(ulong(i0) - 4294967294UL))) | long(c7_v1_2));
+    output[int(uint(p) + 7u)] = (__ms_clz((true ^ b2) ? l0 : (long(ulong(i0) - 4294967294UL))) | long(c7_v1_2));
     uint c7_v2_0 = u2 - u0;
     c7_v2_0 += metal::pack_float_to_unorm4x8(f4b);
     uint c7_v2_1 = c7_v2_0;
     uint c7_v2_2 = ++c7_v2_1;
-    output[int(uint(p) + 8u)] = (metal::clz((true ^ b2) ? l0 : (long(ulong(i0) - 4294967294UL))) | long(c7_v2_2));
+    output[int(uint(p) + 8u)] = (__ms_clz((true ^ b2) ? l0 : (long(ulong(i0) - 4294967294UL))) | long(c7_v2_2));
     short c10_v0_0 = sh1;
     half3 c10_v0_1 = metal::isnan(::GpuModel_Flush((u0 < uint(us1)) ? as_type<float>(u0) : f0)) ? (as_type<half>(c10_v0_0) + (half3(h0) + half3(i3b))) : half3(i3a);
     output[int(uint(p) + 9u)] = long(as_type<ushort>(c10_v0_1.x));

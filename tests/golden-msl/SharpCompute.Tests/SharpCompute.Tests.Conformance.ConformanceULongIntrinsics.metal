@@ -72,6 +72,8 @@ inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits
 inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }
+inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
 inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
 inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
 inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
@@ -166,7 +168,7 @@ kernel void SharpCompute_Tests_Conformance_ConformanceULongIntrinsics(
     int n = s[i];
     output[int(uint(o) + 0u)] = long(metal::abs(x));
     output[int(uint(o) + 1u)] = long(__ms_popcount(x));
-    output[int(uint(o) + 2u)] = long(metal::clz(x));
+    output[int(uint(o) + 2u)] = long(__ms_clz(x));
     output[int(uint(o) + 3u)] = long(metal::ctz(x));
     output[int(uint(o) + 4u)] = long(metal::reverse_bits(x));
     output[int(uint(o) + 5u)] = long(metal::min(x, y));
