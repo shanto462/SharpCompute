@@ -9,6 +9,10 @@ code style, diagnostics, screenshots, pull requests), see [CONTRIBUTING.md](../C
 - The .NET 11 SDK (the version is pinned in [`global.json`](../global.json)).
 - Optional: the Xcode Metal Toolchain, to precompile shaders at build time.
   `xcodebuild -downloadComponent MetalToolchain` installs it.
+- Tested with macOS 27.2.1 (26B131), Xcode 27.2 (27B52) and Metal compiler 32023.922. Shaders are
+  compiled by the macOS Metal compiler at run time, and by the Xcode Metal Toolchain when
+  precompiled, and SharpCompute works around known bugs in both. Other versions can behave
+  differently: see [Metal compiler bugs](metal-compiler-bugs.md).
 
 ## Build
 

@@ -15,6 +15,8 @@ shader may contain. The other pages of the [documentation](README.md) go into ea
 
 - macOS 15 or later on Apple Silicon.
 - The .NET 11 SDK (the version is pinned in [`global.json`](../global.json)).
+- Tested with macOS 27.2.1, Xcode 27.2 and Metal compiler 32023.922; see
+  [Metal compiler bugs](metal-compiler-bugs.md) for why the versions matter.
 - Optional: the Xcode Metal Toolchain, to [precompile shaders](precompiled-shaders.md) at build
   time. Without it, shaders are compiled when they are first used.
 
