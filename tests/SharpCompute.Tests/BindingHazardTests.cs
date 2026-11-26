@@ -332,7 +332,7 @@ public unsafe class BindingHazardTests
             device.For(Length, new AddReadWrite(first, second, sum));
             Assert.Equal(Ramp(scale: 2f), sum.ToArray());
             device.For(Length, new IntsToFloats(ints, elsewhere));
-            device.For(Length, new AddReadWrite(first.Slice(0, 8), elsewhere, second.Slice(8, 8)));
+            device.For(8, new AddReadWrite(first.Slice(0, 8), elsewhere, second.Slice(8, 8)));
         }
         finally
         {
