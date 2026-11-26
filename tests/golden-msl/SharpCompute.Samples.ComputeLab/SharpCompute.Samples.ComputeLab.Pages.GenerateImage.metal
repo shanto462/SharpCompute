@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 struct __Constants
 {
     int size;
@@ -51,7 +55,7 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_GenerateImage(
     float b = 0.5f + (0.5f * metal::sin(6.2831855f * ((uv.y * 2.2f) - (uv.x * 0.7f) - (__c.time * 0.07f))));
     float2 center = float2(0.5f + (0.3f * metal::cos(__c.time * 0.5f)), 0.5f + (0.3f * metal::sin(__c.time * 0.37f)));
     float glow = metal::smoothstep(0.42f, 0.0f, metal::length(uv - center));
-    uint tick = uint(int(__c.time * 10.0f));
+    uint tick = uint(__ms_sat_int(__c.time * 10.0f));
     float noise = float(::ShaderMath_Hash(uint(x) + (::ShaderMath_Hash(uint(y) + (tick * 7919u)) * 31u)) >> 8) * (1.0f / 16777216.0f);
     float3 color = (float3(0.78f, 0.3f, 0.12f) * a) + (float3(0.08f, 0.3f, 0.7f) * b * b);
     color = float3(0.12f) + (metal::mix(color, float3(0.84f, 0.8f, 0.68f), glow * glow) * 0.92f) + ((noise - 0.5f) * 0.12f);

@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
 struct __Constants
@@ -52,8 +56,8 @@ kernel void SharpCompute_Samples_Viewer_Demos_NBodySplat(
     float sp = metal::sin(__c.pitch);
     float y = (cp * p.y) - (sp * z);
     float scale = __c.zoom * float(__c.height);
-    int px = int(metal::floor((float(__c.width) * 0.5f) + (x * scale)));
-    int py = int(metal::floor((float(__c.height) * 0.5f) - (y * scale)));
+    int px = __ms_sat_int(metal::floor((float(__c.width) * 0.5f) + (x * scale)));
+    int py = __ms_sat_int(metal::floor((float(__c.height) * 0.5f) - (y * scale)));
     if (px >= 0 && px < __c.width && py >= 0 && py < __c.height)
     {
         accumulation[int((uint(py) * uint(__c.width)) + uint(px))] += __c.weight;

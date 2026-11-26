@@ -369,58 +369,85 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// A conversion between scalar or vector types: the MSL constructor-style cast, <c>int(x)</c>.
-    /// Integer conversions truncate or extend as unchecked C# does, and on an Apple GPU a float
-    /// converts to every integer type as it does in .NET (NaN gives 0, out-of-range values saturate
-    /// to the bounds of the target type) with one exception: <c>long(x)</c> wraps instead of
-    /// saturating for a float beyond the range of a long. That conversion goes through the prelude's
-    /// <c>__ms_float_to_long</c>, which clamps first.
+    /// Integer conversions truncate or extend as unchecked C# does. A float or a half converts to an
+    /// integer through <see cref="SaturatingCast"/>, which saturates as C# does.
     /// </summary>
     private Expr NumericCast(IConversionOperation operation, GpuType target)
     {
-        string operand = Expression(operation.Operand).Text;
-
-        if (target is { Kind: GpuTypeKind.Scalar, MslName: "long" } && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: true })
+        if (target is { Kind: GpuTypeKind.Scalar or GpuTypeKind.Vector, IsFloating: false, IsBoolean: false }
+            && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar or GpuTypeKind.Vector, IsFloating: true } source)
         {
-            if (_function.IsGlobalInitializer)
-            {
-                // The helper is a function, which a program-scope initializer must not call. C# folds the
-                // conversion of a constant; what is left reads another program-scope constant.
-                return operation.ConstantValue is { HasValue: true, Value: long folded }
-                    ? Int64Literal(folded)
-                    : NotConstant(operation, "a conversion from a floating-point value to 'long' is a function call in MSL (it saturates as C# does)");
-            }
-
-            UsesPrelude = true;
-            return Call(MslNames.FloatToLong, operand);
+            return SaturatingCast(operation, source, target);
         }
 
-        if (target is { IsIntegerScalar: true, Size: 1 or 2 } && !_function.IsGlobalInitializer
-            && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: true })
+        return Call(target.MslName, Expression(operation.Operand).Text);
+    }
+
+    /// <summary>
+    /// A conversion of a float or a half, scalar or vector, to an integer: <c>__ms_sat_int(x)</c>, the
+    /// helper of <c>MslPrelude.Conversions</c> for the target type. C# saturates (NaN gives 0, a value
+    /// beyond the range of the target its MinValue or MaxValue) and so does <c>ForCpu</c>. MSL leaves
+    /// a conversion out of range undefined; an Apple GPU saturates when it converts (except
+    /// <c>long(x)</c>, which wraps), but the Metal compiler folds on the undefined cases wherever it
+    /// can see or bound the operand: <c>uchar(float(i))</c> becomes a truncation of <c>i</c>,
+    /// <c>int(b ? NAN : 1e10f)</c> is 0, and what is computed from <c>int(h)</c> of a half is
+    /// narrowed to the ±65504 of a finite half. The helpers clamp in the float domain first, so what
+    /// they convert is in range for every input.
+    /// </summary>
+    /// <remarks>
+    /// A conversion C# folds is emitted as the constant C# folded it to, which is what <c>ForCpu</c>
+    /// runs. A program-scope initializer must not call a function: there the conversion of a scalar is
+    /// written out as a constant expression of comparisons, of which the compiler evaluates only the
+    /// arm that is in range.
+    /// </remarks>
+    private Expr SaturatingCast(IConversionOperation operation, GpuType source, GpuType target)
+    {
+        if (target.Kind == GpuTypeKind.Scalar && operation.ConstantValue is { HasValue: true, Value: { } folded })
         {
-            // `uchar(x)` saturates on the GPU, but MSL leaves an out-of-range conversion undefined, and
-            // the Metal compiler folds `uchar(float(i))` into a truncation of `i` on that ground: an
-            // integer that went through a float or a half wraps instead of saturating
-            // ((byte)(float)i is 44 for i = 300, not 255). An int holds every 8- and 16-bit value and a
-            // float does not hold every int, so `int(x)` is not folded: the conversion saturates
-            // there and the clamp to the target's range is exact. NaN still gives 0. (A
-            // program-scope initializer must not call a function, and C# folds a constant conversion
-            // before it gets here.)
-            long min = target.IsUnsigned ? 0 : -(1L << ((target.Size * 8) - 1));
-            long max = target.IsUnsigned ? (1L << (target.Size * 8)) - 1 : (1L << ((target.Size * 8) - 1)) - 1;
-            return Call(target.MslName, $"metal::clamp(int({operand}), {min.ToString(CultureInfo.InvariantCulture)}, {max.ToString(CultureInfo.InvariantCulture)})");
+            return Constant(folded, target, operation);
         }
 
-        if (target is { IsIntegerScalar: true, IsUnsigned: true } && !_function.IsGlobalInitializer
-            && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: true } source)
+        if (!_function.IsGlobalInitializer)
         {
-            // The same fold for `uint(float(s))` of a small signed s: a float holds every value of s,
-            // so the compiler turns the conversion into a zero extension, and (uint)(float)(short)-1
-            // is 65535 instead of 0. Negative values (and NaN, which metal::max drops) are 0 in C#
-            // anyway, so clamping them first changes nothing else.
-            return Call(target.MslName, $"metal::max({operand}, {(source.MslName == "half" ? "0.0h" : "0.0f")})");
+            string helper = MslNames.Saturate + target.MslName;
+            _conversionHelpers.Add(helper);
+            return Call(helper, Expression(operation.Operand).Text);
         }
 
-        return Call(target.MslName, operand);
+        if (target.Kind != GpuTypeKind.Scalar)
+        {
+            return NotConstant(operation, $"a conversion from a floating-point vector to '{target.MslName}' is a function call in MSL (it saturates as C# does)");
+        }
+
+        // The bounds as floats: 2^bits (2^(bits - 1) for a signed type) is exact, and so is the lower bound.
+        Expr operand = source.MslName == "half" ? Call("float", Expression(operation.Operand).Text) : Expression(operation.Operand);
+        string x = operand.Precedence == Expr.Primary ? operand.Text : "(" + operand.Text + ")";
+        int bits = target.Size * 8;
+        string above = System.Numerics.BigInteger.Pow(2, target.IsUnsigned ? bits : bits - 1).ToString(CultureInfo.InvariantCulture) + ".0f";
+        string max = Bound(target.IsUnsigned ? ulong.MaxValue >> (64 - bits) : (ulong)(long.MaxValue >> (64 - bits)));
+        string cast = Call(target.MslName, operand.Text).Text;
+
+        if (target.IsUnsigned)
+        {
+            return Call(target.MslName, $"{x} >= {above} ? {max} : ({x} > 0.0f ? {cast} : {Bound(0)})");
+        }
+
+        string min = target.Size switch
+        {
+            4 => "(-2147483647 - 1)",
+            8 => "(-9223372036854775807L - 1L)",
+            _ => (-(1L << (bits - 1))).ToString(CultureInfo.InvariantCulture),
+        };
+
+        return Call(target.MslName, $"{x} >= {above} ? {max} : ({x} >= -{above} ? {cast} : ({x} < 0.0f ? {min} : {Bound(0)}))");
+
+        string Bound(ulong value) => value.ToString(CultureInfo.InvariantCulture) + (target.Size, target.IsUnsigned) switch
+        {
+            (4, true) => "u",
+            (8, false) => "L",
+            (8, true) => "UL",
+            _ => string.Empty,
+        };
     }
 
     private static bool IsLiteral(IOperation operation) => operation switch

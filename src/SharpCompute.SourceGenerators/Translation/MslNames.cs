@@ -48,10 +48,11 @@ internal static class MslNames
     public const string Pack = "__ms_pack";
 
     /// <summary>
-    /// The prelude's conversion of a float to a <c>long</c>, which saturates as C# does. MSL's own
-    /// <c>long(x)</c> wraps for a float outside the range of a long.
+    /// The prefix of the conversions of a float or a half to an integer, which saturate as C# does:
+    /// <c>__ms_sat_int</c>, <c>__ms_sat_uchar</c>, <c>__ms_sat_uint3</c>, one per target type and
+    /// overloaded on the source. They are in <c>MslPrelude.Conversions</c>, not in the prelude's source.
     /// </summary>
-    public const string FloatToLong = "__ms_float_to_long";
+    public const string Saturate = "__ms_sat_";
 
     /// <summary>
     /// The prelude's <c>System.Math</c> / <c>MathF</c> <c>Min</c>, <c>Max</c> (floats) and <c>Clamp</c>

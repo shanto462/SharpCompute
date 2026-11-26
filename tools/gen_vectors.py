@@ -691,11 +691,30 @@ PRELUDE_PACK = "__ms_pack"
 # negative zero in the element cannot stall the loop.
 PRELUDE_ATOMIC_FLOAT_ADD = "__ms_atomic_fetch_add_float"
 
-# The float to long conversion. On an Apple GPU `long(x)` wraps for a float outside the range of a
-# long (2^63 gives long.MinValue, 1e30 gives 0), where every other float to integer conversion
-# saturates as .NET does. This clamps first: NaN fails both comparisons and converts to 0, which is
-# what `long(NaN)` gives. 9223372036854775808.0f is 2^63, exactly representable as a float.
-PRELUDE_FLOAT_TO_LONG = "__ms_float_to_long"
+# The float and half to integer conversions, which saturate as C# does (.NET 9 and later, on every
+# platform): NaN gives 0 and a value beyond the target's range gives its MinValue or MaxValue. MSL
+# leaves a conversion out of range undefined. An Apple GPU saturates when it converts (except
+# `long(x)`, which wraps), but the Metal compiler uses the undefined cases wherever it can see or
+# bound the operand: it folds `uchar(float(i))` into a truncation of `i`, gives 0 for
+# `int(b ? NAN : 1e10f)`, and narrows what it computes from `int(h)` of a half to the ±65504 a
+# finite half has. So no helper ever converts a value out of range: each replaces NaN by 0 and clamps
+# in the float domain first, and what it converts is defined for every input.
+#
+# The bounds are floats. Those of the 8- and 16-bit types are exact. A float has 24 bits, so the
+# MaxValue of a 32- or 64-bit type is not one: (float)int.MaxValue is 2^31, already out of range. The
+# upper clamp is the largest float below 2^31 (2^32, 2^63, 2^64), and a select gives MaxValue for
+# the operands at or above that power of two. The lower bounds, 0 and -2^31 and -2^63, are exact.
+#
+# An unsigned target takes `x > 0 ? x : 0` first, which is 0 for NaN; a signed one `x == x ? x : 0`.
+# A half converts to float first, which is exact. The vector helpers do the same per lane with
+# metal::select. One function per target type, overloaded on the source: __ms_sat_int(float),
+# __ms_sat_int(half), __ms_sat_uint3(float3) and so on, for every integer type MSL has vectors of
+# (SharpCompute's own are int and uint; another is one a user declares with [MslType]).
+#
+# They are a block of their own (MslPrelude.Conversions), one function per line, of which a shader
+# gets the ones it calls (both overloads of each target type) and no other. With [ShaderOptions(FastMath = true)] the compiler may assume there
+# is no NaN and no infinity, so those two inputs are then unspecified; finite values still saturate.
+PRELUDE_SATURATE = "__ms_sat_"
 
 # The .NET semantics of System.Math / MathF Min, Max and Clamp, which ForCpu runs. metal::min, max and
 # clamp are fmin/fmax: a NaN operand yields the other one (max(NaN, 1) is 1, clamp(NaN, 0, 0.5) is 0),
@@ -856,6 +875,54 @@ def vector_arithmetic_msl() -> list[str]:
     return lines
 
 
+def float_below(power: int) -> str:
+    """The largest float below 2^power, as an MSL literal: 2^power - 2^(power - 24)."""
+    return f"{2 ** power - 2 ** (power - 24)}.0f"
+
+
+def int_literal(t: IntegerType, value: int) -> str:
+    """An MSL literal of an integer type for one of its bounds."""
+    if t.bits < 32:
+        return str(value)
+    suffix = {(32, True): "", (32, False): "u", (64, True): "L", (64, False): "UL"}[(t.bits, t.signed)]
+    if value < 0:
+        # -2147483648 is the negation of a literal that does not fit the type.
+        return f"({value + 1}{suffix} - 1{suffix})"
+    return f"{value}{suffix}"
+
+
+def conversions_msl() -> list[str]:
+    """MslPrelude.Conversions: the saturating float and half to integer conversions (see PRELUDE_SATURATE)."""
+    lines = ["// SharpCompute saturating float to integer conversions (MslPrelude.Conversions)."]
+    for t in NEGATE_TYPES:
+        lo, hi = (-(2 ** (t.bits - 1)), 2 ** (t.bits - 1) - 1) if t.signed else (0, 2 ** t.bits - 1)
+        exact = t.bits < 32
+        power = t.bits - 1 if t.signed else t.bits  # the upper bound is 2^power - 1
+        hi_float = f"{hi}.0f" if exact else float_below(power)
+        for n in (1, 2, 3, 4):
+            target = t.msl if n == 1 else f"{t.msl}{n}"
+            source = "float" if n == 1 else f"float{n}"
+            half = "half" if n == 1 else f"half{n}"
+            name = PRELUDE_SATURATE + target
+            keep = "x == x" if t.signed else "x > 0.0f"
+            if n == 1:
+                known = f"float y = {keep} ? x : 0.0f;"
+                clamped = f"metal::clamp(y, {lo}.0f, {hi_float})" if t.signed else f"metal::min(y, {hi_float})"
+                top = f"x >= {2 ** power}.0f ? {int_literal(t, hi)} : r"
+            else:
+                known = f"{source} y = metal::select({source}(0.0f), x, {keep});"
+                clamped = (f"metal::clamp(y, {source}({lo}.0f), {source}({hi_float}))" if t.signed
+                           else f"metal::min(y, {source}({hi_float}))")
+                top = f"metal::select(r, {target}({int_literal(t, hi)}), x >= {2 ** power}.0f)"
+            if exact:
+                body = f"{known} return {target}({clamped});"
+            else:
+                body = f"{known} {target} r = {target}({clamped}); return {top};"
+            lines.append(f"inline {target} {name}({source} x) {{ {body} }}")
+            lines.append(f"inline {target} {name}({half} x) {{ return {name}({source}(x)); }}")
+    return lines
+
+
 PRELUDE_ATOMICS = tuple(
     (space, t, atomic)
     for space in ("device", "threadgroup")
@@ -879,9 +946,6 @@ def prelude_msl() -> list[str]:
         "{ uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); "
         "while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), "
         "metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }")
-    lines.append(
-        f"inline long {PRELUDE_FLOAT_TO_LONG}(float x) "
-        "{ return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }")
     lines.append(
         f"inline float {PRELUDE_MATH_MIN}(float x, float y) "
         "{ return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }")
@@ -946,6 +1010,19 @@ def gen_prelude() -> str:
     out.append("    /// </summary>")
     out.append('    public const string VectorArithmetic = """')
     out.extend("        " + line for line in vector_arithmetic_msl())
+    out.append('        """;')
+    out.append("")
+    out.append("    /// <summary>")
+    out.append("    /// The float and half to integer conversions (<c>__ms_sat_int</c>, <c>__ms_sat_uchar</c>,")
+    out.append("    /// <c>__ms_sat_uint3</c> and so on: one per target type, overloaded on the source), which saturate")
+    out.append("    /// as C# does: NaN gives 0, a value beyond the target's range its MinValue or MaxValue. The")
+    out.append("    /// generator emits the functions a shader calls, after <see cref=\"Source\"/>: one per line here,")
+    out.append("    /// which is how it picks them. MSL leaves such a conversion undefined out of range and the Metal")
+    out.append("    /// compiler folds on that ground, so each helper clamps in the float domain before it converts. With")
+    out.append("    /// <c>[ShaderOptions(FastMath = true)]</c> the result for NaN and the infinities is unspecified.")
+    out.append("    /// </summary>")
+    out.append('    public const string Conversions = """')
+    out.extend("        " + line for line in conversions_msl())
     out.append('        """;')
     out.append("}")
     return "\n".join(out) + "\n"

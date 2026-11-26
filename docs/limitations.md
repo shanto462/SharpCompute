@@ -49,13 +49,6 @@ to the page that explains it.
     `Gpu.CountBits(b ? s : t)` of the short -2 is 31 instead of 15, and `Gpu.LeadingZeroCount` of
     `(uint)(short)i`, or of `a % b` of two `sbyte`s widened to `int`, is 16 instead of 0 for a
     negative value. Workaround: widen and mask explicitly (`Gpu.CountBits((uint)(ushort)s)`).
-  - *A float to integer conversion of an out-of-range value the compiler can see or bound*: MSL
-    leaves such a conversion undefined, and the compiler folds it as if it could not happen.
-    `(int)(b ? float.NaN : 1e10f)` is 0 instead of `int.MaxValue`, `(int)h == int.MinValue` is
-    false for a half `h` of -∞ (the conversion itself gives `int.MinValue`), and `-(long)(int)h` is
-    negated in 32 bits because a finite half is within ±65504. Conversions of a float or half the
-    compiler cannot bound saturate as in C#. Workaround: clamp the value before converting.
-    ([Integers](shader-language.md#integers))
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
   - *A half division by a constant* is a multiplication by the constant's reciprocal, up to one
@@ -65,6 +58,11 @@ to the page that explains it.
     float read from a buffer: `Gpu.Sqrt((float)h)` of 2794.
   - *`(Half)Gpu.Fract(x)`* computes the fraction's clamp below 1 in half precision: for
     `x = -1e-30f` it is 0.9995117, where the float fraction rounds to the half 1.
+  - *A float to half conversion of a value the compiler can see or bound beyond the range of a
+    half* gives the largest half instead of infinity: `(Half4)Gpu.Max(v, new Float4(1e30f, ...))`
+    is 65504 in that lane, and so is `(Half)(float)(int)x` for a float `x` of 2^31 or more, where
+    the compiler folds the conversion of the `int.MaxValue` that `(int)x` saturates to. A float
+    the compiler cannot bound converts to ±∞ as in C#.
   - *`Gpu.Pow` of a base next to 1 and a large exponent* can overflow:
     `Gpu.Pow(0.99999994f, -1.2484e9f)` is +∞ instead of 2.08e32.
   - *`Rsqrt` of -0* is -∞ when stored, but what uses it sees another value: `Gpu.Abs(Gpu.Rsqrt(x))`

@@ -575,7 +575,7 @@ public class SimdGroupTests
         Assert.True(UsesSimdGroups(run));
         Assert.Contains(".CompileOptions => global::SharpCompute.ShaderCompileOptions.", generated);
         Assert.Contains(".UsesSimdGroups => true;", generated);
-        Assert.Equal("output[int(__tid.x)] = int(uint(metal::simd_sum(int(__tid.x))) + uint(int(metal::simd_max(__c.tint.x * 2.0f + 1.0f))));", descriptor.KernelBody);
+        Assert.Equal("output[int(__tid.x)] = int(uint(metal::simd_sum(int(__tid.x))) + uint(__ms_sat_int(metal::simd_max(__c.tint.x * 2.0f + 1.0f))));", descriptor.KernelBody);
         Assert.DoesNotContain("pragma", descriptor.MslSource);
     }
 
@@ -710,7 +710,7 @@ public class SimdGroupTests
     [InlineData("output[0] = Gpu.WaveShuffleUpAndFill(delta: 2, fill: -1, value: output[1]);", "output[0] = metal::simd_shuffle_and_fill_up(output[1], -1, ushort(2));")]
     [InlineData("output[0] = (int)Gpu.QuadActiveBallot(output[1] > 0) + (Gpu.QuadActiveAnyTrue(true) && Gpu.QuadActiveAllTrue(true) ? 1 : 0);", "output[0] = int(uint(metal::quad_vote::vote_t(metal::quad_ballot(output[1] > 0))) + uint(metal::quad_any(true) && metal::quad_all(true) ? 1 : 0));")]
     [InlineData("output[0] = Gpu.WaveActiveMax(1 + output[1]);", "output[0] = metal::simd_max(int(1u + uint(output[1])));")]
-    [InlineData("output[0] = (int)Gpu.WaveActiveSum(2.5f) + (int)Gpu.WaveActiveMax(3u);", "output[0] = int(uint(int(metal::simd_sum(2.5f))) + metal::simd_max(3u));")]
+    [InlineData("output[0] = (int)Gpu.WaveActiveSum(2.5f) + (int)Gpu.WaveActiveMax(3u);", "output[0] = int(uint(__ms_sat_int(metal::simd_sum(2.5f))) + metal::simd_max(3u));")]
     public void Arguments_AreTranslatedInParameterOrder_WithoutTheCallSiteId(string body, string expected)
     {
         Assert.Equal(expected, RunBody(body).Verify(Shader).KernelBody);

@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 constant int Bounces = 4;
 constant float3 ShaderMath_SunDirection = float3(0.53232735f, 0.7259009f, -0.43554053f);
 constant float3 ShaderMath_SunColor = float3(3.2f, 2.9f, 2.5f);
@@ -176,7 +180,7 @@ static Hit Nearest(Ray ray, device Sphere* spheres, constant __Constants& __c)
         if (distance > 0.0f)
         {
             float3 point = ::Ray_At(ray, distance);
-            bool dark = ((int(uint(int(metal::floor(point.x))) + uint(int(metal::floor(point.z))))) & 1) != 0;
+            bool dark = ((int(uint(__ms_sat_int(metal::floor(point.x))) + uint(__ms_sat_int(metal::floor(point.z))))) & 1) != 0;
             float3 square = ::ShaderMath_Pick_float3(dark, float3(0.22f, 0.24f, 0.28f), float3(0.72f, 0.72f, 0.7f));
             hit.Distance = distance;
             hit.Normal = float3(0.0f, 1.0f, 0.0f);

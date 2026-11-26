@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 constant int ChunkSize = 64;
 
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
@@ -110,8 +114,8 @@ static float ValueNoise(float2 p, uint seed)
 {
     float fx = metal::floor(p.x);
     float fy = metal::floor(p.y);
-    int ix = int(fx);
-    int iy = int(fy);
+    int ix = __ms_sat_int(fx);
+    int iy = __ms_sat_int(fy);
     float u = p.x - fx;
     float v = p.y - fy;
     u = u * u * (3.0f - (2.0f * u));
@@ -151,8 +155,8 @@ static float3 Background(float2 p, constant __Constants& __c)
         float l = float(layer);
         float cell = 11.0f + (l * 7.0f);
         float2 d = p + float2((__c.parallaxX * (0.06f + (0.07f * l))) + (__c.time * (2.0f + (3.0f * l))), (__c.parallaxY * (0.06f + (0.07f * l))) + (__c.time * (0.6f + l)));
-        int cx = int(metal::floor(d.x / cell));
-        int cy = int(metal::floor(d.y / cell));
+        int cx = __ms_sat_int(metal::floor(d.x / cell));
+        int cy = __ms_sat_int(metal::floor(d.y / cell));
         uint seed = 50u + uint(layer);
         float h = ::PixelShading_Hash(cx, cy, seed);
         if (h > 0.9f)

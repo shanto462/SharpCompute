@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(metal::clamp(y, -2147483648.0f, 2147483520.0f)); return x >= 2147483648.0f ? 2147483647 : r; }
+inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
+
 constexpr sampler __ms_sampler_point_clamp(coord::normalized, filter::nearest, address::clamp_to_edge);
 constexpr sampler __ms_sampler_point_repeat(coord::normalized, filter::nearest, address::repeat);
 constexpr sampler __ms_sampler_point_mirror(coord::normalized, filter::nearest, address::mirrored_repeat);
@@ -108,7 +112,7 @@ kernel void SharpCompute_Samples_Textures_SamplerGrid(
         if (metal::min(margin.x, margin.y) >= __c.gap)
         {
             float2 uv = ::ImageUv(local, __c.cell, __c.zoom, __c.pan, __c.angle, __c.aspect);
-            color = ::Pick(int(uint(int(index.x)) + (uint(int(index.y)) * 3u)), uv, image).xyz;
+            color = ::Pick(int(uint(__ms_sat_int(index.x)) + (uint(__ms_sat_int(index.y)) * 3u)), uv, image).xyz;
             float2 fromCenter = metal::abs(uv - 0.5f) * float2(__c.aspect, 1.0f);
             if (metal::abs(metal::max(fromCenter.x - (0.5f * __c.aspect), fromCenter.y - 0.5f)) < 1.25f * __c.zoom / __c.cell.y)
             {

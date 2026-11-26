@@ -25,7 +25,6 @@ inline uint __ms_atomic_compare_exchange(device metal::atomic_uint* location, ui
 inline int __ms_atomic_compare_exchange(threadgroup metal::atomic_int* location, int comparand, int value) { int expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
 inline uint __ms_atomic_compare_exchange(threadgroup metal::atomic_uint* location, uint comparand, uint value) { uint expected = comparand; while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, value, metal::memory_order_relaxed, metal::memory_order_relaxed) && expected == comparand) { } return expected; }
 inline float __ms_atomic_fetch_add_float(threadgroup metal::atomic_uint* location, float value) { uint expected = metal::atomic_load_explicit(location, metal::memory_order_relaxed); while (!metal::atomic_compare_exchange_weak_explicit(location, &expected, as_type<uint>(as_type<float>(expected) + value), metal::memory_order_relaxed, metal::memory_order_relaxed)) { } return as_type<float>(expected); }
-inline long __ms_float_to_long(float x) { return x >= 9223372036854775808.0f ? 9223372036854775807L : (x < -9223372036854775808.0f ? (-9223372036854775807L - 1L) : long(x)); }
 inline float __ms_math_min(float x, float y) { return x != y ? (metal::isnan(x) ? x : (x < y ? x : y)) : (metal::signbit(x) ? x : y); }
 inline float __ms_math_max(float x, float y) { return x != y ? (metal::isnan(x) ? x : (y < x ? x : y)) : (metal::signbit(y) ? x : y); }
 inline float __ms_math_clamp(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
@@ -166,6 +165,9 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline char __ms_sat_char(float x) { float y = x == x ? x : 0.0f; return char(metal::clamp(y, -128.0f, 127.0f)); }
+inline char __ms_sat_char(half x) { return __ms_sat_char(float(x)); }
 
 constant int Slots = 28;
 
@@ -209,7 +211,6 @@ kernel void SharpCompute_Differential_Tests_Random2x0(
     uint u2 = uint(input[int(uint(o) + 20u)]);
     long l1 = long(input[int(uint(o) + 22u)]);
     long l2 = long(input[int(uint(o) + 23u)]);
-    float f0 = as_type<float>(uint(input[int(uint(o) + 27u)]));
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
     half h2 = as_type<half>(ushort(input[int(uint(o) + 32u)]));
     float2 f2a = float2(as_type<float>(uint(input[int(uint(o) + 33u)])), as_type<float>(uint(input[int(uint(o) + 34u)])));
@@ -270,7 +271,15 @@ kernel void SharpCompute_Differential_Tests_Random2x0(
     int c8_4 = int(uint(sh1) - uint(sb0));
     reinterpret_cast<thread uint&>(c8_3) += uint(c8_4 == -2147483647 - 1 ? 0 : int(metal::abs(c8_4)));
     output[int(uint(p) + 17u)] = long(short(c8_3));
-    output[int(uint(p) + 18u)] = long(as_type<uint>(metal::pow((b1 ? f0 : f0) * (b1 ? f1 : f0), metal::rint(metal::round(f0)))));
+    char c9_0 = char(u2);
+    char c9_1 = c9_0;
+    char c9_2 = ++c9_1;
+    char c9_3 = char(uchar(u0));
+    char c9_4 = __ms_sat_char(h2);
+    c9_3 &= int(c9_4);
+    int c9_5 = int(c9_2);
+    int c9_6 = int(c9_3);
+    output[int(uint(p) + 18u)] = long((c9_6 == 0 || (c9_5 == -2147483647 - 1 && c9_6 == -1)) ? 0 : c9_5 / c9_6);
     int c10_0 = i1;
     c10_0 = int(uint(c10_0) - 1u);
     bool3 c10_1 = bool3(9223372036854775807L == long(char(i0)), metal::abs(i0) < c10_0, (long(i2) | l2) <= (l1 & l1));

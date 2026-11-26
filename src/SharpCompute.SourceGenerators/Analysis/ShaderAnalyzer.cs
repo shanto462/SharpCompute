@@ -543,6 +543,29 @@ internal sealed class ShaderAnalyzer
             prelude = prelude is null ? vectorArithmetic : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + vectorArithmetic;
         }
 
+        if (translator.ConversionHelpers.Count > 0)
+        {
+            // So are the saturating float to integer conversions, and of those a shader carries only
+            // the ones it calls: a function per target type, with its float and its half overload.
+            if (ReadPrelude("Conversions") is not { } conversions)
+            {
+                diagnostics.Report(
+                    DiagnosticDescriptors.UnsupportedMethodCall,
+                    _location,
+                    "__ms_*",
+                    "the shader converts a float or a half to an integer, but the referenced SharpCompute assembly has no 'SharpCompute.MslPrelude.Conversions' constant");
+                return translation;
+            }
+
+            string called = string.Join(
+                "\n",
+                conversions.Replace("\r\n", "\n").Split('\n').Where(line =>
+                    !line.StartsWith("inline ", StringComparison.Ordinal) ||
+                    translator.ConversionHelpers.Any(helper => line.Contains(" " + helper + "("))));
+
+            prelude = prelude is null ? called : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + called;
+        }
+
         int constantsSize = LayOutConstants(constants, out bool explicitConstants);
 
         // The grid window takes the first free buffer index. A shader that uses all of them still
@@ -610,7 +633,7 @@ internal sealed class ShaderAnalyzer
         return TypeResolver.AlignUp(offset, alignment);
     }
 
-    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>) from the referenced SharpCompute assembly.</summary>
+    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>, <c>Conversions</c>) from the referenced SharpCompute assembly.</summary>
     private string? ReadPrelude(string constant) =>
         _semanticModel.Compilation.GetTypeByMetadataName("SharpCompute.MslPrelude")?
             .GetMembers(constant)
@@ -1017,7 +1040,7 @@ internal sealed class ShaderAnalyzer
 
         public bool IsPixelShader { get; }
 
-        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted.</summary>
+        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted, then the functions of <c>MslPrelude.Conversions</c> that the shader calls.</summary>
         public string? Prelude { get; }
 
         /// <summary>The <c>constexpr sampler</c> declarations of the samplers the shader uses.</summary>
