@@ -26,7 +26,8 @@ to the page that explains it.
   The generator avoids it for every negation it can see (`-v`, `0 - v`, `v * -1`, `v / -1`, and a
   constant with some lanes of 0 or -1). A negation it cannot see is still exposed until Apple fixes
   the compiler: `~v + 1`, `v - 2 * v` and other arithmetic that only amounts to a negation. Write
-  those as `-v`. ([Integers](shader-language.md#integers))
+  those as `-v`. Reported to Apple as FB25732151 (Metal compiler 32023.922, Xcode 27.2, macOS 27.2.1).
+  ([Integers](shader-language.md#integers))
 - **Half precision.** The math functions of `Gpu.*` take half *vectors*. For a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the bit
   casts take a scalar `Half`). The bits of a half reinterpret as `ushort` and `short`, which are
