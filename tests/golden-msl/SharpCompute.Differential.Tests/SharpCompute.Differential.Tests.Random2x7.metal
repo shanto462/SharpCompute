@@ -110,13 +110,14 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
-// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+// SharpCompute float and half conversions (MslPrelude.Conversions).
 inline int3 __ms_sat_int3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); int3 r = int3(metal::clamp(y, float3(-2147483648.0f), float3(2147483520.0f))); return metal::select(r, int3(2147483647), x >= 2147483648.0f); }
 inline int3 __ms_sat_int3(half3 x) { return __ms_sat_int3(float3(x)); }
 inline uint2 __ms_sat_uint2(float2 x) { float2 y = metal::select(float2(0.0f), x, x > 0.0f); uint2 r = uint2(metal::min(y, float2(4294967040.0f))); return metal::select(r, uint2(4294967295u), x >= 4294967296.0f); }
 inline uint2 __ms_sat_uint2(half2 x) { return __ms_sat_uint2(float2(x)); }
 inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }
 inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
+inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
 
 constant int Slots = 27;
 
@@ -205,7 +206,7 @@ kernel void SharpCompute_Differential_Tests_Random2x7(
     long c7_2 = long(++reinterpret_cast<thread ulong&>(c7_1));
     output[int(uint(p) + 11u)] = (c7_2 << 33);
     output[int(uint(p) + 12u)] = long(as_type<uint>(metal::dot((f4a * f4a) - (f4a + f4b), float4(b2 ? i4a : i4a))));
-    output[int(uint(p) + 13u)] = long(as_type<ushort>((__ms_half_rem(+half(i0), metal::sign(half2(half(f2))).x)) / (half(+f0) + h2)));
+    output[int(uint(p) + 13u)] = long(as_type<ushort>((__ms_half_rem(+half(i0), metal::sign(half2(__ms_to_half(f2))).x)) / (__ms_to_half(+f0) + h2)));
     half2 c10_0 = h2b;
     half2 c10_1 = c10_0;
     output[int(uint(p) + 14u)] = long(as_type<ushort>(c10_1.x));

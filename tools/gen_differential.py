@@ -26,9 +26,10 @@ How a case is compared. An integer or bool case with no float or half in it must
 (Exact). Any other case is compared with its models: ForCpu's value of the case itself and of
 variants of it, run with ForCpu in a second shader:
     - the flushed variants: every float operation flushes its float operands and its result to a
-      zero of the same sign, as an Apple GPU's float arithmetic does; the same with a product that
-      rounds up to the smallest normal flushed as well (the GPU decides tininess before rounding);
-      and that one with the operands as they are;
+      zero of the same sign, as an Apple GPU's float arithmetic does; the same with a product, a
+      quotient or a fused multiply-add that rounds up to the smallest normal flushed as well (the
+      GPU decides tininess before rounding: GpuModel decides it from the operands, exactly); and
+      that one with the operands as they are;
     - the fused variants: every multiply that the GPU may contract into a following add or
       subtract (directly, through a local, a negation or a constant ternary) computed as one fused
       multiply-add, in every combination, each also flushed.
@@ -975,10 +976,6 @@ def has_constant_part(n: Node) -> bool:
     return False
 
 
-# Literals beyond the range of a half: a conversion to half the compiler can see them in is folded to the largest half.
-OUT_OF_RANGE = ("NaN", "Infinity", "MaxValue", "MinValue", "e10f", "e30f", "16777216f", "2147483648f", "4294967296f", "65504f")
-
-
 def is_ternary(n: Node) -> bool:
     return n.kind == "op" and n.text.startswith("({0} ? ")
 
@@ -1041,13 +1038,6 @@ def known_difference(root: Node) -> str | None:
         if "tol" in n.flags and len({render_key(a) for a in n.args}) < len(n.args):
             # Policy: the GPU simplifies mix(x, x, t) to x; ForCpu evaluates the GPU's formula, which cancels.
             return "SameOperands"
-        if "f2h" in n.flags and (has_constant_part(n.args[0]) or any(
-                m.kind == "lit" and any(x in m.text for x in OUT_OF_RANGE) for m in n.args[0].walk())):
-            return "OutOfRangeHalfConversion"
-        if elem_of(n.t) is HALF and n.text.startswith("((") and any("f2i" in m.flags for m in n.args[0].walk()):
-            # A float to integer conversion saturates to a bound the compiler can see, and the
-            # conversion of that bound on to a half is folded the same way.
-            return "OutOfRangeHalfConversion"
         if "f2h" in n.flags and any("Fract(" in m.text for m in n.args[0].walk() if m.kind == "op"):
             return "HalfOfFract"
         if "l2h" in n.flags:
@@ -1173,19 +1163,44 @@ def flushes(t: Ty) -> bool:
     return elem_of(t) is FLOAT
 
 
-def F(ctx: Ctx, t: Ty, text: str, result: bool = False, product: bool = False) -> str:
+def F(ctx: Ctx, t: Ty, text: str, result: bool = False) -> str:
     """A float operand (or with `result`, the result) of a float operation in a flushed model.
-    Model 1 flushes the operands and the result. Model 2 also flushes a product (a multiplication,
-    division or fused multiply-add) that is exactly the smallest normal: the GPU decides tininess
-    before rounding, so a product that rounds up to it from below is flushed as well, while an add
-    or subtract that gives it exactly is not. Model 3 is model 2 with the operands as they are."""
+    Model 1 flushes the operands and the result. Models 2 and 3 flush the result of a rounded
+    operation through `rounded` instead; model 3 leaves the operands as they are."""
     if not (ctx.flush and flushes(t)) or (ctx.flush == 3 and not result):
         return text
-    return f"GpuModel.FlushTiny({text})" if result and product and ctx.flush >= 2 else f"GpuModel.Flush({text})"
+    return f"GpuModel.Flush({text})"
 
 
-def is_product(n: Node) -> bool:
-    return n.kind == "op" and ("mul" in n.flags or "div" in n.flags or "Fma(" in n.text or "FusedMultiplyAdd(" in n.text)
+def rounded_kind(n: Node) -> str | None:
+    """The GpuModel helper that decides the tininess of n's result, for the operations whose result
+    is rounded and can so round up to the smallest normal: a multiplication, a division and a fused
+    multiply-add. The remainder (% and Fmod) is exact, and an add or subtract of floats is exact
+    wherever its result is that small, so their results are tiny only if they are subnormal."""
+    if n.kind == "compound":
+        return {"*=": "Product", "/=": "Quotient"}.get(n.text)
+    if n.kind != "op":
+        return None
+    if "mul" in n.flags:
+        return "Product"
+    if "div" in n.flags and n.text == "({0} / {1})":
+        return "Quotient"
+    if n.text.startswith(("Gpu.Fma(", "MathF.FusedMultiplyAdd(")):
+        return "Fma"
+    return None
+
+
+def rounded(ctx: Ctx, t: Ty, kind: str | None, text: str, operands: list[tuple[str, Ty]]) -> str:
+    """The result `text` of a float operation on `operands` in a flushed model. In models 2 and 3 a
+    product, quotient or fused multiply-add is also flushed when it is the smallest normal and
+    rounded up to it: the GPU decides tininess before rounding. GpuModel tells from the operands,
+    which are bound to locals so that they are evaluated once."""
+    if not (ctx.flush and flushes(t)):
+        return text
+    if ctx.flush < 2 or kind is None:
+        return f"GpuModel.Flush({text})"
+    names = [o if source is t and re.fullmatch(r"\w+", o) else ctx.temp(t, convert(o, source, t)) for o, source in operands]
+    return f"GpuModel.Flush{kind}({text}, {', '.join(names)})"
 
 
 def convert(text: str, source: Ty, target: Ty) -> str:
@@ -1226,8 +1241,12 @@ def render(n: Node, ctx: Ctx) -> str:
     for k in n.bind:
         if n.args[k].kind != "var":
             parts[k] = ctx.temp(n.args[k].t, parts[k])
+    kind = rounded_kind(n) if arith and ctx.flush >= 2 and flushes(n.t) else None
+    if kind:
+        # The operands go to the operation and to GpuModel: evaluate each once.
+        parts = [p if re.fullmatch(r"\w+", p) else ctx.temp(a.t, p) for p, a in zip(parts, n.args)]
     text = n.text.format(*parts)
-    return F(ctx, n.t, text, True, is_product(n)) if arith else text
+    return rounded(ctx, n.t, kind, text, [(p, a.t) for p, a in zip(parts, n.args)]) if arith else text
 
 
 def render_fused(n: Node, side: str, ctx: Ctx) -> str:
@@ -1240,7 +1259,7 @@ def render_fused(n: Node, side: str, ctx: Ctx) -> str:
         a, b = convert(a, m.args[0].t, n.t), convert(b, m.args[1].t, n.t)
         if negated:
             a = f"(-{a})"
-        ctx.lines.append(f"{target} = {F(ctx, n.t, fma(n.t, a, b, F(ctx, n.t, target)), True, True)};")
+        ctx.lines.append(f"{target} = {fused(ctx, n.t, a, b, F(ctx, n.t, target))};")
         return target
     left, right = n.args
     mul_side, other = (left, right) if side == "L" else (right, left)
@@ -1263,7 +1282,14 @@ def render_fused(n: Node, side: str, ctx: Ctx) -> str:
             negated = not negated  # c - a * b
     if negated:
         a = f"(-{a})"
-    return F(ctx, n.t, fma(n.t, a, b, c), True, True)
+    return fused(ctx, n.t, a, b, c)
+
+
+def fused(ctx: Ctx, t: Ty, a: str, b: str, c: str) -> str:
+    """The fused multiply-add a * b + c of three values of type t, flushed as the model does."""
+    if ctx.flush >= 2 and flushes(t):
+        a, b, c = (ctx.temp(t, x) for x in (a, b, c))
+    return rounded(ctx, t, "Fma", fma(t, a, b, c), [(a, t), (b, t), (c, t)])
 
 
 def render_compound(n: Node, ctx: Ctx) -> str:
@@ -1274,7 +1300,11 @@ def render_compound(n: Node, ctx: Ctx) -> str:
     o = n.text
     if ctx.flush and flushes(n.t):
         # t op= v is t = t op v, which flushes like any float arithmetic.
-        ctx.lines.append(f"{target} = {F(ctx, n.t, f'{F(ctx, n.t, target)} {o[:-1]} {F(ctx, n.args[1].t, value)}', True, o in ('*=', '/='))};")
+        left, right = F(ctx, n.t, target), F(ctx, n.args[1].t, value)
+        kind = rounded_kind(n) if ctx.flush >= 2 else None
+        if kind:
+            left, right = ctx.temp(n.t, left), ctx.temp(n.args[1].t, right)
+        ctx.lines.append(f"{target} = {rounded(ctx, n.t, kind, f'{left} {o[:-1]} {right}', [(left, n.t), (right, n.args[1].t)])};")
     elif n.guard:
         ctx.lines.append(f"if (!({n.guard.format(t=target, v=value)})) {{ {target} {o} {value}; }}")
     else:

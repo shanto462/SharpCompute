@@ -60,7 +60,7 @@ public class WaveMatrixTests
         Assert.Equal(
             [
                 "metal::simdgroup_float8x8 m = metal::make_filled_simdgroup_matrix<float, 8, 8>(__c.value);",
-                "metal::simdgroup_half8x8 h = metal::make_filled_simdgroup_matrix<half, 8, 8>(half(__c.value));",
+                "metal::simdgroup_half8x8 h = metal::make_filled_simdgroup_matrix<half, 8, 8>(__ms_to_half(__c.value));",
                 "metal::simdgroup_store(m, c + 0, ulong(8), ulong2(0), false);",
                 "metal::simdgroup_store(h, hc + 0, ulong(8), ulong2(0), false);",
             ],
@@ -112,7 +112,7 @@ public class WaveMatrixTests
         Assert.Equal(
             [
                 "metal::simdgroup_half8x8 filled = metal::make_filled_simdgroup_matrix<half, 8, 8>(half(2.5f));",
-                "metal::simdgroup_half8x8 diagonal = metal::simdgroup_half8x8(half(__c.value));",
+                "metal::simdgroup_half8x8 diagonal = metal::simdgroup_half8x8(__ms_to_half(__c.value));",
                 "metal::simdgroup_half8x8 zero = metal::make_filled_simdgroup_matrix<half, 8, 8>(0.0h);",
                 "metal::simdgroup_store(__ms_wave_matrix_multiply_accumulate<half>(filled, diagonal, zero), hc + 0, ulong(8), ulong2(0), false);",
             ],

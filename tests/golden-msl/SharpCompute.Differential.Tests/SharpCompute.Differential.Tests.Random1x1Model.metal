@@ -127,18 +127,11 @@ static_assert(__builtin_offsetof(__GridWindow, groupOffset) == 24, "SharpCompute
 constant bool __windowed [[function_constant(0)]];
 
 static float GpuModel_Flush(float value);
-static float GpuModel_FlushTiny(float value);
 
 static float GpuModel_Flush(float value)
 {
     uint bits = as_type<uint>(value);
     return (bits & 2139095040u) == 0u ? as_type<float>(bits & 2147483648u) : value;
-}
-
-static float GpuModel_FlushTiny(float value)
-{
-    uint bits = as_type<uint>(value);
-    return (bits & 2147483647u) <= 8388608u ? as_type<float>(bits & 2147483648u) : value;
 }
 
 kernel void SharpCompute_Differential_Tests_Random1x1Model(
@@ -214,10 +207,10 @@ kernel void SharpCompute_Differential_Tests_Random1x1Model(
     bool c10_v0_1 = float(c10_v0_0) < ::GpuModel_Flush(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f2))), ::GpuModel_Flush(::GpuModel_Flush(metal::trunc(::GpuModel_Flush(f2)))))));
     output[int(uint(p) + 15u)] = (c10_v0_1) ? 1L : 0L;
     short c10_v1_0 = metal::min(sh2, sh2);
-    bool c10_v1_1 = float(c10_v1_0) < ::GpuModel_Flush(::GpuModel_FlushTiny(metal::fmod(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f2))), ::GpuModel_Flush(::GpuModel_Flush(metal::trunc(::GpuModel_Flush(f2)))))));
+    bool c10_v1_1 = float(c10_v1_0) < ::GpuModel_Flush(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f0) + ::GpuModel_Flush(f2))), ::GpuModel_Flush(::GpuModel_Flush(metal::trunc(::GpuModel_Flush(f2)))))));
     output[int(uint(p) + 16u)] = (c10_v1_1) ? 1L : 0L;
     short c10_v2_0 = metal::min(sh2, sh2);
-    bool c10_v2_1 = float(c10_v2_0) < ::GpuModel_FlushTiny(metal::fmod(::GpuModel_Flush(f0 + f2), ::GpuModel_Flush(metal::trunc(f2))));
+    bool c10_v2_1 = float(c10_v2_0) < ::GpuModel_Flush(metal::fmod(::GpuModel_Flush(f0 + f2), ::GpuModel_Flush(metal::trunc(f2))));
     output[int(uint(p) + 17u)] = (c10_v2_1) ? 1L : 0L;
     output[int(uint(p) + 18u)] = long(as_type<uint>(-metal::copysign(::GpuModel_Flush(::GpuModel_Flush(float(ul2)) - ::GpuModel_Flush(float(u1))), f0)));
     output[int(uint(p) + 19u)] = long(as_type<uint>(-metal::copysign(::GpuModel_Flush(::GpuModel_Flush(float(ul2)) - ::GpuModel_Flush(float(u1))), f0)));

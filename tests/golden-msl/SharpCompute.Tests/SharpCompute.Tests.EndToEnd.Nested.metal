@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
+
 struct Item
 {
     int K;
@@ -68,6 +71,6 @@ kernel void SharpCompute_Tests_EndToEnd_Nested(
     o.Far.V = o.Far.V + __c.extra.V;
     o.Far.A = __c.extra.A - o.Far.A;
     o.Tail = float(o.H) * 4.0f;
-    o.H = half(o.Tail + 0.5f);
+    o.H = __ms_to_half(o.Tail + 0.5f);
     items[i] = o;
 }

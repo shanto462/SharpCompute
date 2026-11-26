@@ -165,11 +165,12 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
-// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+// SharpCompute float and half conversions (MslPrelude.Conversions).
 inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
 inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
 inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }
 inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
+inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
 
 constant int Slots = 30;
 
@@ -268,7 +269,7 @@ kernel void SharpCompute_Differential_Tests_Random3x7(
     output[int(uint(p) + 15u)] = long(as_type<uint>(c8_0.w));
     int c9_0 = __ms_rotate_right(i1, i2);
     int c9_1 = int(ushort(2));
-    output[int(uint(p) + 16u)] = long(as_type<ushort>(half(as_type<float>((c9_1 == 0 || (c9_0 == -2147483647 - 1 && c9_1 == -1)) ? 0 : c9_0 % c9_1))));
+    output[int(uint(p) + 16u)] = long(as_type<ushort>(__ms_to_half(as_type<float>((c9_1 == 0 || (c9_0 == -2147483647 - 1 && c9_1 == -1)) ? 0 : c9_0 % c9_1))));
     half c10_0 = half(10.0f);
     --c10_0;
     half4 c10_1 = h4b;

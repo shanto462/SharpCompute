@@ -3,7 +3,7 @@
 
 using namespace metal;
 
-// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+// SharpCompute float and half conversions (MslPrelude.Conversions).
 inline uint3 __ms_sat_uint3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); uint3 r = uint3(metal::min(y, float3(4294967040.0f))); return metal::select(r, uint3(4294967295u), x >= 4294967296.0f); }
 inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
 

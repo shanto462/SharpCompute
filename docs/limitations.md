@@ -58,11 +58,6 @@ to the page that explains it.
     float read from a buffer: `Gpu.Sqrt((float)h)` of 2794.
   - *`(Half)Gpu.Fract(x)`* computes the fraction's clamp below 1 in half precision: for
     `x = -1e-30f` it is 0.9995117, where the float fraction rounds to the half 1.
-  - *A float to half conversion of a value the compiler can see or bound beyond the range of a
-    half* gives the largest half instead of infinity: `(Half4)Gpu.Max(v, new Float4(1e30f, ...))`
-    is 65504 in that lane, and so is `(Half)(float)(int)x` for a float `x` of 2^31 or more, where
-    the compiler folds the conversion of the `int.MaxValue` that `(int)x` saturates to. A float
-    the compiler cannot bound converts to ±∞ as in C#.
   - *`Gpu.Pow` of a base next to 1 and a large exponent* can overflow:
     `Gpu.Pow(0.99999994f, -1.2484e9f)` is +∞ instead of 2.08e32.
   - *`Rsqrt` of -0* is -∞ when stored, but what uses it sees another value: `Gpu.Abs(Gpu.Rsqrt(x))`

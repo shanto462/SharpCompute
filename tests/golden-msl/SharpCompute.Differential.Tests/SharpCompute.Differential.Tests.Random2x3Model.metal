@@ -165,7 +165,7 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
-// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+// SharpCompute float and half conversions (MslPrelude.Conversions).
 inline char __ms_sat_char(float x) { float y = x == x ? x : 0.0f; return char(metal::clamp(y, -128.0f, 127.0f)); }
 inline char __ms_sat_char(half x) { return __ms_sat_char(float(x)); }
 inline int3 __ms_sat_int3(float3 x) { float3 y = metal::select(float3(0.0f), x, x == x); int3 r = int3(metal::clamp(y, float3(-2147483648.0f), float3(2147483520.0f))); return metal::select(r, int3(2147483647), x >= 2147483648.0f); }
@@ -192,9 +192,12 @@ constant bool __windowed [[function_constant(0)]];
 
 static float GpuModel_Flush(float value);
 static float3 GpuModel_Flush_1(float3 value);
-static float GpuModel_FlushTiny(float value);
+static bool GpuModel_IsSmallestNormal(float value);
+static bool GpuModel_IsBelow(float rounded, float error, float bound);
+static float GpuModel_Zero(float value);
+static float GpuModel_FlushProduct(float result, float a, float b);
 static float2 GpuModel_Flush_2(float2 value);
-static float2 GpuModel_FlushTiny_1(float2 value);
+static float2 GpuModel_FlushProduct_1(float2 result, float2 a, float2 b);
 
 static float GpuModel_Flush(float value)
 {
@@ -207,10 +210,29 @@ static float3 GpuModel_Flush_1(float3 value)
     return float3(::GpuModel_Flush(value.x), ::GpuModel_Flush(value.y), ::GpuModel_Flush(value.z));
 }
 
-static float GpuModel_FlushTiny(float value)
+static bool GpuModel_IsSmallestNormal(float value)
 {
-    uint bits = as_type<uint>(value);
-    return (bits & 2147483647u) <= 8388608u ? as_type<float>(bits & 2147483648u) : value;
+    return (as_type<uint>(value) & 2147483647u) == 8388608u;
+}
+
+static bool GpuModel_IsBelow(float rounded, float error, float bound)
+{
+    return metal::abs(rounded) < bound || (metal::abs(rounded) == bound && (rounded > 0.0f ? error < 0.0f : error > 0.0f));
+}
+
+static float GpuModel_Zero(float value)
+{
+    return as_type<float>(as_type<uint>(value) & 2147483648u);
+}
+
+static float GpuModel_FlushProduct(float result, float a, float b)
+{
+    bool first = metal::abs(a) <= metal::abs(b);
+    float small = (first ? a : b) * 1.0737418E+09f;
+    float large = first ? b : a;
+    float product = small * large;
+    float error = metal::fma(small, large, -product);
+    return ::GpuModel_IsSmallestNormal(result) && ::GpuModel_IsBelow(product, error, as_type<float>(260046848u)) ? ::GpuModel_Zero(result) : ::GpuModel_Flush(result);
 }
 
 static float2 GpuModel_Flush_2(float2 value)
@@ -218,9 +240,9 @@ static float2 GpuModel_Flush_2(float2 value)
     return float2(::GpuModel_Flush(value.x), ::GpuModel_Flush(value.y));
 }
 
-static float2 GpuModel_FlushTiny_1(float2 value)
+static float2 GpuModel_FlushProduct_1(float2 result, float2 a, float2 b)
 {
-    return float2(::GpuModel_FlushTiny(value.x), ::GpuModel_FlushTiny(value.y));
+    return float2(::GpuModel_FlushProduct(result.x, a.x, b.x), ::GpuModel_FlushProduct(result.y, a.y, b.y));
 }
 
 kernel void SharpCompute_Differential_Tests_Random2x3Model(
@@ -307,12 +329,16 @@ kernel void SharpCompute_Differential_Tests_Random2x3Model(
     output[int(uint(p) + 21u)] = ((int(__ms_rotate_left(us1, (c7_v0_1 == 0 || (c7_v0_0 == -2147483647 - 1 && c7_v0_1 == -1)) ? 0 : c7_v0_0 % c7_v0_1)) != int(ushort(sb2))) ? metal::isinf(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f1) + ::GpuModel_Flush(f0))) * ::GpuModel_Flush(float(u0))))) : c7_v0_2) ? 1L : 0L;
     int c7_v1_0 = int(us1);
     int c7_v1_1 = int(sh0);
-    bool c7_v1_2 = metal::all(bool3(b1, b0, false));
-    output[int(uint(p) + 22u)] = ((int(__ms_rotate_left(us1, (c7_v1_1 == 0 || (c7_v1_0 == -2147483647 - 1 && c7_v1_1 == -1)) ? 0 : c7_v1_0 % c7_v1_1)) != int(ushort(sb2))) ? metal::isinf(::GpuModel_Flush(::GpuModel_FlushTiny(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f1) + ::GpuModel_Flush(f0))) * ::GpuModel_Flush(float(u0))))) : c7_v1_2) ? 1L : 0L;
+    float c7_v1_2 = ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f1) + ::GpuModel_Flush(f0)));
+    float c7_v1_3 = ::GpuModel_Flush(float(u0));
+    bool c7_v1_4 = metal::all(bool3(b1, b0, false));
+    output[int(uint(p) + 22u)] = ((int(__ms_rotate_left(us1, (c7_v1_1 == 0 || (c7_v1_0 == -2147483647 - 1 && c7_v1_1 == -1)) ? 0 : c7_v1_0 % c7_v1_1)) != int(ushort(sb2))) ? metal::isinf(::GpuModel_Flush(::GpuModel_FlushProduct(c7_v1_2 * c7_v1_3, c7_v1_2, c7_v1_3))) : c7_v1_4) ? 1L : 0L;
     int c7_v2_0 = int(us1);
     int c7_v2_1 = int(sh0);
-    bool c7_v2_2 = metal::all(bool3(b1, b0, false));
-    output[int(uint(p) + 23u)] = ((int(__ms_rotate_left(us1, (c7_v2_1 == 0 || (c7_v2_0 == -2147483647 - 1 && c7_v2_1 == -1)) ? 0 : c7_v2_0 % c7_v2_1)) != int(ushort(sb2))) ? metal::isinf(::GpuModel_FlushTiny(::GpuModel_Flush(f1 + f0) * float(u0))) : c7_v2_2) ? 1L : 0L;
+    float c7_v2_2 = ::GpuModel_Flush(f1 + f0);
+    float c7_v2_3 = float(u0);
+    bool c7_v2_4 = metal::all(bool3(b1, b0, false));
+    output[int(uint(p) + 23u)] = ((int(__ms_rotate_left(us1, (c7_v2_1 == 0 || (c7_v2_0 == -2147483647 - 1 && c7_v2_1 == -1)) ? 0 : c7_v2_0 % c7_v2_1)) != int(ushort(sb2))) ? metal::isinf(::GpuModel_FlushProduct(c7_v2_2 * c7_v2_3, c7_v2_2, c7_v2_3)) : c7_v2_4) ? 1L : 0L;
     int2 c8_v0_0 = int2(1431655765, -2147483647);
     int c8_v0_1 = i0;
     int c8_v0_2 = int(reinterpret_cast<thread uint&>(c8_v0_1)--);
@@ -332,17 +358,21 @@ kernel void SharpCompute_Differential_Tests_Random2x3Model(
     output[int(uint(p) + 28u)] = long(c8_v2_3.x);
     output[int(uint(p) + 29u)] = long(c8_v2_3.y);
     output[int(uint(p) + 30u)] = long(as_type<uint>(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(f0), ::GpuModel_Flush(::GpuModel_Flush(metal::sqrt(::GpuModel_Flush(float(metal::max(by0, by0))))))))));
-    output[int(uint(p) + 31u)] = long(as_type<uint>(::GpuModel_FlushTiny(metal::fmod(::GpuModel_Flush(f0), ::GpuModel_Flush(::GpuModel_Flush(metal::sqrt(::GpuModel_Flush(float(metal::max(by0, by0))))))))));
-    output[int(uint(p) + 32u)] = long(as_type<uint>(::GpuModel_FlushTiny(metal::fmod(f0, ::GpuModel_Flush(metal::sqrt(float(metal::max(by0, by0))))))));
+    output[int(uint(p) + 31u)] = long(as_type<uint>(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(f0), ::GpuModel_Flush(::GpuModel_Flush(metal::sqrt(::GpuModel_Flush(float(metal::max(by0, by0))))))))));
+    output[int(uint(p) + 32u)] = long(as_type<uint>(::GpuModel_Flush(metal::fmod(f0, ::GpuModel_Flush(metal::sqrt(float(metal::max(by0, by0))))))));
     uint2 c10_v0_0 = (metal::abs(metal::select(uint2(2147483648u, 4294967294u), uint2(4294967295u, 1u), b2b)) & __ms_sat_uint2(::GpuModel_Flush_2(::GpuModel_Flush_2(::GpuModel_Flush_2(f2a) * ::GpuModel_Flush(f1))))).yy;
     output[int(uint(p) + 33u)] = long(c10_v0_0.x);
     output[int(uint(p) + 34u)] = long(c10_v0_0.y);
-    uint2 c10_v1_0 = (metal::abs(metal::select(uint2(2147483648u, 4294967294u), uint2(4294967295u, 1u), b2b)) & __ms_sat_uint2(::GpuModel_Flush_2(::GpuModel_FlushTiny_1(::GpuModel_Flush_2(f2a) * ::GpuModel_Flush(f1))))).yy;
-    output[int(uint(p) + 35u)] = long(c10_v1_0.x);
-    output[int(uint(p) + 36u)] = long(c10_v1_0.y);
-    uint2 c10_v2_0 = (metal::abs(metal::select(uint2(2147483648u, 4294967294u), uint2(4294967295u, 1u), b2b)) & __ms_sat_uint2(::GpuModel_FlushTiny_1(f2a * f1))).yy;
-    output[int(uint(p) + 37u)] = long(c10_v2_0.x);
-    output[int(uint(p) + 38u)] = long(c10_v2_0.y);
+    float2 c10_v1_0 = ::GpuModel_Flush_2(f2a);
+    float c10_v1_1 = ::GpuModel_Flush(f1);
+    float2 c10_v1_2 = float2(c10_v1_1);
+    uint2 c10_v1_3 = (metal::abs(metal::select(uint2(2147483648u, 4294967294u), uint2(4294967295u, 1u), b2b)) & __ms_sat_uint2(::GpuModel_Flush_2(::GpuModel_FlushProduct_1(c10_v1_0 * c10_v1_1, c10_v1_0, c10_v1_2)))).yy;
+    output[int(uint(p) + 35u)] = long(c10_v1_3.x);
+    output[int(uint(p) + 36u)] = long(c10_v1_3.y);
+    float2 c10_v2_0 = float2(f1);
+    uint2 c10_v2_1 = (metal::abs(metal::select(uint2(2147483648u, 4294967294u), uint2(4294967295u, 1u), b2b)) & __ms_sat_uint2(::GpuModel_FlushProduct_1(f2a * f1, f2a, c10_v2_0))).yy;
+    output[int(uint(p) + 37u)] = long(c10_v2_1.x);
+    output[int(uint(p) + 38u)] = long(c10_v2_1.y);
     uint3 c11_v0_0 = metal::select(metal::abs(uint3(u1, u2, 2147483647u) * (true ? uint3(32u, 4294967294u, 2147483648u) : u3b)), u3a, ::GpuModel_Flush_1(float3(b2 ? u3a : uint3(256u, 31u, 4294967295u))) > ::GpuModel_Flush(f2));
     output[int(uint(p) + 39u)] = long(c11_v0_0.x);
     output[int(uint(p) + 40u)] = long(c11_v0_0.y);

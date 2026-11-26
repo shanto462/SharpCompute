@@ -114,19 +114,31 @@ build error `SCG0052`).
   first of them.
 - **Float to integer** conversions saturate exactly as C# does (.NET 9 and later), for `float` and
   `Half`, scalars and vectors, at every width: they truncate, give 0 for NaN and the target's
-  `MinValue` or `MaxValue` for a value beyond its range. `(byte)300f` is 255, `(sbyte)-129f` is
-  -128, `(ulong)-1f` is 0, `(int)float.PositiveInfinity` is `int.MaxValue`, `(long)1e30f` is
-  `long.MaxValue`. MSL leaves such a conversion undefined out of range, and the Metal compiler
-  folds on that ground wherever it can see or bound the operand, so the generator never emits the
-  plain cast: `(int)x` is `__ms_sat_int(x)`, a helper that replaces NaN by 0 and clamps in the
+  `MinValue` or `MaxValue` for a value beyond its range. For a value computed at run time,
+  `(byte)x` is 255 for `x` = 300, `(sbyte)x` is -128 for -129, `(ulong)x` is 0 for -1, `(int)x` is
+  `int.MaxValue` for +∞ and `(long)x` is `long.MaxValue` for 1e30. A *constant* out of range is
+  another matter: C# folds `unchecked((byte)300f)` and `unchecked((long)1e30f)` to 0 when it
+  compiles (and rejects them without `unchecked`), and the shader holds that 0, as `ForCpu` does.
+  MSL leaves such a conversion undefined out of range, and the Metal compiler folds on that ground
+  wherever it can see or bound the operand, so the generator never emits the plain cast for a
+  run-time value: `(int)x` is `__ms_sat_int(x)`, a helper that replaces NaN by 0 and clamps in the
   float domain before it converts (to the largest float below 2^31, with a select for the values
   from 2^31 up, since `(float)int.MaxValue` is 2^31). A shader carries only the helpers it calls.
-  A conversion C# folds is the constant C# folded it to, and one in a `static readonly`
-  initializer is written out as a constant expression. On an Apple M4 Pro the clamps cost nothing
-  measurable in kernels that pack colours and 2.6% of the GPU time of a noise kernel that converts
-  eight times per pixel. With `[ShaderOptions(FastMath = true)]` the compiler may assume there is
-  no NaN and no infinity, so the result for those two is unspecified; finite values still
+  A conversion in a `static readonly` initializer is written out as a constant expression. On an
+  Apple M4 Pro the clamps cost nothing measurable in kernels that pack colours and 2.6% of the GPU
+  time of a noise kernel that converts eight times per pixel. With
+  `[ShaderOptions(FastMath = true)]` the compiler may assume there is no NaN and no infinity, so
+  the result for those two is unspecified; finite values still
   saturate. Integer to float rounds to nearest even.
+- **Float to half** conversions, scalar and vector, give C#'s result: the nearest half, ties to
+  even, ±∞ for a magnitude of 65520 or more (halfway from the largest half, 65504, to the 65536
+  that would follow it), and NaN for NaN. An Apple GPU converts that way, but where the Metal
+  compiler converts a constant itself, one beyond the range of a half becomes 65504, and it moves
+  the conversion to the constants of a max, a min or a clamp to do so:
+  `half(metal::max(x, 1e30f))` was 65504. So `(Half)x` is `__ms_to_half(x)`, which selects the
+  infinity for a magnitude of 65520 or more and leaves the compiler a conversion that is only used
+  in range; a constant within the range keeps the plain cast, `half(0.5f)`. On an Apple M4 Pro
+  that costs under 1% of the GPU time of the kernels measured, a `Float4` to `Half4` copy included.
 - **Literals** keep their C# type: `(byte)5` is `uchar(5)`, `5L` is `5L`, `ulong.MaxValue` is
   `18446744073709551615UL`.
 - **Layout.** A `byte` is aligned to 1, a `short` to 2 and a `long` to 8, in C# and in MSL alike, so
@@ -172,7 +184,8 @@ layout that drifted is a compile error, not corrupt data.
 
 Vectors convert to each other explicitly, `(Int3)v`, as MSL's `int3(v)` does. Float and half to
 integer truncate and saturate per lane as in C# (NaN gives 0), through the same helpers as the
-[scalars](#integers); float to half rounds to the nearest half. Comparing two
+[scalars](#integers); float to half rounds to the nearest half and overflows to ±∞
+([Float to half](#integers)). Comparing two
 vectors gives a [bool vector](#bool-vectors). The half vectors have a page of their own:
 [Half precision](half-precision.md).
 

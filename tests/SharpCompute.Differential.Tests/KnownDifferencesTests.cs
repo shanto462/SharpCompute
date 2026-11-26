@@ -4,9 +4,9 @@ using SharpCompute.Tests;
 namespace SharpCompute.Differential.Tests;
 
 /// <summary>
-/// What the random-expression differential test found: the fixed float to integer conversions,
-/// pinned here, and the differences between the GPU and <c>ForCpu</c> that are not fixed, each as a
-/// minimal repro in a skipped test. The generator (tools/gen_differential.py, known_difference)
+/// What the random-expression differential test found: the fixed conversions of a float to an
+/// integer and to a half, pinned here, and the differences between the GPU and <c>ForCpu</c> that
+/// are not fixed, each as a minimal repro in a skipped test. The generator (tools/gen_differential.py, known_difference)
 /// leaves the unfixed patterns out, under the same names, so that a long run reports only what is
 /// new; un-skip a test here to check whether a Metal update or a change to the generator fixed it.
 /// Every repro reads its operands from a buffer, so nothing is folded at build time.
@@ -51,6 +51,25 @@ public class KnownDifferencesTests
         Assert.Equal(new long[] { int.MaxValue, 0, 2147483648 }, cpu);
     }
 
+    /// <summary>
+    /// Fixed: a float converted to a half where the compiler could see or bound it beyond the range
+    /// of a half was 65504, the largest half, where C# gives +∞: <c>(Half4)Gpu.Max(v, new Float4(1e30f, ...))</c>
+    /// in the lane that is at least 1e30, and <c>(Half)(float)(int)x</c> for a float <c>x</c> of 3e9,
+    /// through the int.MaxValue that <c>(int)x</c> saturates to. The conversion now selects the
+    /// infinity itself (<c>__ms_to_half</c> of <c>MslPrelude.Conversions</c>).
+    /// </summary>
+    [MetalFact]
+    public void OutOfRangeHalfConversions_OverflowToInfinityOnTheGpuAsWithForCpu()
+    {
+        ulong[] input = [0xB6FE8FF0, 0x807FFFFF, 0x7F800000, 0x429F0C1F, 0x4F32D05E];
+
+        long[] gpu = Run(input, HalfConversionFoldRepro.Slots, static (d, i, o) => d.For(1, new HalfConversionFoldRepro(i, o)));
+        long[] cpu = Run(input, HalfConversionFoldRepro.Slots, static (d, i, o) => d.ForCpu(1, new HalfConversionFoldRepro(i, o)));
+
+        Assert.Equal(cpu, gpu);
+        Assert.Equal(new long[] { 0x7C00, 0x7C00, 0x7C00, 0x54F8, 0x7C00 }, cpu);
+    }
+
     private const string Unfixed = "A difference between the GPU and ForCpu that is not fixed (see the summary of this test and KnownDifferencesTests).";
 
     /// <summary>
@@ -72,16 +91,6 @@ public class KnownDifferencesTests
     /// </summary>
     [MetalFact(Skip = Unfixed)]
     public void RsqrtOfZeroConsumed() => AssertSame([0x80000000, 0x653C, 0x8000], RsqrtOfZeroRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new RsqrtOfZeroRepro(i, o)));
-
-    /// <summary>
-    /// A float converted to a half where the compiler can see or bound it beyond the range of a
-    /// half is 65504, the largest half, where C# gives +∞: <c>(Half4)Gpu.Max(v, new Float4(1e30f, ...))</c>
-    /// in the lane that is at least 1e30, and <c>(Half)(float)(int)x</c> for a float <c>x</c> of 3e9,
-    /// where the compiler folds the conversion of the int.MaxValue that <c>(int)x</c> saturates to.
-    /// A float the compiler cannot bound converts to ±∞ as in C#.
-    /// </summary>
-    [MetalFact(Skip = Unfixed)]
-    public void OutOfRangeHalfConversion() => AssertSame([0xB6FE8FF0, 0x807FFFFF, 0x7F800000, 0x429F0C1F, 0x4F32D05E], HalfConversionFoldRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new HalfConversionFoldRepro(i, o)));
 
     /// <summary>A 64-bit integer converted to a half: 65510L gives +∞ instead of 65504, and a huge one converted on to an int wraps.</summary>
     [MetalFact(Skip = Unfixed)]

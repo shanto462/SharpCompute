@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -380,7 +381,83 @@ internal sealed partial class MslTranslator
             return SaturatingCast(operation, source, target);
         }
 
+        if (target is { Kind: GpuTypeKind.Scalar or GpuTypeKind.Vector, IsFloating: true } && target.MslName.StartsWith("half", StringComparison.Ordinal)
+            && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar or GpuTypeKind.Vector, IsFloating: true } wide
+            && wide.MslName.StartsWith("float", StringComparison.Ordinal))
+        {
+            return HalfCast(operation, target);
+        }
+
         return Call(target.MslName, Expression(operation.Operand).Text);
+    }
+
+    /// <summary>
+    /// A conversion of a float to a half, scalar or vector: <c>__ms_to_half(x)</c>, the helper of
+    /// <c>MslPrelude.Conversions</c>. C# rounds to the nearest half, so a magnitude of 65520 or more is
+    /// ±∞, and so does an Apple GPU when it converts. Where the Metal compiler converts a constant
+    /// itself, one beyond the range of a half becomes 65504, the largest half, and it moves the
+    /// conversion to the constants of a max, a min or a select to do that:
+    /// <c>half(metal::max(x, 1e30f))</c> was 65504, and so was <c>half(float(__ms_sat_int(x)))</c>
+    /// for <c>x</c> = 3e9. The helper selects the infinity for such a magnitude itself.
+    /// </summary>
+    /// <remarks>
+    /// A constant within the range of a half, which the compiler converts correctly, keeps the plain
+    /// cast: <c>half(0.5f)</c>. A program-scope initializer must not call a function, so there the
+    /// selection is written out, per lane for a vector.
+    /// </remarks>
+    private Expr HalfCast(IConversionOperation operation, GpuType target)
+    {
+        Expr operand = Expression(operation.Operand);
+
+        if (IsConstantInHalfRange(operation.Operand))
+        {
+            return Call(target.MslName, operand.Text);
+        }
+
+        if (!_function.IsGlobalInitializer)
+        {
+            string helper = target.Kind == GpuTypeKind.Scalar ? MslNames.ToHalf : MslNames.ToHalf + target.MslName.Substring(4);
+            _conversionHelpers.Add(helper);
+            return Call(helper, operand.Text);
+        }
+
+        string x = operand.Precedence == Expr.Primary ? operand.Text : "(" + operand.Text + ")";
+
+        if (target.Kind == GpuTypeKind.Scalar)
+        {
+            return new Expr("(" + Selected(x) + ")", Expr.Primary);
+        }
+
+        int lanes = target.MslName[4] - '0';
+        return Call(target.MslName, Enumerable.Range(0, lanes).Select(lane => Selected(x + "." + "xyzw"[lane])).ToArray());
+
+        static string Selected(string value) =>
+            $"{value} >= 65520.0f ? half(INFINITY) : ({value} <= -65520.0f ? half(-INFINITY) : half({value}))";
+    }
+
+    /// <summary>
+    /// True for a float constant, or a vector constructed from such constants, that is NaN or within
+    /// the range of a half: one the Metal compiler converts to the half C# gives.
+    /// </summary>
+    private static bool IsConstantInHalfRange(IOperation operation)
+    {
+        while (operation is IParenthesizedOperation or IConversionOperation { IsImplicit: true, ConstantValue.HasValue: false })
+        {
+            operation = operation is IParenthesizedOperation parenthesized ? parenthesized.Operand : ((IConversionOperation)operation).Operand;
+        }
+
+        if (operation.ConstantValue is { HasValue: true, Value: { } value })
+        {
+            return value switch
+            {
+                float single => float.IsNaN(single) || Math.Abs(single) < 65520f,
+                int or uint or long or ulong or short or ushort or byte or sbyte => Math.Abs(System.Convert.ToDouble(value, CultureInfo.InvariantCulture)) < 65520d,
+                _ => false,
+            };
+        }
+
+        return operation is IObjectCreationOperation { Arguments.Length: > 0 } creation
+            && creation.Arguments.All(static argument => IsConstantInHalfRange(argument.Value));
     }
 
     /// <summary>

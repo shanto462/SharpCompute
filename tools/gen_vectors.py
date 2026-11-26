@@ -716,6 +716,17 @@ PRELUDE_ATOMIC_FLOAT_ADD = "__ms_atomic_fetch_add_float"
 # is no NaN and no infinity, so those two inputs are then unspecified; finite values still saturate.
 PRELUDE_SATURATE = "__ms_sat_"
 
+# The float to half conversion: `__ms_to_half(float)`, `__ms_to_half3(float3)`. C# rounds to the
+# nearest half, ties to even, so a magnitude of 65520 or more (halfway between the largest half,
+# 65504, and the 65536 that would follow it) is ±∞, and so it is on an Apple GPU when it converts. But
+# where the Metal compiler converts a constant itself, one beyond that range becomes 65504, and it
+# moves the conversion to the constants of a max, a min or a select to do so:
+# `half(metal::max(x, 1e30f))` is 65504, and so was `half(float(__ms_sat_int(x)))` for x = 3e9,
+# through the 2147483647 the helper above selects. The helper selects the infinity itself for a
+# magnitude of 65520 or more, so the conversion it leaves to the compiler is only ever used in range.
+# NaN fails the comparison and converts as before. These are in MslPrelude.Conversions too.
+PRELUDE_TO_HALF = "__ms_to_half"
+
 # The .NET semantics of System.Math / MathF Min, Max and Clamp, which ForCpu runs. metal::min, max and
 # clamp are fmin/fmax: a NaN operand yields the other one (max(NaN, 1) is 1, clamp(NaN, 0, 0.5) is 0),
 # where .NET returns NaN, and they leave the zero of min(-0, +0) open. These are .NET's definitions
@@ -893,7 +904,7 @@ def int_literal(t: IntegerType, value: int) -> str:
 
 def conversions_msl() -> list[str]:
     """MslPrelude.Conversions: the saturating float and half to integer conversions (see PRELUDE_SATURATE)."""
-    lines = ["// SharpCompute saturating float to integer conversions (MslPrelude.Conversions)."]
+    lines = ["// SharpCompute float and half conversions (MslPrelude.Conversions)."]
     for t in NEGATE_TYPES:
         lo, hi = (-(2 ** (t.bits - 1)), 2 ** (t.bits - 1) - 1) if t.signed else (0, 2 ** t.bits - 1)
         exact = t.bits < 32
@@ -920,6 +931,13 @@ def conversions_msl() -> list[str]:
                 body = f"{known} {target} r = {target}({clamped}); return {top};"
             lines.append(f"inline {target} {name}({source} x) {{ {body} }}")
             lines.append(f"inline {target} {name}({half} x) {{ return {name}({source}(x)); }}")
+    lines.append(
+        f"inline half {PRELUDE_TO_HALF}(float x) "
+        "{ return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }")
+    for n in (2, 3, 4):
+        lines.append(
+            f"inline half{n} {PRELUDE_TO_HALF}{n}(float{n} x) "
+            f"{{ return metal::select(half{n}(x), metal::select(half{n}(INFINITY), half{n}(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }}")
     return lines
 
 
@@ -1020,6 +1038,9 @@ def gen_prelude() -> str:
     out.append("    /// which is how it picks them. MSL leaves such a conversion undefined out of range and the Metal")
     out.append("    /// compiler folds on that ground, so each helper clamps in the float domain before it converts. With")
     out.append("    /// <c>[ShaderOptions(FastMath = true)]</c> the result for NaN and the infinities is unspecified.")
+    out.append("    /// The block ends with the float to half conversions (<c>__ms_to_half</c>, <c>__ms_to_half3</c>),")
+    out.append("    /// which give ±∞ for a magnitude of 65520 or more as C# does: the Metal compiler makes a constant")
+    out.append("    /// beyond the range of a half 65504 where it converts one itself.")
     out.append("    /// </summary>")
     out.append('    public const string Conversions = """')
     out.extend("        " + line for line in conversions_msl())

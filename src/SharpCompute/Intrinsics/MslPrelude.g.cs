@@ -198,9 +198,12 @@ public static class MslPrelude
     /// which is how it picks them. MSL leaves such a conversion undefined out of range and the Metal
     /// compiler folds on that ground, so each helper clamps in the float domain before it converts. With
     /// <c>[ShaderOptions(FastMath = true)]</c> the result for NaN and the infinities is unspecified.
+    /// The block ends with the float to half conversions (<c>__ms_to_half</c>, <c>__ms_to_half3</c>),
+    /// which give ±∞ for a magnitude of 65520 or more as C# does: the Metal compiler makes a constant
+    /// beyond the range of a half 65504 where it converts one itself.
     /// </summary>
     public const string Conversions = """
-        // SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+        // SharpCompute float and half conversions (MslPrelude.Conversions).
         inline char __ms_sat_char(float x) { float y = x == x ? x : 0.0f; return char(metal::clamp(y, -128.0f, 127.0f)); }
         inline char __ms_sat_char(half x) { return __ms_sat_char(float(x)); }
         inline char2 __ms_sat_char2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); return char2(metal::clamp(y, float2(-128.0f), float2(127.0f))); }
@@ -265,5 +268,9 @@ public static class MslPrelude
         inline ulong3 __ms_sat_ulong3(half3 x) { return __ms_sat_ulong3(float3(x)); }
         inline ulong4 __ms_sat_ulong4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); ulong4 r = ulong4(metal::min(y, float4(18446742974197923840.0f))); return metal::select(r, ulong4(18446744073709551615UL), x >= 18446744073709551616.0f); }
         inline ulong4 __ms_sat_ulong4(half4 x) { return __ms_sat_ulong4(float4(x)); }
+        inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
+        inline half2 __ms_to_half2(float2 x) { return metal::select(half2(x), metal::select(half2(INFINITY), half2(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+        inline half3 __ms_to_half3(float3 x) { return metal::select(half3(x), metal::select(half3(INFINITY), half3(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+        inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
         """;
 }
