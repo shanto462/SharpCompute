@@ -114,7 +114,7 @@ template <typename R, typename T, typename U, typename V> inline metal::simdgrou
 inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
 inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
 
 constant int Slots = 36;

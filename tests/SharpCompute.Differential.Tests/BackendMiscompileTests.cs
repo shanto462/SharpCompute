@@ -64,6 +64,16 @@ public class BackendMiscompileTests
     }
 
     [MetalFact]
+    public void ConstantsDividedByConstantsTheFrontEndFolds_DivideAsWithForCpu()
+    {
+        // The front end folds these divisions (the divisors are constants once it has optimized):
+        // a nonzero barrier on the divisor would leave them to the GPU compiler, which folds them
+        // wrongly for most even divisors. Found by the random differential test.
+        ulong[] input = [0, 1, 7, 12345];
+        AssertSame(input, input.Length, FoldedDivisions.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new FoldedDivisions(i, o)));
+    }
+
+    [MetalFact]
     public void BitCountsOfNarrowedValues_CountAsWithForCpu()
     {
         // Rows of (a, b, c): 16- and 8-bit values of both signs in the low bits, junk above them.
@@ -325,5 +335,44 @@ public readonly partial struct GuardChains(ReadOnlyBuffer<ulong> input, ReadWrit
         }
 
         output[o + 4] = u;
+    }
+}
+
+/// <summary>Divisions of constants by constants that only the front end can see as such.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct FoldedDivisions(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 8;
+
+    public void Execute()
+    {
+        int t = ThreadIds.X;
+        ushort u = (ushort)input[t];
+        int o = t * Slots;
+
+        int a = 1431655765;
+        int two = 2;
+        if (two != 0)
+        {
+            a %= two;
+        }
+
+        output[o + 0] = a;
+
+        uint b = 2863311530u;
+        uint d = false ? u : (ushort)2;
+        output[o + 1] = d == 0 ? 0 : b % d;
+        output[o + 2] = d == 0 ? 0 : b / d;
+        uint e = false ? u : 12u;
+        output[o + 3] = b / e;
+        output[o + 4] = b % e;
+        long f = 1431655765L;
+        long g = false ? u : 6L;
+        output[o + 5] = f / g;
+        UInt3 h = new(2863311530u, 1431655765u, 100u);
+        UInt3 k = new(false ? u : 2u, 4u, 6u);
+        UInt3 q = h % k;
+        output[o + 6] = q.X;
+        output[o + 7] = q.Y + q.Z;
     }
 }

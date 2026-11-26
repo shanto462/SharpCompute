@@ -59,7 +59,8 @@ template <typename T, typename V> inline V __ms_sub_from(thread T& target, V val
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline uint2 __ms_nonzero(uint2 x) { return x | uint2(metal::reverse_bits(x) == uint2(0)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint2 __ms_nonzero(uint2 x) { return uint2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
 
 constant int Slots = 50;
 

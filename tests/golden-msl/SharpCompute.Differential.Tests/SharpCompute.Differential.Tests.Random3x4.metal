@@ -171,8 +171,8 @@ inline uchar __ms_sat_uchar(half x) { return __ms_sat_uchar(float(x)); }
 inline short __ms_sat_short(float x) { float y = x == x ? x : 0.0f; return short(metal::clamp(y, -32768.0f, 32767.0f)); }
 inline short __ms_sat_short(half x) { return __ms_sat_short(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
 inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
 
 constant int Slots = 27;

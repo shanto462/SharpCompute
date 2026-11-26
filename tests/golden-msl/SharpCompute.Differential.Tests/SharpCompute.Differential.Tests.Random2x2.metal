@@ -174,9 +174,9 @@ inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uin
 inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
 inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline int2 __ms_nonzero(int2 x) { return x | int2(metal::reverse_bits(x) == int2(0)); }
-inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline int2 __ms_nonzero(int2 x) { return int2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 

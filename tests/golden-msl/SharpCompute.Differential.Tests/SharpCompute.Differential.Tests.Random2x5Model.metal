@@ -9,7 +9,8 @@ inline short __ms_sat_short(half x) { return __ms_sat_short(float(x)); }
 inline int2 __ms_sat_int2(float2 x) { float2 y = metal::select(float2(0.0f), x, x == x); int2 r = int2(metal::clamp(y, float2(-2147483648.0f), float2(2147483520.0f))); return metal::select(r, int2(2147483647), x >= 2147483648.0f); }
 inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline uint3 __ms_nonzero(uint3 x) { return x | uint3(metal::reverse_bits(x) == uint3(0)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
 inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 

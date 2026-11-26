@@ -4,7 +4,7 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
 
 constant int Slots = 54;
 

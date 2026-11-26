@@ -49,14 +49,17 @@ verified on.
   does not trap on the GPU and its result is unspecified. The workarounds were verified with Metal
   compiler 32023.922 (Xcode 27.2, macOS 27.2.1); a later compiler may need them re-checked.
   ([Integers](shader-language.md#integers))
-- **A GPU compiler crash on one combination of integer statements.** A kernel that holds a guarded
-  `%` of two `int`s inside a `Clamp` of an `Int2`, an `Int3` division by a constant vector chosen by
-  `Gpu.Select`, and a `short` shifted right by 21 and converted to `float` fails to build its
-  pipeline: the first dispatch (or `Prepare`) throws `ShaderCompilationException` with
-  "XPC_ERROR_CONNECTION_INTERRUPTED". It fails loudly, never with a wrong result. The three are needed
-  together: without any one of them, or with the shift written as the sign fill it amounts to
-  (`s >>= 15`, which is what the generator now writes for `s >>= 21` on a `short`), the pipeline
-  builds.
+- **GPU compiler crashes on some combinations of integer statements.** Some kernels fail to build
+  their pipeline: the first dispatch (or `Prepare`) throws `ShaderCompilationException` with
+  "XPC_ERROR_CONNECTION_INTERRUPTED". It fails loudly, never with a wrong result. The reduced case
+  (reported to Apple as FB25737990) needs three statements together: a guarded `%` of two `int`s
+  inside a `Clamp` of an `Int2`, an `Int3` division by a constant vector chosen by `Gpu.Select`, and
+  a `short` shifted right by 21 and converted to `float`. Without any one of them, or with the shift
+  written as the sign fill it amounts to (`s >>= 15`, which is what the generator now writes for
+  `s >>= 21` on a `short`), the pipeline builds. Random shaders found another combination of three
+  (a `short` product compared as a float, a guarded `uint` division chain, and a rotate shifted by a
+  guarded quotient), so the shape is not the only one; the workaround is the same: write one of the
+  statements differently, or move it to another kernel.
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
   - *The product of `Gpu.Step` and a constant* can be +0 where C# gives -0: the compiler writes
