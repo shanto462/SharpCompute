@@ -4,7 +4,7 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int Stride = 22;
 

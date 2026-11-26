@@ -175,7 +175,7 @@ inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = ulong(metal::min(y, 18446742974197923840.0f)); return x >= 18446744073709551616.0f ? 18446744073709551615UL : r; }
 inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
 
@@ -262,7 +262,7 @@ kernel void SharpCompute_Differential_Tests_Random1x3(
     uchar c5_2 = c5_1;
     uchar c5_3 = uchar(__ms_sat_long(h2));
     short c5_4 = short(32767);
-    c5_4 = short(uint(int(c5_4)) >> (-2147483647 - 1));
+    c5_4 = short(uint(int(c5_4)) >> 0);
     c5_3 <<= (int(__ms_sat_short(f0)) ^ int(c5_4));
     uchar c5_5 = c5_3;
     if (!(int(c5_5) == 0))

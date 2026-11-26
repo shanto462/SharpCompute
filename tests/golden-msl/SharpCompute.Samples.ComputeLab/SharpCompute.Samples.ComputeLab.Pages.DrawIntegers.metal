@@ -4,8 +4,8 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 
 constant int PanelX = 32;
 constant uint Background = 4279636238u;

@@ -171,8 +171,8 @@ inline char __ms_sat_char(half x) { return __ms_sat_char(float(x)); }
 inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = ulong(metal::min(y, 18446742974197923840.0f)); return x >= 18446744073709551616.0f ? 18446744073709551615UL : r; }
 inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
 inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
 
 constant int Slots = 21;
@@ -235,7 +235,7 @@ kernel void SharpCompute_Differential_Tests_Random1x4(
     uint3 u3b = uint3(uint(input[int(uint(o) + 94u)]), uint(input[int(uint(o) + 95u)]), uint(input[int(uint(o) + 96u)]));
     bool2 b2a = bool2((input[int(uint(o) + 105u)] & 1UL) != 0UL, (input[int(uint(o) + 106u)] & 1UL) != 0UL);
     bool3 b3b = bool3((input[int(uint(o) + 112u)] & 1UL) != 0UL, (input[int(uint(o) + 113u)] & 1UL) != 0UL, (input[int(uint(o) + 114u)] & 1UL) != 0UL);
-    uint3 c0_0 = (__ms_add(u3a ^ u3a, b2 ? u3a : u3b)) << 256;
+    uint3 c0_0 = (__ms_add(u3a ^ u3a, b2 ? u3a : u3b)) << 0;
     uint3 c0_1 = c0_0;
     output[int(uint(p) + 0u)] = long(c0_1.x);
     output[int(uint(p) + 1u)] = long(c0_1.y);
@@ -265,7 +265,7 @@ kernel void SharpCompute_Differential_Tests_Random1x4(
     half c6_0 = h2;
     output[int(uint(p) + 8u)] = long(as_type<ushort>(__ms_radians(c6_0 + h4b.w)));
     int c7_0 = i2;
-    c7_0 >>= 65536;
+    c7_0 >>= 0;
     short c7_1 = short(255);
     c7_1 -= int(sh2);
     output[int(uint(p) + 9u)] = long(as_type<uint>(float(((2147483647u >> i1) >> c7_0) << (int(c7_1) << int(sb2)))));
@@ -285,7 +285,7 @@ kernel void SharpCompute_Differential_Tests_Random1x4(
     output[int(uint(p) + 14u)] = long(c10_0.z);
     output[int(uint(p) + 15u)] = long(c10_0.w);
     uchar c11_0 = by0;
-    c11_0 >>= 1073741824;
+    c11_0 >>= 0;
     char c11_1 = char(c11_0);
     --c11_1;
     output[int(uint(p) + 16u)] = long(as_type<uint>(float(c11_1)));

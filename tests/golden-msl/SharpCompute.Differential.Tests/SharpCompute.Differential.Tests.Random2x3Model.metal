@@ -175,8 +175,8 @@ inline int3 __ms_sat_int3(half3 x) { return __ms_sat_int3(float3(x)); }
 inline uint2 __ms_sat_uint2(float2 x) { float2 y = metal::select(float2(0.0f), x, x > 0.0f); uint2 r = uint2(metal::min(y, float2(4294967040.0f))); return metal::select(r, uint2(4294967295u), x >= 4294967296.0f); }
 inline uint2 __ms_sat_uint2(half2 x) { return __ms_sat_uint2(float2(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline int2 __ms_nonzero(int2 x) { return x | int2(metal::reverse_bits(x) == int2(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline int2 __ms_nonzero(int2 x) { return int2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
 inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 
@@ -271,6 +271,7 @@ kernel void SharpCompute_Differential_Tests_Random2x3Model(
     short sh1 = short(input[int(uint(o) + 10u)]);
     short sh2 = short(input[int(uint(o) + 11u)]);
     ushort us1 = ushort(input[int(uint(o) + 13u)]);
+    ushort us2 = ushort(input[int(uint(o) + 14u)]);
     int i0 = int(input[int(uint(o) + 15u)]);
     int i1 = int(input[int(uint(o) + 16u)]);
     int i2 = int(input[int(uint(o) + 17u)]);
@@ -288,6 +289,7 @@ kernel void SharpCompute_Differential_Tests_Random2x3Model(
     float2 f2b = float2(as_type<float>(uint(input[int(uint(o) + 35u)])), as_type<float>(uint(input[int(uint(o) + 36u)])));
     float3 f3a = float3(as_type<float>(uint(input[int(uint(o) + 37u)])), as_type<float>(uint(input[int(uint(o) + 38u)])), as_type<float>(uint(input[int(uint(o) + 39u)])));
     float3 f3b = float3(as_type<float>(uint(input[int(uint(o) + 40u)])), as_type<float>(uint(input[int(uint(o) + 41u)])), as_type<float>(uint(input[int(uint(o) + 42u)])));
+    half2 h2b = half2(as_type<half>(ushort(input[int(uint(o) + 53u)])), as_type<half>(ushort(input[int(uint(o) + 54u)])));
     int2 i2a = int2(int(input[int(uint(o) + 69u)]), int(input[int(uint(o) + 70u)]));
     int2 i2b = int2(int(input[int(uint(o) + 71u)]), int(input[int(uint(o) + 72u)]));
     int3 i3a = int3(int(input[int(uint(o) + 73u)]), int(input[int(uint(o) + 74u)]), int(input[int(uint(o) + 75u)]));

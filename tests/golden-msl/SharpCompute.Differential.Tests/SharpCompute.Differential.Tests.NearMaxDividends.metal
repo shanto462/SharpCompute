@@ -4,10 +4,10 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
-inline uint3 __ms_nonzero(uint3 x) { return x | uint3(metal::reverse_bits(x) == uint3(0)); }
-inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
-inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
+inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
 inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
 inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
 inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
@@ -17,7 +17,7 @@ inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) 
 inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
 inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
 
-constant int Slots = 24;
+constant int Slots = 27;
 constant uint Constant = 4294967280u;
 constant uint ReadOnlyMax = 4294967295u;
 
@@ -72,4 +72,10 @@ kernel void SharpCompute_Differential_Tests_NearMaxDividends(
     output[int(uint(o) + 21u)] = long(r.z);
     output[int(uint(o) + 22u)] = long(2147483647u / __ms_nonzero(x));
     output[int(uint(o) + 23u)] = 4294967296L / __ms_nonzero(y);
+    uint m = 4294967295u;
+    long n = -4294967200L;
+    uint3 w = uint3(4294967168u, 3u, 4294967295u);
+    output[int(uint(o) + 24u)] = long(__ms_div_near_max(m, x));
+    output[int(uint(o) + 25u)] = __ms_rem_near_max(n, y);
+    output[int(uint(o) + 26u)] = long((__ms_div_near_max(w, v)).z);
 }

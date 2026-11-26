@@ -199,22 +199,22 @@ public static class MslPrelude
     /// </summary>
     public const string Integers = """
         // SharpCompute integer helpers (MslPrelude.Integers).
-        inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-        inline int2 __ms_nonzero(int2 x) { return x | int2(metal::reverse_bits(x) == int2(0)); }
-        inline int3 __ms_nonzero(int3 x) { return x | int3(metal::reverse_bits(x) == int3(0)); }
-        inline int4 __ms_nonzero(int4 x) { return x | int4(metal::reverse_bits(x) == int4(0)); }
-        inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
-        inline uint2 __ms_nonzero(uint2 x) { return x | uint2(metal::reverse_bits(x) == uint2(0)); }
-        inline uint3 __ms_nonzero(uint3 x) { return x | uint3(metal::reverse_bits(x) == uint3(0)); }
-        inline uint4 __ms_nonzero(uint4 x) { return x | uint4(metal::reverse_bits(x) == uint4(0)); }
-        inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
-        inline long2 __ms_nonzero(long2 x) { return x | long2(metal::reverse_bits(x) == long2(0)); }
-        inline long3 __ms_nonzero(long3 x) { return x | long3(metal::reverse_bits(x) == long3(0)); }
-        inline long4 __ms_nonzero(long4 x) { return x | long4(metal::reverse_bits(x) == long4(0)); }
-        inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
-        inline ulong2 __ms_nonzero(ulong2 x) { return x | ulong2(metal::reverse_bits(x) == ulong2(0)); }
-        inline ulong3 __ms_nonzero(ulong3 x) { return x | ulong3(metal::reverse_bits(x) == ulong3(0)); }
-        inline ulong4 __ms_nonzero(ulong4 x) { return x | ulong4(metal::reverse_bits(x) == ulong4(0)); }
+        inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+        inline int2 __ms_nonzero(int2 x) { return int2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
+        inline int3 __ms_nonzero(int3 x) { return int3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+        inline int4 __ms_nonzero(int4 x) { return int4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
+        inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
+        inline uint2 __ms_nonzero(uint2 x) { return uint2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
+        inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+        inline uint4 __ms_nonzero(uint4 x) { return uint4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
+        inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
+        inline long2 __ms_nonzero(long2 x) { return long2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
+        inline long3 __ms_nonzero(long3 x) { return long3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+        inline long4 __ms_nonzero(long4 x) { return long4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
+        inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+        inline ulong2 __ms_nonzero(ulong2 x) { return ulong2(__ms_nonzero(x.x), __ms_nonzero(x.y)); }
+        inline ulong3 __ms_nonzero(ulong3 x) { return ulong3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
+        inline ulong4 __ms_nonzero(ulong4 x) { return ulong4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
         inline char __ms_nonzero(char x) { return char(__ms_nonzero(int(x))); }
         inline char2 __ms_nonzero(char2 x) { return char2(__ms_nonzero(int2(x))); }
         inline char3 __ms_nonzero(char3 x) { return char3(__ms_nonzero(int3(x))); }

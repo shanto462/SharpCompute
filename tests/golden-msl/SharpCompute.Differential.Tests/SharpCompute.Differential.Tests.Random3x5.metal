@@ -120,8 +120,8 @@ inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
 inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }
 inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline int3 __ms_nonzero(int3 x) { return x | int3(metal::reverse_bits(x) == int3(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline int3 __ms_nonzero(int3 x) { return int3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
 
 constant int Slots = 23;
 

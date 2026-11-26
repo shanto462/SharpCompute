@@ -940,7 +940,11 @@ def bit_count_msl() -> list[str]:
 #   guard, or the divisor is t again where the division is guarded: a select on t == 0 is folded by
 #   the front end, and clz(t) >> 5 and the top bit of (t - 1) & ~t were folded by the GPU compiler
 #   in some shaders (measured: guards still dropped in random shaders, and in a shader specialized
-#   by a function constant). It costs a bit reversal, a compare and an or.
+#   by a function constant). It costs a bit reversal, a compare and an or. A divisor the front end
+#   can evaluate is left as it is (__builtin_constant_p, which it decides after optimizing): the
+#   reversal hides a constant from the front end, and the GPU compiler folds a division of two
+#   constants wrongly for most even divisors (2863311530u % reverse_bits(reverse_bits(2u)) is not
+#   0), where the front end folds it right or makes it a multiplication.
 # - A 32-bit unsigned division or remainder of a constant dividend of 2^32 - 128 or more (one that
 #   rounds to 2^32 as a float) is wrong for some divisors: 4294967295u / 3 is 3579139454. A long
 #   division whose operands fit in 32 bits is narrowed to one (4294967295L % y, with y a widened
@@ -966,7 +970,12 @@ def integers_msl() -> list[str]:
             if t.bits < 32:
                 lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return {v}({PRELUDE_NONZERO}(int{suffix}(x))); }}")
                 continue
-            lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return x | {v}(metal::reverse_bits(x) == {v}(0)); }}")
+            if suffix:
+                # Lane by lane: __builtin_constant_p sees through the lanes of a vector, not a vector.
+                lanes = ", ".join(f"{PRELUDE_NONZERO}(x.{c})" for c in COMPONENTS[:int(suffix)])
+                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return {v}({lanes}); }}")
+            else:
+                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return __builtin_constant_p(x) ? x : x | {v}(metal::reverse_bits(x) == {v}(0)); }}")
     for t, zero, one in (("uint", "0u", "1u"), ("ulong", "0UL", "1UL")):
         lines.append(f"inline {t} {PRELUDE_DIV_NEAR_MAX}({t} a, {t} b) {{ return b > a ? {zero} : (a - b) / {PRELUDE_NONZERO}(b) + {one}; }}")
         lines.append(f"inline {t} {PRELUDE_REM_NEAR_MAX}({t} a, {t} b) {{ return b > a ? a : (a - b) % {PRELUDE_NONZERO}(b); }}")

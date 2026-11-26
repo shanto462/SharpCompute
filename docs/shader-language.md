@@ -68,8 +68,11 @@ build error `SCG0052`).
   result is as wide as C# says, and a cast back to the small type wraps at its width. Compound
   assignments and `++`/`--` on a small integer truncate on every step, as in C#.
 - **Shifts.** The count is masked with 31 for `int` and the smaller integers (which are `int`s by
-  the time they are shifted), and with 63 for `long` and `ulong`: `1L << 65` is 2. `>>>` works on
-  `int` and `long`.
+  the time they are shifted, also in a compound `s >>= n` on a `short`), and with 63 for `long` and
+  `ulong`: `1L << 65` is 2. The generator writes a constant count masked (`s >>= 1431655765` is
+  `s >>= 15` on a `short`, the sign fill that C#'s `s >> 21` gives); MSL takes a variable count
+  modulo the width of the promoted operand, as C# does. `>>>` works on `int` and `long`, and on the
+  smaller integers in compound assignments.
 - **Overflow wraps** at the width of the type, signed and unsigned. `int`, `long` and `IntN`
   arithmetic is exact modulo 2^n, so `int.MaxValue + 1` is `int.MinValue`, `a + 1 > a` is false for
   `int.MaxValue`, and `(a * b) / b` divides the wrapped product.
@@ -120,10 +123,11 @@ build error `SCG0052`).
   - It divided a constant dividend of 2^32 - 128 or more (one that rounds to 2^32 as a float)
     wrongly: `4294967295u / x` was 3579139454 for `x = 3`, and so was a `long` division it narrows
     to 32 bits (`4294967295L % y`, with `y` a widened `uint`). Such a constant, written in the
-    division or a `const`, `static readonly` or constant vector, is divided by
-    `__ms_div_near_max(c, x)`, which divides `c - x` instead. A constant the generator cannot see,
-    one that only reaches the division through a local or a helper's parameter, is still divided
-    wrongly: write it in the division.
+    division, a `const`, a `static readonly`, a constant vector or a local with a constant
+    initializer that is never written, is divided by `__ms_div_near_max(c, x)`, which divides
+    `c - x` instead. A constant the generator cannot see, one that only reaches the division
+    through a helper's parameter or a local that is also written, is still divided wrongly: write
+    it in the division.
   - It counted the bits of a sign-extended 16-bit value as if it were zero-extended
     (`Gpu.LeadingZeroCount((uint)(short)i)` was 16 for a negative short, and so was the clz of
     `(x << 16) >> 16`), and counted the junk above the 16 bits of a `short` it computed in a wider

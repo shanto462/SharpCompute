@@ -5,11 +5,11 @@ using System;
 
 namespace SharpCompute.Tests.Conformance;
 
-/// <summary>The byte operators: 45 slots per thread (see <see cref="ConformanceFamilies.ByteOperators"/>).</summary>
+/// <summary>The byte operators: 60 slots per thread (see <see cref="ConformanceFamilies.ByteOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceByteOperators(ReadOnlyBuffer<byte> a, ReadOnlyBuffer<byte> b, ReadOnlyBuffer<byte> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 45;
+    public const int Slots = 60;
 
     public void Execute()
     {
@@ -67,18 +67,45 @@ public readonly partial struct ConformanceByteOperators(ReadOnlyBuffer<byte> a, 
         output[o + 35] = (long)(t9);
         byte t10 = x; t10 >>>= n;
         output[o + 36] = (long)(t10);
-        byte t11 = x; byte u11 = t11++;
-        output[o + 37] = (long)(u11);
-        output[o + 38] = (long)(t11);
-        byte t12 = x; byte u12 = t12--;
-        output[o + 39] = (long)(u12);
-        output[o + 40] = (long)(t12);
-        byte t13 = x; byte u13 = ++t13;
-        output[o + 41] = (long)(u13);
-        output[o + 42] = (long)(t13);
-        byte t14 = x; byte u14 = --t14;
-        output[o + 43] = (long)(u14);
-        output[o + 44] = (long)(t14);
+        byte t11 = x; t11 <<= 17;
+        output[o + 37] = (long)(t11);
+        byte t12 = x; t12 <<= 33;
+        output[o + 38] = (long)(t12);
+        byte t13 = x; t13 <<= 1431655765;
+        output[o + 39] = (long)(t13);
+        byte t14 = x; t14 <<= -1;
+        output[o + 40] = (long)(t14);
+        byte t15 = x; t15 >>= 17;
+        output[o + 41] = (long)(t15);
+        byte t16 = x; t16 >>= 33;
+        output[o + 42] = (long)(t16);
+        byte t17 = x; t17 >>= 1431655765;
+        output[o + 43] = (long)(t17);
+        byte t18 = x; t18 >>= -1;
+        output[o + 44] = (long)(t18);
+        byte t19 = x; t19 >>>= 17;
+        output[o + 45] = (long)(t19);
+        byte t20 = x; t20 >>>= 33;
+        output[o + 46] = (long)(t20);
+        byte t21 = x; t21 >>>= 1431655765;
+        output[o + 47] = (long)(t21);
+        byte t22 = x; t22 >>>= -1;
+        output[o + 48] = (long)(t22);
+        output[o + 49] = (long)(x << 33);
+        output[o + 50] = (long)(x >> 33);
+        output[o + 51] = (long)(x >>> 33);
+        byte t23 = x; byte u23 = t23++;
+        output[o + 52] = (long)(u23);
+        output[o + 53] = (long)(t23);
+        byte t24 = x; byte u24 = t24--;
+        output[o + 54] = (long)(u24);
+        output[o + 55] = (long)(t24);
+        byte t25 = x; byte u25 = ++t25;
+        output[o + 56] = (long)(u25);
+        output[o + 57] = (long)(t25);
+        byte t26 = x; byte u26 = --t26;
+        output[o + 58] = (long)(u26);
+        output[o + 59] = (long)(t26);
     }
 }
 
@@ -114,11 +141,11 @@ public readonly partial struct ConformanceByteIntrinsics(ReadOnlyBuffer<byte> a,
     }
 }
 
-/// <summary>The sbyte operators: 45 slots per thread (see <see cref="ConformanceFamilies.SByteOperators"/>).</summary>
+/// <summary>The sbyte operators: 60 slots per thread (see <see cref="ConformanceFamilies.SByteOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceSByteOperators(ReadOnlyBuffer<sbyte> a, ReadOnlyBuffer<sbyte> b, ReadOnlyBuffer<sbyte> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 45;
+    public const int Slots = 60;
 
     public void Execute()
     {
@@ -176,18 +203,45 @@ public readonly partial struct ConformanceSByteOperators(ReadOnlyBuffer<sbyte> a
         output[o + 35] = (long)(t9);
         sbyte t10 = x; t10 >>>= n;
         output[o + 36] = (long)(t10);
-        sbyte t11 = x; sbyte u11 = t11++;
-        output[o + 37] = (long)(u11);
-        output[o + 38] = (long)(t11);
-        sbyte t12 = x; sbyte u12 = t12--;
-        output[o + 39] = (long)(u12);
-        output[o + 40] = (long)(t12);
-        sbyte t13 = x; sbyte u13 = ++t13;
-        output[o + 41] = (long)(u13);
-        output[o + 42] = (long)(t13);
-        sbyte t14 = x; sbyte u14 = --t14;
-        output[o + 43] = (long)(u14);
-        output[o + 44] = (long)(t14);
+        sbyte t11 = x; t11 <<= 17;
+        output[o + 37] = (long)(t11);
+        sbyte t12 = x; t12 <<= 33;
+        output[o + 38] = (long)(t12);
+        sbyte t13 = x; t13 <<= 1431655765;
+        output[o + 39] = (long)(t13);
+        sbyte t14 = x; t14 <<= -1;
+        output[o + 40] = (long)(t14);
+        sbyte t15 = x; t15 >>= 17;
+        output[o + 41] = (long)(t15);
+        sbyte t16 = x; t16 >>= 33;
+        output[o + 42] = (long)(t16);
+        sbyte t17 = x; t17 >>= 1431655765;
+        output[o + 43] = (long)(t17);
+        sbyte t18 = x; t18 >>= -1;
+        output[o + 44] = (long)(t18);
+        sbyte t19 = x; t19 >>>= 17;
+        output[o + 45] = (long)(t19);
+        sbyte t20 = x; t20 >>>= 33;
+        output[o + 46] = (long)(t20);
+        sbyte t21 = x; t21 >>>= 1431655765;
+        output[o + 47] = (long)(t21);
+        sbyte t22 = x; t22 >>>= -1;
+        output[o + 48] = (long)(t22);
+        output[o + 49] = (long)(x << 33);
+        output[o + 50] = (long)(x >> 33);
+        output[o + 51] = (long)(x >>> 33);
+        sbyte t23 = x; sbyte u23 = t23++;
+        output[o + 52] = (long)(u23);
+        output[o + 53] = (long)(t23);
+        sbyte t24 = x; sbyte u24 = t24--;
+        output[o + 54] = (long)(u24);
+        output[o + 55] = (long)(t24);
+        sbyte t25 = x; sbyte u25 = ++t25;
+        output[o + 56] = (long)(u25);
+        output[o + 57] = (long)(t25);
+        sbyte t26 = x; sbyte u26 = --t26;
+        output[o + 58] = (long)(u26);
+        output[o + 59] = (long)(t26);
     }
 }
 
@@ -223,11 +277,11 @@ public readonly partial struct ConformanceSByteIntrinsics(ReadOnlyBuffer<sbyte> 
     }
 }
 
-/// <summary>The short operators: 45 slots per thread (see <see cref="ConformanceFamilies.ShortOperators"/>).</summary>
+/// <summary>The short operators: 60 slots per thread (see <see cref="ConformanceFamilies.ShortOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceShortOperators(ReadOnlyBuffer<short> a, ReadOnlyBuffer<short> b, ReadOnlyBuffer<short> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 45;
+    public const int Slots = 60;
 
     public void Execute()
     {
@@ -285,18 +339,45 @@ public readonly partial struct ConformanceShortOperators(ReadOnlyBuffer<short> a
         output[o + 35] = (long)(t9);
         short t10 = x; t10 >>>= n;
         output[o + 36] = (long)(t10);
-        short t11 = x; short u11 = t11++;
-        output[o + 37] = (long)(u11);
-        output[o + 38] = (long)(t11);
-        short t12 = x; short u12 = t12--;
-        output[o + 39] = (long)(u12);
-        output[o + 40] = (long)(t12);
-        short t13 = x; short u13 = ++t13;
-        output[o + 41] = (long)(u13);
-        output[o + 42] = (long)(t13);
-        short t14 = x; short u14 = --t14;
-        output[o + 43] = (long)(u14);
-        output[o + 44] = (long)(t14);
+        short t11 = x; t11 <<= 17;
+        output[o + 37] = (long)(t11);
+        short t12 = x; t12 <<= 33;
+        output[o + 38] = (long)(t12);
+        short t13 = x; t13 <<= 1431655765;
+        output[o + 39] = (long)(t13);
+        short t14 = x; t14 <<= -1;
+        output[o + 40] = (long)(t14);
+        short t15 = x; t15 >>= 17;
+        output[o + 41] = (long)(t15);
+        short t16 = x; t16 >>= 33;
+        output[o + 42] = (long)(t16);
+        short t17 = x; t17 >>= 1431655765;
+        output[o + 43] = (long)(t17);
+        short t18 = x; t18 >>= -1;
+        output[o + 44] = (long)(t18);
+        short t19 = x; t19 >>>= 17;
+        output[o + 45] = (long)(t19);
+        short t20 = x; t20 >>>= 33;
+        output[o + 46] = (long)(t20);
+        short t21 = x; t21 >>>= 1431655765;
+        output[o + 47] = (long)(t21);
+        short t22 = x; t22 >>>= -1;
+        output[o + 48] = (long)(t22);
+        output[o + 49] = (long)(x << 33);
+        output[o + 50] = (long)(x >> 33);
+        output[o + 51] = (long)(x >>> 33);
+        short t23 = x; short u23 = t23++;
+        output[o + 52] = (long)(u23);
+        output[o + 53] = (long)(t23);
+        short t24 = x; short u24 = t24--;
+        output[o + 54] = (long)(u24);
+        output[o + 55] = (long)(t24);
+        short t25 = x; short u25 = ++t25;
+        output[o + 56] = (long)(u25);
+        output[o + 57] = (long)(t25);
+        short t26 = x; short u26 = --t26;
+        output[o + 58] = (long)(u26);
+        output[o + 59] = (long)(t26);
     }
 }
 
@@ -332,11 +413,11 @@ public readonly partial struct ConformanceShortIntrinsics(ReadOnlyBuffer<short> 
     }
 }
 
-/// <summary>The ushort operators: 45 slots per thread (see <see cref="ConformanceFamilies.UShortOperators"/>).</summary>
+/// <summary>The ushort operators: 60 slots per thread (see <see cref="ConformanceFamilies.UShortOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceUShortOperators(ReadOnlyBuffer<ushort> a, ReadOnlyBuffer<ushort> b, ReadOnlyBuffer<ushort> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 45;
+    public const int Slots = 60;
 
     public void Execute()
     {
@@ -394,18 +475,45 @@ public readonly partial struct ConformanceUShortOperators(ReadOnlyBuffer<ushort>
         output[o + 35] = (long)(t9);
         ushort t10 = x; t10 >>>= n;
         output[o + 36] = (long)(t10);
-        ushort t11 = x; ushort u11 = t11++;
-        output[o + 37] = (long)(u11);
-        output[o + 38] = (long)(t11);
-        ushort t12 = x; ushort u12 = t12--;
-        output[o + 39] = (long)(u12);
-        output[o + 40] = (long)(t12);
-        ushort t13 = x; ushort u13 = ++t13;
-        output[o + 41] = (long)(u13);
-        output[o + 42] = (long)(t13);
-        ushort t14 = x; ushort u14 = --t14;
-        output[o + 43] = (long)(u14);
-        output[o + 44] = (long)(t14);
+        ushort t11 = x; t11 <<= 17;
+        output[o + 37] = (long)(t11);
+        ushort t12 = x; t12 <<= 33;
+        output[o + 38] = (long)(t12);
+        ushort t13 = x; t13 <<= 1431655765;
+        output[o + 39] = (long)(t13);
+        ushort t14 = x; t14 <<= -1;
+        output[o + 40] = (long)(t14);
+        ushort t15 = x; t15 >>= 17;
+        output[o + 41] = (long)(t15);
+        ushort t16 = x; t16 >>= 33;
+        output[o + 42] = (long)(t16);
+        ushort t17 = x; t17 >>= 1431655765;
+        output[o + 43] = (long)(t17);
+        ushort t18 = x; t18 >>= -1;
+        output[o + 44] = (long)(t18);
+        ushort t19 = x; t19 >>>= 17;
+        output[o + 45] = (long)(t19);
+        ushort t20 = x; t20 >>>= 33;
+        output[o + 46] = (long)(t20);
+        ushort t21 = x; t21 >>>= 1431655765;
+        output[o + 47] = (long)(t21);
+        ushort t22 = x; t22 >>>= -1;
+        output[o + 48] = (long)(t22);
+        output[o + 49] = (long)(x << 33);
+        output[o + 50] = (long)(x >> 33);
+        output[o + 51] = (long)(x >>> 33);
+        ushort t23 = x; ushort u23 = t23++;
+        output[o + 52] = (long)(u23);
+        output[o + 53] = (long)(t23);
+        ushort t24 = x; ushort u24 = t24--;
+        output[o + 54] = (long)(u24);
+        output[o + 55] = (long)(t24);
+        ushort t25 = x; ushort u25 = ++t25;
+        output[o + 56] = (long)(u25);
+        output[o + 57] = (long)(t25);
+        ushort t26 = x; ushort u26 = --t26;
+        output[o + 58] = (long)(u26);
+        output[o + 59] = (long)(t26);
     }
 }
 
@@ -441,11 +549,11 @@ public readonly partial struct ConformanceUShortIntrinsics(ReadOnlyBuffer<ushort
     }
 }
 
-/// <summary>The int operators: 39 slots per thread (see <see cref="ConformanceFamilies.IntOperators"/>).</summary>
+/// <summary>The int operators: 54 slots per thread (see <see cref="ConformanceFamilies.IntOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceIntOperators(ReadOnlyBuffer<int> a, ReadOnlyBuffer<int> b, ReadOnlyBuffer<int> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 39;
+    public const int Slots = 54;
 
     public void Execute()
     {
@@ -497,18 +605,45 @@ public readonly partial struct ConformanceIntOperators(ReadOnlyBuffer<int> a, Re
         output[o + 29] = (long)(t9);
         int t10 = x; t10 >>>= n;
         output[o + 30] = (long)(t10);
-        int t11 = x; int u11 = t11++;
-        output[o + 31] = (long)(u11);
-        output[o + 32] = (long)(t11);
-        int t12 = x; int u12 = t12--;
-        output[o + 33] = (long)(u12);
-        output[o + 34] = (long)(t12);
-        int t13 = x; int u13 = ++t13;
-        output[o + 35] = (long)(u13);
-        output[o + 36] = (long)(t13);
-        int t14 = x; int u14 = --t14;
-        output[o + 37] = (long)(u14);
-        output[o + 38] = (long)(t14);
+        int t11 = x; t11 <<= 17;
+        output[o + 31] = (long)(t11);
+        int t12 = x; t12 <<= 33;
+        output[o + 32] = (long)(t12);
+        int t13 = x; t13 <<= 1431655765;
+        output[o + 33] = (long)(t13);
+        int t14 = x; t14 <<= -1;
+        output[o + 34] = (long)(t14);
+        int t15 = x; t15 >>= 17;
+        output[o + 35] = (long)(t15);
+        int t16 = x; t16 >>= 33;
+        output[o + 36] = (long)(t16);
+        int t17 = x; t17 >>= 1431655765;
+        output[o + 37] = (long)(t17);
+        int t18 = x; t18 >>= -1;
+        output[o + 38] = (long)(t18);
+        int t19 = x; t19 >>>= 17;
+        output[o + 39] = (long)(t19);
+        int t20 = x; t20 >>>= 33;
+        output[o + 40] = (long)(t20);
+        int t21 = x; t21 >>>= 1431655765;
+        output[o + 41] = (long)(t21);
+        int t22 = x; t22 >>>= -1;
+        output[o + 42] = (long)(t22);
+        output[o + 43] = (long)(x << 33);
+        output[o + 44] = (long)(x >> 33);
+        output[o + 45] = (long)(x >>> 33);
+        int t23 = x; int u23 = t23++;
+        output[o + 46] = (long)(u23);
+        output[o + 47] = (long)(t23);
+        int t24 = x; int u24 = t24--;
+        output[o + 48] = (long)(u24);
+        output[o + 49] = (long)(t24);
+        int t25 = x; int u25 = ++t25;
+        output[o + 50] = (long)(u25);
+        output[o + 51] = (long)(t25);
+        int t26 = x; int u26 = --t26;
+        output[o + 52] = (long)(u26);
+        output[o + 53] = (long)(t26);
     }
 }
 
@@ -544,11 +679,11 @@ public readonly partial struct ConformanceIntIntrinsics(ReadOnlyBuffer<int> a, R
     }
 }
 
-/// <summary>The uint operators: 39 slots per thread (see <see cref="ConformanceFamilies.UIntOperators"/>).</summary>
+/// <summary>The uint operators: 54 slots per thread (see <see cref="ConformanceFamilies.UIntOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceUIntOperators(ReadOnlyBuffer<uint> a, ReadOnlyBuffer<uint> b, ReadOnlyBuffer<uint> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 39;
+    public const int Slots = 54;
 
     public void Execute()
     {
@@ -600,18 +735,45 @@ public readonly partial struct ConformanceUIntOperators(ReadOnlyBuffer<uint> a, 
         output[o + 29] = (long)(t9);
         uint t10 = x; t10 >>>= n;
         output[o + 30] = (long)(t10);
-        uint t11 = x; uint u11 = t11++;
-        output[o + 31] = (long)(u11);
-        output[o + 32] = (long)(t11);
-        uint t12 = x; uint u12 = t12--;
-        output[o + 33] = (long)(u12);
-        output[o + 34] = (long)(t12);
-        uint t13 = x; uint u13 = ++t13;
-        output[o + 35] = (long)(u13);
-        output[o + 36] = (long)(t13);
-        uint t14 = x; uint u14 = --t14;
-        output[o + 37] = (long)(u14);
-        output[o + 38] = (long)(t14);
+        uint t11 = x; t11 <<= 17;
+        output[o + 31] = (long)(t11);
+        uint t12 = x; t12 <<= 33;
+        output[o + 32] = (long)(t12);
+        uint t13 = x; t13 <<= 1431655765;
+        output[o + 33] = (long)(t13);
+        uint t14 = x; t14 <<= -1;
+        output[o + 34] = (long)(t14);
+        uint t15 = x; t15 >>= 17;
+        output[o + 35] = (long)(t15);
+        uint t16 = x; t16 >>= 33;
+        output[o + 36] = (long)(t16);
+        uint t17 = x; t17 >>= 1431655765;
+        output[o + 37] = (long)(t17);
+        uint t18 = x; t18 >>= -1;
+        output[o + 38] = (long)(t18);
+        uint t19 = x; t19 >>>= 17;
+        output[o + 39] = (long)(t19);
+        uint t20 = x; t20 >>>= 33;
+        output[o + 40] = (long)(t20);
+        uint t21 = x; t21 >>>= 1431655765;
+        output[o + 41] = (long)(t21);
+        uint t22 = x; t22 >>>= -1;
+        output[o + 42] = (long)(t22);
+        output[o + 43] = (long)(x << 33);
+        output[o + 44] = (long)(x >> 33);
+        output[o + 45] = (long)(x >>> 33);
+        uint t23 = x; uint u23 = t23++;
+        output[o + 46] = (long)(u23);
+        output[o + 47] = (long)(t23);
+        uint t24 = x; uint u24 = t24--;
+        output[o + 48] = (long)(u24);
+        output[o + 49] = (long)(t24);
+        uint t25 = x; uint u25 = ++t25;
+        output[o + 50] = (long)(u25);
+        output[o + 51] = (long)(t25);
+        uint t26 = x; uint u26 = --t26;
+        output[o + 52] = (long)(u26);
+        output[o + 53] = (long)(t26);
     }
 }
 
@@ -647,11 +809,11 @@ public readonly partial struct ConformanceUIntIntrinsics(ReadOnlyBuffer<uint> a,
     }
 }
 
-/// <summary>The long operators: 39 slots per thread (see <see cref="ConformanceFamilies.LongOperators"/>).</summary>
+/// <summary>The long operators: 54 slots per thread (see <see cref="ConformanceFamilies.LongOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceLongOperators(ReadOnlyBuffer<long> a, ReadOnlyBuffer<long> b, ReadOnlyBuffer<long> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 39;
+    public const int Slots = 54;
 
     public void Execute()
     {
@@ -703,18 +865,45 @@ public readonly partial struct ConformanceLongOperators(ReadOnlyBuffer<long> a, 
         output[o + 29] = (long)(t9);
         long t10 = x; t10 >>>= n;
         output[o + 30] = (long)(t10);
-        long t11 = x; long u11 = t11++;
-        output[o + 31] = (long)(u11);
-        output[o + 32] = (long)(t11);
-        long t12 = x; long u12 = t12--;
-        output[o + 33] = (long)(u12);
-        output[o + 34] = (long)(t12);
-        long t13 = x; long u13 = ++t13;
-        output[o + 35] = (long)(u13);
-        output[o + 36] = (long)(t13);
-        long t14 = x; long u14 = --t14;
-        output[o + 37] = (long)(u14);
-        output[o + 38] = (long)(t14);
+        long t11 = x; t11 <<= 17;
+        output[o + 31] = (long)(t11);
+        long t12 = x; t12 <<= 33;
+        output[o + 32] = (long)(t12);
+        long t13 = x; t13 <<= 1431655765;
+        output[o + 33] = (long)(t13);
+        long t14 = x; t14 <<= -1;
+        output[o + 34] = (long)(t14);
+        long t15 = x; t15 >>= 17;
+        output[o + 35] = (long)(t15);
+        long t16 = x; t16 >>= 33;
+        output[o + 36] = (long)(t16);
+        long t17 = x; t17 >>= 1431655765;
+        output[o + 37] = (long)(t17);
+        long t18 = x; t18 >>= -1;
+        output[o + 38] = (long)(t18);
+        long t19 = x; t19 >>>= 17;
+        output[o + 39] = (long)(t19);
+        long t20 = x; t20 >>>= 33;
+        output[o + 40] = (long)(t20);
+        long t21 = x; t21 >>>= 1431655765;
+        output[o + 41] = (long)(t21);
+        long t22 = x; t22 >>>= -1;
+        output[o + 42] = (long)(t22);
+        output[o + 43] = (long)(x << 33);
+        output[o + 44] = (long)(x >> 33);
+        output[o + 45] = (long)(x >>> 33);
+        long t23 = x; long u23 = t23++;
+        output[o + 46] = (long)(u23);
+        output[o + 47] = (long)(t23);
+        long t24 = x; long u24 = t24--;
+        output[o + 48] = (long)(u24);
+        output[o + 49] = (long)(t24);
+        long t25 = x; long u25 = ++t25;
+        output[o + 50] = (long)(u25);
+        output[o + 51] = (long)(t25);
+        long t26 = x; long u26 = --t26;
+        output[o + 52] = (long)(u26);
+        output[o + 53] = (long)(t26);
     }
 }
 
@@ -750,11 +939,11 @@ public readonly partial struct ConformanceLongIntrinsics(ReadOnlyBuffer<long> a,
     }
 }
 
-/// <summary>The ulong operators: 38 slots per thread (see <see cref="ConformanceFamilies.ULongOperators"/>).</summary>
+/// <summary>The ulong operators: 53 slots per thread (see <see cref="ConformanceFamilies.ULongOperators"/>).</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct ConformanceULongOperators(ReadOnlyBuffer<ulong> a, ReadOnlyBuffer<ulong> b, ReadOnlyBuffer<ulong> c, ReadOnlyBuffer<int> s, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 38;
+    public const int Slots = 53;
 
     public void Execute()
     {
@@ -805,18 +994,45 @@ public readonly partial struct ConformanceULongOperators(ReadOnlyBuffer<ulong> a
         output[o + 28] = (long)(t9);
         ulong t10 = x; t10 >>>= n;
         output[o + 29] = (long)(t10);
-        ulong t11 = x; ulong u11 = t11++;
-        output[o + 30] = (long)(u11);
-        output[o + 31] = (long)(t11);
-        ulong t12 = x; ulong u12 = t12--;
-        output[o + 32] = (long)(u12);
-        output[o + 33] = (long)(t12);
-        ulong t13 = x; ulong u13 = ++t13;
-        output[o + 34] = (long)(u13);
-        output[o + 35] = (long)(t13);
-        ulong t14 = x; ulong u14 = --t14;
-        output[o + 36] = (long)(u14);
-        output[o + 37] = (long)(t14);
+        ulong t11 = x; t11 <<= 17;
+        output[o + 30] = (long)(t11);
+        ulong t12 = x; t12 <<= 33;
+        output[o + 31] = (long)(t12);
+        ulong t13 = x; t13 <<= 1431655765;
+        output[o + 32] = (long)(t13);
+        ulong t14 = x; t14 <<= -1;
+        output[o + 33] = (long)(t14);
+        ulong t15 = x; t15 >>= 17;
+        output[o + 34] = (long)(t15);
+        ulong t16 = x; t16 >>= 33;
+        output[o + 35] = (long)(t16);
+        ulong t17 = x; t17 >>= 1431655765;
+        output[o + 36] = (long)(t17);
+        ulong t18 = x; t18 >>= -1;
+        output[o + 37] = (long)(t18);
+        ulong t19 = x; t19 >>>= 17;
+        output[o + 38] = (long)(t19);
+        ulong t20 = x; t20 >>>= 33;
+        output[o + 39] = (long)(t20);
+        ulong t21 = x; t21 >>>= 1431655765;
+        output[o + 40] = (long)(t21);
+        ulong t22 = x; t22 >>>= -1;
+        output[o + 41] = (long)(t22);
+        output[o + 42] = (long)(x << 33);
+        output[o + 43] = (long)(x >> 33);
+        output[o + 44] = (long)(x >>> 33);
+        ulong t23 = x; ulong u23 = t23++;
+        output[o + 45] = (long)(u23);
+        output[o + 46] = (long)(t23);
+        ulong t24 = x; ulong u24 = t24--;
+        output[o + 47] = (long)(u24);
+        output[o + 48] = (long)(t24);
+        ulong t25 = x; ulong u25 = ++t25;
+        output[o + 49] = (long)(u25);
+        output[o + 50] = (long)(t25);
+        ulong t26 = x; ulong u26 = --t26;
+        output[o + 51] = (long)(u26);
+        output[o + 52] = (long)(t26);
     }
 }
 
@@ -3725,6 +3941,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -3801,6 +4032,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -3877,6 +4123,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -3953,6 +4214,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -4023,6 +4299,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -4093,6 +4384,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -4163,6 +4469,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),
@@ -4232,6 +4553,21 @@ internal static partial class ConformanceFamilies
             new("t <<= n", ResultKind.Integer, Check.Exact),
             new("t >>= n", ResultKind.Integer, Check.Exact),
             new("t >>>= n", ResultKind.Integer, Check.Exact),
+            new("t <<= 17", ResultKind.Integer, Check.Exact),
+            new("t <<= 33", ResultKind.Integer, Check.Exact),
+            new("t <<= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t <<= -1", ResultKind.Integer, Check.Exact),
+            new("t >>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>= -1", ResultKind.Integer, Check.Exact),
+            new("t >>>= 17", ResultKind.Integer, Check.Exact),
+            new("t >>>= 33", ResultKind.Integer, Check.Exact),
+            new("t >>>= 1431655765", ResultKind.Integer, Check.Exact),
+            new("t >>>= -1", ResultKind.Integer, Check.Exact),
+            new("x << 33", ResultKind.Integer, Check.Exact),
+            new("x >> 33", ResultKind.Integer, Check.Exact),
+            new("x >>> 33", ResultKind.Integer, Check.Exact),
             new("t++ (value)", ResultKind.Integer, Check.Exact),
             new("t++ (variable)", ResultKind.Integer, Check.Exact),
             new("t-- (value)", ResultKind.Integer, Check.Exact),

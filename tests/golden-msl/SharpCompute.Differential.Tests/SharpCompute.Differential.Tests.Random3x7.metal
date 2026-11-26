@@ -172,9 +172,9 @@ inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(
 inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
-inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
+inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
 inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
 inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
@@ -309,7 +309,7 @@ kernel void SharpCompute_Differential_Tests_Random3x7(
     half c13_6 = c13_5--;
     output[int(uint(p) + 19u)] = (metal::clamp(c13_2, l0, __ms_sat_long(__ms_half_rem(half(1.5f), c13_6))));
     short c14_0 = __ms_rotate_right(sh1, i0);
-    c14_0 >>= (int(by0) >> 65535);
+    c14_0 >>= (int(by0) >> 31);
     int c14_1 = int(uint(sh0) + uint(by1));
     output[int(uint(p) + 20u)] = long(+int(__ms_rotate_left(c14_0, c14_1)));
     uint2 c15_0 = __ms_clz(u4a.yy);

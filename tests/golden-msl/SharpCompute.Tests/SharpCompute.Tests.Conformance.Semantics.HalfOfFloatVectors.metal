@@ -8,7 +8,7 @@ inline half2 __ms_to_half2(float2 x) { return metal::select(half2(x), metal::sel
 inline half3 __ms_to_half3(float3 x) { return metal::select(half3(x), metal::select(half3(INFINITY), half3(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int Slots = 9;
 

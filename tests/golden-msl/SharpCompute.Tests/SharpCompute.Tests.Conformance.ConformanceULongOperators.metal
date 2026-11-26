@@ -4,9 +4,9 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
 
-constant int Slots = 38;
+constant int Slots = 53;
 
 struct __GridWindow
 {
@@ -96,19 +96,58 @@ kernel void SharpCompute_Tests_Conformance_ConformanceULongOperators(
     t10 >>= n;
     output[int(uint(o) + 29u)] = long(t10);
     ulong t11 = x;
-    ulong u11 = t11++;
-    output[int(uint(o) + 30u)] = long(u11);
-    output[int(uint(o) + 31u)] = long(t11);
+    t11 <<= 17;
+    output[int(uint(o) + 30u)] = long(t11);
     ulong t12 = x;
-    ulong u12 = t12--;
-    output[int(uint(o) + 32u)] = long(u12);
-    output[int(uint(o) + 33u)] = long(t12);
+    t12 <<= 33;
+    output[int(uint(o) + 31u)] = long(t12);
     ulong t13 = x;
-    ulong u13 = ++t13;
-    output[int(uint(o) + 34u)] = long(u13);
-    output[int(uint(o) + 35u)] = long(t13);
+    t13 <<= 21;
+    output[int(uint(o) + 32u)] = long(t13);
     ulong t14 = x;
-    ulong u14 = --t14;
-    output[int(uint(o) + 36u)] = long(u14);
-    output[int(uint(o) + 37u)] = long(t14);
+    t14 <<= 63;
+    output[int(uint(o) + 33u)] = long(t14);
+    ulong t15 = x;
+    t15 >>= 17;
+    output[int(uint(o) + 34u)] = long(t15);
+    ulong t16 = x;
+    t16 >>= 33;
+    output[int(uint(o) + 35u)] = long(t16);
+    ulong t17 = x;
+    t17 >>= 21;
+    output[int(uint(o) + 36u)] = long(t17);
+    ulong t18 = x;
+    t18 >>= 63;
+    output[int(uint(o) + 37u)] = long(t18);
+    ulong t19 = x;
+    t19 >>= 17;
+    output[int(uint(o) + 38u)] = long(t19);
+    ulong t20 = x;
+    t20 >>= 33;
+    output[int(uint(o) + 39u)] = long(t20);
+    ulong t21 = x;
+    t21 >>= 21;
+    output[int(uint(o) + 40u)] = long(t21);
+    ulong t22 = x;
+    t22 >>= 63;
+    output[int(uint(o) + 41u)] = long(t22);
+    output[int(uint(o) + 42u)] = long(x << 33);
+    output[int(uint(o) + 43u)] = long(x >> 33);
+    output[int(uint(o) + 44u)] = long(x >> 33);
+    ulong t23 = x;
+    ulong u23 = t23++;
+    output[int(uint(o) + 45u)] = long(u23);
+    output[int(uint(o) + 46u)] = long(t23);
+    ulong t24 = x;
+    ulong u24 = t24--;
+    output[int(uint(o) + 47u)] = long(u24);
+    output[int(uint(o) + 48u)] = long(t24);
+    ulong t25 = x;
+    ulong u25 = ++t25;
+    output[int(uint(o) + 49u)] = long(u25);
+    output[int(uint(o) + 50u)] = long(t25);
+    ulong t26 = x;
+    ulong u26 = --t26;
+    output[int(uint(o) + 51u)] = long(u26);
+    output[int(uint(o) + 52u)] = long(t26);
 }

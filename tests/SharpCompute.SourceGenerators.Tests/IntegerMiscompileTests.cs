@@ -28,6 +28,8 @@ public class IntegerMiscompileTests
                 private const uint Max = uint.MaxValue;
                 private static readonly uint ReadOnlyMax = 0xFFFFFFF0u;
 
+                private static void Bump(ref uint x) => x++;
+
                 public void Execute()
                 {
                     int i = ThreadIds.X;
@@ -80,6 +82,20 @@ public class IntegerMiscompileTests
         Assert.Equal(expected, Statement(body));
 
     [Theory]
+    [InlineData("uint m = uint.MaxValue; uints[2] = m / u;", "uints[2] = __ms_div_near_max(m, u);")]
+    [InlineData("long m = 4294967295; longs[2] = m % l;", "longs[2] = __ms_rem_near_max(m, l);")]
+    [InlineData("uint m = uint.MaxValue; uint k = m; uints[2] = k / u;", "uints[2] = __ms_div_near_max(k, u);")]
+    [InlineData("UInt3 m = new UInt3(uint.MaxValue, 1, 2); vectors[1] = m / v;", "vectors[1] = __ms_div_near_max(m, v);")]
+    // A local that is written after its declaration is divided as any dividend.
+    [InlineData("uint m = uint.MaxValue; m = u; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = uint.MaxValue; m -= 1; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = uint.MaxValue; m++; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = uint.MaxValue; Bump(ref m); uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = u; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    public void AConstantLocalNear2To32_IsDividedThroughTheHelperUnlessItIsWritten(string body, string expected) =>
+        Assert.Equal(expected, Statement(body));
+
+    [Theory]
     [InlineData("ints[2] /= b;", "ints[2] /= __ms_nonzero(b);")]
     [InlineData("uints[i] %= u;", "uints[i] %= __ms_nonzero(u);")]
     [InlineData("shorts[1] /= s;", "shorts[1] /= __ms_nonzero(int(s));")]
@@ -112,8 +128,8 @@ public class IntegerMiscompileTests
 
         Assert.Equal(
             [
-                "inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }",
-                "inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }",
+                "inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }",
+                "inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }",
                 "inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }",
                 "inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }",
                 "inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }",

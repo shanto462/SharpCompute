@@ -173,10 +173,10 @@ inline uint4 __ms_sat_uint4(half4 x) { return __ms_sat_uint4(float4(x)); }
 inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = ulong(metal::min(y, 18446742974197923840.0f)); return x >= 18446744073709551616.0f ? 18446744073709551615UL : r; }
 inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
-inline uint4 __ms_nonzero(uint4 x) { return x | uint4(metal::reverse_bits(x) == uint4(0)); }
-inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
+inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint4 __ms_nonzero(uint4 x) { return uint4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
+inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
 inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
 inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
 
@@ -257,7 +257,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2(
     char c1_0 = sb2;
     c1_0 += int(sb1);
     output[int(uint(p) + 4u)] = long(__ms_rotate_right(sh0, int((uint(b1 ? by2 : by1) - uint(c1_0)) + uint(us2))));
-    ulong c2_0 = metal::rotate(metal::reverse_bits(ul1 << (-1)), ulong(uint(int(uint(metal::min(uchar(31), by1)) + uint(by1))) & 63u));
+    ulong c2_0 = metal::rotate(metal::reverse_bits(ul1 << 63), ulong(uint(int(uint(metal::min(uchar(31), by1)) + uint(by1))) & 63u));
     output[int(uint(p) + 5u)] = long((c2_0 == 0UL) ? 0UL : ul2 / __ms_nonzero(c2_0));
     output[int(uint(p) + 6u)] = (metal::all(((u4a / __ms_nonzero(metal::select(u4b, uint4(1u), (uint4(u4b) == 0u)))) & uint4(u2)) > metal::clamp(u3a.yyyz, uint(ul2), uint(sh1)))) ? 1L : 0L;
     ulong c4_0 = ul0;

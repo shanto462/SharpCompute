@@ -4,7 +4,7 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
 
 struct __Constants
 {

@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Operations;
 
 namespace SharpCompute.SourceGenerators;
@@ -28,7 +29,10 @@ namespace SharpCompute.SourceGenerators;
 /// on <c>t == 0</c>, and the GPU compiler folded <c>clz(t) &gt;&gt; 5</c> and the top bit of
 /// <c>(t - 1) &amp; ~t</c> in some shaders (random shaders, and one specialized by a function
 /// constant, with the lanes of a SIMD group dividing by different values). It costs a bit reversal,
-/// a compare and an or. Measured on an M4 Pro (median of 14 runs of 4M threads): in a loop that does
+/// a compare and an or. A divisor the front end can evaluate, after inlining and folding, is left
+/// as it is (<c>__builtin_constant_p</c>, lane by lane for a vector): the reversal would hide the
+/// constant from the front end, and the GPU compiler folds a division of two constants wrongly for
+/// most even divisors, where the front end folds it right or turns it into a multiplication. Measured on an M4 Pro (median of 14 runs of 4M threads): in a loop that does
 /// nothing but divide, 9% of a 32-bit unsigned division, 13% of a signed one and 1% of a 64-bit one;
 /// in a 3 x 3 box filter that finds its pixel with <c>i / width</c> and <c>i % width</c>, 1%.
 /// </para>
@@ -39,9 +43,10 @@ namespace SharpCompute.SourceGenerators;
 /// narrow to 32 bits (<c>4294967295L % y</c> with <c>y</c> a widened <c>uint</c>, and the negated
 /// constant) goes the same way, as do the lanes of a <c>uint</c> vector. A dividend whose magnitude
 /// is in that range and that the generator can evaluate (a C# constant, a <c>static readonly</c>
-/// value, a constant vector) is divided by <c>__ms_div_near_max(c, x)</c>, which divides
-/// <c>c - x</c> instead: that is not a constant. A dividend that only becomes a constant once the
-/// compiler has propagated a local or inlined a helper is not recognized.
+/// value, a constant vector, or a local with a constant initializer that is never written) is divided
+/// by <c>__ms_div_near_max(c, x)</c>, which divides <c>c - x</c> instead: that is not a constant. A
+/// dividend that only becomes a constant once the compiler has inlined a helper (a parameter) is not
+/// recognized.
 /// </para>
 /// <para>
 /// A program-scope initializer keeps the native operators: it may not call a function, and its
@@ -106,18 +111,24 @@ internal sealed partial class MslTranslator
     private void UseIntegerHelper(string helper, string type)
     {
         _integerHelpers.Add(helper + "(" + type);
+        string scalar = type.TrimEnd('2', '3', '4');
 
-        if (helper == MslNames.NonZero && type.TrimEnd('2', '3', '4') is "char" or "uchar" or "short" or "ushort")
+        if (helper == MslNames.NonZero && scalar is "char" or "uchar" or "short" or "ushort")
         {
             // The 8- and 16-bit ones divide as int, as MSL promotes them: `__ms_nonzero(int3(x))`.
-            _integerHelpers.Add(helper + "(int" + type.Substring(type.TrimEnd('2', '3', '4').Length));
+            UseIntegerHelper(helper, "int" + type.Substring(scalar.Length));
+        }
+        else if (helper == MslNames.NonZero && scalar != type)
+        {
+            // A vector one calls the scalar one for each lane.
+            _integerHelpers.Add(helper + "(" + scalar);
         }
         else if (helper is MslNames.DivideNearMax or MslNames.RemainderNearMax)
         {
             // The long ones divide the magnitudes as ulong; each divides by a nonzero divisor.
             string unsigned = type == "long" ? "ulong" : type;
             _integerHelpers.Add(helper + "(" + unsigned);
-            _integerHelpers.Add(MslNames.NonZero + "(" + unsigned);
+            UseIntegerHelper(MslNames.NonZero, unsigned);
         }
     }
 
@@ -199,11 +210,94 @@ internal sealed partial class MslTranslator
             return Magnitude(constant) is >= NearMaxDividend and <= uint.MaxValue;
         }
 
+        if (ConstantLocalValue(dividend) is { } local)
+        {
+            // `uint m = uint.MaxValue; ... m / x`: the compiler propagates the local's value into the
+            // division as it does a constant written there.
+            return IsNearMaxConstant(local, type);
+        }
+
         // A static readonly value or a constant vector, which only the generator's folder evaluates
         // (32-bit components).
         return Folder.TryEvaluate(dividend, out FoldedValue? folded, out _) &&
             folded is { Kind: ScalarKind.UInt } &&
             folded.Components.Any(static component => component >= NearMaxDividend);
+    }
+
+    /// <summary>
+    /// The initializer of the local that <paramref name="operand"/> reads (through conversions), when
+    /// it is a constant (to C# or to the generator's folder) and the local is never written after its declaration: no assignment,
+    /// compound assignment, <c>++</c>/<c>--</c>, <c>ref</c> or <c>out</c> argument, <c>ref</c> local
+    /// or deconstruction targets it. Null otherwise.
+    /// </summary>
+    private IOperation? ConstantLocalValue(IOperation operand)
+    {
+        while (operand is IConversionOperation { OperatorMethod: null } conversion)
+        {
+            operand = conversion.Operand;
+        }
+
+        if (operand is not ILocalReferenceOperation { Local: { IsRef: false } local } ||
+            local.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax(_cancellationToken) is not VariableDeclaratorSyntax { Initializer: not null } declarator ||
+            GetSemanticModel(declarator.SyntaxTree).GetOperation(declarator, _cancellationToken) is not IVariableDeclaratorOperation { Initializer.Value: { } value })
+        {
+            return null;
+        }
+
+        if (!(value.ConstantValue.HasValue || Folder.TryEvaluate(value, out _, out _)))
+        {
+            // Another such local (`uint a = uint.MaxValue; uint b = a;`), or nothing.
+            if (ConstantLocalValue(value) is not { } chained)
+            {
+                return null;
+            }
+
+            value = chained;
+        }
+
+        // The block the local is declared in is its whole scope.
+        SyntaxNode? scope = declarator.FirstAncestorOrSelf<BlockSyntax>() ?? (SyntaxNode?)declarator.FirstAncestorOrSelf<MemberDeclarationSyntax>();
+        if (scope is null || GetSemanticModel(scope.SyntaxTree).GetOperation(scope, _cancellationToken) is not { } body)
+        {
+            return null;
+        }
+
+        foreach (IOperation reference in body.Descendants())
+        {
+            if (reference is ILocalReferenceOperation other && SymbolEqualityComparer.Default.Equals(other.Local, local) && IsWrite(other))
+            {
+                return null;
+            }
+        }
+
+        return value;
+    }
+
+    /// <summary>True when <paramref name="reference"/> is written to or taken by reference.</summary>
+    private static bool IsWrite(ILocalReferenceOperation reference)
+    {
+        IOperation child = reference;
+        IOperation? parent = reference.Parent;
+
+        // A tuple element of a deconstruction target is written like the target itself.
+        while (parent is ITupleOperation)
+        {
+            child = parent;
+            parent = parent.Parent;
+        }
+
+        return parent switch
+        {
+            ISimpleAssignmentOperation assignment => assignment.Target == child || assignment.IsRef,
+            ICompoundAssignmentOperation compound => compound.Target == child,
+            ICoalesceAssignmentOperation coalesce => coalesce.Target == child,
+            IDeconstructionAssignmentOperation deconstruction => deconstruction.Target == child,
+            IIncrementOrDecrementOperation => true,
+            IArgumentOperation argument => argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out or RefKind.RefReadOnlyParameter,
+            IVariableInitializerOperation initializer => initializer.Parent is IVariableDeclaratorOperation { Symbol.IsRef: true },
+            IAddressOfOperation => true,
+            _ => false,
+        };
     }
 
     /// <summary>The magnitude of an integer constant, or null for any other constant.</summary>

@@ -4,9 +4,9 @@
 using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 
-constant int Slots = 45;
+constant int Slots = 60;
 
 struct __GridWindow
 {
@@ -103,19 +103,58 @@ kernel void SharpCompute_Tests_Conformance_ConformanceUShortOperators(
     t10 >>= n;
     output[int(uint(o) + 36u)] = long(t10);
     ushort t11 = x;
-    ushort u11 = t11++;
-    output[int(uint(o) + 37u)] = long(u11);
-    output[int(uint(o) + 38u)] = long(t11);
+    t11 = ushort(0);
+    output[int(uint(o) + 37u)] = long(t11);
     ushort t12 = x;
-    ushort u12 = t12--;
-    output[int(uint(o) + 39u)] = long(u12);
-    output[int(uint(o) + 40u)] = long(t12);
+    t12 <<= 1;
+    output[int(uint(o) + 38u)] = long(t12);
     ushort t13 = x;
-    ushort u13 = ++t13;
-    output[int(uint(o) + 41u)] = long(u13);
-    output[int(uint(o) + 42u)] = long(t13);
+    t13 = ushort(0);
+    output[int(uint(o) + 39u)] = long(t13);
     ushort t14 = x;
-    ushort u14 = --t14;
-    output[int(uint(o) + 43u)] = long(u14);
-    output[int(uint(o) + 44u)] = long(t14);
+    t14 = ushort(0);
+    output[int(uint(o) + 40u)] = long(t14);
+    ushort t15 = x;
+    t15 = ushort(0);
+    output[int(uint(o) + 41u)] = long(t15);
+    ushort t16 = x;
+    t16 >>= 1;
+    output[int(uint(o) + 42u)] = long(t16);
+    ushort t17 = x;
+    t17 = ushort(0);
+    output[int(uint(o) + 43u)] = long(t17);
+    ushort t18 = x;
+    t18 = ushort(0);
+    output[int(uint(o) + 44u)] = long(t18);
+    ushort t19 = x;
+    t19 >>= 17;
+    output[int(uint(o) + 45u)] = long(t19);
+    ushort t20 = x;
+    t20 >>= 1;
+    output[int(uint(o) + 46u)] = long(t20);
+    ushort t21 = x;
+    t21 >>= 21;
+    output[int(uint(o) + 47u)] = long(t21);
+    ushort t22 = x;
+    t22 >>= 31;
+    output[int(uint(o) + 48u)] = long(t22);
+    output[int(uint(o) + 49u)] = long(int(x) << 1);
+    output[int(uint(o) + 50u)] = long(int(x) >> 1);
+    output[int(uint(o) + 51u)] = long(int(uint(int(x)) >> 1));
+    ushort t23 = x;
+    ushort u23 = t23++;
+    output[int(uint(o) + 52u)] = long(u23);
+    output[int(uint(o) + 53u)] = long(t23);
+    ushort t24 = x;
+    ushort u24 = t24--;
+    output[int(uint(o) + 54u)] = long(u24);
+    output[int(uint(o) + 55u)] = long(t24);
+    ushort t25 = x;
+    ushort u25 = ++t25;
+    output[int(uint(o) + 56u)] = long(u25);
+    output[int(uint(o) + 57u)] = long(t25);
+    ushort t26 = x;
+    ushort u26 = --t26;
+    output[int(uint(o) + 58u)] = long(u26);
+    output[int(uint(o) + 59u)] = long(t26);
 }
