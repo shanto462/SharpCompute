@@ -80,7 +80,8 @@ build error `SCG0052`).
   unsigned arithmetic are the same machine operations. Program-scope constants wrap the same way.
 - **Negating an integer vector** (`-v` on an `IntN`, and the operators that amount to it: `0 - v`,
   `v * -1`, `v / -1`, `v *= -1`, also on a `UIntN`) is emitted as a prelude helper, `__ms_neg(v)`,
-  which negates each lane on its own. Apple's Metal compiler miscompiles the vector operator: when
+  which negates each lane on its own. Apple's Metal compiler miscompiles the vector operator (reported
+  as FB25732151): when
   one lane of the negation is never read and the same vector is subtracted in a chain elsewhere
   (`t += c; t *= 3; t -= v`), the chain silently loses that lane. A constant that negates only some
   lanes does the same when the other lanes are the unread ones, so `new Int3(0, 5, 0) - v` is

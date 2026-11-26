@@ -6,7 +6,8 @@ namespace SharpCompute.SourceGenerators;
 
 /// <summary>
 /// The negation of an integer vector, which is emitted as the prelude's <c>__ms_neg(v)</c> instead
-/// of <c>-v</c> to work around a miscompile in Apple's Metal compiler.
+/// of <c>-v</c> to work around a miscompile in Apple's Metal compiler (reported to Apple as
+/// FB25732151).
 /// </summary>
 /// <remarks>
 /// <para>
