@@ -151,8 +151,8 @@ public class BuildTargetTests
         Assert.Equal(["Fixture.Library.metallib", "Fixture.metallib"], project.Libraries(singleFile));
         Assert.False(File.Exists(Path.Combine(singleFile, "Fixture.dll")));
 
-        (int exitCode, string output) = Tool.Run(Path.Combine(singleFile, "Fixture"), singleFile);
-        FixtureProject.AssertOutput(Precompiled, exitCode, output);
+        (int exitCode, string output, string error) = Tool.RunApplication(Path.Combine(singleFile, "Fixture"), singleFile);
+        FixtureProject.AssertOutput(Precompiled, exitCode, output, error);
     }
 
     /// <summary>A copy of the Fixture folder that uses the binaries next to this test assembly.</summary>
@@ -200,12 +200,17 @@ public class BuildTargetTests
         /// <summary>Runs the built application and compares the line it prints.</summary>
         public void AssertRuns(string expected)
         {
-            (int exitCode, string output) = Tool.Run(Tool.DotNet, Output, Path.Combine(Output, "Fixture.dll"));
-            AssertOutput(expected, exitCode, output);
+            (int exitCode, string output, string error) = Tool.RunApplication(Tool.DotNet, Output, Path.Combine(Output, "Fixture.dll"));
+            AssertOutput(expected, exitCode, output, error);
         }
 
-        public static void AssertOutput(string expected, int exitCode, string output)
+        public static void AssertOutput(string expected, int exitCode, string output, string error)
         {
+            // Passed on rather than compared or dropped: under Metal's validation layers this is where
+            // the application's violations are reported, and scripts/validate-gpu.sh reads the test
+            // host's stderr for them.
+            Console.Error.Write(error);
+
             // Exit code 2 is the application saying that this machine has no Metal device: then there
             // is nothing to dispatch, and what the build produced has been checked already.
             if (exitCode == 2 && output.Contains("no Metal device", StringComparison.Ordinal))
@@ -213,7 +218,7 @@ public class BuildTargetTests
                 return;
             }
 
-            Assert.True(exitCode == 0, output);
+            Assert.True(exitCode == 0, output + error);
             Assert.Equal(expected, output.Trim());
         }
 

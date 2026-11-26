@@ -111,6 +111,61 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer vector arithmetic (MslPrelude.VectorArithmetic).
+inline char2 __ms_add(char2 a, char2 b) { return char2(char(uchar(a.x) + uchar(b.x)), char(uchar(a.y) + uchar(b.y))); }
+inline char3 __ms_add(char3 a, char3 b) { return char3(char(uchar(a.x) + uchar(b.x)), char(uchar(a.y) + uchar(b.y)), char(uchar(a.z) + uchar(b.z))); }
+inline char4 __ms_add(char4 a, char4 b) { return char4(char(uchar(a.x) + uchar(b.x)), char(uchar(a.y) + uchar(b.y)), char(uchar(a.z) + uchar(b.z)), char(uchar(a.w) + uchar(b.w))); }
+inline uchar2 __ms_add(uchar2 a, uchar2 b) { return uchar2(uchar(a.x + b.x), uchar(a.y + b.y)); }
+inline uchar3 __ms_add(uchar3 a, uchar3 b) { return uchar3(uchar(a.x + b.x), uchar(a.y + b.y), uchar(a.z + b.z)); }
+inline uchar4 __ms_add(uchar4 a, uchar4 b) { return uchar4(uchar(a.x + b.x), uchar(a.y + b.y), uchar(a.z + b.z), uchar(a.w + b.w)); }
+inline short2 __ms_add(short2 a, short2 b) { return short2(short(ushort(a.x) + ushort(b.x)), short(ushort(a.y) + ushort(b.y))); }
+inline short3 __ms_add(short3 a, short3 b) { return short3(short(ushort(a.x) + ushort(b.x)), short(ushort(a.y) + ushort(b.y)), short(ushort(a.z) + ushort(b.z))); }
+inline short4 __ms_add(short4 a, short4 b) { return short4(short(ushort(a.x) + ushort(b.x)), short(ushort(a.y) + ushort(b.y)), short(ushort(a.z) + ushort(b.z)), short(ushort(a.w) + ushort(b.w))); }
+inline ushort2 __ms_add(ushort2 a, ushort2 b) { return ushort2(ushort(a.x + b.x), ushort(a.y + b.y)); }
+inline ushort3 __ms_add(ushort3 a, ushort3 b) { return ushort3(ushort(a.x + b.x), ushort(a.y + b.y), ushort(a.z + b.z)); }
+inline ushort4 __ms_add(ushort4 a, ushort4 b) { return ushort4(ushort(a.x + b.x), ushort(a.y + b.y), ushort(a.z + b.z), ushort(a.w + b.w)); }
+inline int2 __ms_add(int2 a, int2 b) { return int2(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y))); }
+inline int3 __ms_add(int3 a, int3 b) { return int3(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y)), int(uint(a.z) + uint(b.z))); }
+inline int4 __ms_add(int4 a, int4 b) { return int4(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y)), int(uint(a.z) + uint(b.z)), int(uint(a.w) + uint(b.w))); }
+inline uint2 __ms_add(uint2 a, uint2 b) { return uint2(a.x + b.x, a.y + b.y); }
+inline uint3 __ms_add(uint3 a, uint3 b) { return uint3(a.x + b.x, a.y + b.y, a.z + b.z); }
+inline uint4 __ms_add(uint4 a, uint4 b) { return uint4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
+inline long2 __ms_add(long2 a, long2 b) { return long2(long(ulong(a.x) + ulong(b.x)), long(ulong(a.y) + ulong(b.y))); }
+inline long3 __ms_add(long3 a, long3 b) { return long3(long(ulong(a.x) + ulong(b.x)), long(ulong(a.y) + ulong(b.y)), long(ulong(a.z) + ulong(b.z))); }
+inline long4 __ms_add(long4 a, long4 b) { return long4(long(ulong(a.x) + ulong(b.x)), long(ulong(a.y) + ulong(b.y)), long(ulong(a.z) + ulong(b.z)), long(ulong(a.w) + ulong(b.w))); }
+inline ulong2 __ms_add(ulong2 a, ulong2 b) { return ulong2(a.x + b.x, a.y + b.y); }
+inline ulong3 __ms_add(ulong3 a, ulong3 b) { return ulong3(a.x + b.x, a.y + b.y, a.z + b.z); }
+inline ulong4 __ms_add(ulong4 a, ulong4 b) { return ulong4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
+inline char2 __ms_sub(char2 a, char2 b) { return char2(char(uchar(a.x) - uchar(b.x)), char(uchar(a.y) - uchar(b.y))); }
+inline char3 __ms_sub(char3 a, char3 b) { return char3(char(uchar(a.x) - uchar(b.x)), char(uchar(a.y) - uchar(b.y)), char(uchar(a.z) - uchar(b.z))); }
+inline char4 __ms_sub(char4 a, char4 b) { return char4(char(uchar(a.x) - uchar(b.x)), char(uchar(a.y) - uchar(b.y)), char(uchar(a.z) - uchar(b.z)), char(uchar(a.w) - uchar(b.w))); }
+inline uchar2 __ms_sub(uchar2 a, uchar2 b) { return uchar2(uchar(a.x - b.x), uchar(a.y - b.y)); }
+inline uchar3 __ms_sub(uchar3 a, uchar3 b) { return uchar3(uchar(a.x - b.x), uchar(a.y - b.y), uchar(a.z - b.z)); }
+inline uchar4 __ms_sub(uchar4 a, uchar4 b) { return uchar4(uchar(a.x - b.x), uchar(a.y - b.y), uchar(a.z - b.z), uchar(a.w - b.w)); }
+inline short2 __ms_sub(short2 a, short2 b) { return short2(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y))); }
+inline short3 __ms_sub(short3 a, short3 b) { return short3(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y)), short(ushort(a.z) - ushort(b.z))); }
+inline short4 __ms_sub(short4 a, short4 b) { return short4(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y)), short(ushort(a.z) - ushort(b.z)), short(ushort(a.w) - ushort(b.w))); }
+inline ushort2 __ms_sub(ushort2 a, ushort2 b) { return ushort2(ushort(a.x - b.x), ushort(a.y - b.y)); }
+inline ushort3 __ms_sub(ushort3 a, ushort3 b) { return ushort3(ushort(a.x - b.x), ushort(a.y - b.y), ushort(a.z - b.z)); }
+inline ushort4 __ms_sub(ushort4 a, ushort4 b) { return ushort4(ushort(a.x - b.x), ushort(a.y - b.y), ushort(a.z - b.z), ushort(a.w - b.w)); }
+inline int2 __ms_sub(int2 a, int2 b) { return int2(int(uint(a.x) - uint(b.x)), int(uint(a.y) - uint(b.y))); }
+inline int3 __ms_sub(int3 a, int3 b) { return int3(int(uint(a.x) - uint(b.x)), int(uint(a.y) - uint(b.y)), int(uint(a.z) - uint(b.z))); }
+inline int4 __ms_sub(int4 a, int4 b) { return int4(int(uint(a.x) - uint(b.x)), int(uint(a.y) - uint(b.y)), int(uint(a.z) - uint(b.z)), int(uint(a.w) - uint(b.w))); }
+inline uint2 __ms_sub(uint2 a, uint2 b) { return uint2(a.x - b.x, a.y - b.y); }
+inline uint3 __ms_sub(uint3 a, uint3 b) { return uint3(a.x - b.x, a.y - b.y, a.z - b.z); }
+inline uint4 __ms_sub(uint4 a, uint4 b) { return uint4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w); }
+inline long2 __ms_sub(long2 a, long2 b) { return long2(long(ulong(a.x) - ulong(b.x)), long(ulong(a.y) - ulong(b.y))); }
+inline long3 __ms_sub(long3 a, long3 b) { return long3(long(ulong(a.x) - ulong(b.x)), long(ulong(a.y) - ulong(b.y)), long(ulong(a.z) - ulong(b.z))); }
+inline long4 __ms_sub(long4 a, long4 b) { return long4(long(ulong(a.x) - ulong(b.x)), long(ulong(a.y) - ulong(b.y)), long(ulong(a.z) - ulong(b.z)), long(ulong(a.w) - ulong(b.w))); }
+inline ulong2 __ms_sub(ulong2 a, ulong2 b) { return ulong2(a.x - b.x, a.y - b.y); }
+inline ulong3 __ms_sub(ulong3 a, ulong3 b) { return ulong3(a.x - b.x, a.y - b.y, a.z - b.z); }
+inline ulong4 __ms_sub(ulong4 a, ulong4 b) { return ulong4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w); }
+template <typename T, typename V> inline V __ms_add_to(thread T& target, V value) { V result = __ms_add(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_add_to(device T& target, V value) { V result = __ms_add(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V value) { V result = __ms_add(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 
 constant int Slots = 96;
 
@@ -167,37 +222,37 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShader(
     int3 n0 = __ms_neg(v);
     output[int(uint(o) + 0u)] = int(uint(n0.x) + uint(n0.z));
     int3 t0 = v;
-    t0 = int3(uint3(t0) + uint3(c));
+    t0 = __ms_add(t0, c);
     t0 = int3(uint3(t0) * 3u);
-    t0 = int3(uint3(t0) - uint3(v));
+    t0 = __ms_sub(t0, v);
     output[int(uint(o) + 1u)] = t0.x;
     output[int(uint(o) + 2u)] = t0.y;
     output[int(uint(o) + 3u)] = t0.z;
     int3 w1 = int3(int(uint(a) + 1u), int(uint(b) - 1u), int(uint(a ^ b) + 1u));
     int3 n1 = __ms_neg(w1);
     output[int(uint(o) + 4u)] = int(uint(n1.x) + uint(n1.y));
-    int3 t1 = int3(((uint3(w1) + uint3(c)) * 5u) - uint3(w1));
+    int3 t1 = int3(__ms_sub((__ms_add(uint3(w1), uint3(c))) * 5u, uint3(w1)));
     output[int(uint(o) + 5u)] = t1.x;
     output[int(uint(o) + 6u)] = t1.y;
     output[int(uint(o) + 7u)] = t1.z;
     int3 w2 = int3(int(uint(a) + 2u), int(uint(b) - 2u), int(uint(a ^ b) + 2u));
     int3 n2 = __ms_neg(w2);
     output[int(uint(o) + 8u)] = int(uint(n2.y) + uint(n2.z));
-    int3 t2 = int3((uint3(w2) * 7u) + uint3(c) - uint3(w2));
+    int3 t2 = int3(__ms_sub(__ms_add(uint3(w2) * 7u, uint3(c)), uint3(w2)));
     output[int(uint(o) + 9u)] = t2.x;
     output[int(uint(o) + 10u)] = t2.y;
     output[int(uint(o) + 11u)] = t2.z;
     int3 w3 = int3(int(uint(a) + 3u), int(uint(b) - 3u), int(uint(a ^ b) + 3u));
     int3 n3 = __ms_neg(w3);
     output[int(uint(o) + 12u)] = n3.x;
-    int3 t3 = int3(uint3(c) - uint3(w3) + (uint3(w3) * 3u));
+    int3 t3 = int3(__ms_add(__ms_sub(uint3(c), uint3(w3)), uint3(w3) * 3u));
     output[int(uint(o) + 13u)] = t3.x;
     output[int(uint(o) + 14u)] = t3.y;
     output[int(uint(o) + 15u)] = t3.z;
     int3 w4 = int3(int(uint(a) + 4u), int(uint(b) - 4u), int(uint(a ^ b) + 4u));
     int3 n4 = __ms_neg(w4);
     output[int(uint(o) + 16u)] = n4.z;
-    int3 t4 = int3(((uint3(w4) + uint3(c)) * 3u) - uint3(w4));
+    int3 t4 = int3(__ms_sub((__ms_add(uint3(w4), uint3(c))) * 3u, uint3(w4)));
     output[int(uint(o) + 17u)] = t4.x;
     output[int(uint(o) + 18u)] = t4.y;
     output[int(uint(o) + 19u)] = t4.z;
@@ -205,20 +260,20 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShader(
     int3 n5 = w5;
     n5 = __ms_neg(n5);
     output[int(uint(o) + 20u)] = int(uint(n5.x) + uint(n5.z));
-    int3 t5 = int3(((uint3(w5) + uint3(c)) * 3u) - uint3(w5));
+    int3 t5 = int3(__ms_sub((__ms_add(uint3(w5), uint3(c))) * 3u, uint3(w5)));
     output[int(uint(o) + 21u)] = t5.x;
     output[int(uint(o) + 22u)] = t5.y;
     output[int(uint(o) + 23u)] = t5.z;
     int2 p = int2(int(uint(a) + 6u), int(uint(b) + 6u));
     int2 np = __ms_neg(p);
     output[int(uint(o) + 24u)] = np.x;
-    int2 tp = int2(((uint2(p) + uint2(int2(100, 200))) * 3u) - uint2(p));
+    int2 tp = int2(__ms_sub((__ms_add(uint2(p), uint2(int2(100, 200)))) * 3u, uint2(p)));
     output[int(uint(o) + 25u)] = tp.x;
     output[int(uint(o) + 26u)] = tp.y;
     int4 q = int4(int(uint(a) + 7u), int(uint(b) + 7u), int(uint(a) + uint(b)), int(uint(a) - uint(b)));
     int4 nq = __ms_neg(q);
     output[int(uint(o) + 27u)] = int(uint(nq.x) + uint(nq.w));
-    int4 tq = int4(((uint4(q) + uint4(int4(10, 20, 30, 40))) * 3u) - uint4(q));
+    int4 tq = int4(__ms_sub((__ms_add(uint4(q), uint4(int4(10, 20, 30, 40)))) * 3u, uint4(q)));
     output[int(uint(o) + 28u)] = tq.x;
     output[int(uint(o) + 29u)] = tq.y;
     output[int(uint(o) + 30u)] = tq.z;
@@ -226,21 +281,21 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShader(
     uint3 u = uint3(uint(a) + 8u, uint(b) + 8u, uint(a ^ b) + 8u);
     uint3 nu = __ms_neg(u);
     output[int(uint(o) + 32u)] = int(nu.x + nu.z);
-    uint3 tu = ((u + uint3(1000u, 2000u, 3000u)) * 3u) - u;
+    uint3 tu = __ms_sub((__ms_add(u, uint3(1000u, 2000u, 3000u))) * 3u, u);
     output[int(uint(o) + 33u)] = int(tu.x);
     output[int(uint(o) + 34u)] = int(tu.y);
     output[int(uint(o) + 35u)] = int(tu.z);
     uint3 u2 = uint3(uint(a) + 9u, uint(b) + 9u, uint(a ^ b) + 9u);
     uint3 nu2 = __ms_neg(u2);
     output[int(uint(o) + 36u)] = int(nu2.y);
-    uint3 tu2 = ((u2 + uint3(1000u, 2000u, 3000u)) * 3u) - u2;
+    uint3 tu2 = __ms_sub((__ms_add(u2, uint3(1000u, 2000u, 3000u))) * 3u, u2);
     output[int(uint(o) + 37u)] = int(tu2.x);
     output[int(uint(o) + 38u)] = int(tu2.y);
     output[int(uint(o) + 39u)] = int(tu2.z);
     vectors[i] = int3(int(uint(a) + 9u), int(uint(b) + 9u), int(uint(a ^ b) + 9u));
     int3 n8 = __ms_neg(vectors[i]);
     output[int(uint(o) + 40u)] = int(uint(n8.x) + uint(n8.z));
-    int3 t8 = int3(((uint3(vectors[i]) + uint3(c)) * 3u) - uint3(vectors[i]));
+    int3 t8 = int3(__ms_sub((__ms_add(uint3(vectors[i]), uint3(c))) * 3u, uint3(vectors[i])));
     output[int(uint(o) + 41u)] = t8.x;
     output[int(uint(o) + 42u)] = t8.y;
     output[int(uint(o) + 43u)] = t8.z;
@@ -249,8 +304,8 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShader(
     int3 n9 = __ms_neg(cells[i].V);
     int2 n9p = __ms_neg(cells[i].P);
     output[int(uint(o) + 44u)] = int(uint(n9.y) + uint(n9p.y));
-    int3 t9 = int3(((uint3(cells[i].V) + uint3(c)) * 3u) - uint3(cells[i].V));
-    int2 t9p = int2(((uint2(cells[i].P) + uint2(int2(5, 6))) * 3u) - uint2(cells[i].P));
+    int3 t9 = int3(__ms_sub((__ms_add(uint3(cells[i].V), uint3(c))) * 3u, uint3(cells[i].V)));
+    int2 t9p = int2(__ms_sub((__ms_add(uint2(cells[i].P), uint2(int2(5, 6)))) * 3u, uint2(cells[i].P)));
     output[int(uint(o) + 45u)] = t9.x;
     output[int(uint(o) + 46u)] = t9.y;
     output[int(uint(o) + 47u)] = t9.z;
@@ -260,35 +315,35 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShader(
     Tile[g] = int3(int(uint(a) + 11u), int(uint(b) + 11u), int(uint(a ^ b) + 11u));
     int3 n10 = __ms_neg(Tile[g]);
     output[int(uint(o) + 50u)] = n10.x;
-    int3 t10 = int3(((uint3(Tile[g]) + uint3(c)) * 3u) - uint3(Tile[g]));
+    int3 t10 = int3(__ms_sub((__ms_add(uint3(Tile[g]), uint3(c))) * 3u, uint3(Tile[g])));
     output[int(uint(o) + 51u)] = t10.x;
     output[int(uint(o) + 52u)] = t10.y;
     output[int(uint(o) + 53u)] = t10.z;
     int3 w11 = int3(int(uint(a) + 12u), int(uint(b) - 12u), int(uint(a ^ b) + 12u));
     int3 n11 = ::Flip(w11);
     output[int(uint(o) + 54u)] = int(uint(n11.x) + uint(n11.z));
-    int3 t11 = int3(((uint3(w11) + uint3(c)) * 3u) - uint3(w11));
+    int3 t11 = int3(__ms_sub((__ms_add(uint3(w11), uint3(c))) * 3u, uint3(w11)));
     output[int(uint(o) + 55u)] = t11.x;
     output[int(uint(o) + 56u)] = t11.y;
     output[int(uint(o) + 57u)] = t11.z;
     int3 w12 = int3(int(uint(a) + 13u), int(uint(b) - 13u), int(uint(a ^ b) + 13u));
-    int3 n12 = int3(uint3(c) + (__ms_neg(uint3(w12))) + uint3(c));
+    int3 n12 = int3(__ms_add(__ms_add(uint3(c), __ms_neg(uint3(w12))), uint3(c)));
     output[int(uint(o) + 58u)] = n12.z;
-    int3 t12 = int3(((uint3(w12) + uint3(c)) * 3u) - uint3(w12));
+    int3 t12 = int3(__ms_sub((__ms_add(uint3(w12), uint3(c))) * 3u, uint3(w12)));
     output[int(uint(o) + 59u)] = t12.x;
     output[int(uint(o) + 60u)] = t12.y;
     output[int(uint(o) + 61u)] = t12.z;
     NegationCell cell = cells[i];
     cell.V = __ms_neg(cell.V);
     output[int(uint(o) + 62u)] = cell.V.x;
-    int3 t13 = int3(((uint3(cells[i].V) + uint3(c)) * 9u) - uint3(cells[i].V));
+    int3 t13 = int3(__ms_sub((__ms_add(uint3(cells[i].V), uint3(c))) * 9u, uint3(cells[i].V)));
     output[int(uint(o) + 63u)] = t13.x;
     output[int(uint(o) + 64u)] = t13.y;
     output[int(uint(o) + 65u)] = t13.z;
     vectors[i] = __ms_neg(vectors[i]);
     output[int(uint(o) + 66u)] = vectors[i].z;
     int3 back = __ms_neg(vectors[i]);
-    int3 t14 = int3(((uint3(back) + uint3(c)) * 11u) - uint3(back));
+    int3 t14 = int3(__ms_sub((__ms_add(uint3(back), uint3(c))) * 11u, uint3(back)));
     output[int(uint(o) + 67u)] = t14.x;
     output[int(uint(o) + 68u)] = t14.y;
     output[int(uint(o) + 69u)] = t14.z;
@@ -302,30 +357,30 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShader(
     output[int(uint(o) + 73u)] = int(cells[i].U.x);
     output[int(uint(o) + 74u)] = int(cells[i].U.w);
     int3 w16 = int3(int(uint(a) + 15u), int(uint(b) - 15u), int(uint(a ^ b) + 15u));
-    int3 n16 = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(w16)));
+    int3 n16 = int3(__ms_sub(uint3(int3(0, 5, 0)), uint3(w16)));
     output[int(uint(o) + 75u)] = int(uint(n16.x) + uint(n16.z));
-    int3 t16 = int3(((uint3(w16) + uint3(c)) * 3u) - uint3(w16));
+    int3 t16 = int3(__ms_sub((__ms_add(uint3(w16), uint3(c))) * 3u, uint3(w16)));
     output[int(uint(o) + 76u)] = t16.x;
     output[int(uint(o) + 77u)] = t16.y;
     output[int(uint(o) + 78u)] = t16.z;
     int3 w17 = int3(int(uint(a) + 16u), int(uint(b) - 16u), int(uint(a ^ b) + 16u));
     int3 n17 = __ms_mul(w17, int3(-1, 7, -1));
     output[int(uint(o) + 79u)] = int(uint(n17.x) + uint(n17.z));
-    int3 t17 = int3(((uint3(w17) + uint3(c)) * 3u) - uint3(w17));
+    int3 t17 = int3(__ms_sub((__ms_add(uint3(w17), uint3(c))) * 3u, uint3(w17)));
     output[int(uint(o) + 80u)] = t17.x;
     output[int(uint(o) + 81u)] = t17.y;
     output[int(uint(o) + 82u)] = t17.z;
     int3 w18 = int3(int(uint(a) + 17u), int(uint(b) - 17u), int(uint(a ^ b) + 17u));
-    int3 n18 = int3(uint3(~w18) + 1u);
+    int3 n18 = int3(__ms_add(uint3(~w18), uint3(1u)));
     output[int(uint(o) + 83u)] = int(uint(n18.x) + uint(n18.z));
-    int3 t18 = int3(((uint3(w18) + uint3(c)) * 3u) - uint3(w18));
+    int3 t18 = int3(__ms_sub((__ms_add(uint3(w18), uint3(c))) * 3u, uint3(w18)));
     output[int(uint(o) + 84u)] = t18.x;
     output[int(uint(o) + 85u)] = t18.y;
     output[int(uint(o) + 86u)] = t18.z;
     int3 w19 = int3(int(uint(a) + 18u), int(uint(b) - 18u), int(uint(a ^ b) + 18u));
-    int3 n19 = int3(uint3(w19) - (2u * uint3(w19)));
+    int3 n19 = int3(__ms_sub(uint3(w19), 2u * uint3(w19)));
     output[int(uint(o) + 87u)] = int(uint(n19.x) + uint(n19.z));
-    int3 t19 = int3(((uint3(w19) + uint3(c)) * 3u) - uint3(w19));
+    int3 t19 = int3(__ms_sub((__ms_add(uint3(w19), uint3(c))) * 3u, uint3(w19)));
     output[int(uint(o) + 88u)] = t19.x;
     output[int(uint(o) + 89u)] = t19.y;
     output[int(uint(o) + 90u)] = t19.z;

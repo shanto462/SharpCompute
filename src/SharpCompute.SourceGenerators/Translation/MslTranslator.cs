@@ -462,6 +462,12 @@ internal sealed partial class MslTranslator
     public bool UsesPrelude { get; private set; }
 
     /// <summary>
+    /// True when a lane-by-lane sum or difference of integer vectors is called (<c>__ms_add</c>,
+    /// <c>__ms_sub</c> and their by-reference forms), so the MSL needs <c>MslPrelude.VectorArithmetic</c>.
+    /// </summary>
+    public bool UsesVectorArithmetic { get; private set; }
+
+    /// <summary>
     /// True when an <c>[MslAtomic]</c> call was translated, in the kernel or in a helper it reaches
     /// (helpers are only translated when called), on a buffer element or on threadgroup memory.
     /// </summary>

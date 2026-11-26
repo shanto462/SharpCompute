@@ -27,7 +27,9 @@ Outputs (checked in; edit this script, not the files):
     src/SharpCompute/Intrinsics/Gpu.Wave.g.cs                        typed SIMD-group operations
                                                                    (Gpu.Wave*, Gpu.Quad*)
     src/SharpCompute/Intrinsics/MslPrelude.g.cs                      MslPrelude.Source (__ms_* helpers
-                                                                   and types)
+                                                                   and types) and
+                                                                   MslPrelude.VectorArithmetic (the
+                                                                   lane-by-lane integer vector sums)
 
 Scalar intrinsics for float, int and uint (and Gpu.Cross, the unorm8 packing and the atomics) are
 hand-written in src/SharpCompute/Intrinsics/Gpu.cs and Gpu.Atomics.cs; the vector overloads
@@ -745,6 +747,28 @@ PRELUDE_NEGATE = "__ms_neg"
 # multiplied as uint, so the product wraps as it does in C#.
 PRELUDE_MULTIPLY = "__ms_mul"
 
+# The lane-by-lane sum and difference of two integer vectors, which the generator emits instead of
+# `a + b` and `a - b`. The miscompile above (see PRELUDE_NEGATE) needs a negation with an unread lane
+# and a vector add/sub chain that subtracts the same vector: the optimizer rewrites the chain's
+# `x - v` to `x + (-v)` and takes the poisoned negation for its `-v`. The negation need not be
+# written as one (`~v + 1`, `v - 2 * v` and `v * s` with `s == -1` all become `0 - v`), so the
+# helpers above cannot cover it; but the rewrite only ever happens to a vector add or subtract. With
+# each lane added or subtracted as a scalar there is no vector chain to rewrite, whatever negation
+# the optimizer derives. The lanes are computed in the unsigned type of their width, so they wrap as
+# they do in C#.
+#
+# `a += b` on a target that can only be named once (its expression has side effects) is the
+# by-reference form: a template per address space, which reads the target, calls the helper above
+# and stores the result. The target is the vector or its packed type; V is the vector type.
+#
+# These are not in the prelude's source but in a block of their own (MslPrelude.VectorArithmetic),
+# which only a shader that adds or subtracts integer vectors gets.
+PRELUDE_ADD = "__ms_add"
+PRELUDE_SUBTRACT = "__ms_sub"
+PRELUDE_ADD_TO = "__ms_add_to"
+PRELUDE_SUBTRACT_FROM = "__ms_sub_from"
+PRELUDE_ADDRESS_SPACES = ("thread", "device", "threadgroup")
+
 
 @dataclass(frozen=True)
 class IntegerType:
@@ -806,6 +830,29 @@ def multiply_msl() -> list[str]:
             v = f"{t}{n}"
             lanes = [f"int(uint(a.{c}) * uint(b.{c}))" if t == "int" else f"a.{c} * b.{c}" for c in COMPONENTS[:n]]
             lines.append(f"inline {v} {PRELUDE_MULTIPLY}({v} a, {v} b) {{ return {v}({', '.join(lanes)}); }}")
+    return lines
+
+
+def vector_arithmetic_msl() -> list[str]:
+    """MslPrelude.VectorArithmetic: the lane-by-lane sums and differences (see PRELUDE_ADD)."""
+    lines = ["// SharpCompute integer vector arithmetic (MslPrelude.VectorArithmetic)."]
+    for name, op in ((PRELUDE_ADD, "+"), (PRELUDE_SUBTRACT, "-")):
+        for t in NEGATE_TYPES:
+            for n in (2, 3, 4):
+                v = f"{t.msl}{n}"
+                if t.signed:
+                    lanes = [f"{t.msl}({t.unsigned_msl}(a.{c}) {op} {t.unsigned_msl}(b.{c}))" for c in COMPONENTS[:n]]
+                elif t.bits < 32:
+                    # The sum of two uchars or ushorts is an int: convert it back explicitly.
+                    lanes = [f"{t.msl}(a.{c} {op} b.{c})" for c in COMPONENTS[:n]]
+                else:
+                    lanes = [f"a.{c} {op} b.{c}" for c in COMPONENTS[:n]]
+                lines.append(f"inline {v} {name}({v} a, {v} b) {{ return {v}({', '.join(lanes)}); }}")
+    for name, helper in ((PRELUDE_ADD_TO, PRELUDE_ADD), (PRELUDE_SUBTRACT_FROM, PRELUDE_SUBTRACT)):
+        for space in PRELUDE_ADDRESS_SPACES:
+            lines.append(
+                f"template <typename T, typename V> inline V {name}({space} T& target, V value) "
+                f"{{ V result = {helper}(V(target), value); target = result; return result; }}")
     return lines
 
 
@@ -887,6 +934,18 @@ def gen_prelude() -> str:
     out.append("    /// <summary>The prelude's MSL source.</summary>")
     out.append('    public const string Source = """')
     out.extend("        " + line for line in prelude_msl())
+    out.append('        """;')
+    out.append("")
+    out.append("    /// <summary>")
+    out.append("    /// The lane-by-lane sum and difference of two integer vectors (<c>__ms_add</c>, <c>__ms_sub</c>) and")
+    out.append("    /// their by-reference forms for <c>+=</c> and <c>-=</c> (<c>__ms_add_to</c>, <c>__ms_sub_from</c>). The")
+    out.append("    /// generator emits this block, after <see cref=\"Source\"/>, for a shader that adds or subtracts")
+    out.append("    /// integer vectors: Apple's Metal compiler drops a lane of a vector add/subtract chain when it")
+    out.append("    /// reuses a negation of the same vector that has an unread lane (FB25732151), and a chain of")
+    out.append("    /// scalars gives it nothing to reuse.")
+    out.append("    /// </summary>")
+    out.append('    public const string VectorArithmetic = """')
+    out.extend("        " + line for line in vector_arithmetic_msl())
     out.append('        """;')
     out.append("}")
     return "\n".join(out) + "\n"
@@ -1638,7 +1697,7 @@ def gen_gpu_integers() -> str:
 
 
 def gen_msl_probe() -> str:
-    lines = ["#include <metal_stdlib>", "using namespace metal;", ""] + prelude_msl() + ["",
+    lines = ["#include <metal_stdlib>", "using namespace metal;", ""] + prelude_msl() + vector_arithmetic_msl() + ["",
              "kernel void probe(device float* sink [[buffer(0)]], uint tid [[thread_position_in_grid]])", "{",
              "    threadgroup int tgint[4];",
              "    threadgroup uint tguint[4];",
@@ -1749,6 +1808,13 @@ def gen_msl_probe() -> str:
             v = f"{t.msl}{n}"
             lines.append(f"    {v} neg{v} = {v}({t.msl}(tid)); packed_{v} pneg{v} = neg{v};")
             lines.append(f"    neg{v} = {PRELUDE_NEGATE}(neg{v}); pneg{v} = {PRELUDE_NEGATE}(pneg{v}); acc += float(neg{v}.x) + float(pneg{v}.y);")
+    # The lane-by-lane sum and difference the generator emits for `a + b` and `a - b`, from the native
+    # and from the packed type, and their by-reference forms on a native and on a packed target.
+    for t in NEGATE_TYPES:
+        for n in (2, 3, 4):
+            v = f"{t.msl}{n}"
+            lines.append(f"    acc += float({PRELUDE_ADD}(neg{v}, pneg{v}).x) + float({PRELUDE_SUBTRACT}(pneg{v}, neg{v}).y) + float({PRELUDE_ADD}(pneg{v}, pneg{v}).x);")
+            lines.append(f"    acc += float({PRELUDE_ADD_TO}(neg{v}, {v}({t.msl}(1))).x) + float({PRELUDE_SUBTRACT_FROM}(pneg{v}, neg{v}).y);")
     # The lane-by-lane product the generator emits for a constant with a lane of -1.
     for t in ("int", "uint"):
         for n in (2, 3, 4):

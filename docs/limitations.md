@@ -24,12 +24,15 @@ to the page that explains it.
   first of them.
   ([Integers](shader-language.md#integers))
 - **A Metal compiler bug drops a lane of integer vector arithmetic**: when an integer vector is
-  negated, a lane of the negation is never read, and the same vector is subtracted in an
-  add/subtract/multiply chain elsewhere, that chain loses the lane on the GPU (not with `ForCpu`).
-  The generator avoids it for every negation it can see (`-v`, `0 - v`, `v * -1`, `v / -1`, and a
-  constant with some lanes of 0 or -1). A negation it cannot see is still exposed until Apple fixes
-  the compiler: `~v + 1`, `v - 2 * v` and other arithmetic that only amounts to a negation. Write
-  those as `-v`. Reported to Apple as FB25732151 (Metal compiler 32023.922, Xcode 27.2, macOS 27.2.1).
+  negated (by `-v`, or by anything the compiler reduces to it, such as `~v + 1` or `v - 2 * v`), a
+  lane of the negation is never read, and the same vector is subtracted in an add/subtract chain
+  elsewhere, that chain loses the lane on the GPU (not with `ForCpu`). The generator works around
+  it for every shape: it computes each `+`, `-` and negation of an integer vector lane by lane,
+  which leaves the compiler no vector chain to drop a lane of, at no measurable cost in GPU time.
+  What remains is two build errors (`SCG0012`), where the workaround would have to name a target
+  with side effects twice: `v *= -1` (and `/= -1`, `*= new Int3(1, -1, 1)`) on such a target, and
+  `+=` or `-=` on *components* of one (`data[Next()].XY += w`). Put the index in a local first.
+  Reported to Apple as FB25732151 (Metal compiler 32023.922, Xcode 27.2, macOS 27.2.1).
   ([Integers](shader-language.md#integers))
 - **Half precision.** The math functions of `Gpu.*` take half *vectors*. For a scalar `Half`, convert
   to `float` or put it in a vector (only `Radians`, `Degrees`, the SIMD-group operations and the bit
@@ -38,9 +41,10 @@ to the page that explains it.
   `UShort2..4`). A `static readonly` half or bool value can be initialized with constructors, casts
   and operators, but not with a function call (`SCG0024`): the compile-time evaluation only does
   32-bit arithmetic. ([Half precision](half-precision.md#functions-that-take-a-scalar-half))
-- **GPU math** follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero and
-  fuses multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
-  Transcendental functions agree with the CPU to within a few ULP.
+- **GPU math** follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero in
+  most operations ([Subnormals](shader-language.md#subnormals)) and fuses multiply-adds
+  (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader). Transcendental
+  functions agree with the CPU to within a few ULP.
   ([Compile options](shader-language.md#compile-options))
 - **Local arrays** have a compile-time length and one name: they cannot be sliced, copied to another
   variable or returned (pass them to a helper instead), and multi-dimensional and jagged arrays are

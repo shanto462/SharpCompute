@@ -79,19 +79,29 @@ build error `SCG0052`).
   assignments and `++`/`--`) in the unsigned type of the same width and converts back: `a * b + c`
   on `int`s is `int(uint(a) * uint(b) + uint(c))`. That costs no instructions, because signed and
   unsigned arithmetic are the same machine operations. Program-scope constants wrap the same way.
-- **Negating an integer vector** (`-v` on an `IntN`, and the operators that amount to it: `0 - v`,
-  `v * -1`, `v / -1`, `v *= -1`, also on a `UIntN`) is emitted as a prelude helper, `__ms_neg(v)`,
-  which negates each lane on its own. Apple's Metal compiler miscompiles the vector operator (reported
-  as FB25732151): when
-  one lane of the negation is never read and the same vector is subtracted in a chain elsewhere
-  (`t += c; t *= 3; t -= v`), the chain silently loses that lane. A constant that negates only some
-  lanes does the same when the other lanes are the unread ones, so `new Int3(0, 5, 0) - v` is
-  emitted as `C + __ms_neg(v)` and `v * new Int3(1, -1, 1)` as `__ms_mul(v, C)`, a helper that
-  multiplies lane by lane. The compound forms (`v *= -1`, `v /= -1`, `v *= new Int3(1, -1, 1)`)
-  assign the helper's result, which names the target twice: on a target with side effects
-  (`data[Next()] *= -1`) that is an error (`SCG0012`), so put the index in a local first. Vectors
-  of floats and halves, and all scalars, are not affected and keep their operators. See
-  [Limitations](limitations.md#shader-language) for the negations the generator cannot see.
+- **Sums, differences and negations of integer vectors** (`a + b`, `a - b` and `-v` on an `IntN`
+  or `UIntN`, and their compound assignments) are emitted as helpers that compute each lane on its
+  own: `__ms_add(a, b)`, `__ms_sub(a, b)`, `__ms_neg(v)`. Apple's Metal compiler miscompiles the
+  vector operators (reported as FB25732151): when a vector is negated, one lane of the negation is
+  never read and the same vector is subtracted in a chain elsewhere (`t += c; t *= 3; t -= v`),
+  the chain silently loses that lane. The negation need not be written as one. The compiler
+  derives it from `~v + 1`, `v - 2 * v`, `v - (v << 1)`, and from `v * s` once it knows that `s`
+  is -1, so no list of shapes covers it. But a lane is only ever lost from a chain of *vector*
+  sums and differences, and with each lane computed as a scalar there is no such chain. Each lane
+  wraps as it does in C#. The operators that are a negation by a constant (`0 - v`, `v * -1`,
+  `v / -1`) are `__ms_neg(v)` too, and `v * new Int3(1, -1, 1)` is `__ms_mul(v, C)`, a helper that
+  multiplies lane by lane; other products, the shifts and the bitwise operators keep their
+  operators. On three integer-vector kernels (a `UInt3` hash, an `Int3` integrator, an `Int4` box
+  filter; 2048 x 2048 threads, Apple M4 Pro) the helpers cost no GPU time: the medians are equal to
+  within 0.1%.
+
+  A compound `v += w` assigns the helper's result, `v = __ms_add(v, w)`. Where the target or the
+  value has side effects (`data[Next()] += w`), the target can only be named once, and a helper
+  takes it by reference: `__ms_add_to(data[Next()], w)`. Two forms have no such helper and are an
+  error (`SCG0012`) on a target with side effects, so put the index in a local first: the compound
+  negations (`data[Next()] *= -1`, `/= -1`, `*= new Int3(1, -1, 1)`), and `+=` or `-=` on
+  components of the target (`data[Next()].XY += w`). Vectors of floats and halves, and all
+  scalars, are not affected and keep their operators.
 - **Division by zero** does not trap. Where C# throws `DivideByZeroException`, the GPU carries on
   with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit
   operands). `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on
@@ -230,8 +240,42 @@ unorm8 packing as patterns (`scripts/demo-computelab.sh --page bits`):
 - `Gpu.Log10` and `Gpu.Exp10` agree within a few ULP, like the other transcendentals.
 - `Fma`, `CopySign`, `Log10` and `Exp10` have `Float2..4` overloads.
 
-GPU math follows Apple GPU behaviour: it flushes subnormal floats (not halves) to zero, and fuses
-multiply-adds unless a shader turns that off with [`FpContract = false`](#compile-options).
+GPU math follows Apple GPU behaviour: most float operations flush subnormal floats (not halves) to
+zero (see [Subnormals](#subnormals) for which), and multiply-adds are fused unless a shader turns that
+off with [`FpContract = false`](#compile-options).
+
+## Subnormals
+
+An Apple GPU flushes float subnormals (magnitudes below 2^-126, about 1.18e-38) to a zero of the same
+sign in most operations, also under safe math. Half subnormals are never flushed: half arithmetic
+keeps them bit for bit (see [Half precision](half-precision.md#what-it-computes)). `ForCpu` keeps
+float subnormals everywhere, so the two differ only where an operand or a result is subnormal.
+
+What each operation does, measured on an Apple M4 Pro and pinned by
+[`SubnormalFlushTests`](../tests/SharpCompute.Tests/SubnormalFlushTests.cs) against plain C#:
+
+| Operation | Subnormal operand | Subnormal result | Notes |
+|---|---|---|---|
+| Buffer load and store, `Gpu.AsFloat`, `Gpu.AsInt`, `Gpu.AsUInt`, the `BitConverter` casts | kept | kept | The bits pass through unchanged |
+| `-x`, `Gpu.Abs`, `Gpu.CopySign`, `c ? x : y` | kept | kept | Sign and selection only |
+| `+`, `-`, `*`, `/`, `Gpu.Fma`, a fused `a * b + c` | flushed | flushed | Tininess is decided before rounding: a product, quotient or fma that rounds up to ±2^-126 from below gives ±0 |
+| `<`, `<=`, `==`, `!=` and the other comparisons | flushed | | `1e-45f == 0f` is true |
+| `Gpu.Min`, `Gpu.Max`, `Gpu.Clamp` | compared flushed | | Return one of the operands unflushed. When both flush to the same zero, `Min` and `Max` return `y` |
+| `MathF.Min`, `MathF.Max` (and `Math`, `float`) | compared flushed | | Return one of the operands unflushed. When both flush to the same zero, `Min` returns `x` if its sign bit is set and `y` otherwise, `Max` returns `x` if the sign bit of `y` is set and `y` otherwise |
+| `x % y` | see notes | flushed | A dividend smaller in magnitude than the divisor is returned as it is, subnormal or not. A subnormal divisor gives NaN. Otherwise the remainder of the flushed operands, with a subnormal remainder flushed |
+| `Gpu.Floor`, `Gpu.Ceil`, `Gpu.Fract`, `Gpu.Sign`, `Gpu.Sqrt`, `Gpu.Rsqrt` | flushed | | `Floor(-1e-45f)` is `-0`, `Ceil(1e-45f)` is 0, `Rsqrt` of a subnormal is +∞ |
+| `Gpu.Trunc`, `Gpu.Round`, conversions to integers | either | | The result is the same zero either way |
+| `(Half)x`, `(float)h`, `(float)n` | either | | A float subnormal is below the half range (±0 either way). A half subnormal is a normal float, converted exactly. An integer is never subnormal |
+| `Gpu.Sin`, `Gpu.Tan`, `Gpu.Asin`, `Gpu.Sinh`, `Gpu.Tanh` | kept | kept | A subnormal `x` is returned as it is |
+| `Gpu.Atan`, `Gpu.Log`, `Gpu.Log2`, `Gpu.Log10` | flushed | | `Log` of a subnormal is -∞, `Atan` of one is a zero |
+| `Gpu.Exp`, `Gpu.Exp2`, `Gpu.Exp10` | flushed | flushed | `Exp(-100f)` is 0 |
+| `Gpu.Pow` | flushed | flushed | Except `Pow(x, 1)`, which returns `x` as it is |
+| `Gpu.Atan2` | flushed | flushed | A result below the smallest normal is `+0`, whatever its sign |
+| `Gpu.Cos`, `Gpu.Cosh`, `Gpu.Acos` | either | | The result for a subnormal is the result for zero |
+
+The `MathF` and `Math` forms of these functions compile to the same Metal functions as their `Gpu`
+forms. The [conformance suite](cpu-execution.md#semantics-and-conformance) compares the GPU with
+`ForCpu` up to this flushing.
 
 ## unorm8 packing
 

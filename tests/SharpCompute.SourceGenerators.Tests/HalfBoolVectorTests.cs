@@ -584,7 +584,7 @@ public class HalfBoolVectorTests
             m = f >= __c.threshold;
             m = h < h + half(1);
             m = half(0.5f) <= h;
-            m = i > int3(uint3(i) - 1u);
+            m = i > int3(__ms_sub(uint3(i), uint3(1u)));
             m = i >= 2;
             m = u < 3u;
             m = 1u <= u;

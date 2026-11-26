@@ -1,0 +1,11 @@
+# Reports of Metal's validation layers that scripts/validate-gpu.sh accepts.
+#
+# One entry per line: <extended regular expression> ## <reason>. The expression is matched against a
+# report's one-line form, which the script prints: "api: <message>" for the debug layer, and
+# "shader: Invalid Metal usage: <what, in which function> | <the resource> | pipeline: <label>" for
+# shader validation. An entry is for a false positive or for a test that provokes the report on
+# purpose; a real violation is fixed instead.
+
+^api: redundant setting of <[A-Za-z0-9]+(Buffer|Texture)>$ ## Warning, not an error: the dispatches of one batch share an encoder and each binds all of its arguments, so a resource that two of them use is set again at the index that already has it.
+^api: unused binding in compute encoder at (Buffer|Texture) index [0-9]+\.$ ## Warning, not an error: a resource is bound to a kernel that does not use it (the binding tests bind buffers and textures to a kernel that touches none of them).
+^api: endEncoding without encoding GPU work\.$ ## Warning, not an error: tests of failure (a disposed or null argument, a hazard) throw while binding, and the runtime must still end the encoder before it drops the command buffer.
