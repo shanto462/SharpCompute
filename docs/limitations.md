@@ -48,6 +48,9 @@ to the page that explains it.
   `with` expressions, user-defined `++`/`--`, generic structs and interface calls are not. A
   by-reference (`ref`/`out`) argument has to be a local or a parameter, not a buffer element.
   ([Sharing code](shared-code.md#rules))
+- **Instance extension properties and indexers** (C# 14 `extension(T v) { ... }` blocks) are build
+  error `SCG0017`, and instance extension methods `SCG0016`. Static extension members and extension
+  operators work. ([Extension members](shader-language.md#extension-members))
 
 ## Matrix units
 

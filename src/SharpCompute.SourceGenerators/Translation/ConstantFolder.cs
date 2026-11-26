@@ -463,7 +463,7 @@ internal sealed class ConstantFolder
 
     private FoldedValue Swizzle(IPropertyReferenceOperation operation)
     {
-        if (operation.Instance is null || operation.Property.IsIndexer || _types.Resolve(operation.Instance.Type) is not { Kind: GpuTypeKind.Vector })
+        if (operation.Instance is null || operation.Property.IsIndexer || TypeResolver.IsInstanceExtensionMember(operation.Property) || _types.Resolve(operation.Instance.Type) is not { Kind: GpuTypeKind.Vector })
         {
             throw Fail(operation, "the property");
         }

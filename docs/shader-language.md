@@ -14,6 +14,7 @@ their doc comments.
 - [unorm8 packing](#unorm8-packing)
 - [Compile options](#compile-options)
 - [Evaluation order](#evaluation-order)
+- [Extension members](#extension-members)
 
 Related pages: [Half precision](half-precision.md), [Local arrays](local-arrays.md),
 [Sharing code between shaders](shared-code.md), [Atomics](atomics.md).
@@ -300,3 +301,13 @@ so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); da
 - **Two resources are never compared.** The same buffer bound under two names (captured twice, or
   through overlapping views) is the same memory, which this check cannot see: it is a question of
   how the shader is bound, not of how an expression is written.
+
+## Extension members
+
+C# 14 `extension(...)` blocks work in shaders for their static members: a static extension property
+or method (`Float3.Unit`, `Float3.Ramp(x)`) and an extension operator (`a ^ b` on a vector, `a + b`
+on a struct of your own) become functions, like any [shared helper](shared-code.md). Instance
+extension properties and indexers (`v.LengthSquared`, `buffer[p]` through an extension indexer) are
+not supported yet and are build error `SCG0017`, on every receiver: buffers, textures, vectors,
+matrices, local arrays and structs. Instance extension methods are `SCG0016`. Write them as static
+methods that take the receiver, or as classic `this` extension methods (`x.Squared()`).

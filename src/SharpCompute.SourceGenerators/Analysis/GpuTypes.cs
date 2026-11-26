@@ -331,6 +331,23 @@ internal sealed class TypeResolver
 
     public static string Display(ITypeSymbol type) => type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
 
+    /// <summary>
+    /// <c>TypeKind.Extension</c>, the kind of a C# 14 <c>extension(...)</c> block. The generator builds
+    /// against Roslyn 4.14, whose enum predates it; the newer compiler that loads the generator reports
+    /// this value (a test pins it to the named member).
+    /// </summary>
+    internal const TypeKind ExtensionTypeKind = (TypeKind)14;
+
+    /// <summary>
+    /// True for an instance member declared in an <c>extension(T receiver) { ... }</c> block. Its
+    /// containing type is the extension block, not the receiver's type, so the code that recognizes a
+    /// member by its receiver and shape or name (a buffer or texture indexer, a vector swizzle) must
+    /// not claim it: <c>v.R</c> of an extension property would become the component <c>v.r</c>.
+    /// Static extension members and extension operators are plain static methods and stay supported.
+    /// </summary>
+    public static bool IsInstanceExtensionMember(ISymbol member) =>
+        !member.IsStatic && member.ContainingType is { TypeKind: ExtensionTypeKind };
+
     public static bool IsBufferType(ITypeSymbol? type, out bool isReadOnly)
     {
         isReadOnly = false;
