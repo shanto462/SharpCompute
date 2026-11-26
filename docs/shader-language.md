@@ -14,6 +14,7 @@ their doc comments.
 - [unorm8 packing](#unorm8-packing)
 - [Compile options](#compile-options)
 - [Evaluation order](#evaluation-order)
+- [Extension members](#extension-members)
 
 Related pages: [Half precision](half-precision.md), [Local arrays](local-arrays.md),
 [Sharing code between shaders](shared-code.md), [Atomics](atomics.md).
@@ -98,6 +99,9 @@ build error `SCG0052`).
 - **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
   with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
   and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
+  `checked(...)` and `checked { }` are reported on each operation in them; the project-wide switch
+  is reported once per shader, on its declaration, with the number of checked operations and the
+  first of them.
 - **Float to integer** conversions truncate, give 0 for NaN and saturate at the bounds of the target
   type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
   `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range
@@ -334,3 +338,13 @@ so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); da
 - **Two resources are never compared.** The same buffer bound under two names (captured twice, or
   through overlapping views) is the same memory, which this check cannot see: it is a question of
   how the shader is bound, not of how an expression is written.
+
+## Extension members
+
+C# 14 `extension(...)` blocks work in shaders for their static members: a static extension property
+or method (`Float3.Unit`, `Float3.Ramp(x)`) and an extension operator (`a ^ b` on a vector, `a + b`
+on a struct of your own) become functions, like any [shared helper](shared-code.md). Instance
+extension properties and indexers (`v.LengthSquared`, `buffer[p]` through an extension indexer) are
+not supported yet and are build error `SCG0017`, on every receiver: buffers, textures, vectors,
+matrices, local arrays and structs. Instance extension methods are `SCG0016`. Write them as static
+methods that take the receiver, or as classic `this` extension methods (`x.Squared()`).

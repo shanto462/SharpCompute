@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The golden MSL corpus: the MSL of every shader the generator emits anywhere in the solution,
+    compared with the snapshots in tests/golden-msl. It reads the MSL out of the built assemblies'
+    metadata (the reader of SharpCompute.Build, which the precompile step uses), so it loads no
+    assembly and needs neither a GPU nor the Metal toolchain.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The build tool, referenced as a library for its metadata reader. -->
+    <ProjectReference Include="..\..\src\SharpCompute.Build\SharpCompute.Build.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Every other project of the solution, one directory level deep so that nothing under bin or obj
+      is matched: a new sample or test project is in the corpus without an edit here. The generator
+      and the build tool hold no shaders of their own (GoldenMslTests checks this list against
+      SharpCompute.slnx).
+    -->
+    <ShaderProject Include="..\..\src\*\*.csproj;..\..\samples\*\*.csproj;..\..\benchmarks\*\*.csproj;..\*\*.csproj"
+                   Exclude="..\$(MSBuildProjectName)\*.csproj;..\..\src\SharpCompute.SourceGenerators\*.csproj;..\..\src\SharpCompute.Build\*.csproj" />
+    <!--
+      Build-only references. They make a build of this project build every assembly it reads, so a
+      snapshot is never compared with a stale one, and MSBuild reports where each assembly is, which
+      is not always the folder a path convention would guess (a Release build through a symlinked
+      path builds its references in Debug). Nothing is referenced or copied.
+    -->
+    <ProjectReference Include="@(ShaderProject)" ReferenceOutputAssembly="false" Private="false" OutputItemType="GoldenMslAssembly" />
+  </ItemGroup>
+  <!-- The assemblies the corpus is read from, one path per line, next to the test assembly. -->
+  <Target Name="WriteGoldenMslAssemblyList" AfterTargets="ResolveProjectReferences" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(OutDir)GoldenMslAssemblies.txt" Lines="@(GoldenMslAssembly->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+</Project>

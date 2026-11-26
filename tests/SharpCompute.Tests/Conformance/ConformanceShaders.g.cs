@@ -4290,7 +4290,7 @@ internal static partial class ConformanceFamilies
             new("t %= y", ResultKind.Float, Check.Ftz),
             new("t++ (variable)", ResultKind.Float, Check.Ftz),
             new("t-- (variable)", ResultKind.Float, Check.Ftz),
-            new("x * y + z", ResultKind.Float, Check.Unspecified, 0, "the GPU contracts it into one fused multiply-add ([ShaderOptions(FpContract = false)] turns that off); ForCpu rounds twice"),
+            new("x * y + z", ResultKind.Float, Check.MultiplyAdd),
         ],
         static (device, cpu, threads, a, b, c, s, output) => ConformanceHarness.Dispatch(device, cpu, threads, new ConformanceFloatOperators(a, b, c, s, output)));
 

@@ -10,6 +10,7 @@
     <Project Path="tests/SharpCompute.SourceGenerators.Tests/SharpCompute.SourceGenerators.Tests.csproj" />
     <Project Path="tests/SharpCompute.Build.Tests/SharpCompute.Build.Tests.csproj" />
     <Project Path="tests/SharpCompute.Vectors.Tests/SharpCompute.Vectors.Tests.csproj" />
+    <Project Path="tests/SharpCompute.GoldenMsl.Tests/SharpCompute.GoldenMsl.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/SharpCompute.Samples.HelloWorld/SharpCompute.Samples.HelloWorld.csproj" />

@@ -50,6 +50,13 @@ internal sealed partial class MslTranslator
             return new Expr(_function.Names[hoisted.Local], Expr.Primary);
         }
 
+        // Before anything that recognizes a property or indexer by its receiver (buffers, textures,
+        // vectors, local and threadgroup arrays): an instance extension member only looks like one.
+        if (operation is IPropertyReferenceOperation { Property: var extensionMember } && TypeResolver.IsInstanceExtensionMember(extensionMember))
+        {
+            return UnsupportedMember(operation, extensionMember, InstanceExtensionMembers);
+        }
+
         // The one array a shader can index: threadgroup memory. Any other array is rejected just below.
         if (operation is IArrayElementReferenceOperation element && GroupSharedElement(element) is { } groupSharedElement)
         {
