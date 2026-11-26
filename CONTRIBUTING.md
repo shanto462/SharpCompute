@@ -61,6 +61,35 @@ Match the code around your change:
   `--filter Category=Conformance` runs all of them, the operator, conversion and intrinsic suite
   included. See [Semantics and conformance](docs/cpu-execution.md#semantics-and-conformance).
 
+## Validating with Metal's debug layers
+
+A shader that reads or writes past the end of a buffer does not fail its dispatch, so a test with
+that mistake can pass. Metal's validation layers see it. Run the suite under them when a change
+touches the runtime's Metal calls, the generated MSL's indexing, or a test's buffer sizes:
+
+```sh
+scripts/validate-gpu.sh                              # the whole suite
+scripts/validate-gpu.sh --filter Category=Conformance
+scripts/validate-gpu.sh --abort --filter <test>      # stop at the first violation, for a crash report
+```
+
+- It sets `MTL_DEBUG_LAYER=1` (API validation: arguments, offsets, usages, encoder state) and
+  `MTL_SHADER_VALIDATION=1` (shader validation: out-of-bounds buffer, texture and threadgroup-memory
+  accesses, nil or wrongly typed textures, resources that are not resident), with errors and
+  warnings logged rather than asserted so that one run reports everything. `man MetalValidation`
+  lists the variables.
+- A shader violation does not fail the test that caused it (the read returns 0 and the write is
+  dropped), so the script collects the reports from the test host's stderr and fails if there is
+  one. A report names the shader's kernel function and the resource; the full text is in the
+  `stderr.txt` of the log folder the script prints.
+- `scripts/validate-gpu.allow` lists the reports that are accepted, one regular expression and its
+  reason per line. Fix a real violation; add an entry only for a false positive or for a test that
+  provokes the report on purpose.
+- The run is slower than a plain `dotnet test` (every shader is instrumented). Set
+  `VALIDATE_GPU_LOCK` to a directory path to serialize with other GPU-heavy jobs: the script waits
+  until it can create the directory and removes it when it exits. Unset, it takes no lock.
+- Not covered: the opt-in window tests start their own processes and keep their stderr.
+
 ## Golden MSL snapshots
 
 `tests/golden-msl` holds the MSL of every shader the generator emits anywhere in the solution

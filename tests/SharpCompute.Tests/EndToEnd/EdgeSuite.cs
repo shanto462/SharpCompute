@@ -71,13 +71,14 @@ internal static class EdgeSuite
 
         Try("Literals", () =>
         {
-            using var o = device.AllocateReadWriteBuffer<float>(16); using var oi = device.AllocateReadWriteBuffer<int>(8);
+            using var o = device.AllocateReadWriteBuffer<float>(16); using var oi = device.AllocateReadWriteBuffer<int>(16);
             device.For(16, new Literals(o, oi));
             float[] ef = [1e-7f, float.MaxValue, float.Epsilon, MathF.PI, float.NaN, float.PositiveInfinity, float.NegativeInfinity, 1f / 3f, -0f, 16777217f, 0.1f, 123456789.0f, 3.4028235E+38f, float.MinValue, 1.17549435E-38f, MathF.E];
-            int[] ei = [int.MinValue, int.MaxValue, 0x7FFFFFF0, -1, -2147483647, 65, unchecked((int)0xFFFFFFF0u), 1_000_000];
+            // Every thread stores to both buffers, so both have the grid's length; threads 8 to 15 store an int of 0.
+            int[] ei = [int.MinValue, int.MaxValue, 0x7FFFFFF0, -1, -2147483647, 65, unchecked((int)0xFFFFFFF0u), 1_000_000, 0, 0, 0, 0, 0, 0, 0, 0];
             float[] g = o.ToArray(); int[] gi = oi.ToArray(); int bad = 0; string first = "";
             for (int i = 0; i < 16; i++) if (!Same(g[i], ef[i])) { bad++; first += $" f[{i}] gpu={g[i]:R} cpu={ef[i]:R};"; }
-            for (int i = 0; i < 8; i++) if (gi[i] != ei[i]) { bad++; first += $" i[{i}] gpu={gi[i]} cpu={ei[i]};"; }
+            for (int i = 0; i < 16; i++) if (gi[i] != ei[i]) { bad++; first += $" i[{i}] gpu={gi[i]} cpu={ei[i]};"; }
             Check("Literals (float/int literal round-trip)", bad, first);
         });
 
