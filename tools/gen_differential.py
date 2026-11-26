@@ -990,6 +990,13 @@ def is_constant_expression(n: Node) -> bool:
     return n.kind == "op" and not CALL.search(n.text) and "{0}." not in n.text and all(is_constant_expression(a) for a in n.args)
 
 
+def folds_to_constant(n: Node) -> bool:
+    """Whether the compiler may fold n to a constant although an operand is not one: `x | C` (all
+    ones), and Min, Max and Clamp with a constant bound."""
+    return n.kind == "op" and any(a.kind == "lit" for a in n.args) and (
+        " | " in n.text or any(f in n.text for f in ("Min(", "Max(", "Clamp(")))
+
+
 def is_ternary(n: Node) -> bool:
     return n.kind == "op" and n.text.startswith("({0} ? ")
 
@@ -1024,10 +1031,12 @@ def known_difference(root: Node) -> str | None:
         e = elem_of(n.t)
         if is_division(n):
             dividend, divisor = n.args[0], n.args[1]
-            if e in (UINT, LONG, ULONG) and has_constant_part(dividend) and not is_constant_expression(dividend):
+            if e in (UINT, LONG, ULONG) and (has_constant_part(dividend) or any(folds_to_constant(m) for m in dividend.walk())) and not (
+                    n.kind == "op" and 0 not in n.bind and is_constant_expression(dividend)):
                 # The generator divides a constant dividend near 2^32 through a helper when it can
-                # see the constant (a C# constant expression or a constant vector); one the compiler
-                # only finds through a local, an increment or a lane is still divided wrongly.
+                # see the constant: a C# constant expression or a constant vector written in the
+                # division. One the compiler only finds through a local (a bound operand, the target
+                # of a compound assignment), an increment, a lane or a fold is still divided wrongly.
                 return "ConstantDividend"
             if e is HALF and has_constant_part(divisor):
                 return "HalfDivisionByConstant"

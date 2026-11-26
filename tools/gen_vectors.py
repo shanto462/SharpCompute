@@ -951,12 +951,7 @@ def integers_msl() -> list[str]:
             if t.bits < 32:
                 lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return {v}({PRELUDE_NONZERO}(int{suffix}(x))); }}")
                 continue
-            one, top = ("1u", 31) if t.bits == 32 else ("1UL", 63)
-            if t.signed:
-                u = f"{t.unsigned_msl}{suffix}"
-                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ {u} u = {u}(x); return {v}(u | (((u - {one}) & ~u) >> {top})); }}")
-            else:
-                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return x | (((x - {one}) & ~x) >> {top}); }}")
+            lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return x | {v}(metal::reverse_bits(x) == {v}(0)); }}")
     for t, zero, one in (("uint", "0u", "1u"), ("ulong", "0UL", "1UL")):
         lines.append(f"inline {t} {PRELUDE_DIV_NEAR_MAX}({t} a, {t} b) {{ return b > a ? {zero} : (a - b) / {PRELUDE_NONZERO}(b) + {one}; }}")
         lines.append(f"inline {t} {PRELUDE_REM_NEAR_MAX}({t} a, {t} b) {{ return b > a ? a : (a - b) % {PRELUDE_NONZERO}(b); }}")

@@ -102,10 +102,34 @@ build error `SCG0052`).
   negations (`data[Next()] *= -1`, `/= -1`, `*= new Int3(1, -1, 1)`), and `+=` or `-=` on
   components of the target (`data[Next()].XY += w`). Vectors of floats and halves, and all
   scalars, are not affected and keep their operators.
-- **Division by zero** does not trap. Where C# throws `DivideByZeroException`, the GPU carries on
-  with an unspecified value (on an Apple M4 Pro, `x / 0` is 0 and `x % 0` is `x` for 64-bit
-  operands). `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on
-  either.
+- **Division by zero** does not trap. Where C# throws `DivideByZeroException`, the GPU carries on:
+  `x / 0` is `x` and `x % 0` is 0. `long.MinValue / -1`, which overflows in C#, gives
+  `long.MinValue`. Don't depend on either.
+- **Division and bit counts go through helpers** that work around bugs in Apple's GPU compiler
+  (reported to Apple), which compiles correct MSL into wrong results:
+  - It dropped a guard against division by zero: with `t = l == C ? 0 : Math.Abs(l)`,
+    `t == 0 ? 0 : x % t` divided by `Abs(C)`, and `t` itself was not 0. It moves the division
+    ahead of the guard and then takes the divisor to be nonzero. So an integer `/` or `%` by
+    anything but a nonzero constant divides by `__ms_nonzero(t)`, which is `t`, or 1 for 0, and
+    gives the compiler nothing to assume. On an Apple M4 Pro that costs 2% of a 32-bit unsigned
+    division, 5% of a signed one and 1% of a 64-bit one, in a kernel that does nothing but divide.
+  - It divided a constant dividend of 2^32 - 128 or more (one that rounds to 2^32 as a float)
+    wrongly: `4294967295u / x` was 3579139454 for `x = 3`, and so was a `long` division it narrows
+    to 32 bits (`4294967295L % y`, with `y` a widened `uint`). Such a constant, written in the
+    division or a `const`, `static readonly` or constant vector, is divided by
+    `__ms_div_near_max(c, x)`, which divides `c - x` instead. A constant the generator cannot see,
+    one that only reaches the division through a local or a helper's parameter, is still divided
+    wrongly: write it in the division.
+  - It counted the bits of a sign-extended 16-bit value as if it were zero-extended
+    (`Gpu.LeadingZeroCount((uint)(short)i)` was 16 for a negative short, and so was the clz of
+    `(x << 16) >> 16`), and counted the junk above the 16 bits of a `short` it computed in a wider
+    register (`Gpu.CountBits(b ? s : t)` of the short -2 was 31). So `Gpu.CountBits` and
+    `BitOperations.PopCount` are `__ms_popcount`, a 32-bit popcount of the zero-extended value for
+    the 8- and 16-bit integers and the popcount of `reverse_bits(x)` for the others; and the 32-
+    and 64-bit `Gpu.LeadingZeroCount` and `BitOperations.LeadingZeroCount` are `__ms_clz`, which is
+    0 for a negative value. That is one instruction more a count.
+
+  A shader carries only the helpers it calls.
 - **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
   with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
   and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.

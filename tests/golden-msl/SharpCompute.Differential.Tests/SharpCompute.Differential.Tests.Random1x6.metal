@@ -169,8 +169,8 @@ template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, 
 inline uchar __ms_sat_uchar(float x) { float y = x > 0.0f ? x : 0.0f; return uchar(metal::min(y, 255.0f)); }
 inline uchar __ms_sat_uchar(half x) { return __ms_sat_uchar(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
-inline ulong __ms_nonzero(ulong x) { return x | (((x - 1UL) & ~x) >> 63); }
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
 
 constant int Slots = 22;
 
@@ -212,7 +212,6 @@ kernel void SharpCompute_Differential_Tests_Random1x6(
     int i1 = int(input[int(uint(o) + 16u)]);
     int i2 = int(input[int(uint(o) + 17u)]);
     uint u0 = uint(input[int(uint(o) + 18u)]);
-    long l1 = long(input[int(uint(o) + 22u)]);
     ulong ul0 = input[int(uint(o) + 24u)];
     ulong ul1 = input[int(uint(o) + 25u)];
     ulong ul2 = input[int(uint(o) + 26u)];
@@ -262,15 +261,11 @@ kernel void SharpCompute_Differential_Tests_Random1x6(
     output[int(uint(p) + 6u)] = long(c5_2.y);
     output[int(uint(p) + 7u)] = long(c5_2.z);
     output[int(uint(p) + 8u)] = (ulong(metal::isinf(f2 + f1) ? uchar(ushort(by0)) : __ms_sat_uchar(f1 * (-0.5f))) >= (((ul1 + 4294967295UL) ^ ulong(ushort(i2))) + (+metal::rotate(ul2, ulong((0u - uint(i1)) & 63u))))) ? 1L : 0L;
-    long c7_0 = l1;
-    c7_0 = long(ulong(c7_0) - 1UL);
-    ulong c7_1 = metal::min(ulong(c7_0), __ms_rotate_left(ul0, i0) - ulong(metal::max(by2, uchar(128))));
-    ulong c7_2 = +(metal::max(ul1, ul0) << (b1 ? i1 : 0));
-    if (!(c7_2 == 0UL))
-    {
-        c7_1 %= __ms_nonzero(c7_2);
-    }
-    output[int(uint(p) + 9u)] = long(c7_1);
+    ulong c7_0 = ul2 >> i1;
+    ulong c7_1 = ul0 ^ ul2;
+    ulong c7_2 = ul2;
+    ulong c7_3 = ++c7_2;
+    output[int(uint(p) + 9u)] = long(short(metal::min((c7_1 == 0UL) ? 0UL : c7_0 / __ms_nonzero(c7_1), c7_3)));
     uint c8_0 = metal::rotate(u0 >> (-1), (0u - uint(int(short(255)) >> i1)) & 31u);
     c8_0 -= (metal::rotate(256u, uint(i1) & 31u) + uint(sb1));
     output[int(uint(p) + 10u)] = (long(c8_0) ^ long(int(__ms_rotate_left(ulong(by0) + ul2, i4a.x))));

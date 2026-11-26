@@ -54,8 +54,10 @@ public class KnownDifferencesTests
     private const string Unfixed = "A difference between the GPU and ForCpu that is not fixed (see the summary of this test and KnownDifferencesTests).";
 
     /// <summary>
-    /// <c>4294967295u / x</c>: the Metal compiler's division of a constant dividend near 2^32 by a
-    /// variable is wrong (3579139454 for x = 3), also through a <c>long</c> that it narrows to 32 bits.
+    /// Fixed: <c>4294967295u / x</c>, the GPU compiler's division of a constant dividend near 2^32 by
+    /// a variable, was wrong (3579139454 for x = 3), also through a <c>long</c> that it narrows to 32
+    /// bits. A constant the generator cannot see (through a local) is still divided wrongly; the
+    /// fuzzer leaves those out under this name. More shapes are in <see cref="BackendMiscompileTests"/>.
     /// </summary>
     [MetalFact]
     public void ConstantDividend() => AssertSame([3], ConstantDividendRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new ConstantDividendRepro(i, o)));
@@ -88,7 +90,7 @@ public class KnownDifferencesTests
     public void LongToHalf() => AssertSame([65510, 1125586534716449654], LongToHalfRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new LongToHalfRepro(i, o)));
 
     /// <summary>
-    /// The bit intrinsics of a value the compiler narrows to 16 bits see the wrong upper bits:
+    /// Fixed: the bit intrinsics of a value the compiler narrows to 16 bits saw the wrong upper bits:
     /// <c>CountBits(b ? s : t)</c> of the short -2 is 31 instead of 15,
     /// <c>LeadingZeroCount((uint)(short)i)</c> of a negative short is 16 instead of 0, and so is
     /// <c>LeadingZeroCount(a % b)</c> of two sbytes widened to int, -48 % 53.
@@ -97,7 +99,7 @@ public class KnownDifferencesTests
     public void BitsOfSmallIntegerValue() => AssertSame([1, unchecked((ulong)-2L), 255, 1747837037, unchecked((ulong)-48L), 53], BitsOfSmallIntegerRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new BitsOfSmallIntegerRepro(i, o)));
 
     /// <summary>
-    /// A guard against division by zero is dropped when the divisor is itself chosen by a ternary:
+    /// Fixed: a guard against division by zero was dropped when the divisor is itself chosen by a ternary:
     /// with <c>t = l == long.MinValue ? 0 : Math.Abs(l)</c>, <c>t == 0 ? 0 : x % t</c> is
     /// <c>x % long.MinValue</c> (2 for x = 2) instead of 0 for <c>l = long.MinValue</c>. Guards around
     /// a chain of 32-bit divisions (<c>t = d == 0 ? 0 : a / d; t == 0 ? 0 : x % t</c>) were dropped

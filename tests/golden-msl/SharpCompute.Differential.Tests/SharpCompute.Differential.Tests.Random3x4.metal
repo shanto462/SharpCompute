@@ -171,8 +171,8 @@ inline uchar __ms_sat_uchar(half x) { return __ms_sat_uchar(float(x)); }
 inline short __ms_sat_short(float x) { float y = x == x ? x : 0.0f; return short(metal::clamp(y, -32768.0f, 32767.0f)); }
 inline short __ms_sat_short(half x) { return __ms_sat_short(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int __ms_nonzero(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
-inline long __ms_nonzero(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
 inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
 
 constant int Slots = 27;
@@ -239,19 +239,8 @@ kernel void SharpCompute_Differential_Tests_Random3x4(
     bool2 b2a = bool2((input[int(uint(o) + 105u)] & 1UL) != 0UL, (input[int(uint(o) + 106u)] & 1UL) != 0UL);
     bool4 b4a = bool4((input[int(uint(o) + 115u)] & 1UL) != 0UL, (input[int(uint(o) + 116u)] & 1UL) != 0UL, (input[int(uint(o) + 117u)] & 1UL) != 0UL, (input[int(uint(o) + 118u)] & 1UL) != 0UL);
     bool4 b4b = bool4((input[int(uint(o) + 119u)] & 1UL) != 0UL, (input[int(uint(o) + 120u)] & 1UL) != 0UL, (input[int(uint(o) + 121u)] & 1UL) != 0UL, (input[int(uint(o) + 122u)] & 1UL) != 0UL);
-    ushort c0_0 = us0;
-    c0_0 >>= 1073741824;
-    ushort c0_1 = us1;
-    c0_1 <<= i1;
-    ushort c0_2 = c0_1;
-    ushort c0_3 = __ms_math_clamp(c0_0, metal::min(c0_2, us0), metal::max(c0_2, us0));
-    long c0_4 = 64L;
-    if (!(l2 == 0L || (c0_4 == -9223372036854775807L - 1L && l2 == -1L)))
-    {
-        c0_4 %= __ms_nonzero(l2);
-    }
-    c0_3 <<= int(metal::ctz(c0_4));
-    output[int(uint(p) + 0u)] = long(uchar(c0_3));
+    short c0_0 = metal::min(short(-32767), sh0);
+    output[int(uint(p) + 0u)] = long(int(uint(char(uchar(metal::abs(us0)))) - uint(false ? (metal::isnan(f2) ? short(i1) : short(i0)) : (int(c0_0) == -32768 ? short(0) : short(metal::abs(c0_0))))));
     ushort c1_0 = (b2 || b2) ? (b2 ? us0 : us1) : metal::min(us2, us0);
     c1_0 &= int(ushort(16));
     output[int(uint(p) + 1u)] = long(metal::abs(c1_0));

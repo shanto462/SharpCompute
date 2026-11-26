@@ -116,7 +116,7 @@ inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
 inline uint3 __ms_sat_uint3(float3 x) { float3 y = metal::select(float3(0.0f), x, x > 0.0f); uint3 r = uint3(metal::min(y, float3(4294967040.0f))); return metal::select(r, uint3(4294967295u), x >= 4294967296.0f); }
 inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline int3 __ms_nonzero(int3 x) { uint3 u = uint3(x); return int3(u | (((u - 1u) & ~u) >> 31)); }
+inline int3 __ms_nonzero(int3 x) { return x | int3(metal::reverse_bits(x) == int3(0)); }
 
 constant int Slots = 24;
 
