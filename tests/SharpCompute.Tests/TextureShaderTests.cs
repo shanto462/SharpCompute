@@ -1672,7 +1672,7 @@ public unsafe class TextureShaderTests
         for (int i = 0; i < e.Length; i++)
         {
             Assert.True(
-                e[i] == a[i],
+                FloatBits.SameBits(e[i], a[i]),
                 $"{side}: pixel {i / 4}, channel {i % 4}: expected {BitConverter.UInt32BitsToSingle(e[i]):R} (0x{e[i]:X8}), got {BitConverter.UInt32BitsToSingle(a[i]):R} (0x{a[i]:X8}).");
         }
     }

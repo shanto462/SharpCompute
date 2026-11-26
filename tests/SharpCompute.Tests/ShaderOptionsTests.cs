@@ -60,13 +60,13 @@ public class ShaderOptionsTests
         device.For(Length, new MulAddNoContract(bufferA, bufferB, bufferC, exact));
         device.ForCpu(Length, new MulAddNoContract(bufferA, bufferB, bufferC, cpu));
 
-        int[] expected = new int[Length];
+        uint[] expected = new uint[Length];
 
         for (int i = 0; i < Length; i++)
         {
             // Two rounded operations: the product is stored to a float before the add.
             float product = a[i] * b[i];
-            expected[i] = BitConverter.SingleToInt32Bits(product + c[i]);
+            expected[i] = FloatBits.Comparable(product + c[i]);
         }
 
         // With contraction off the GPU matches C# bit for bit, on every element.
@@ -118,12 +118,12 @@ public class ShaderOptionsTests
 
         device.For(Length, new MulAddFastNoContract(bufferA, bufferB, bufferC, result));
 
-        int[] expected = new int[Length];
+        uint[] expected = new uint[Length];
 
         for (int i = 0; i < Length; i++)
         {
             float product = a[i] * b[i];
-            expected[i] = BitConverter.SingleToInt32Bits(product + c[i]);
+            expected[i] = FloatBits.Comparable(product + c[i]);
         }
 
         // The pragma wins over the contraction fast math would otherwise allow.
@@ -184,7 +184,7 @@ public class ShaderOptionsTests
         device.ForSplit(Length, new BlockMulAddSum(bufferA, bufferB, bufferC, split, Length), cpuFraction: 0.5);
 
         // Plain C#: an unfused multiply-add per element, then the same tree of sums.
-        int[] expected = new int[blocks];
+        uint[] expected = new uint[blocks];
         float[] tile = new float[BlockMulAddSum.BlockSize];
         int fusedLoadsThatDiffer = 0;
 
@@ -206,7 +206,7 @@ public class ShaderOptionsTests
                 }
             }
 
-            expected[block] = BitConverter.SingleToInt32Bits(tile[0]);
+            expected[block] = FloatBits.Comparable(tile[0]);
         }
 
         // With contraction off every block sum has C#'s bits, on the GPU, on the CPU's group executor
@@ -245,7 +245,8 @@ public class ShaderOptionsTests
     private static bool UsesThreadgroupMemory<T>()
         where T : struct, IComputeShaderDescriptor<T> => T.UsesThreadgroupMemory;
 
-    private static int[] Bits(ReadWriteBuffer<float> buffer) => buffer.ToArray().Select(BitConverter.SingleToInt32Bits).ToArray();
+    /// <summary>The bits of every element, NaN-sign-insensitively (see <see cref="FloatBits"/>).</summary>
+    private static uint[] Bits(ReadWriteBuffer<float> buffer) => FloatBits.Comparable(buffer.ToArray());
 
     /// <summary>Operands with full mantissas, so that most products need rounding and a fused add shows.</summary>
     private static (float[] A, float[] B, float[] C) Operands()

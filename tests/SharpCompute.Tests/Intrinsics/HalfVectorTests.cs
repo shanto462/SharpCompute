@@ -28,17 +28,12 @@ public class HalfVectorTests
 
     private static ushort Bits(Half value) => BitConverter.HalfToUInt16Bits(value);
 
-    private static bool IsNaN(ushort bits) => (bits & 0x7C00) == 0x7C00 && (bits & 0x03FF) != 0;
-
-    /// <summary>The same half, where every NaN is the same (the GPU does not promise a payload or a sign for a NaN it produces).</summary>
-    private static bool Same(ushort cpu, ushort gpu) => cpu == gpu || (IsNaN(cpu) && IsNaN(gpu));
-
     /// <summary>The number of halves between two halves: 0 for +0 and -0, 1 from the largest half to infinity.</summary>
     private static int UlpDistance(ushort a, ushort b)
     {
         static int Ordinal(ushort bits) => (bits & 0x8000) != 0 ? -(bits & 0x7FFF) : bits;
 
-        return IsNaN(a) || IsNaN(b) ? (IsNaN(a) && IsNaN(b) ? 0 : int.MaxValue) : Math.Abs(Ordinal(a) - Ordinal(b));
+        return FloatBits.IsNaN(a) || FloatBits.IsNaN(b) ? (FloatBits.IsNaN(a) && FloatBits.IsNaN(b) ? 0 : int.MaxValue) : Math.Abs(Ordinal(a) - Ordinal(b));
     }
 
     /// <summary>
@@ -117,15 +112,15 @@ public class HalfVectorTests
                     {
                         // Either the fused result or the unfused one (which is checked below).
                         ushort f = MemoryMarshal.Cast<Half4, ushort>(fusedResults.AsSpan())[((output - HalfArithmetic.FirstContractable) * 4) + component];
-                        distinguishing += Same(f, e) ? 0 : 1;
+                        distinguishing += FloatBits.SameBits(f, e) ? 0 : 1;
 
-                        if (Same(f, g))
+                        if (FloatBits.SameBits(f, g))
                         {
                             continue;
                         }
                     }
 
-                    if (!Same(e, g) && mismatches.Count < 20)
+                    if (!FloatBits.SameBits(e, g) && mismatches.Count < 20)
                     {
                         mismatches.Add($"output {output}, thread {thread}, component {component}: CPU 0x{e:X4}, GPU 0x{g:X4}; {Describe(a, b, c, thread, component)}");
                     }
@@ -160,10 +155,10 @@ public class HalfVectorTests
         for (int thread = 0; thread < Count; thread += 97)
         {
             Half x = a[thread].Y, y = b[thread].Y, z = c[thread].Y;
-            Assert.True(Same(Bits(x + y), Bits(results[thread * HalfArithmetic.Stride].Y)));
-            Assert.True(Same(Bits(x / y), Bits(results[(thread * HalfArithmetic.Stride) + 3].Y)));
-            Assert.True(Same(Bits((x * y) + z), Bits(results[(thread * HalfArithmetic.Stride) + 8].Y)));
-            Assert.True(Same(Bits(z - (x * y)), Bits(results[(thread * HalfArithmetic.Stride) + 9].Y)));
+            Assert.True(FloatBits.SameBits(Bits(x + y), Bits(results[thread * HalfArithmetic.Stride].Y)));
+            Assert.True(FloatBits.SameBits(Bits(x / y), Bits(results[(thread * HalfArithmetic.Stride) + 3].Y)));
+            Assert.True(FloatBits.SameBits(Bits((x * y) + z), Bits(results[(thread * HalfArithmetic.Stride) + 8].Y)));
+            Assert.True(FloatBits.SameBits(Bits(z - (x * y)), Bits(results[(thread * HalfArithmetic.Stride) + 9].Y)));
         }
     }
 
@@ -179,7 +174,7 @@ public class HalfVectorTests
             ushort e = expected[index], g = actual[index];
             int output = index / 4 % stride;
 
-            if (Same(e, g) || (eitherZero is not null && eitherZero.Contains(output) && (e & 0x7FFF) == 0 && (g & 0x7FFF) == 0))
+            if (FloatBits.SameBits(e, g) || (eitherZero is not null && eitherZero.Contains(output) && (e & 0x7FFF) == 0 && (g & 0x7FFF) == 0))
             {
                 continue;
             }
@@ -222,7 +217,7 @@ public class HalfVectorTests
             bool exact = output < HalfFunctions.FirstTranscendental;
             int distance = UlpDistance(e, g);
             bool ok = exact
-                ? Same(e, g) || (HalfFunctions.EitherZero.Contains(output) && (e & 0x7FFF) == 0 && (g & 0x7FFF) == 0)
+                ? FloatBits.SameBits(e, g) || (HalfFunctions.EitherZero.Contains(output) && (e & 0x7FFF) == 0 && (g & 0x7FFF) == 0)
                 : distance <= 1;
 
             worst[output] = Math.Max(worst[output], distance == int.MaxValue ? 99999 : distance);
@@ -305,7 +300,7 @@ public class HalfVectorTests
         for (int index = 0; index < expectedHalf.Length; index++)
         {
             Assert.True(
-                Same(expectedHalf[index], actualHalf[index]),
+                FloatBits.SameBits(expectedHalf[index], actualHalf[index]),
                 $"{names[index / 4 % 3]}, thread {index / 12}, component {index % 4}: CPU 0x{expectedHalf[index]:X4}, GPU 0x{actualHalf[index]:X4}");
         }
 
@@ -315,7 +310,7 @@ public class HalfVectorTests
         for (int index = 0; index < expectedFloat.Length; index++)
         {
             float e = BitConverter.UInt32BitsToSingle(expectedFloat[index]), g = BitConverter.UInt32BitsToSingle(actualFloat[index]);
-            Assert.True(expectedFloat[index] == actualFloat[index] || (float.IsNaN(e) && float.IsNaN(g)), $"(Float4)Half4, thread {index / 4}, component {index % 4}: CPU {e:R}, GPU {g:R}");
+            Assert.True(FloatBits.SameBits(expectedFloat[index], actualFloat[index]), $"(Float4)Half4, thread {index / 4}, component {index % 4}: CPU {e:R}, GPU {g:R}");
         }
 
         Assert.Equal(MemoryMarshal.Cast<Int4, int>(cpuInt.AsSpan()).ToArray(), MemoryMarshal.Cast<Int4, int>(gpuInt.AsSpan()).ToArray());
@@ -454,8 +449,8 @@ public class HalfVectorTests
 
         for (int index = 0; index < expected.Length; index++)
         {
-            Assert.True(expected[index] == cpuWords[index], $"CPU pixel {index / 4}, channel {index % 4}: expected 0x{expected[index]:X4}, got 0x{cpuWords[index]:X4}");
-            Assert.True(expected[index] == gpuWords[index], $"GPU pixel {index / 4}, channel {index % 4}: expected 0x{expected[index]:X4}, got 0x{gpuWords[index]:X4}");
+            Assert.True(FloatBits.SameBits(expected[index], cpuWords[index]), $"CPU pixel {index / 4}, channel {index % 4}: expected 0x{expected[index]:X4}, got 0x{cpuWords[index]:X4}");
+            Assert.True(FloatBits.SameBits(expected[index], gpuWords[index]), $"GPU pixel {index / 4}, channel {index % 4}: expected 0x{expected[index]:X4}, got 0x{gpuWords[index]:X4}");
         }
     }
 }

@@ -19,6 +19,9 @@ to the page that explains it.
 - **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
   with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
   and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
+  `checked(...)` and `checked { }` are reported on each operation in them; the project-wide switch
+  is reported once per shader, on its declaration, with the number of checked operations and the
+  first of them.
   ([Integers](shader-language.md#integers))
 - **A Metal compiler bug drops a lane of integer vector arithmetic**: when an integer vector is
   negated, a lane of the negation is never read, and the same vector is subtracted in an
@@ -35,9 +38,10 @@ to the page that explains it.
   `UShort2..4`). A `static readonly` half or bool value can be initialized with constructors, casts
   and operators, but not with a function call (`SCG0024`): the compile-time evaluation only does
   32-bit arithmetic. ([Half precision](half-precision.md#functions-that-take-a-scalar-half))
-- **GPU math** follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero and
-  fuses multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
-  Transcendental functions agree with the CPU to within a few ULP.
+- **GPU math** follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero in
+  most operations ([Subnormals](shader-language.md#subnormals)) and fuses multiply-adds
+  (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader). Transcendental
+  functions agree with the CPU to within a few ULP.
   ([Compile options](shader-language.md#compile-options))
 - **Local arrays** have a compile-time length and one name: they cannot be sliced, copied to another
   variable or returned (pass them to a helper instead), and multi-dimensional and jagged arrays are
@@ -48,6 +52,9 @@ to the page that explains it.
   `with` expressions, user-defined `++`/`--`, generic structs and interface calls are not. A
   by-reference (`ref`/`out`) argument has to be a local or a parameter, not a buffer element.
   ([Sharing code](shared-code.md#rules))
+- **Instance extension properties and indexers** (C# 14 `extension(T v) { ... }` blocks) are build
+  error `SCG0017`, and instance extension methods `SCG0016`. Static extension members and extension
+  operators work. ([Extension members](shader-language.md#extension-members))
 
 ## Matrix units
 

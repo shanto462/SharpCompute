@@ -58,5 +58,5 @@ there is one, what to write instead. The source of truth is
 | SCG0049 | Error | Wave matrix cannot be loaded from or stored to this memory | [Matrix units](matrix-units.md#rules) |
 | SCG0050 | Error | Wave matrix in a static field | [Matrix units](matrix-units.md#rules) |
 | SCG0051 | Warning | Wave matrix in a threadgroup that is not a multiple of 32 threads | [Matrix units](matrix-units.md#rules) |
-| SCG0052 | Error | Checked arithmetic in a shader | [Integers](shader-language.md#integers) |
+| SCG0052 | Error | Checked arithmetic in a shader (once per shader under `CheckForOverflowUnderflow`) | [Integers](shader-language.md#integers) |
 | SCG9999 | Error | Internal generator error | |

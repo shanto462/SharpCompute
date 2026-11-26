@@ -14,6 +14,7 @@ their doc comments.
 - [unorm8 packing](#unorm8-packing)
 - [Compile options](#compile-options)
 - [Evaluation order](#evaluation-order)
+- [Extension members](#extension-members)
 
 Related pages: [Half precision](half-precision.md), [Local arrays](local-arrays.md),
 [Sharing code between shaders](shared-code.md), [Atomics](atomics.md).
@@ -98,6 +99,9 @@ build error `SCG0052`).
 - **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built
   with `CheckForOverflowUnderflow`) is build error `SCG0052`: it throws `OverflowException` in C#
   and with `ForCpu`, and the GPU has no exceptions. Write it `unchecked`, which wraps on both.
+  `checked(...)` and `checked { }` are reported on each operation in them; the project-wide switch
+  is reported once per shader, on its declaration, with the number of checked operations and the
+  first of them.
 - **Float to integer** conversions truncate, give 0 for NaN and saturate at the bounds of the target
   type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
   `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range
@@ -222,8 +226,42 @@ unorm8 packing as patterns (`scripts/demo-computelab.sh --page bits`):
 - `Gpu.Log10` and `Gpu.Exp10` agree within a few ULP, like the other transcendentals.
 - `Fma`, `CopySign`, `Log10` and `Exp10` have `Float2..4` overloads.
 
-GPU math follows Apple GPU behaviour: it flushes subnormal floats (not halves) to zero, and fuses
-multiply-adds unless a shader turns that off with [`FpContract = false`](#compile-options).
+GPU math follows Apple GPU behaviour: most float operations flush subnormal floats (not halves) to
+zero (see [Subnormals](#subnormals) for which), and multiply-adds are fused unless a shader turns that
+off with [`FpContract = false`](#compile-options).
+
+## Subnormals
+
+An Apple GPU flushes float subnormals (magnitudes below 2^-126, about 1.18e-38) to a zero of the same
+sign in most operations, also under safe math. Half subnormals are never flushed: half arithmetic
+keeps them bit for bit (see [Half precision](half-precision.md#what-it-computes)). `ForCpu` keeps
+float subnormals everywhere, so the two differ only where an operand or a result is subnormal.
+
+What each operation does, measured on an Apple M4 Pro and pinned by
+[`SubnormalFlushTests`](../tests/SharpCompute.Tests/SubnormalFlushTests.cs) against plain C#:
+
+| Operation | Subnormal operand | Subnormal result | Notes |
+|---|---|---|---|
+| Buffer load and store, `Gpu.AsFloat`, `Gpu.AsInt`, `Gpu.AsUInt`, the `BitConverter` casts | kept | kept | The bits pass through unchanged |
+| `-x`, `Gpu.Abs`, `Gpu.CopySign`, `c ? x : y` | kept | kept | Sign and selection only |
+| `+`, `-`, `*`, `/`, `Gpu.Fma`, a fused `a * b + c` | flushed | flushed | Tininess is decided before rounding: a product, quotient or fma that rounds up to ±2^-126 from below gives ±0 |
+| `<`, `<=`, `==`, `!=` and the other comparisons | flushed | | `1e-45f == 0f` is true |
+| `Gpu.Min`, `Gpu.Max`, `Gpu.Clamp` | compared flushed | | Return one of the operands unflushed. When both flush to the same zero, `Min` and `Max` return `y` |
+| `MathF.Min`, `MathF.Max` (and `Math`, `float`) | compared flushed | | Return one of the operands unflushed. When both flush to the same zero, `Min` returns `x` if its sign bit is set and `y` otherwise, `Max` returns `x` if the sign bit of `y` is set and `y` otherwise |
+| `x % y` | see notes | flushed | A dividend smaller in magnitude than the divisor is returned as it is, subnormal or not. A subnormal divisor gives NaN. Otherwise the remainder of the flushed operands, with a subnormal remainder flushed |
+| `Gpu.Floor`, `Gpu.Ceil`, `Gpu.Fract`, `Gpu.Sign`, `Gpu.Sqrt`, `Gpu.Rsqrt` | flushed | | `Floor(-1e-45f)` is `-0`, `Ceil(1e-45f)` is 0, `Rsqrt` of a subnormal is +∞ |
+| `Gpu.Trunc`, `Gpu.Round`, conversions to integers | either | | The result is the same zero either way |
+| `(Half)x`, `(float)h`, `(float)n` | either | | A float subnormal is below the half range (±0 either way). A half subnormal is a normal float, converted exactly. An integer is never subnormal |
+| `Gpu.Sin`, `Gpu.Tan`, `Gpu.Asin`, `Gpu.Sinh`, `Gpu.Tanh` | kept | kept | A subnormal `x` is returned as it is |
+| `Gpu.Atan`, `Gpu.Log`, `Gpu.Log2`, `Gpu.Log10` | flushed | | `Log` of a subnormal is -∞, `Atan` of one is a zero |
+| `Gpu.Exp`, `Gpu.Exp2`, `Gpu.Exp10` | flushed | flushed | `Exp(-100f)` is 0 |
+| `Gpu.Pow` | flushed | flushed | Except `Pow(x, 1)`, which returns `x` as it is |
+| `Gpu.Atan2` | flushed | flushed | A result below the smallest normal is `+0`, whatever its sign |
+| `Gpu.Cos`, `Gpu.Cosh`, `Gpu.Acos` | either | | The result for a subnormal is the result for zero |
+
+The `MathF` and `Math` forms of these functions compile to the same Metal functions as their `Gpu`
+forms. The [conformance suite](cpu-execution.md#semantics-and-conformance) compares the GPU with
+`ForCpu` up to this flushing.
 
 ## unorm8 packing
 
@@ -300,3 +338,13 @@ so all four are `SCG0021`, and the message shows the split: `var t = Bump(0); da
 - **Two resources are never compared.** The same buffer bound under two names (captured twice, or
   through overlapping views) is the same memory, which this check cannot see: it is a question of
   how the shader is bound, not of how an expression is written.
+
+## Extension members
+
+C# 14 `extension(...)` blocks work in shaders for their static members: a static extension property
+or method (`Float3.Unit`, `Float3.Ramp(x)`) and an extension operator (`a ^ b` on a vector, `a + b`
+on a struct of your own) become functions, like any [shared helper](shared-code.md). Instance
+extension properties and indexers (`v.LengthSquared`, `buffer[p]` through an extension indexer) are
+not supported yet and are build error `SCG0017`, on every receiver: buffers, textures, vectors,
+matrices, local arrays and structs. Instance extension methods are `SCG0016`. Write them as static
+methods that take the receiver, or as classic `this` extension methods (`x.Squared()`).

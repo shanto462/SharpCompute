@@ -8,7 +8,8 @@ namespace SharpCompute.SourceGenerators.Tests;
 /// Checked arithmetic is SCG0052: in C# (and in <c>ForCpu</c>) it throws <c>OverflowException</c>,
 /// and the GPU cannot throw. Only what a checked context changes is reported, wherever the context
 /// comes from: a <c>checked(...)</c> expression, a <c>checked { }</c> block, or the project's
-/// <c>CheckForOverflowUnderflow</c>.
+/// <c>CheckForOverflowUnderflow</c>. The first two are reported per operation; the project switch is
+/// reported once per shader, on its declaration.
 /// </summary>
 public class CheckedArithmeticTests
 {
@@ -107,13 +108,74 @@ public class CheckedArithmeticTests
     }
 
     [Fact]
-    public void TheProjectSwitch_ReportsEveryCheckedOperation_AndSaysWhereItComesFrom()
+    public void TheProjectSwitch_IsReportedOnce_OnTheShader_WithTheCountAndTheFirstOperation()
     {
         GeneratorRun run = Run("int x = a + b; x++; ints[2] = x * 3; floats[1] = f * 2f; ints[3] = unchecked(a * b);", checkOverflow: true);
+        Diagnostic diagnostic = run.AssertOnlyDiagnostic("SCG0052", "TestShader");
+        string message = diagnostic.GetMessage();
+
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("Shader 'TestShader' has 3 checked operations, the first 'a + b' at line 17,", message);
+        Assert.Contains("CheckForOverflowUnderflow", message);
+        Assert.Contains("'unchecked { }'", message);
+        Assert.DoesNotContain(run.Diagnostics, static d => d.Id == "SCG9999");
+    }
+
+    [Fact]
+    public void TheProjectSwitch_CountsTheHelpers_ButEachOperationOnce()
+    {
+        // The subtraction's operand is translated too, so the helper's addition is counted; the helper
+        // is called twice, and its addition counts once.
+        const string source = """
+            using SharpCompute;
+
+            namespace Tests;
+
+            [GeneratedComputeShaderDescriptor]
+            public readonly partial struct TestShader(ReadWriteBuffer<int> ints) : IComputeShader
+            {
+                public void Execute()
+                {
+                    ints[0] = Next(ints[1]) - 1;
+                    ints[1] = Next(ints[2]);
+                }
+
+                private static int Next(int x) => x + 1;
+            }
+            """;
+        CSharpCompilation compilation = GeneratorHarness.CreateCompilation(source);
+        compilation = compilation.WithOptions(compilation.Options.WithOverflowChecks(true));
+        GeneratorDriver driver = GeneratorHarness.CreateDriver().RunGeneratorsAndUpdateCompilation(compilation, out Compilation output, out _);
+        var run = new GeneratorRun(compilation, (CSharpCompilation)output, driver);
+
+        Diagnostic diagnostic = run.AssertOnlyDiagnostic("SCG0052", "TestShader");
+        Assert.Contains("has 2 checked operations, the first 'Next(ints[1]) - 1' at line 10,", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void TheProjectSwitch_WithOneOperation_SaysOne()
+    {
+        GeneratorRun run = Run("ints[2] = a - b;", checkOverflow: true);
+
+        Assert.Contains("has 1 checked operation, the first 'a - b'", run.AssertOnlyDiagnostic("SCG0052", "TestShader").GetMessage());
+    }
+
+    [Theory]
+    [InlineData("ints[2] = checked(a + b);", "a + b")]
+    [InlineData("checked { int x = a; x++; ints[2] = x; }", "x++")]
+    public void TheProjectSwitch_KeepsExplicitCheckedCode_WhereItIsWritten(string body, string location)
+    {
+        // Explicit checked code is deliberate: it is reported where it is written, as without the
+        // switch, and it is not counted on the shader. The shader's other checked arithmetic is.
+        GeneratorRun run = Run(body + " ints[3] = a * b;", checkOverflow: true);
         Diagnostic[] reported = run.Diagnostics.Where(static d => d.Id == "SCG0052").ToArray();
 
-        Assert.Equal(["a + b", "x * 3", "x++"], reported.Select(run.TextAt).Order().ToArray());
-        Assert.All(reported, static d => Assert.Contains("CheckForOverflowUnderflow", d.GetMessage()));
+        Assert.Equal(2, reported.Length);
+        Diagnostic site = Assert.Single(reported, d => run.TextAt(d) == location);
+        Assert.Contains($"'{location}' is checked arithmetic", site.GetMessage());
+        Assert.DoesNotContain("CheckForOverflowUnderflow", site.GetMessage());
+        Diagnostic shader = Assert.Single(reported, static d => d.GetMessage().Contains("CheckForOverflowUnderflow"));
+        Assert.Contains("has 1 checked operation, the first 'a * b'", shader.GetMessage());
     }
 
     [Fact]

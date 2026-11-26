@@ -35,10 +35,28 @@ public class ConformanceTests(ITestOutputHelper output)
     public void Family_ReportsEverySlot_WhenTheGpuResultsAreMutated(string title)
     {
         IConformanceFamily family = ConformanceFamilies.All.Single(f => f.Title == title);
-        ConformanceResult result = family.Run(GraphicsDevice.GetDefault(), mutate: true);
+        ConformanceResult result = family.Run(GraphicsDevice.GetDefault(), Mutation.Exponent);
 
         Assert.True(result.ComparedSlots > 0);
         Assert.Equal(result.ComparedSlots, result.FailedSlots);
+    }
+
+    /// <summary>
+    /// Every NaN equals every NaN, but nothing else does: a GPU number moved by one ULP (a NaN left as
+    /// it is) is caught in every exact slot of every family.
+    /// </summary>
+    [MetalTheory]
+    [MemberData(nameof(Families))]
+    public void Family_ReportsEveryExactSlot_WhenTheGpuNumbersAreOneUlpOff(string title)
+    {
+        IConformanceFamily family = ConformanceFamilies.All.Single(f => f.Title == title);
+        ConformanceResult result = family.Run(GraphicsDevice.GetDefault(), Mutation.LastBit);
+        string[] missed = Enumerable.Range(0, family.Slots.Count)
+            .Where(slot => family.Slots[slot].Check == Check.Exact && !result.Failed.Contains(slot))
+            .Select(slot => family.Slots[slot].Name)
+            .ToArray();
+
+        Assert.True(missed.Length == 0, $"{title}: exact slots that do not report a one-ULP change: {string.Join(", ", missed)}");
     }
 
     [Fact]

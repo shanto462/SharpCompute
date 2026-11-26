@@ -12,7 +12,7 @@ internal static class EdgeSuite
     static void Check(string name, int bad, string first) { log.AppendLine($"[{(bad == 0 ? "PASS" : "FAIL")}] {name}: {bad} mismatches {first}"); if (bad != 0) failures++; }
     static void Try(string name, Action a) { try { a(); } catch (Exception e) { string[] lines = e.Message.Split('\n'); log.AppendLine($"[FAIL] {name}: {e.GetType().Name}: {string.Join("\n        ", lines.Take(14))}"); failures++; } }
     static bool Near(float a, float b) => (float.IsNaN(a) && float.IsNaN(b)) || a == b || MathF.Abs(a - b) <= MathF.Abs(b) * 2e-5f + 1e-5f;
-    static bool Same(float a, float b) => BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b) || (float.IsNaN(a) && float.IsNaN(b));
+    static bool Same(float a, float b) => FloatBits.Same(a, b);
 
     public static int Run(GraphicsDevice device, StringBuilder output)
     {

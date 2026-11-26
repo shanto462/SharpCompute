@@ -14,7 +14,7 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.12.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />

@@ -91,14 +91,18 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
   zero of the same sign (a result that rounds up to the smallest normal from below as well), and
   `ForCpu` does not. Float arithmetic, comparisons, conversions from float and the float functions
   that are not transcendental give `ForCpu`'s result for the operands as they are or with their
-  subnormals flushed. `Abs`, `CopySign`, negation and `%` copy a subnormal unflushed; `Min`, `Max`,
-  `Clamp` and `Select` compare the flushed operands and return one of them unflushed. Half
-  subnormals are kept.
+  subnormals flushed. `Abs`, `CopySign`, negation and selection copy a subnormal unflushed; `Min`,
+  `Max`, `Clamp` and `Select` compare the flushed operands and return one of them unflushed; `%`
+  returns a dividend smaller than the divisor unflushed and gives NaN for a subnormal divisor. Half
+  subnormals are kept. [Subnormals](shader-language.md#subnormals) lists every operation.
 - **Within a tolerance**: the transcendental functions (`Sin`, `Exp`, `Log`, `Pow`, `Atan2` and the
   rest, of `Gpu` and of `MathF`) within 4 float ULP or 1 half ULP, and the composite ones (`Lerp`,
   `Smoothstep`, `Dot`, `Length`, `Normalize`, `Reflect`, `Cross`) as well, except near the subnormal
-  range, where an intermediate result can be flushed. `a * b + c` is fused into one fma on the GPU
-  (unless `[ShaderOptions(FpContract = false)]`), so it is not compared.
+  range, where an intermediate result can be flushed.
+- **Fused or not**: `a * b + c` is fused into one fma on the GPU (unless
+  `[ShaderOptions(FpContract = false)]`), and `ForCpu` rounds the product and the sum. The suite
+  accepts exactly those two results, `MathF.FusedMultiplyAdd(a, b, c)` and `a * b + c`, each up to
+  subnormal flushing.
 - **Unspecified**, and only checked not to crash: integer division and remainder by zero, and
   `MathF.ReciprocalSqrtEstimate`, whose precision is the CPU's.
 - **Where .NET throws**, `ForCpu` throws and the GPU carries on, and the suite pins what it returns:

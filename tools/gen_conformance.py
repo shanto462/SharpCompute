@@ -28,6 +28,9 @@ compared with ForCpu's (ConformanceHarness.cs):
     Near(n)      Ulp(n), but not compared when an operand is a nonzero float within 2^-64 of zero or
                  both results are within 2^-120 of it: composite functions (Lerp, Smoothstep, the
                  geometric ones) whose intermediate results the GPU flushes when they are subnormal
+    MultiplyAdd  x * y + z of scalar floats: Ftz against ForCpu's value (rounded twice) or Ftz against
+                 MathF.FusedMultiplyAdd of the same operands (rounded once), since the GPU contracts
+                 the expression into one fused multiply-add unless FpContract = false
     Unspecified  run on both sides (so it must not crash), not compared; the reason is recorded
 
 Requires only the Python 3 standard library.
@@ -248,7 +251,8 @@ def float_operators(t: Scalar) -> Family:
         f.add(f"{op} (variable)", t.cs, arith, value=f"t{k}", setup=f"{t.cs} t{k} = x; {op.replace('t', f't{k}')};")
         k += 1
     if t is FLOAT:
-        f.add("x * y + z", t.cs, "Unspecified", reason="the GPU contracts it into one fused multiply-add ([ShaderOptions(FpContract = false)] turns that off); ForCpu rounds twice")
+        # The GPU contracts it into one fused multiply-add; ForCpu rounds the product and the sum.
+        f.add("x * y + z", t.cs, "MultiplyAdd")
     return f
 
 

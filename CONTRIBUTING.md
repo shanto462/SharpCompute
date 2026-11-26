@@ -52,7 +52,8 @@ Match the code around your change:
   `ForCpu` is the reference the GPU result is held to. GPU tests use `[MetalFact]` or
   `[MetalTheory]`, so they are skipped, not failed, on a machine without a Metal device.
 - Generator changes get tests in `tests/SharpCompute.SourceGenerators.Tests` for the emitted MSL
-  and for the diagnostics.
+  and for the diagnostics. The MSL of every shader in the solution is also pinned by the
+  [golden MSL snapshots](#golden-msl-snapshots).
 - The conformance suites pin what the GPU must reproduce. `tests/SharpCompute.Tests/Conformance`
   runs every operator, conversion and intrinsic family on the GPU and with `ForCpu` over edge
   values, and its `Semantics` folder pins scans, evaluation order, compound targets and in-place
@@ -88,6 +89,27 @@ scripts/validate-gpu.sh --abort --filter <test>      # stop at the first violati
   `VALIDATE_GPU_LOCK` to a directory path to serialize with other GPU-heavy jobs: the script waits
   until it can create the directory and removes it when it exits. Unset, it takes no lock.
 - Not covered: the opt-in window tests start their own processes and keep their stderr.
+
+## Golden MSL snapshots
+
+`tests/golden-msl` holds the MSL of every shader the generator emits anywhere in the solution
+(samples, ComputeLab, benchmarks and the tests' shaders, the conformance families included): one
+`.metal` file per shader, in a folder per assembly, named after the shader's type. The first line
+of a file is a comment with the shader's entry point and compile options, and the rest is the MSL
+exactly as emitted. `tests/SharpCompute.GoldenMsl.Tests` reads the MSL back out of the built
+assemblies and compares it with the snapshots, byte for byte; it needs no GPU and runs with the
+full suite, or alone with `dotnet test tests/SharpCompute.GoldenMsl.Tests`.
+
+- A change that is not meant to alter the emitted MSL (a refactoring, a style sweep, a new
+  diagnostic) passes without touching a snapshot. If the test fails, it names each shader that
+  differs and shows the first differing lines.
+- A change that is meant to alter it, or that adds, renames or removes a shader, regenerates the
+  snapshots with `scripts/update-golden-msl.sh` (or `SHARPCOMPUTE_UPDATE_GOLDEN=1` on the test) and
+  commits them with the change. Review `git diff tests/golden-msl` first: that diff is what the
+  change did to the generator's output, and nothing in it should be a surprise. A normal test run
+  never rewrites a snapshot.
+- When `main` has moved under a branch that changes the snapshots, merge it and regenerate rather
+  than resolving conflicts in the `.metal` files by hand.
 
 ## Diagnostics
 

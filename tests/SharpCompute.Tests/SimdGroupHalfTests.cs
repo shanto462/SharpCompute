@@ -22,11 +22,6 @@ public class SimdGroupHalfTests
 
     private static ushort Bits(Half value) => BitConverter.HalfToUInt16Bits(value);
 
-    private static bool IsNaN(ushort bits) => (bits & 0x7C00) == 0x7C00 && (bits & 0x03FF) != 0;
-
-    /// <summary>The same half, where every NaN is the same, whatever its sign and payload.</summary>
-    private static bool Same(ushort expected, ushort actual) => expected == actual || (IsNaN(expected) && IsNaN(actual));
-
     private static ushort[] Words(Half4 value) => [Bits(value.X), Bits(value.Y), Bits(value.Z), Bits(value.W)];
 
     private static int Ordinal(ushort bits) => (bits & 0x8000) != 0 ? -(bits & 0x7FFF) : bits;
@@ -61,7 +56,7 @@ public class SimdGroupHalfTests
     {
         Assert.Equal(gpu.Length, cpu.Length);
         string[] differences = Enumerable.Range(0, gpu.Length)
-            .Where(i => compared(i / perValue % stride) && !Same(cpu[i], gpu[i]))
+            .Where(i => compared(i / perValue % stride) && !FloatBits.SameBits(cpu[i], gpu[i]))
             .Select(i => $"thread {i / perValue / stride}, output {i / perValue % stride}, component {i % perValue}: GPU 0x{gpu[i]:X4}, CPU 0x{cpu[i]:X4}")
             .ToArray();
 
@@ -164,7 +159,7 @@ public class SimdGroupHalfTests
 
                 if (output is 2 or 3 or 21 or 22)
                 {
-                    Assert.True(Same(c, g), $"thread {thread}, output {output}: GPU 0x{g:X4}, CPU 0x{c:X4}");
+                    Assert.True(FloatBits.SameBits(c, g), $"thread {thread}, output {output}: GPU 0x{g:X4}, CPU 0x{c:X4}");
                 }
                 else if (SimdHalfScalars.Sums.Contains(output))
                 {
@@ -177,7 +172,7 @@ public class SimdGroupHalfTests
                 {
                     // A product of 32 values between 1/4 and 4 overflows or underflows in one order and
                     // not in the other only at the very ends of the range; in between it is a matter of ULPs.
-                    if (IsNaN(g) || IsNaN(c) || (g & 0x7C00) == 0x7C00 || (c & 0x7C00) == 0x7C00 || (g & 0x7C00) == 0 || (c & 0x7C00) == 0)
+                    if (FloatBits.IsNaN(g) || FloatBits.IsNaN(c) || (g & 0x7C00) == 0x7C00 || (c & 0x7C00) == 0x7C00 || (g & 0x7C00) == 0 || (c & 0x7C00) == 0)
                     {
                         continue;
                     }
@@ -190,8 +185,8 @@ public class SimdGroupHalfTests
 
         // The special values did travel: lane 5 of the second group read by its neighbour is a NaN on
         // both sides, and the others arrive bit for bit.
-        Assert.True(IsNaN(cpu[((32 + 4) * SimdHalfScalars.Stride) + 12]));
-        Assert.True(IsNaN(gpu[((32 + 4) * SimdHalfScalars.Stride) + 12]));
+        Assert.True(FloatBits.IsNaN(cpu[((32 + 4) * SimdHalfScalars.Stride) + 12]));
+        Assert.True(FloatBits.IsNaN(gpu[((32 + 4) * SimdHalfScalars.Stride) + 12]));
         Assert.Equal(0x8000, gpu[((96 + 6) * SimdHalfScalars.Stride) + 12]);
         Assert.Equal(0x0003, gpu[((160 + 8) * SimdHalfScalars.Stride) + 12]);
         Assert.Equal(0xFC00, gpu[((224 + 10) * SimdHalfScalars.Stride) + 12]);
@@ -291,7 +286,7 @@ public class SimdGroupHalfTests
         for (int i = 0; i < count; i++)
         {
             int sign = (i * HalfScalesAndBits.BitsStride) + HalfScalesAndBits.BitsStride - 1;
-            Assert.True(gpuWords[sign] == cpuWords[sign] || IsNaN((ushort)i), $"the sign of the short of 0x{i:X4}: GPU {gpuWords[sign]}, CPU {cpuWords[sign]}");
+            Assert.True(gpuWords[sign] == cpuWords[sign] || FloatBits.IsNaN((ushort)i), $"the sign of the short of 0x{i:X4}: GPU {gpuWords[sign]}, CPU {cpuWords[sign]}");
         }
 
         AssertSameBits(
@@ -309,8 +304,8 @@ public class SimdGroupHalfTests
             Half4 x = input[i];
             ushort u = (ushort)i, y = Bits(x.Y);
 
-            Assert.True(Words(x * radiansPerDegree).Zip(Words(scaled[i * 4]), Same).All(static same => same), $"radians of {x}");
-            Assert.True(Words(x * degreesPerRadian).Zip(Words(scaled[(i * 4) + 1]), Same).All(static same => same), $"degrees of {x}");
+            Assert.True(Words(x * radiansPerDegree).Zip(Words(scaled[i * 4]), FloatBits.SameBits).All(static same => same), $"radians of {x}");
+            Assert.True(Words(x * degreesPerRadian).Zip(Words(scaled[(i * 4) + 1]), FloatBits.SameBits).All(static same => same), $"degrees of {x}");
 
             // The same allowance on the CPU side: a NaN's bits are a NaN's bits, and its sign is not looked at.
             ushort[] expectedBits = [u, u, y, y, (ushort)(u ^ 0x8000), (ushort)(u >> 15)];
@@ -319,12 +314,12 @@ public class SimdGroupHalfTests
             for (int k = 0; k < HalfScalesAndBits.BitsStride; k++)
             {
                 ushort actual = bits[(i * HalfScalesAndBits.BitsStride) + k];
-                Assert.True(k == HalfScalesAndBits.BitsStride - 1 ? actual == expectedBits[k] || IsNaN(u) : Same(expectedBits[k], actual), $"bits output {k} of 0x{u:X4}: 0x{actual:X4}");
+                Assert.True(k == HalfScalesAndBits.BitsStride - 1 ? actual == expectedBits[k] || FloatBits.IsNaN(u) : FloatBits.SameBits(expectedBits[k], actual), $"bits output {k} of 0x{u:X4}: 0x{actual:X4}");
             }
 
             for (int k = 0; k < 4; k++)
             {
-                Assert.True(Same(expectedHalves[k], fromBits[(i * 4) + k]), $"half {k} from the bits 0x{u:X4}: 0x{fromBits[(i * 4) + k]:X4}");
+                Assert.True(FloatBits.SameBits(expectedHalves[k], fromBits[(i * 4) + k]), $"half {k} from the bits 0x{u:X4}: 0x{fromBits[(i * 4) + k]:X4}");
             }
         }
     }
