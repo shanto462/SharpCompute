@@ -24,8 +24,9 @@
 # script exits 1 if a test failed or a report is not allow-listed, and 2 if the run cannot be trusted:
 # the layers' start-up banners are missing (nothing was validated) or a diag log was rotated.
 #
-# The suite is heavy and instrumented shaders are slower, so runs on one machine take turns: the
-# script waits for a lock directory (VALIDATE_GPU_LOCK, default `.bench-lock` next to the checkout).
+# The suite is heavy and instrumented shaders are slower: set VALIDATE_GPU_LOCK to a directory path
+# to serialize with other GPU-heavy jobs. The script then waits until it can create that directory
+# and removes it when it exits; when the variable is unset it takes no lock.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,14 +52,16 @@ echo "== build"
 dotnet build SharpCompute.slnx --nologo -v quiet
 
 # The lock is released only by the shell that took it: the trap is set after mkdir succeeds.
-lock="${VALIDATE_GPU_LOCK:-$(dirname "$root")/.bench-lock}"
-waited=0
-until mkdir "$lock" 2>/dev/null; do
-  [[ $waited -eq 1 ]] || echo "== waiting for $lock"
-  waited=1
-  sleep 20
-done
-trap 'rmdir "$lock"' EXIT
+lock="${VALIDATE_GPU_LOCK:-}"
+if [[ -n "$lock" ]]; then
+  waited=0
+  until mkdir "$lock" 2>/dev/null; do
+    [[ $waited -eq 1 ]] || echo "== waiting for $lock"
+    waited=1
+    sleep 20
+  done
+  trap 'rmdir "$lock"' EXIT
+fi
 
 export MTL_DEBUG_LAYER=1
 export MTL_DEBUG_LAYER_ERROR_MODE=nslog

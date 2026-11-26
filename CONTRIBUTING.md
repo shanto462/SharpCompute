@@ -84,8 +84,9 @@ scripts/validate-gpu.sh --abort --filter <test>      # stop at the first violati
 - `scripts/validate-gpu.allow` lists the reports that are accepted, one regular expression and its
   reason per line. Fix a real violation; add an entry only for a false positive or for a test that
   provokes the report on purpose.
-- The run is slower than a plain `dotnet test` (every shader is instrumented), and it waits its
-  turn behind a lock directory so that two heavy runs do not share the machine.
+- The run is slower than a plain `dotnet test` (every shader is instrumented). Set
+  `VALIDATE_GPU_LOCK` to a directory path to serialize with other GPU-heavy jobs: the script waits
+  until it can create the directory and removes it when it exits. Unset, it takes no lock.
 - Not covered: the opt-in window tests start their own processes and keep their stderr.
 
 ## Diagnostics
