@@ -20,5 +20,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SharpCompute.Build.Tests" />
+    <InternalsVisibleTo Include="SharpCompute.GoldenMsl.Tests" />
   </ItemGroup>
 </Project>
