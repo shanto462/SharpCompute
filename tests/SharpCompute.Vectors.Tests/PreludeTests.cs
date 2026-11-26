@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace SharpCompute.Vectors.Tests;
@@ -16,6 +17,34 @@ public class PreludeTests
         {
             Assert.Equal("inline", d.Groups[1].Value);
             Assert.StartsWith("__ms_", d.Groups[3].Value, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void VectorArithmetic_IsInlineAndNamespaced_AndDefinesEachHelperOnce()
+    {
+        // The block a shader that adds or subtracts integer vectors gets after the prelude: its
+        // functions are inline and named __ms_*, like the prelude's, and none repeats one of them.
+        string[] lines = MslPrelude.VectorArithmetic.Split('\n');
+        string[] functions = lines.Where(static line => line.StartsWith("inline ", StringComparison.Ordinal)).ToArray();
+        string[] templates = lines.Where(static line => line.StartsWith("template ", StringComparison.Ordinal)).ToArray();
+
+        Assert.StartsWith("// ", lines[0], StringComparison.Ordinal);
+        Assert.Equal(lines.Length - 1, functions.Length + templates.Length);
+
+        // Sum and difference, for the vectors of 2 to 4 lanes of the 8 integer types.
+        Assert.Equal(2 * 8 * 3, functions.Length);
+        Assert.All(functions, static line => Assert.Matches(@"^inline (\w+) __ms_(add|sub)\(\1 a, \1 b\) \{ return \1\(", line));
+        Assert.Equal(functions.Length, functions.Select(static line => line[..line.IndexOf(')')]).Distinct().Count());
+
+        // The by-reference forms, for a target in each address space a shader can write.
+        Assert.Equal(2 * 3, templates.Length);
+        Assert.All(templates, static line => Assert.Matches(@"^template <typename T, typename V> inline V __ms_(add_to|sub_from)\((thread|device|threadgroup) T& target, V value\) ", line));
+        Assert.Equal(templates.Length, templates.Select(static line => line[..line.IndexOf(')')]).Distinct().Count());
+
+        foreach (string name in new[] { "__ms_add", "__ms_sub", "__ms_add_to", "__ms_sub_from" })
+        {
+            Assert.DoesNotContain(name + "(", MslPrelude.Source, StringComparison.Ordinal);
         }
     }
 

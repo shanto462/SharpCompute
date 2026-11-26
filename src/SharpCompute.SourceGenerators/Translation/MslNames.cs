@@ -88,6 +88,25 @@ internal static class MslNames
     /// </summary>
     public const string Multiply = "__ms_mul";
 
+    /// <summary>
+    /// The lane-by-lane sum and difference of two integer vectors, overloaded per type, which stand
+    /// for <c>a + b</c> and <c>a - b</c> (see <c>MslTranslator.VectorNegation</c>). They are in
+    /// <c>MslPrelude.VectorArithmetic</c>, not in the prelude's source.
+    /// </summary>
+    public const string Add = "__ms_add";
+
+    /// <inheritdoc cref="Add"/>
+    public const string Subtract = "__ms_sub";
+
+    /// <summary>
+    /// The by-reference forms of <see cref="Add"/> and <see cref="Subtract"/>, which stand for
+    /// <c>a += b</c> and <c>a -= b</c> on a target that can only be named once.
+    /// </summary>
+    public const string AddTo = "__ms_add_to";
+
+    /// <inheritdoc cref="AddTo"/>
+    public const string SubtractFrom = "__ms_sub_from";
+
     /// <summary>The struct of the hidden grid window (see <c>MslSourceBuilder</c>), bound only for partial-grid dispatches.</summary>
     public const string GridWindowStruct = "__GridWindow";
     public const string GridWindow = "__window";

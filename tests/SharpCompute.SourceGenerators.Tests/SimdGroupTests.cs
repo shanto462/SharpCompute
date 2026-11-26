@@ -267,8 +267,11 @@ public class SimdGroupTests
 
         // All-equal is a helper of the prelude, overloaded for this type; a binary expression is unpacked first.
         Assert.Contains(body, static line => line.EndsWith("= __ms_wave_all_equal(v) ? " + (line.Contains("1.0f", StringComparison.Ordinal) ? "1.0f : 0.0f;" : line.Contains("1u", StringComparison.Ordinal) ? "1u : 0u;" : "1 : 0;"), StringComparison.Ordinal));
-        // (A signed difference is computed unsigned, where it wraps as in C#.)
-        string difference = ScalarName(type) != "int" ? "v - v" : Width(type) == 1 ? "int(uint(v) - uint(v))" : $"{msl}(u{msl}(v) - u{msl}(v))";
+        // (A signed difference is computed unsigned, where it wraps as in C#, and the difference of an
+        // integer vector lane by lane.)
+        string difference = Width(type) > 1 && ScalarName(type) == "uint" ? "__ms_sub(v, v)"
+            : ScalarName(type) != "int" ? "v - v"
+            : Width(type) == 1 ? "int(uint(v) - uint(v))" : $"{msl}(__ms_sub(u{msl}(v), u{msl}(v)))";
         Assert.Contains(body, line => line.Contains(Width(type) == 1 ? $"__ms_wave_all_equal({difference})" : $"__ms_wave_all_equal({msl}({difference}))", StringComparison.Ordinal));
         Assert.Contains($"inline bool __ms_wave_all_equal({msl} v)", descriptor.MslSource);
 

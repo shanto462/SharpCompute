@@ -72,7 +72,7 @@ public class SignedArithmeticTests
     [InlineData("ints[2] = i + 1;", "ints[2] = int(uint(i) + 1u);")]
     [InlineData("ints[2] = ThreadIds.X + 1;", "ints[2] = int(__tid.x + 1u);")]
     [InlineData("ints[2] = (int)uints[0] + a;", "ints[2] = int(uints[0] + uint(a));")]
-    [InlineData("vectors[0] = vectors[1] * 3 + new Int3(a);", "vectors[0] = int3(uint3(vectors[1]) * 3u + uint3(int3(a)));")]
+    [InlineData("vectors[0] = vectors[1] * 3 + new Int3(a);", "vectors[0] = int3(__ms_add(uint3(vectors[1]) * 3u, uint3(int3(a))));")]
     // The negation of a vector goes through the prelude instead (see VectorNegationTests).
     [InlineData("vectors[0] = -vectors[1];", "vectors[0] = __ms_neg(vectors[1]);")]
     public void SignedArithmetic_IsComputedUnsigned_AndConvertedBack(string body, string expected) =>
@@ -101,8 +101,9 @@ public class SignedArithmeticTests
 
         Assert.Contains("h = (h * h) + h - h;", lines);
         Assert.Contains("h += h;", lines);
-        // The comparison stays a comparison; only the signed sum it compares is computed unsigned.
-        Assert.Contains("bool2 less = int2(a, b) < int2(uint2(int2(b, a)) + 1u);", lines);
+        // The comparison stays a comparison; only the signed sum it compares is computed unsigned,
+        // lane by lane (see VectorNegationTests).
+        Assert.Contains("bool2 less = int2(a, b) < int2(__ms_add(uint2(int2(b, a)), uint2(1u)));", lines);
     }
 
     [Theory]
@@ -168,7 +169,8 @@ public class SignedArithmeticTests
         Assert.Contains("reinterpret_cast<device uint&>(ints[ints[32]]) += uint(::BumpOther(32, uints));", kernel);
         Assert.Contains("reinterpret_cast<device uint&>(ints[::Next(40)]) *= uint(b);", kernel);
         Assert.Contains("reinterpret_cast<device ulong&>(longs[::Next(0)]) -= ulong(a);", kernel);
-        Assert.Contains("reinterpret_cast<device packed_uint3&>(vectors[::Next(1)]) += uint3(int3(b));", kernel);
+        // The sum of a vector is lane by lane, through a helper that takes the target by reference.
+        Assert.Contains("__ms_add_to(vectors[::Next(1)], int3(b));", kernel);
         Assert.Contains("reinterpret_cast<device uint&>(cells[::Next(2)].Count) += uint(::Bump(3, ints));", kernel);
         Assert.Contains("reinterpret_cast<device packed_uint3&>(cells[::Next(2)].Sum) *= 3u;", kernel);
         Assert.Contains("reinterpret_cast<threadgroup uint&>(Tile[::Next(i)]) += uint(b);", kernel);

@@ -111,6 +111,61 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer vector arithmetic (MslPrelude.VectorArithmetic).
+inline char2 __ms_add(char2 a, char2 b) { return char2(char(uchar(a.x) + uchar(b.x)), char(uchar(a.y) + uchar(b.y))); }
+inline char3 __ms_add(char3 a, char3 b) { return char3(char(uchar(a.x) + uchar(b.x)), char(uchar(a.y) + uchar(b.y)), char(uchar(a.z) + uchar(b.z))); }
+inline char4 __ms_add(char4 a, char4 b) { return char4(char(uchar(a.x) + uchar(b.x)), char(uchar(a.y) + uchar(b.y)), char(uchar(a.z) + uchar(b.z)), char(uchar(a.w) + uchar(b.w))); }
+inline uchar2 __ms_add(uchar2 a, uchar2 b) { return uchar2(uchar(a.x + b.x), uchar(a.y + b.y)); }
+inline uchar3 __ms_add(uchar3 a, uchar3 b) { return uchar3(uchar(a.x + b.x), uchar(a.y + b.y), uchar(a.z + b.z)); }
+inline uchar4 __ms_add(uchar4 a, uchar4 b) { return uchar4(uchar(a.x + b.x), uchar(a.y + b.y), uchar(a.z + b.z), uchar(a.w + b.w)); }
+inline short2 __ms_add(short2 a, short2 b) { return short2(short(ushort(a.x) + ushort(b.x)), short(ushort(a.y) + ushort(b.y))); }
+inline short3 __ms_add(short3 a, short3 b) { return short3(short(ushort(a.x) + ushort(b.x)), short(ushort(a.y) + ushort(b.y)), short(ushort(a.z) + ushort(b.z))); }
+inline short4 __ms_add(short4 a, short4 b) { return short4(short(ushort(a.x) + ushort(b.x)), short(ushort(a.y) + ushort(b.y)), short(ushort(a.z) + ushort(b.z)), short(ushort(a.w) + ushort(b.w))); }
+inline ushort2 __ms_add(ushort2 a, ushort2 b) { return ushort2(ushort(a.x + b.x), ushort(a.y + b.y)); }
+inline ushort3 __ms_add(ushort3 a, ushort3 b) { return ushort3(ushort(a.x + b.x), ushort(a.y + b.y), ushort(a.z + b.z)); }
+inline ushort4 __ms_add(ushort4 a, ushort4 b) { return ushort4(ushort(a.x + b.x), ushort(a.y + b.y), ushort(a.z + b.z), ushort(a.w + b.w)); }
+inline int2 __ms_add(int2 a, int2 b) { return int2(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y))); }
+inline int3 __ms_add(int3 a, int3 b) { return int3(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y)), int(uint(a.z) + uint(b.z))); }
+inline int4 __ms_add(int4 a, int4 b) { return int4(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y)), int(uint(a.z) + uint(b.z)), int(uint(a.w) + uint(b.w))); }
+inline uint2 __ms_add(uint2 a, uint2 b) { return uint2(a.x + b.x, a.y + b.y); }
+inline uint3 __ms_add(uint3 a, uint3 b) { return uint3(a.x + b.x, a.y + b.y, a.z + b.z); }
+inline uint4 __ms_add(uint4 a, uint4 b) { return uint4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
+inline long2 __ms_add(long2 a, long2 b) { return long2(long(ulong(a.x) + ulong(b.x)), long(ulong(a.y) + ulong(b.y))); }
+inline long3 __ms_add(long3 a, long3 b) { return long3(long(ulong(a.x) + ulong(b.x)), long(ulong(a.y) + ulong(b.y)), long(ulong(a.z) + ulong(b.z))); }
+inline long4 __ms_add(long4 a, long4 b) { return long4(long(ulong(a.x) + ulong(b.x)), long(ulong(a.y) + ulong(b.y)), long(ulong(a.z) + ulong(b.z)), long(ulong(a.w) + ulong(b.w))); }
+inline ulong2 __ms_add(ulong2 a, ulong2 b) { return ulong2(a.x + b.x, a.y + b.y); }
+inline ulong3 __ms_add(ulong3 a, ulong3 b) { return ulong3(a.x + b.x, a.y + b.y, a.z + b.z); }
+inline ulong4 __ms_add(ulong4 a, ulong4 b) { return ulong4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
+inline char2 __ms_sub(char2 a, char2 b) { return char2(char(uchar(a.x) - uchar(b.x)), char(uchar(a.y) - uchar(b.y))); }
+inline char3 __ms_sub(char3 a, char3 b) { return char3(char(uchar(a.x) - uchar(b.x)), char(uchar(a.y) - uchar(b.y)), char(uchar(a.z) - uchar(b.z))); }
+inline char4 __ms_sub(char4 a, char4 b) { return char4(char(uchar(a.x) - uchar(b.x)), char(uchar(a.y) - uchar(b.y)), char(uchar(a.z) - uchar(b.z)), char(uchar(a.w) - uchar(b.w))); }
+inline uchar2 __ms_sub(uchar2 a, uchar2 b) { return uchar2(uchar(a.x - b.x), uchar(a.y - b.y)); }
+inline uchar3 __ms_sub(uchar3 a, uchar3 b) { return uchar3(uchar(a.x - b.x), uchar(a.y - b.y), uchar(a.z - b.z)); }
+inline uchar4 __ms_sub(uchar4 a, uchar4 b) { return uchar4(uchar(a.x - b.x), uchar(a.y - b.y), uchar(a.z - b.z), uchar(a.w - b.w)); }
+inline short2 __ms_sub(short2 a, short2 b) { return short2(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y))); }
+inline short3 __ms_sub(short3 a, short3 b) { return short3(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y)), short(ushort(a.z) - ushort(b.z))); }
+inline short4 __ms_sub(short4 a, short4 b) { return short4(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y)), short(ushort(a.z) - ushort(b.z)), short(ushort(a.w) - ushort(b.w))); }
+inline ushort2 __ms_sub(ushort2 a, ushort2 b) { return ushort2(ushort(a.x - b.x), ushort(a.y - b.y)); }
+inline ushort3 __ms_sub(ushort3 a, ushort3 b) { return ushort3(ushort(a.x - b.x), ushort(a.y - b.y), ushort(a.z - b.z)); }
+inline ushort4 __ms_sub(ushort4 a, ushort4 b) { return ushort4(ushort(a.x - b.x), ushort(a.y - b.y), ushort(a.z - b.z), ushort(a.w - b.w)); }
+inline int2 __ms_sub(int2 a, int2 b) { return int2(int(uint(a.x) - uint(b.x)), int(uint(a.y) - uint(b.y))); }
+inline int3 __ms_sub(int3 a, int3 b) { return int3(int(uint(a.x) - uint(b.x)), int(uint(a.y) - uint(b.y)), int(uint(a.z) - uint(b.z))); }
+inline int4 __ms_sub(int4 a, int4 b) { return int4(int(uint(a.x) - uint(b.x)), int(uint(a.y) - uint(b.y)), int(uint(a.z) - uint(b.z)), int(uint(a.w) - uint(b.w))); }
+inline uint2 __ms_sub(uint2 a, uint2 b) { return uint2(a.x - b.x, a.y - b.y); }
+inline uint3 __ms_sub(uint3 a, uint3 b) { return uint3(a.x - b.x, a.y - b.y, a.z - b.z); }
+inline uint4 __ms_sub(uint4 a, uint4 b) { return uint4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w); }
+inline long2 __ms_sub(long2 a, long2 b) { return long2(long(ulong(a.x) - ulong(b.x)), long(ulong(a.y) - ulong(b.y))); }
+inline long3 __ms_sub(long3 a, long3 b) { return long3(long(ulong(a.x) - ulong(b.x)), long(ulong(a.y) - ulong(b.y)), long(ulong(a.z) - ulong(b.z))); }
+inline long4 __ms_sub(long4 a, long4 b) { return long4(long(ulong(a.x) - ulong(b.x)), long(ulong(a.y) - ulong(b.y)), long(ulong(a.z) - ulong(b.z)), long(ulong(a.w) - ulong(b.w))); }
+inline ulong2 __ms_sub(ulong2 a, ulong2 b) { return ulong2(a.x - b.x, a.y - b.y); }
+inline ulong3 __ms_sub(ulong3 a, ulong3 b) { return ulong3(a.x - b.x, a.y - b.y, a.z - b.z); }
+inline ulong4 __ms_sub(ulong4 a, ulong4 b) { return ulong4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w); }
+template <typename T, typename V> inline V __ms_add_to(thread T& target, V value) { V result = __ms_add(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_add_to(device T& target, V value) { V result = __ms_add(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V value) { V result = __ms_add(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 
 constant int Slots = 36;
 constant int3 Flip = int3(-1, 1, -1);
@@ -141,23 +196,23 @@ kernel void SharpCompute_Tests_Shaders_NegationOfSomeLanes(
     int o = int(uint(i) * uint(::Slots));
     int3 c = int3(1000, 2000, 3000);
     int3 w0 = int3(a, b, a ^ b);
-    int3 n0 = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(w0)));
+    int3 n0 = int3(__ms_sub(uint3(int3(0, 5, 0)), uint3(w0)));
     output[o] = int(uint(n0.x) + uint(n0.z));
-    int3 t0 = int3(((uint3(w0) + uint3(c)) * 3u) - uint3(w0));
+    int3 t0 = int3(__ms_sub((__ms_add(uint3(w0), uint3(c))) * 3u, uint3(w0)));
     output[int(uint(o) + 1u)] = t0.x;
     output[int(uint(o) + 2u)] = t0.y;
     output[int(uint(o) + 3u)] = t0.z;
     int3 w1 = int3(int(uint(a) + 1u), int(uint(b) - 1u), int(uint(a ^ b) + 1u));
     int3 n1 = __ms_mul(w1, int3(-1, 7, -1));
     output[int(uint(o) + 4u)] = int(uint(n1.x) + uint(n1.z));
-    int3 t1 = int3(((uint3(w1) + uint3(c)) * 3u) - uint3(w1));
+    int3 t1 = int3(__ms_sub((__ms_add(uint3(w1), uint3(c))) * 3u, uint3(w1)));
     output[int(uint(o) + 5u)] = t1.x;
     output[int(uint(o) + 6u)] = t1.y;
     output[int(uint(o) + 7u)] = t1.z;
     int4 w2 = int4(int(uint(a) + 2u), int(uint(b) - 2u), int(uint(a) + uint(b)), int(uint(a) - uint(b)));
     int4 n2 = __ms_mul(int4(1, -1, -1, 1), w2);
     output[int(uint(o) + 8u)] = int(uint(n2.y) + uint(n2.z));
-    int4 t2 = int4(((uint4(w2) + uint4(int4(10, 20, 30, 40))) * 3u) - uint4(w2));
+    int4 t2 = int4(__ms_sub((__ms_add(uint4(w2), uint4(int4(10, 20, 30, 40)))) * 3u, uint4(w2)));
     output[int(uint(o) + 9u)] = t2.x;
     output[int(uint(o) + 10u)] = t2.y;
     output[int(uint(o) + 11u)] = t2.z;
@@ -166,28 +221,28 @@ kernel void SharpCompute_Tests_Shaders_NegationOfSomeLanes(
     int3 n3 = w3;
     n3 = __ms_mul(n3, ::Flip);
     output[int(uint(o) + 13u)] = int(uint(n3.x) + uint(n3.z));
-    int3 t3 = int3(((uint3(w3) + uint3(c)) * 3u) - uint3(w3));
+    int3 t3 = int3(__ms_sub((__ms_add(uint3(w3), uint3(c))) * 3u, uint3(w3)));
     output[int(uint(o) + 14u)] = t3.x;
     output[int(uint(o) + 15u)] = t3.y;
     output[int(uint(o) + 16u)] = t3.z;
     uint3 u4 = uint3(uint(a) + 4u, uint(b) + 4u, uint(a ^ b) + 4u);
-    uint3 n4 = uint3(0u, 5u, 0u) + __ms_neg(u4);
+    uint3 n4 = __ms_sub(uint3(0u, 5u, 0u), u4);
     output[int(uint(o) + 17u)] = int(n4.x + n4.z);
-    uint3 t4 = ((u4 + uint3(1000u, 2000u, 3000u)) * 3u) - u4;
+    uint3 t4 = __ms_sub((__ms_add(u4, uint3(1000u, 2000u, 3000u))) * 3u, u4);
     output[int(uint(o) + 18u)] = int(t4.x);
     output[int(uint(o) + 19u)] = int(t4.y);
     output[int(uint(o) + 20u)] = int(t4.z);
     uint3 u5 = uint3(uint(a) + 5u, uint(b) + 5u, uint(a ^ b) + 5u);
     uint3 n5 = __ms_mul(u5, uint3(4294967295u, 7u, 4294967295u));
     output[int(uint(o) + 21u)] = int(n5.x + n5.z);
-    uint3 t5 = ((u5 + uint3(1000u, 2000u, 3000u)) * 3u) - u5;
+    uint3 t5 = __ms_sub((__ms_add(u5, uint3(1000u, 2000u, 3000u))) * 3u, u5);
     output[int(uint(o) + 22u)] = int(t5.x);
     output[int(uint(o) + 23u)] = int(t5.y);
     output[int(uint(o) + 24u)] = int(t5.z);
     int3 w6 = int3(int(uint(a) + 6u), int(uint(b) - 6u), int(uint(a ^ b) + 6u));
-    int3 difference = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(w6)));
+    int3 difference = int3(__ms_sub(uint3(int3(0, 5, 0)), uint3(w6)));
     int3 product = __ms_mul(w6, int3(1, -1, 7));
-    int3 chained = int3(uint3(c) + (uint3(int3(7, 0, 0)) + __ms_neg(uint3(w6))) + (__ms_mul(uint3(w6), uint3(int3(-1, -1, 3)))));
+    int3 chained = int3(__ms_add(__ms_add(uint3(c), __ms_sub(uint3(int3(7, 0, 0)), uint3(w6))), __ms_mul(uint3(w6), uint3(int3(-1, -1, 3)))));
     output[int(uint(o) + 25u)] = difference.x;
     output[int(uint(o) + 26u)] = difference.y;
     output[int(uint(o) + 27u)] = difference.z;
@@ -197,7 +252,7 @@ kernel void SharpCompute_Tests_Shaders_NegationOfSomeLanes(
     output[int(uint(o) + 31u)] = chained.x;
     output[int(uint(o) + 32u)] = chained.y;
     output[int(uint(o) + 33u)] = chained.z;
-    int3 n7 = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(uint(a))));
+    int3 n7 = int3(__ms_sub(uint3(int3(0, 5, 0)), uint3(uint(a))));
     output[int(uint(o) + 34u)] = int(uint(n7.x) + uint(n7.z));
     output[int(uint(o) + 35u)] = n7.y;
 }
