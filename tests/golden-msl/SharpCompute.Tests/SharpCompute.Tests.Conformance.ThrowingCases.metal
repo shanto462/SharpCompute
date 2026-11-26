@@ -110,6 +110,11 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
 
 kernel void SharpCompute_Tests_Conformance_ThrowingCases(
     const device int* ints [[buffer(0)]],
@@ -147,20 +152,20 @@ kernel void SharpCompute_Tests_Conformance_ThrowingCases(
     output[9] = long(__ms_math_clamp(seven, nine, zero));
     output[10] = long(__ms_math_clamp(intMin, nine, zero));
     output[11] = __ms_math_clamp(longMin, long(nine), longZero);
-    output[12] = long(intMin / minusOne);
-    output[13] = long(intMin % minusOne);
-    output[14] = longMin / longMinusOne;
-    output[15] = longMin % longMinusOne;
-    output[16] = long(seven / zero);
-    output[17] = long(seven % zero);
-    output[18] = long(intMin / zero);
-    output[19] = long(useven / uzero);
-    output[20] = long(useven % uzero);
-    output[21] = longMin / longZero;
-    output[22] = longMin % longZero;
-    output[23] = long(ulong(longs[3]) / ulong(longZero));
-    output[24] = long(int(uchar(seven)) / int(uchar(zero)));
-    output[25] = long(int(short(seven)) % int(short(zero)));
+    output[12] = long(intMin / __ms_nonzero(minusOne));
+    output[13] = long(intMin % __ms_nonzero(minusOne));
+    output[14] = longMin / __ms_nonzero(longMinusOne);
+    output[15] = longMin % __ms_nonzero(longMinusOne);
+    output[16] = long(seven / __ms_nonzero(zero));
+    output[17] = long(seven % __ms_nonzero(zero));
+    output[18] = long(intMin / __ms_nonzero(zero));
+    output[19] = long(useven / __ms_nonzero(uzero));
+    output[20] = long(useven % __ms_nonzero(uzero));
+    output[21] = longMin / __ms_nonzero(longZero);
+    output[22] = longMin % __ms_nonzero(longZero);
+    output[23] = long(ulong(longs[3]) / __ms_nonzero(ulong(longZero)));
+    output[24] = long(int(uchar(seven)) / __ms_nonzero(int(uchar(zero))));
+    output[25] = long(int(short(seven)) % __ms_nonzero(int(short(zero))));
     output[26] = long(seven);
     output[27] = 0L;
     output[28] = 0L;

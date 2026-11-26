@@ -3,6 +3,12 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+
 kernel void SharpCompute_Differential_Tests_BitsOfSmallIntegerRepro(
     const device ulong* input [[buffer(0)]],
     device long* output [[buffer(1)]])
@@ -13,7 +19,7 @@ kernel void SharpCompute_Differential_Tests_BitsOfSmallIntegerRepro(
     int i = int(input[3]);
     int x = int(char(input[4]));
     int y = int(char(input[5]));
-    output[0] = long(metal::popcount(b ? s : t));
-    output[1] = long(metal::clz(uint(short(i))));
-    output[2] = long(metal::clz(y == 0 ? 0 : x % y));
+    output[0] = long(__ms_popcount(b ? s : t));
+    output[1] = long(__ms_clz(uint(short(i))));
+    output[2] = long(__ms_clz(y == 0 ? 0 : x % __ms_nonzero(y)));
 }

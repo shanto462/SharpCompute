@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 constant int Stride = 12;
 
 struct Tally
@@ -172,9 +175,9 @@ kernel void SharpCompute_Tests_Shaders_SharedIntegerCode(
     int i = int(__tid.x);
     int o = int(uint(i) * uint(::Stride));
     long a = ::IntegerHelpers_Load_long(values, i);
-    long a2 = values[(int(uint(i) + 1u)) % int(__c.__length_values)];
+    long a2 = values[(int(uint(i) + 1u)) % __ms_nonzero(int(__c.__length_values))];
     uchar b = ::IntegerHelpers_Load_uchar(bytes, i);
-    uchar b2 = bytes[(int(uint(i) + 1u)) % int(__c.__length_bytes)];
+    uchar b2 = bytes[(int(uint(i) + 1u)) % __ms_nonzero(int(__c.__length_bytes))];
     ushort word = ushort(a);
     ulong hash = ::IntegerHelpers_Feed(::IntegerHelpers_Feed(ulong(a), b), ::IntegerHelpers_High(word));
     output[int(uint(o) + 0u)] = long(hash);

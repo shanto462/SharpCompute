@@ -118,6 +118,10 @@ inline uint2 __ms_sat_uint2(half2 x) { return __ms_sat_uint2(float2(x)); }
 inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(metal::clamp(y, -9223372036854775808.0f, 9223371487098961920.0f)); return x >= 9223372036854775808.0f ? 9223372036854775807L : r; }
 inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint3 __ms_nonzero(uint3 x) { return x | uint3(metal::reverse_bits(x) == uint3(0)); }
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
 
 constant int Slots = 27;
 
@@ -226,15 +230,15 @@ kernel void SharpCompute_Differential_Tests_Random2x7(
     uint c13_1 = u2;
     uint c13_2 = --c13_1;
     long c13_3 = long(metal::clamp(metal::max(32u, u1) | c13_0, 255u, metal::min(u2, u2) * c13_2));
-    output[int(uint(p) + 21u)] = ((c13_3 == 0L || (l1 == -9223372036854775807L - 1L && c13_3 == -1L)) ? 0L : l1 % c13_3);
+    output[int(uint(p) + 21u)] = ((c13_3 == 0L || (l1 == -9223372036854775807L - 1L && c13_3 == -1L)) ? 0L : l1 % __ms_nonzero(c13_3));
     bool c14_0 = b1;
-    bool3 c14_1 = metal::all(b2a) ? bool3(false, c14_0, b0 == b1) : metal::select(b3b, (u3a % metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))) > (b0 ? u3a : u3b), b3a.z ? b3a : (i3b > i3a));
+    bool3 c14_1 = metal::all(b2a) ? bool3(false, c14_0, b0 == b1) : metal::select(b3b, (u3a % __ms_nonzero(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u)))) > (b0 ? u3a : u3b), b3a.z ? b3a : (i3b > i3a));
     output[int(uint(p) + 22u)] = (c14_1.x) ? 1L : 0L;
     output[int(uint(p) + 23u)] = (c14_1.y) ? 1L : 0L;
     output[int(uint(p) + 24u)] = (c14_1.z) ? 1L : 0L;
     uint2 c15_0 = u2a;
     bool2 c15_1 = b2 ? b2a : b2a;
-    uint2 c15_2 = metal::clamp(((!b2) ? (b1 && b0) : (b2 || b1)) ? __ms_sat_uint2(h2b).yx : (c15_0 >> u2a), uint2((u2 == 0u) ? 0u : u2 / u2, u1 >> 3), metal::select(uint2(u0, u0), uint2(4294967295u, 32u), c15_1));
+    uint2 c15_2 = metal::clamp(((!b2) ? (b1 && b0) : (b2 || b1)) ? __ms_sat_uint2(h2b).yx : (c15_0 >> u2a), uint2((u2 == 0u) ? 0u : u2 / __ms_nonzero(u2), u1 >> 3), metal::select(uint2(u0, u0), uint2(4294967295u, 32u), c15_1));
     output[int(uint(p) + 25u)] = long(c15_2.x);
     output[int(uint(p) + 26u)] = long(c15_2.y);
 }

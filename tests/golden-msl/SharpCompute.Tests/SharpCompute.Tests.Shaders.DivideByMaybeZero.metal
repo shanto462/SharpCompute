@@ -3,6 +3,11 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+
 constant int Stride = 6;
 
 struct __GridWindow
@@ -29,10 +34,10 @@ kernel void SharpCompute_Tests_Shaders_DivideByMaybeZero(
     int o = int(uint(i) * uint(::Stride));
     long d = divisors[i];
     long x = long(1000003UL * ulong(int(uint(i) + 1u)));
-    output[int(uint(o) + 0u)] = x / d;
-    output[int(uint(o) + 1u)] = x % d;
-    output[int(uint(o) + 2u)] = long(ulong(x) / ulong(d));
-    output[int(uint(o) + 3u)] = long(int(uchar(x)) / int(uchar(d)));
-    output[int(uint(o) + 4u)] = long(int(short(x)) % int(short(d)));
-    output[int(uint(o) + 5u)] = long(int(ushort(x)) / int(ushort(d)));
+    output[int(uint(o) + 0u)] = x / __ms_nonzero(d);
+    output[int(uint(o) + 1u)] = x % __ms_nonzero(d);
+    output[int(uint(o) + 2u)] = long(ulong(x) / __ms_nonzero(ulong(d)));
+    output[int(uint(o) + 3u)] = long(int(uchar(x)) / __ms_nonzero(int(uchar(d))));
+    output[int(uint(o) + 4u)] = long(int(short(x)) % __ms_nonzero(int(short(d))));
+    output[int(uint(o) + 5u)] = long(int(ushort(x)) / __ms_nonzero(int(ushort(d))));
 }

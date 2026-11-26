@@ -61,6 +61,9 @@ template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, 
 // SharpCompute float and half conversions (MslPrelude.Conversions).
 inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
 inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
 
 constant int Slots = 42;
 
@@ -139,10 +142,10 @@ kernel void SharpCompute_Differential_Tests_Random1x2Model(
     bool b1 = (input[int(uint(o) + 1u)] & 1UL) != 0UL;
     bool b2 = (input[int(uint(o) + 2u)] & 1UL) != 0UL;
     uchar by0 = uchar(input[int(uint(o) + 3u)]);
-    uchar by2 = uchar(input[int(uint(o) + 5u)]);
     char sb0 = char(input[int(uint(o) + 6u)]);
     char sb1 = char(input[int(uint(o) + 7u)]);
     short sh0 = short(input[int(uint(o) + 9u)]);
+    short sh1 = short(input[int(uint(o) + 10u)]);
     short sh2 = short(input[int(uint(o) + 11u)]);
     ushort us0 = ushort(input[int(uint(o) + 12u)]);
     ushort us1 = ushort(input[int(uint(o) + 13u)]);
@@ -154,6 +157,8 @@ kernel void SharpCompute_Differential_Tests_Random1x2Model(
     uint u1 = uint(input[int(uint(o) + 19u)]);
     uint u2 = uint(input[int(uint(o) + 20u)]);
     long l0 = long(input[int(uint(o) + 21u)]);
+    long l1 = long(input[int(uint(o) + 22u)]);
+    long l2 = long(input[int(uint(o) + 23u)]);
     ulong ul2 = input[int(uint(o) + 26u)];
     float f0 = as_type<float>(uint(input[int(uint(o) + 27u)]));
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
@@ -166,8 +171,6 @@ kernel void SharpCompute_Differential_Tests_Random1x2Model(
     half3 h3b = half3(as_type<half>(ushort(input[int(uint(o) + 58u)])), as_type<half>(ushort(input[int(uint(o) + 59u)])), as_type<half>(ushort(input[int(uint(o) + 60u)])));
     int3 i3a = int3(int(input[int(uint(o) + 73u)]), int(input[int(uint(o) + 74u)]), int(input[int(uint(o) + 75u)]));
     int3 i3b = int3(int(input[int(uint(o) + 76u)]), int(input[int(uint(o) + 77u)]), int(input[int(uint(o) + 78u)]));
-    uint2 u2a = uint2(uint(input[int(uint(o) + 87u)]), uint(input[int(uint(o) + 88u)]));
-    uint4 u4b = uint4(uint(input[int(uint(o) + 101u)]), uint(input[int(uint(o) + 102u)]), uint(input[int(uint(o) + 103u)]), uint(input[int(uint(o) + 104u)]));
     bool2 b2b = bool2((input[int(uint(o) + 107u)] & 1UL) != 0UL, (input[int(uint(o) + 108u)] & 1UL) != 0UL);
     bool3 b3a = bool3((input[int(uint(o) + 109u)] & 1UL) != 0UL, (input[int(uint(o) + 110u)] & 1UL) != 0UL, (input[int(uint(o) + 111u)] & 1UL) != 0UL);
     bool3 b3b = bool3((input[int(uint(o) + 112u)] & 1UL) != 0UL, (input[int(uint(o) + 113u)] & 1UL) != 0UL, (input[int(uint(o) + 114u)] & 1UL) != 0UL);
@@ -229,15 +232,15 @@ kernel void SharpCompute_Differential_Tests_Random1x2Model(
     long c11_v0_0 = l0;
     int c11_v0_1 = int(metal::reverse_bits(sh0));
     int c11_v0_2 = int(__ms_sat_ushort(::GpuModel_Flush(f0)));
-    output[int(uint(p) + 21u)] = long(metal::min(ulong(short(c11_v0_0)), ul2 >> ((c11_v0_2 == 0 || (c11_v0_1 == -2147483647 - 1 && c11_v0_2 == -1)) ? 0 : c11_v0_1 / c11_v0_2)));
+    output[int(uint(p) + 21u)] = long(metal::min(ulong(short(c11_v0_0)), ul2 >> ((c11_v0_2 == 0 || (c11_v0_1 == -2147483647 - 1 && c11_v0_2 == -1)) ? 0 : c11_v0_1 / __ms_nonzero(c11_v0_2))));
     long c11_v1_0 = l0;
     int c11_v1_1 = int(metal::reverse_bits(sh0));
     int c11_v1_2 = int(__ms_sat_ushort(::GpuModel_Flush(f0)));
-    output[int(uint(p) + 22u)] = long(metal::min(ulong(short(c11_v1_0)), ul2 >> ((c11_v1_2 == 0 || (c11_v1_1 == -2147483647 - 1 && c11_v1_2 == -1)) ? 0 : c11_v1_1 / c11_v1_2)));
+    output[int(uint(p) + 22u)] = long(metal::min(ulong(short(c11_v1_0)), ul2 >> ((c11_v1_2 == 0 || (c11_v1_1 == -2147483647 - 1 && c11_v1_2 == -1)) ? 0 : c11_v1_1 / __ms_nonzero(c11_v1_2))));
     long c11_v2_0 = l0;
     int c11_v2_1 = int(metal::reverse_bits(sh0));
     int c11_v2_2 = int(__ms_sat_ushort(f0));
-    output[int(uint(p) + 23u)] = long(metal::min(ulong(short(c11_v2_0)), ul2 >> ((c11_v2_2 == 0 || (c11_v2_1 == -2147483647 - 1 && c11_v2_2 == -1)) ? 0 : c11_v2_1 / c11_v2_2)));
+    output[int(uint(p) + 23u)] = long(metal::min(ulong(short(c11_v2_0)), ul2 >> ((c11_v2_2 == 0 || (c11_v2_1 == -2147483647 - 1 && c11_v2_2 == -1)) ? 0 : c11_v2_1 / __ms_nonzero(c11_v2_2))));
     float c12_v0_0 = f0;
     float c12_v0_1 = c12_v0_0;
     c12_v0_0 = ::GpuModel_Flush(::GpuModel_Flush(c12_v0_0) - 1.0f);
@@ -277,15 +280,15 @@ kernel void SharpCompute_Differential_Tests_Random1x2Model(
     int c15_v0_1 = int(reinterpret_cast<thread uint&>(c15_v0_0)--);
     uint c15_v0_2 = uint(us2);
     uint c15_v0_3 = metal::abs(as_type<uint>(f1));
-    output[int(uint(p) + 39u)] = long((metal::abs(u1 >> i2) << metal::min(int(uint(sb0) + uint(i1)), c15_v0_1)) + ((c15_v0_3 == 0u) ? 0u : c15_v0_2 % c15_v0_3));
+    output[int(uint(p) + 39u)] = long((metal::abs(u1 >> i2) << metal::min(int(uint(sb0) + uint(i1)), c15_v0_1)) + ((c15_v0_3 == 0u) ? 0u : c15_v0_2 % __ms_nonzero(c15_v0_3)));
     int c15_v1_0 = i2;
     int c15_v1_1 = int(reinterpret_cast<thread uint&>(c15_v1_0)--);
     uint c15_v1_2 = uint(us2);
     uint c15_v1_3 = metal::abs(as_type<uint>(f1));
-    output[int(uint(p) + 40u)] = long((metal::abs(u1 >> i2) << metal::min(int(uint(sb0) + uint(i1)), c15_v1_1)) + ((c15_v1_3 == 0u) ? 0u : c15_v1_2 % c15_v1_3));
+    output[int(uint(p) + 40u)] = long((metal::abs(u1 >> i2) << metal::min(int(uint(sb0) + uint(i1)), c15_v1_1)) + ((c15_v1_3 == 0u) ? 0u : c15_v1_2 % __ms_nonzero(c15_v1_3)));
     int c15_v2_0 = i2;
     int c15_v2_1 = int(reinterpret_cast<thread uint&>(c15_v2_0)--);
     uint c15_v2_2 = uint(us2);
     uint c15_v2_3 = metal::abs(as_type<uint>(f1));
-    output[int(uint(p) + 41u)] = long((metal::abs(u1 >> i2) << metal::min(int(uint(sb0) + uint(i1)), c15_v2_1)) + ((c15_v2_3 == 0u) ? 0u : c15_v2_2 % c15_v2_3));
+    output[int(uint(p) + 41u)] = long((metal::abs(u1 >> i2) << metal::min(int(uint(sb0) + uint(i1)), c15_v2_1)) + ((c15_v2_3 == 0u) ? 0u : c15_v2_2 % __ms_nonzero(c15_v2_3)));
 }

@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 struct __Constants
 {
     float scale;
@@ -57,7 +60,7 @@ kernel void SharpCompute_Tests_EndToEnd_Kitchen(
     int n = int(__c.__length_data);
     float v = data[i];
     float r = ::Poly(v * 0.25f, __c.scale) + (metal::fmod(v, 3.0f)) + metal::floor(v * 0.5f) + metal::clamp(v, 1.0f, 5.0f) + metal::sqrt(metal::abs(v));
-    int j = (int(uint(ints[(int(uint(i) + 1u)) % n]) + uint(__c.bias))) / 2;
+    int j = (int(uint(ints[(int(uint(i) + 1u)) % __ms_nonzero(n)]) + uint(__c.bias))) / 2;
     uint u = (uint(j) ^ __c.mask) >> 1;
     int w = 0;
     while (w < 3)

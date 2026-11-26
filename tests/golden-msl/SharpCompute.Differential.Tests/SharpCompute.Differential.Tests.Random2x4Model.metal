@@ -9,6 +9,8 @@ inline short __ms_sat_short(half x) { return __ms_sat_short(float(x)); }
 inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
 inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
 inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
 
 constant int Slots = 54;
 
@@ -118,12 +120,12 @@ kernel void SharpCompute_Differential_Tests_Random2x4Model(
     int p = int(__tid.x * uint(::Slots));
     bool b0 = (input[int(uint(o) + 0u)] & 1UL) != 0UL;
     bool b2 = (input[int(uint(o) + 2u)] & 1UL) != 0UL;
-    uchar by1 = uchar(input[int(uint(o) + 4u)]);
-    uchar by2 = uchar(input[int(uint(o) + 5u)]);
     char sb0 = char(input[int(uint(o) + 6u)]);
     char sb1 = char(input[int(uint(o) + 7u)]);
     char sb2 = char(input[int(uint(o) + 8u)]);
+    short sh0 = short(input[int(uint(o) + 9u)]);
     ushort us1 = ushort(input[int(uint(o) + 13u)]);
+    ushort us2 = ushort(input[int(uint(o) + 14u)]);
     int i2 = int(input[int(uint(o) + 17u)]);
     uint u0 = uint(input[int(uint(o) + 18u)]);
     uint u1 = uint(input[int(uint(o) + 19u)]);
@@ -145,6 +147,8 @@ kernel void SharpCompute_Differential_Tests_Random2x4Model(
     half4 h4a = half4(as_type<half>(ushort(input[int(uint(o) + 61u)])), as_type<half>(ushort(input[int(uint(o) + 62u)])), as_type<half>(ushort(input[int(uint(o) + 63u)])), as_type<half>(ushort(input[int(uint(o) + 64u)])));
     int2 i2b = int2(int(input[int(uint(o) + 71u)]), int(input[int(uint(o) + 72u)]));
     int3 i3b = int3(int(input[int(uint(o) + 76u)]), int(input[int(uint(o) + 77u)]), int(input[int(uint(o) + 78u)]));
+    uint2 u2a = uint2(uint(input[int(uint(o) + 87u)]), uint(input[int(uint(o) + 88u)]));
+    uint2 u2b = uint2(uint(input[int(uint(o) + 89u)]), uint(input[int(uint(o) + 90u)]));
     bool2 b2b = bool2((input[int(uint(o) + 107u)] & 1UL) != 0UL, (input[int(uint(o) + 108u)] & 1UL) != 0UL);
     bool4 b4a = bool4((input[int(uint(o) + 115u)] & 1UL) != 0UL, (input[int(uint(o) + 116u)] & 1UL) != 0UL, (input[int(uint(o) + 117u)] & 1UL) != 0UL, (input[int(uint(o) + 118u)] & 1UL) != 0UL);
     float c0_v0_0 = f1;
@@ -290,17 +294,17 @@ kernel void SharpCompute_Differential_Tests_Random2x4Model(
     char c1_v0_0 = char(126);
     c1_v0_0++;
     char c1_v0_1 = char(u0);
-    c1_v0_1 += int(metal::popcount(sb0));
+    c1_v0_1 += int(__ms_popcount(sb0));
     output[int(uint(p) + 30u)] = long(int(__ms_sat_ushort(::GpuModel_Flush(::GpuModel_Flush(metal::floor(::GpuModel_Flush(f1)))))) | int(metal::min((64L > l2) ? c1_v0_0 : sb0, c1_v0_1)));
     char c1_v1_0 = char(126);
     c1_v1_0++;
     char c1_v1_1 = char(u0);
-    c1_v1_1 += int(metal::popcount(sb0));
+    c1_v1_1 += int(__ms_popcount(sb0));
     output[int(uint(p) + 31u)] = long(int(__ms_sat_ushort(::GpuModel_Flush(::GpuModel_Flush(metal::floor(::GpuModel_Flush(f1)))))) | int(metal::min((64L > l2) ? c1_v1_0 : sb0, c1_v1_1)));
     char c1_v2_0 = char(126);
     c1_v2_0++;
     char c1_v2_1 = char(u0);
-    c1_v2_1 += int(metal::popcount(sb0));
+    c1_v2_1 += int(__ms_popcount(sb0));
     output[int(uint(p) + 32u)] = long(int(__ms_sat_ushort(::GpuModel_Flush(metal::floor(f1)))) | int(metal::min((64L > l2) ? c1_v2_0 : sb0, c1_v2_1)));
     bool c2_v0_0 = metal::isnan(::GpuModel_Flush(f2)) && (b2b.y ? (::GpuModel_Flush(f1) < ::GpuModel_Flush(f2)) : (b0 ? true : b2));
     output[int(uint(p) + 33u)] = (c2_v0_0) ? 1L : 0L;

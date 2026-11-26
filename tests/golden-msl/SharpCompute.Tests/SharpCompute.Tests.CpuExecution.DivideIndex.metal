@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 struct __Constants
 {
     int divisor;
@@ -30,5 +33,5 @@ kernel void SharpCompute_Tests_CpuExecution_DivideIndex(
     uint3 __tid_in [[thread_position_in_grid]])
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
-    data[int(__tid.x)] = int(__tid.x) / __c.divisor;
+    data[int(__tid.x)] = int(__tid.x) / __ms_nonzero(__c.divisor);
 }

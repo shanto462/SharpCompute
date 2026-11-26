@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 struct __Constants
 {
     int sourceWidth;
@@ -55,8 +58,8 @@ kernel void SharpCompute_Samples_Platformer_Rendering_UpscaleFrame(
         __output.write(float4(0.0f, 0.0f, 0.0f, 1.0f), __tid.xy);
         return;
     }
-    int sx = x / __c.scale;
-    int sy = y / __c.scale;
+    int sx = x / __ms_nonzero(__c.scale);
+    int sy = y / __ms_nonzero(__c.scale);
     if (sx >= __c.sourceWidth || sy >= __c.sourceHeight)
     {
         __output.write(float4(0.0f, 0.0f, 0.0f, 1.0f), __tid.xy);

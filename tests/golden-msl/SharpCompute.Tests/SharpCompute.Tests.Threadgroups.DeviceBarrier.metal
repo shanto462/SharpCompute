@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 struct __GridWindow
 {
     packed_uint3 offset;
@@ -29,5 +32,5 @@ kernel void SharpCompute_Tests_Threadgroups_DeviceBarrier(
     int first = int(uint(i) - __gtid.x);
     scratch[i] = int((uint(i) * 3u) + 1u);
     metal::threadgroup_barrier(metal::mem_flags::mem_device);
-    output[i] = scratch[int(uint(first) + uint((int(__gtid.x + 1u)) % int(__gsize.x * __gsize.y * __gsize.z)))];
+    output[i] = scratch[int(uint(first) + uint((int(__gtid.x + 1u)) % __ms_nonzero(int(__gsize.x * __gsize.y * __gsize.z))))];
 }

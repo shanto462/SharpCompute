@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 constant int Stride = 56;
 constant short Bias = short(-1234);
 
@@ -58,7 +61,7 @@ kernel void SharpCompute_Tests_Shaders_SmallIntegerOps(
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
-    int j = (int((uint(i) * 7u) + 3u)) % int(__c.__length_bytes);
+    int j = (int((uint(i) * 7u) + 3u)) % __ms_nonzero(int(__c.__length_bytes));
     int o = int(uint(i) * uint(::Stride));
     uchar b = bytes[i];
     uchar b2 = bytes[j];
@@ -77,12 +80,12 @@ kernel void SharpCompute_Tests_Shaders_SmallIntegerOps(
     output[int(uint(o) + 5u)] = int(uint(s) * uint(s2));
     output[int(uint(o) + 6u)] = int(uint(us) + uint(us2));
     output[int(uint(o) + 7u)] = int(uint(us) - uint(us2));
-    output[int(uint(o) + 8u)] = int(b2) != 0 ? int(b) / int(b2) : -1;
-    output[int(uint(o) + 9u)] = int(b2) != 0 ? int(b) % int(b2) : -1;
-    output[int(uint(o) + 10u)] = int(sb2) != 0 ? int(sb) / int(sb2) : -1;
-    output[int(uint(o) + 11u)] = int(sb2) != 0 ? int(sb) % int(sb2) : -1;
-    output[int(uint(o) + 12u)] = int(s2) != 0 ? int(s) / int(s2) : -1;
-    output[int(uint(o) + 13u)] = int(us2) != 0 ? int(us) % int(us2) : -1;
+    output[int(uint(o) + 8u)] = int(b2) != 0 ? int(b) / __ms_nonzero(int(b2)) : -1;
+    output[int(uint(o) + 9u)] = int(b2) != 0 ? int(b) % __ms_nonzero(int(b2)) : -1;
+    output[int(uint(o) + 10u)] = int(sb2) != 0 ? int(sb) / __ms_nonzero(int(sb2)) : -1;
+    output[int(uint(o) + 11u)] = int(sb2) != 0 ? int(sb) % __ms_nonzero(int(sb2)) : -1;
+    output[int(uint(o) + 12u)] = int(s2) != 0 ? int(s) / __ms_nonzero(int(s2)) : -1;
+    output[int(uint(o) + 13u)] = int(us2) != 0 ? int(us) % __ms_nonzero(int(us2)) : -1;
     output[int(uint(o) + 14u)] = int(-uint(b));
     output[int(uint(o) + 15u)] = ~int(b);
     output[int(uint(o) + 16u)] = int(-uint(sb));

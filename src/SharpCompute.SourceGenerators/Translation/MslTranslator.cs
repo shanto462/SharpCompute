@@ -468,6 +468,15 @@ internal sealed partial class MslTranslator
     public bool UsesVectorArithmetic { get; private set; }
 
     /// <summary>
+    /// The overloads of <c>MslPrelude.Integers</c> the shader calls, as <c>name(type</c> (the helper
+    /// and the type of its first parameter: <c>__ms_nonzero(int3</c>), with the ones they call: the
+    /// MSL needs those lines of the block, and carries no other.
+    /// </summary>
+    public IReadOnlyCollection<string> IntegerHelpers => _integerHelpers;
+
+    private readonly SortedSet<string> _integerHelpers = new(System.StringComparer.Ordinal);
+
+    /// <summary>
     /// The saturating float to integer conversions the shader calls (<c>__ms_sat_int</c>,
     /// <c>__ms_sat_uint3</c>), in name order: the MSL needs those functions of
     /// <c>MslPrelude.Conversions</c>, and carries no other.

@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
 struct __Constants
@@ -39,8 +42,8 @@ kernel void SharpCompute_Samples_Imaging_Pixelate(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int x = int(__tid.x);
     int y = int(__tid.y);
-    int x0 = int(uint(x / __c.size) * uint(__c.size));
-    int y0 = int(uint(y / __c.size) * uint(__c.size));
+    int x0 = int(uint(x / __ms_nonzero(__c.size)) * uint(__c.size));
+    int y0 = int(uint(y / __ms_nonzero(__c.size)) * uint(__c.size));
     int x1 = metal::min(int(uint(x0) + uint(__c.size)), __c.width);
     int y1 = metal::min(int(uint(y0) + uint(__c.size)), __c.height);
     float4 sum = float4(0.0f, 0.0f, 0.0f, 0.0f);

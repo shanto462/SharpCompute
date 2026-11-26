@@ -566,6 +566,30 @@ internal sealed class ShaderAnalyzer
             prelude = prelude is null ? called : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + called;
         }
 
+        if (translator.IntegerHelpers.Count > 0)
+        {
+            // So are the integer divisions and bit counts that work around the GPU compiler, of which
+            // a shader carries the overloads it calls (an overload is a line, named by its first
+            // parameter's type: `inline int3 __ms_nonzero(int3 x)`).
+            if (ReadPrelude("Integers") is not { } integers)
+            {
+                diagnostics.Report(
+                    DiagnosticDescriptors.UnsupportedMethodCall,
+                    _location,
+                    "__ms_*",
+                    "the shader divides integers or counts their bits, but the referenced SharpCompute assembly has no 'SharpCompute.MslPrelude.Integers' constant");
+                return translation;
+            }
+
+            string called = string.Join(
+                "\n",
+                integers.Replace("\r\n", "\n").Split('\n').Where(line =>
+                    !line.StartsWith("inline ", StringComparison.Ordinal) ||
+                    translator.IntegerHelpers.Any(helper => line.Contains(" " + helper + " "))));
+
+            prelude = prelude is null ? called : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + called;
+        }
+
         int constantsSize = LayOutConstants(constants, out bool explicitConstants);
 
         // The grid window takes the first free buffer index. A shader that uses all of them still
@@ -633,7 +657,7 @@ internal sealed class ShaderAnalyzer
         return TypeResolver.AlignUp(offset, alignment);
     }
 
-    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>, <c>Conversions</c>) from the referenced SharpCompute assembly.</summary>
+    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>, <c>Conversions</c>, <c>Integers</c>) from the referenced SharpCompute assembly.</summary>
     private string? ReadPrelude(string constant) =>
         _semanticModel.Compilation.GetTypeByMetadataName("SharpCompute.MslPrelude")?
             .GetMembers(constant)
@@ -1040,7 +1064,7 @@ internal sealed class ShaderAnalyzer
 
         public bool IsPixelShader { get; }
 
-        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted, then the functions of <c>MslPrelude.Conversions</c> that the shader calls.</summary>
+        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted, then the functions of <c>MslPrelude.Conversions</c> that the shader calls, then the overloads of <c>MslPrelude.Integers</c> that it calls.</summary>
         public string? Prelude { get; }
 
         /// <summary>The <c>constexpr sampler</c> declarations of the samplers the shader uses.</summary>

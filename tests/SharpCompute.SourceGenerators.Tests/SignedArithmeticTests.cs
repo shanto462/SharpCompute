@@ -63,7 +63,7 @@ public class SignedArithmeticTests
     [InlineData("ints[2] = -(-a);", "ints[2] = int(-(-uint(a)));")]
     [InlineData("ints[2] = a - -b;", "ints[2] = int(uint(a) - -uint(b));")]
     [InlineData("ints[2] = -5;", "ints[2] = -5;")]
-    [InlineData("ints[2] = (a * b) / b;", "ints[2] = (int(uint(a) * uint(b))) / b;")]
+    [InlineData("ints[2] = (a * b) / b;", "ints[2] = (int(uint(a) * uint(b))) / __ms_nonzero(b);")]
     [InlineData("ints[2] = a + 1 > a ? 1 : 0;", "ints[2] = int(uint(a) + 1u) > a ? 1 : 0;")]
     [InlineData("longs[2] = (long)(a * b);", "longs[2] = long(int(uint(a) * uint(b)));")]
     [InlineData("longs[2] = (long)a * b;", "longs[2] = long(ulong(a) * ulong(b));")]
@@ -80,8 +80,8 @@ public class SignedArithmeticTests
 
     [Theory]
     [InlineData("uints[2] = uints[0] * uints[1] + 1;", "uints[2] = uints[0] * uints[1] + 1u;")]
-    [InlineData("ints[2] = a / b;", "ints[2] = a / b;")]
-    [InlineData("ints[2] = a % b;", "ints[2] = a % b;")]
+    [InlineData("ints[2] = a / b;", "ints[2] = a / __ms_nonzero(b);")]
+    [InlineData("ints[2] = a % b;", "ints[2] = a % __ms_nonzero(b);")]
     [InlineData("ints[2] = a << b;", "ints[2] = a << b;")]
     [InlineData("ints[2] = (a & b) | (a ^ ~b) >> 3;", "ints[2] = (a & b) | ((a ^ ~b) >> 3);")]
     public void UnsignedArithmetic_DivisionShiftsAndBitwiseOperators_AreUnchanged(string body, string expected) =>

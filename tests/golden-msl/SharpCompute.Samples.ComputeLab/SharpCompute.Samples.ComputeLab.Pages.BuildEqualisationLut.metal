@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+
 struct __Constants
 {
     uint total;
@@ -54,6 +57,6 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_BuildEqualisationLut(
     else
     {
         ulong scaled = (ulong(below - lowest) * 255UL) + ulong(range / 2u);
-        lut[level] = uchar(scaled / ulong(range));
+        lut[level] = uchar(scaled / __ms_nonzero(ulong(range)));
     }
 }

@@ -165,6 +165,8 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int Slots = 148;
 
@@ -527,7 +529,7 @@ kernel void SharpCompute_Tests_Conformance_Semantics_VectorNegationShapesShader(
         int3 w = int3(int(uint(a) + 31u), int(uint(b) - 31u), int(uint(a ^ b) + 31u));
         int3 c = int3(1000, 2000, 3000);
         int s = ::MinusOne(a);
-        int3 n = w / s;
+        int3 n = w / __ms_nonzero(s);
         output[int(uint(o) + 120u)] = int(uint(n.x) + uint(n.z));
         int3 t = int3(__ms_sub((__ms_add(uint3(w), uint3(c))) * 3u, uint3(w)));
         output[int(uint(o) + 121u)] = t.x;

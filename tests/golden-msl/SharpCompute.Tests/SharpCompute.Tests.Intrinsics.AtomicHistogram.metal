@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+
 struct __Constants
 {
     int bins;
@@ -31,5 +34,5 @@ kernel void SharpCompute_Tests_Intrinsics_AtomicHistogram(
     uint3 __tid_in [[thread_position_in_grid]])
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
-    metal::atomic_fetch_add_explicit((device metal::atomic_int*)&(counts[int(values[int(__tid.x)] % uint(__c.bins))]), 1, metal::memory_order_relaxed);
+    metal::atomic_fetch_add_explicit((device metal::atomic_int*)&(counts[int(values[int(__tid.x)] % __ms_nonzero(uint(__c.bins)))]), 1, metal::memory_order_relaxed);
 }

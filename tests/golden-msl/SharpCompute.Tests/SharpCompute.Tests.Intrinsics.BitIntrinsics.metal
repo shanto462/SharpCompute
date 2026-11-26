@@ -58,6 +58,15 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
+inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 
 constant int Stride = 24;
 
@@ -92,24 +101,24 @@ kernel void SharpCompute_Tests_Intrinsics_BitIntrinsics(
     uint3 roundTrip = as_type<uint3>(as_type<float3>(uint3(u, ~u, u ^ 1431655765u)));
     int2 signedRoundTrip = as_type<int2>(as_type<float2>(int2(i, ~i)));
     output[int(uint(o) + 3u)] = roundTrip.x ^ (roundTrip.y << 1) ^ (roundTrip.z << 2) ^ uint(signedRoundTrip.x) ^ (uint(signedRoundTrip.y) << 3);
-    output[int(uint(o) + 4u)] = metal::popcount(u);
-    output[int(uint(o) + 5u)] = uint(metal::popcount(i));
-    output[int(uint(o) + 6u)] = metal::clz(u);
-    output[int(uint(o) + 7u)] = uint(metal::clz(i));
+    output[int(uint(o) + 4u)] = __ms_popcount(u);
+    output[int(uint(o) + 5u)] = uint(__ms_popcount(i));
+    output[int(uint(o) + 6u)] = __ms_clz(u);
+    output[int(uint(o) + 7u)] = uint(__ms_clz(i));
     output[int(uint(o) + 8u)] = metal::ctz(u);
     output[int(uint(o) + 9u)] = uint(metal::ctz(i));
     output[int(uint(o) + 10u)] = metal::reverse_bits(u);
     output[int(uint(o) + 11u)] = uint(metal::reverse_bits(i));
     uint4 v = uint4(u, ~u, u >> 7, u << 9);
-    uint4 counted = __ms_add(__ms_add(metal::popcount(v), metal::clz(v) << 8), metal::ctz(v) << 16);
+    uint4 counted = __ms_add(__ms_add(__ms_popcount(v), __ms_clz(v) << 8), metal::ctz(v) << 16);
     output[int(uint(o) + 12u)] = counted.x ^ (counted.y << 1) ^ (counted.z << 2) ^ (counted.w << 3);
     uint4 reversed = metal::reverse_bits(v);
     output[int(uint(o) + 13u)] = reversed.x ^ reversed.y ^ reversed.z ^ reversed.w;
     int3 s = int3(i, int(-uint(i)), i >> 3);
-    int3 signedCounted = int3(__ms_add(__ms_add(__ms_add(uint3(metal::popcount(s)), uint3(metal::clz(s) << 8)), uint3(metal::ctz(s) << 16)), uint3(metal::reverse_bits(s))));
+    int3 signedCounted = int3(__ms_add(__ms_add(__ms_add(uint3(__ms_popcount(s)), uint3(__ms_clz(s) << 8)), uint3(metal::ctz(s) << 16)), uint3(metal::reverse_bits(s))));
     output[int(uint(o) + 14u)] = uint(signedCounted.x ^ (signedCounted.y << 1) ^ (signedCounted.z << 2));
-    output[int(uint(o) + 15u)] = uint(int(metal::popcount(u)));
-    output[int(uint(o) + 16u)] = uint(int(metal::clz(u)));
+    output[int(uint(o) + 15u)] = uint(int(__ms_popcount(u)));
+    output[int(uint(o) + 16u)] = uint(int(__ms_clz(u)));
     output[int(uint(o) + 17u)] = uint(int(metal::ctz(u))) + (uint(int(metal::ctz(i))) << 8);
     output[int(uint(o) + 18u)] = metal::rotate(u, uint(t % 67) & 31u);
     output[int(uint(o) + 19u)] = metal::rotate(u, (0u - uint(t % 67)) & 31u);

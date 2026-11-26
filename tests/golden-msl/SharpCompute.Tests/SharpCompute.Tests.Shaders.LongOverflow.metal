@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+
 constant int Slots = 16;
 
 struct __GridWindow
@@ -30,7 +33,7 @@ kernel void SharpCompute_Tests_Shaders_LongOverflow(
     long b = pairs[int((2u * uint(i)) + 1u)];
     int o = int(uint(i) * uint(::Slots));
     output[o] = long(ulong(a) * ulong(b));
-    output[int(uint(o) + 1u)] = b > 1L ? (long(ulong(a) * ulong(b))) / b : 0L;
+    output[int(uint(o) + 1u)] = b > 1L ? (long(ulong(a) * ulong(b))) / __ms_nonzero(b) : 0L;
     output[int(uint(o) + 2u)] = long(long(ulong(a) + 1UL) > a ? 1 : 0);
     output[int(uint(o) + 3u)] = long(b > 0L && (long(ulong(a) + ulong(b))) < a ? 1 : 0);
     output[int(uint(o) + 4u)] = long(long(ulong(a) - 1UL) < a ? 1 : 0);

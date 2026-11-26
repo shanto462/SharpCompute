@@ -34,21 +34,16 @@ to the page that explains it.
   `+=` or `-=` on *components* of one (`data[Next()].XY += w`). Put the index in a local first.
   Reported to Apple as FB25732151 (Metal compiler 32023.922, Xcode 27.2, macOS 27.2.1).
   ([Integers](shader-language.md#integers))
-- **Metal backend bugs that give wrong integer results.** Each of these is valid C#, compiles, and
-  silently computes something else on the GPU (not with `ForCpu`); the MSL the generator emits is
-  correct. Each has a repro in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs), and workarounds in the generator are
-  planned.
-  - *Division of a constant dividend near 2^32*: `4294967295u / x` is 3579139454 for `x = 3`, and
-    `4294967295u % x` and `4294967295L % y` are wrong too (the `long` is narrowed to 32 bits).
-    Workaround: read the constant from a buffer or a captured field.
-  - *A division guard that depends on a ternary is dropped*: with
-    `t = l == long.MinValue ? 0 : Math.Abs(l)`, `t == 0 ? 0 : x % t` divides by `long.MinValue`
-    instead of giving 0. Guards around chains of 32-bit divisions were dropped the same way inside
-    larger expressions. Workaround: test the operand with an `if` and divide inside it.
-  - *Bit intrinsics of an 8- or 16-bit value the shader computed* see the wrong upper bits:
-    `Gpu.CountBits(b ? s : t)` of the short -2 is 31 instead of 15, and `Gpu.LeadingZeroCount` of
-    `(uint)(short)i`, or of `a % b` of two `sbyte`s widened to `int`, is 16 instead of 0 for a
-    negative value. Workaround: widen and mask explicitly (`Gpu.CountBits((uint)(ushort)s)`).
+- **GPU compiler bugs in integer division and bit counts**, which the generator works around (on the
+  GPU, at a cost of a few instructions a division or count): a guard against division by zero that
+  the compiler dropped, a constant dividend of 2^32 - 128 or more that it divided wrongly, and
+  `Gpu.CountBits` and `Gpu.LeadingZeroCount` of a value it holds as a sign-extended 16-bit one. What
+  remains is a constant dividend near 2^32 that only the Metal compiler sees as one, through a
+  local or a helper's parameter (`uint m = uint.MaxValue; ... m / x`): write the constant in the
+  division, or read it from a buffer. A division by zero, which throws in C# and with `ForCpu`,
+  does not trap on the GPU and its result is unspecified. The workarounds were verified with Metal
+  compiler 32023.922 (Xcode 27.2, macOS 27.2.1); a later compiler may need them re-checked.
+  ([Integers](shader-language.md#integers))
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
   - *A half division by a constant* is a multiplication by the constant's reciprocal, up to one

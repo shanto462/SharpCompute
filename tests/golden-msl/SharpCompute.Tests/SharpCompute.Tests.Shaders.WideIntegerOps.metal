@@ -3,6 +3,11 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+
 constant int Stride = 64;
 constant long Multiplier = 7109453100751455733L;
 constant ulong Mixer = 13787848793156543929UL;
@@ -57,7 +62,7 @@ kernel void SharpCompute_Tests_Shaders_WideIntegerOps(
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
-    int j = (int((uint(i) * 5u) + 1u)) % int(__c.__length_longs);
+    int j = (int((uint(i) * 5u) + 1u)) % __ms_nonzero(int(__c.__length_longs));
     int o = int(uint(i) * uint(::Stride));
     long a = longs[i];
     long b = longs[j];
@@ -67,13 +72,13 @@ kernel void SharpCompute_Tests_Shaders_WideIntegerOps(
     output[int(uint(o) + 0u)] = long(ulong(a) + ulong(b));
     output[int(uint(o) + 1u)] = long(ulong(a) - ulong(b));
     output[int(uint(o) + 2u)] = long(ulong(a) * ulong(b));
-    output[int(uint(o) + 3u)] = b != 0L && !(a == -9223372036854775807L - 1L && b == -1L) ? a / b : 0L;
-    output[int(uint(o) + 4u)] = b != 0L && !(a == -9223372036854775807L - 1L && b == -1L) ? a % b : 0L;
+    output[int(uint(o) + 3u)] = b != 0L && !(a == -9223372036854775807L - 1L && b == -1L) ? a / __ms_nonzero(b) : 0L;
+    output[int(uint(o) + 4u)] = b != 0L && !(a == -9223372036854775807L - 1L && b == -1L) ? a % __ms_nonzero(b) : 0L;
     output[int(uint(o) + 5u)] = long(u + v);
     output[int(uint(o) + 6u)] = long(u - v);
     output[int(uint(o) + 7u)] = long(u * v);
-    output[int(uint(o) + 8u)] = v != 0UL ? long(u / v) : 0L;
-    output[int(uint(o) + 9u)] = v != 0UL ? long(u % v) : 0L;
+    output[int(uint(o) + 8u)] = v != 0UL ? long(u / __ms_nonzero(v)) : 0L;
+    output[int(uint(o) + 9u)] = v != 0UL ? long(u % __ms_nonzero(v)) : 0L;
     output[int(uint(o) + 10u)] = a << count;
     output[int(uint(o) + 11u)] = a >> count;
     output[int(uint(o) + 12u)] = long(ulong(a) >> count);

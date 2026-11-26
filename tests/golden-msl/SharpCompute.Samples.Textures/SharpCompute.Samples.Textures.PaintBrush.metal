@@ -58,6 +58,8 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 struct __Constants
 {
@@ -98,8 +100,8 @@ kernel void SharpCompute_Samples_Textures_PaintBrush(
     {
         return;
     }
-    int x = (int(uint(position.x % int(field.get_width())) + uint(int(field.get_width())))) % int(field.get_width());
-    int y = (int(uint(position.y % int(field.get_height())) + uint(int(field.get_height())))) % int(field.get_height());
+    int x = (int(uint(position.x % __ms_nonzero(int(field.get_width()))) + uint(int(field.get_width())))) % __ms_nonzero(int(field.get_width()));
+    int y = (int(uint(position.y % __ms_nonzero(int(field.get_height()))) + uint(int(field.get_height())))) % __ms_nonzero(int(field.get_height()));
     float4 state = field.read(uint2(x, y));
     field.write(__c.erase != 0 ? float4(1.0f, 0.0f, 0.0f, 1.0f) : float4(state.x, 1.0f, 0.0f, 1.0f), uint2(x, y));
     field.fence();

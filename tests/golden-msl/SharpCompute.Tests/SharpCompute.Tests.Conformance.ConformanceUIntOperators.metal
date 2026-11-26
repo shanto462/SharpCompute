@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+
 constant int Slots = 39;
 
 struct __GridWindow
@@ -40,8 +43,8 @@ kernel void SharpCompute_Tests_Conformance_ConformanceUIntOperators(
     output[int(uint(o) + 3u)] = long(x + y);
     output[int(uint(o) + 4u)] = long(x - y);
     output[int(uint(o) + 5u)] = long(x * y);
-    output[int(uint(o) + 6u)] = long((y == 0u) ? 0u : x / y);
-    output[int(uint(o) + 7u)] = long((y == 0u) ? 0u : x % y);
+    output[int(uint(o) + 6u)] = long((y == 0u) ? 0u : x / __ms_nonzero(y));
+    output[int(uint(o) + 7u)] = long((y == 0u) ? 0u : x % __ms_nonzero(y));
     output[int(uint(o) + 8u)] = long(x & y);
     output[int(uint(o) + 9u)] = long(x | y);
     output[int(uint(o) + 10u)] = long(x ^ y);
@@ -75,13 +78,13 @@ kernel void SharpCompute_Tests_Conformance_ConformanceUIntOperators(
     uint t6 = x;
     if (!(y == 0u))
     {
-        t6 /= y;
+        t6 /= __ms_nonzero(y);
     }
     output[int(uint(o) + 26u)] = long(t6);
     uint t7 = x;
     if (!(y == 0u))
     {
-        t7 %= y;
+        t7 %= __ms_nonzero(y);
     }
     output[int(uint(o) + 27u)] = long(t7);
     uint t8 = x;

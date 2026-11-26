@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+
 constant int OriginX = 48;
 constant int OriginY = 80;
 constant uint Background = 4279636238u;
@@ -55,12 +59,12 @@ static uint Ramp(uint t)
 
 static uint PopCount(uint u, uint v, uint tick)
 {
-    return ::Ramp(metal::popcount((u + tick) ^ v) * 32u);
+    return ::Ramp(__ms_popcount((u + tick) ^ v) * 32u);
 }
 
 static uint Parity(uint u, uint v, uint tick)
 {
-    bool odd = (metal::popcount((u + tick) & v) & 1u) != 0u;
+    bool odd = (__ms_popcount((u + tick) & v) & 1u) != 0u;
     return odd ? ::Rgb(240u, 190u, 90u) : ::Rgb(30u, 40u, 70u);
 }
 
@@ -72,7 +76,7 @@ static uint Reverse(uint u, uint v, uint tick)
 
 static uint LeadingZeros(uint u, uint v, uint tick)
 {
-    uint zeros = metal::clz((u + (tick & 255u)) * v);
+    uint zeros = __ms_clz((u + (tick & 255u)) * v);
     return ::Ramp((32u - zeros) * 15u);
 }
 

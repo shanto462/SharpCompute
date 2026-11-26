@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+
 kernel void SharpCompute_Differential_Tests_GuardedDivisionRepro(
     const device ulong* input [[buffer(0)]],
     device long* output [[buffer(1)]])
@@ -10,5 +13,5 @@ kernel void SharpCompute_Differential_Tests_GuardedDivisionRepro(
     long x = long(input[0]);
     long l = long(input[1]);
     long t = l == -9223372036854775807L - 1L ? 0L : long(metal::abs(l));
-    output[0] = t == 0L ? 0L : x % t;
+    output[0] = t == 0L ? 0L : x % __ms_nonzero(t);
 }

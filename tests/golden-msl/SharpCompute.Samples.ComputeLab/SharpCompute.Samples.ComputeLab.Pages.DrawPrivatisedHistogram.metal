@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 constant int PanelY = 104;
 constant int PanelSize = 512;
 constant int ImageX = 48;
@@ -65,7 +68,7 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_DrawPrivatisedHistogram(
         {
             int scaled = int(uint(cx) * uint(__c.bins));
             int bin = scaled / ::ChartWidth;
-            int inside = (scaled % ::ChartWidth) / __c.bins;
+            int inside = (scaled % ::ChartWidth) / __ms_nonzero(__c.bins);
             int count = lower ? counts[bin] : globalCounts[bin];
             float height = float(count) * 224.0f / float(__c.max);
             float level = (float(bin) + 0.5f) / float(__c.bins);

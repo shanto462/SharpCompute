@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+
 constant int Slots = 39;
 
 struct __GridWindow
@@ -40,8 +43,8 @@ kernel void SharpCompute_Tests_Conformance_ConformanceLongOperators(
     output[int(uint(o) + 3u)] = (long(ulong(x) + ulong(y)));
     output[int(uint(o) + 4u)] = (long(ulong(x) - ulong(y)));
     output[int(uint(o) + 5u)] = (long(ulong(x) * ulong(y)));
-    output[int(uint(o) + 6u)] = ((y == 0L || (x == -9223372036854775807L - 1L && y == -1L)) ? 0L : x / y);
-    output[int(uint(o) + 7u)] = ((y == 0L || (x == -9223372036854775807L - 1L && y == -1L)) ? 0L : x % y);
+    output[int(uint(o) + 6u)] = ((y == 0L || (x == -9223372036854775807L - 1L && y == -1L)) ? 0L : x / __ms_nonzero(y));
+    output[int(uint(o) + 7u)] = ((y == 0L || (x == -9223372036854775807L - 1L && y == -1L)) ? 0L : x % __ms_nonzero(y));
     output[int(uint(o) + 8u)] = (x & y);
     output[int(uint(o) + 9u)] = (x | y);
     output[int(uint(o) + 10u)] = (x ^ y);
@@ -75,13 +78,13 @@ kernel void SharpCompute_Tests_Conformance_ConformanceLongOperators(
     long t6 = x;
     if (!(y == 0L || (x == -9223372036854775807L - 1L && y == -1L)))
     {
-        t6 /= y;
+        t6 /= __ms_nonzero(y);
     }
     output[int(uint(o) + 26u)] = (t6);
     long t7 = x;
     if (!(y == 0L || (x == -9223372036854775807L - 1L && y == -1L)))
     {
-        t7 %= y;
+        t7 %= __ms_nonzero(y);
     }
     output[int(uint(o) + 27u)] = (t7);
     long t8 = x;

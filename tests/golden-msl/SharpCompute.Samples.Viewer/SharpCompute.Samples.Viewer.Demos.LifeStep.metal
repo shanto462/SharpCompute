@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 struct __Constants
 {
     int width;
@@ -44,8 +47,8 @@ kernel void SharpCompute_Samples_Viewer_Demos_LifeStep(
             {
                 continue;
             }
-            int nx = (int(uint(x) + uint(dx) + uint(__c.width))) % __c.width;
-            int ny = (int(uint(y) + uint(dy) + uint(__c.height))) % __c.height;
+            int nx = (int(uint(x) + uint(dx) + uint(__c.width))) % __ms_nonzero(__c.width);
+            int ny = (int(uint(y) + uint(dy) + uint(__c.height))) % __ms_nonzero(__c.height);
             if (current[int((uint(ny) * uint(__c.width)) + uint(nx))] != 0u)
             {
                 neighbors = int(uint(neighbors) + 1u);

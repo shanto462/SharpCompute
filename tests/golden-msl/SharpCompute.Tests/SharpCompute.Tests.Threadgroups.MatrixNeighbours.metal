@@ -110,6 +110,8 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 static_assert(sizeof(__ms_packed_float4x4) == 64, "SharpCompute: size of '__ms_packed_float4x4' does not match its C# layout");
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
@@ -151,7 +153,7 @@ kernel void SharpCompute_Tests_Threadgroups_MatrixNeighbours(
     matrices[local] = __ms_pack(__ms_unpack(input[i]));
     matrices[local] = __ms_pack(__ms_unpack(matrices[local]) * 2.0f);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-    int next = (int(uint(local) + 1u)) % int(__gsize.x * __gsize.y * __gsize.z);
+    int next = (int(uint(local) + 1u)) % __ms_nonzero(int(__gsize.x * __gsize.y * __gsize.z));
     float4x4 neighbour = __ms_unpack(matrices[next]);
     products[i] = __ms_pack((neighbour * __ms_unpack(matrices[local])));
     transformed[i] = (__ms_unpack(matrices[next]) * float4(vectors[i])) + ::Row(next, 3, matrices);

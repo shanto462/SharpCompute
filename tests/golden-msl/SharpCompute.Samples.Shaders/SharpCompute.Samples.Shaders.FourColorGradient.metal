@@ -110,6 +110,8 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 constant float3 ColorOne = float3(0.999f, 0.999f, 0.999f);
 constant float3 ColorTwo = float3(0.999f, 0.0f, 0.0f);
@@ -173,7 +175,7 @@ kernel void SharpCompute_Samples_Shaders_FourColorGradient(
     const uint3 __grid = __windowed ? uint3(__window.size) : __grid_in;
     float2 fragCoord = float2(float(int(__tid.x)), float(int(__grid.y - __tid.y)));
     float2 uv = fragCoord / float2(int2(__grid.xy));
-    float ratio = float(int(__grid.x) / int(__grid.y));
+    float ratio = float(int(__grid.x) / __ms_nonzero(int(__grid.y)));
     float2 tuv = uv;
     tuv -= 0.5f;
     float degree = ::Noise(float2(__c.time * 0.1f, tuv.x * tuv.y));

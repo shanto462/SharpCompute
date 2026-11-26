@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 constant int Slots = 7;
 
 struct __GridWindow
@@ -39,7 +42,7 @@ kernel void SharpCompute_Tests_LocalArrays_Initializers(
     for (int __i_p = 0; __i_p < 5; __i_p++)
     {
         int p = primes[__i_p];
-        primeSum = int(uint(primeSum) + uint(p) * uint(i % p));
+        primeSum = int(uint(primeSum) + uint(p) * uint(i % __ms_nonzero(p)));
     }
     int builtSum = 0;
     for (int __i_b = 0; __i_b < 3; __i_b++)

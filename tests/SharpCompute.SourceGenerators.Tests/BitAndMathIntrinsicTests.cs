@@ -82,13 +82,13 @@ public class BitAndMathIntrinsicTests
     {
         AssertKernel(
             """
-            i[1] = int(uint(metal::popcount(i[0])) + uint(metal::clz(i[0])) + uint(metal::ctz(i[0])) + uint(metal::reverse_bits(i[0])));
-            u[1] = metal::popcount(u[0]) + metal::clz(u[0]) + metal::ctz(u[0]) + metal::reverse_bits(u[0]);
+            i[1] = int(uint(__ms_popcount(i[0])) + uint(__ms_clz(i[0])) + uint(metal::ctz(i[0])) + uint(metal::reverse_bits(i[0])));
+            u[1] = __ms_popcount(u[0]) + __ms_clz(u[0]) + metal::ctz(u[0]) + metal::reverse_bits(u[0]);
             uint4 raw = uint4(u[0], 1u, 2u, 3u);
-            uint4 counted = __ms_add(__ms_add(__ms_add(metal::popcount(raw), metal::clz(raw)), metal::ctz(raw)), metal::reverse_bits(raw));
+            uint4 counted = __ms_add(__ms_add(__ms_add(__ms_popcount(raw), __ms_clz(raw)), metal::ctz(raw)), metal::reverse_bits(raw));
             int2 pair = int2(i[0], -1);
-            int2 signedCounts = int2(__ms_add(__ms_add(__ms_add(uint2(metal::popcount(pair)), uint2(metal::clz(pair))), uint2(metal::ctz(pair))), uint2(metal::reverse_bits(pair))));
-            uint3 three = __ms_add(metal::popcount(raw.xyz), metal::reverse_bits(raw.zyx));
+            int2 signedCounts = int2(__ms_add(__ms_add(__ms_add(uint2(__ms_popcount(pair)), uint2(__ms_clz(pair))), uint2(metal::ctz(pair))), uint2(metal::reverse_bits(pair))));
+            uint3 three = __ms_add(__ms_popcount(raw.xyz), metal::reverse_bits(raw.zyx));
             u[2] = counted.x + uint(signedCounts.y) + three.z;
             """,
             """
@@ -112,7 +112,7 @@ public class BitAndMathIntrinsicTests
         AssertKernel(
             """
             int t = int(__tid.x);
-            i[2] = int(uint(int(metal::popcount(u[t]))) + uint(int(metal::clz(u[t]))) + uint(int(metal::ctz(u[t]))) + uint(int(metal::ctz(i[t]))));
+            i[2] = int(uint(int(__ms_popcount(u[t]))) + uint(int(__ms_clz(u[t]))) + uint(int(metal::ctz(u[t]))) + uint(int(metal::ctz(i[t]))));
             u[2] = metal::rotate(u[t], uint(t) & 31u) + metal::rotate(u[t], (0u - uint(int(uint(t) + 1u))) & 31u);
             """,
             """

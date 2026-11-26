@@ -191,6 +191,85 @@ public static class MslPrelude
         """;
 
     /// <summary>
+    /// The integer helpers that work around miscompiles in Apple's GPU compiler: the divisor of an
+    /// integer division or remainder, which cannot be zero (<c>__ms_nonzero</c>), the division and
+    /// remainder of a constant dividend near 2^32 (<c>__ms_div_near_max</c>, <c>__ms_rem_near_max</c>),
+    /// and the bit counts (<c>__ms_popcount</c>, <c>__ms_clz</c>). The generator emits the overloads a
+    /// shader calls, after <see cref="Source"/>: one per line here, which is how it picks them.
+    /// </summary>
+    public const string Integers = """
+        // SharpCompute integer helpers (MslPrelude.Integers).
+        inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+        inline int2 __ms_nonzero(int2 x) { return x | int2(metal::reverse_bits(x) == int2(0)); }
+        inline int3 __ms_nonzero(int3 x) { return x | int3(metal::reverse_bits(x) == int3(0)); }
+        inline int4 __ms_nonzero(int4 x) { return x | int4(metal::reverse_bits(x) == int4(0)); }
+        inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+        inline uint2 __ms_nonzero(uint2 x) { return x | uint2(metal::reverse_bits(x) == uint2(0)); }
+        inline uint3 __ms_nonzero(uint3 x) { return x | uint3(metal::reverse_bits(x) == uint3(0)); }
+        inline uint4 __ms_nonzero(uint4 x) { return x | uint4(metal::reverse_bits(x) == uint4(0)); }
+        inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
+        inline long2 __ms_nonzero(long2 x) { return x | long2(metal::reverse_bits(x) == long2(0)); }
+        inline long3 __ms_nonzero(long3 x) { return x | long3(metal::reverse_bits(x) == long3(0)); }
+        inline long4 __ms_nonzero(long4 x) { return x | long4(metal::reverse_bits(x) == long4(0)); }
+        inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
+        inline ulong2 __ms_nonzero(ulong2 x) { return x | ulong2(metal::reverse_bits(x) == ulong2(0)); }
+        inline ulong3 __ms_nonzero(ulong3 x) { return x | ulong3(metal::reverse_bits(x) == ulong3(0)); }
+        inline ulong4 __ms_nonzero(ulong4 x) { return x | ulong4(metal::reverse_bits(x) == ulong4(0)); }
+        inline char __ms_nonzero(char x) { return char(__ms_nonzero(int(x))); }
+        inline char2 __ms_nonzero(char2 x) { return char2(__ms_nonzero(int2(x))); }
+        inline char3 __ms_nonzero(char3 x) { return char3(__ms_nonzero(int3(x))); }
+        inline char4 __ms_nonzero(char4 x) { return char4(__ms_nonzero(int4(x))); }
+        inline uchar __ms_nonzero(uchar x) { return uchar(__ms_nonzero(int(x))); }
+        inline uchar2 __ms_nonzero(uchar2 x) { return uchar2(__ms_nonzero(int2(x))); }
+        inline uchar3 __ms_nonzero(uchar3 x) { return uchar3(__ms_nonzero(int3(x))); }
+        inline uchar4 __ms_nonzero(uchar4 x) { return uchar4(__ms_nonzero(int4(x))); }
+        inline short __ms_nonzero(short x) { return short(__ms_nonzero(int(x))); }
+        inline short2 __ms_nonzero(short2 x) { return short2(__ms_nonzero(int2(x))); }
+        inline short3 __ms_nonzero(short3 x) { return short3(__ms_nonzero(int3(x))); }
+        inline short4 __ms_nonzero(short4 x) { return short4(__ms_nonzero(int4(x))); }
+        inline ushort __ms_nonzero(ushort x) { return ushort(__ms_nonzero(int(x))); }
+        inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(__ms_nonzero(int2(x))); }
+        inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(__ms_nonzero(int3(x))); }
+        inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(__ms_nonzero(int4(x))); }
+        inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
+        inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
+        inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
+        inline ulong __ms_rem_near_max(ulong a, ulong b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
+        inline uint2 __ms_div_near_max(uint2 a, uint2 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint2(0u), b > a); }
+        inline uint2 __ms_rem_near_max(uint2 a, uint2 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+        inline uint3 __ms_div_near_max(uint3 a, uint3 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint3(0u), b > a); }
+        inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+        inline uint4 __ms_div_near_max(uint4 a, uint4 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint4(0u), b > a); }
+        inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+        inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
+        inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
+        inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
+        inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(metal::reverse_bits(x))); }
+        inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
+        inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
+        inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
+        inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+        inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+        inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }
+        inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
+        inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
+        inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
+        inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
+        inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
+        inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
+        inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
+        """;
+
+    /// <summary>
     /// The float and half to integer conversions (<c>__ms_sat_int</c>, <c>__ms_sat_uchar</c>,
     /// <c>__ms_sat_uint3</c> and so on: one per target type, overloaded on the source), which saturate
     /// as C# does: NaN gives 0, a value beyond the target's range its MinValue or MaxValue. The

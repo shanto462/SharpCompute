@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 constant int Stride = 22;
 
 struct __Constants
@@ -37,7 +40,7 @@ kernel void SharpCompute_Tests_Shaders_SimdScanZeros(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
     int o = int(uint(i) * uint(::Stride));
-    if (__c.skip > 0 && int(__lane) % __c.skip == 0)
+    if (__c.skip > 0 && int(__lane) % __ms_nonzero(__c.skip) == 0)
     {
         return;
     }

@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+
 struct __Constants
 {
     int binCount;
@@ -67,5 +70,5 @@ kernel void SharpCompute_Tests_CodeReuse_SharedBins(
     uint a = ::SharedMath_Hash(uint(i));
     uint b = ::OtherMath_Hash(uint(i));
     hashes[i] = a ^ b;
-    ::SharedMath_Count(bins, int(a % uint(__c.binCount)));
+    ::SharedMath_Count(bins, int(a % __ms_nonzero(uint(__c.binCount))));
 }

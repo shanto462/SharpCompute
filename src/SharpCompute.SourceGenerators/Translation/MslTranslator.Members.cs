@@ -541,6 +541,10 @@ internal sealed partial class MslTranslator
                 UsesPrelude = true;
             }
 
+            // metal::popcount and the 32- and 64-bit metal::clz go through MslPrelude.Integers: Apple's
+            // GPU compiler miscounts some values (see MslTranslator.BitCounts).
+            intrinsicName = BitCountFunction(intrinsicName, method);
+
             return Call(intrinsicName, intrinsicArguments.ToArray());
         }
 

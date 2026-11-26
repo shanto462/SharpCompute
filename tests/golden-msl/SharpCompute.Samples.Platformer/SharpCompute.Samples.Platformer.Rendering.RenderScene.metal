@@ -8,6 +8,8 @@ inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(meta
 inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
 inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
 inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int AtlasWidth = 128;
 
@@ -139,9 +141,9 @@ static float PixelShading_Hash(int x, int y, uint seed)
 
 static float3 Spires(float3 color, int px, int py, int spacing, int band, float3 spireColor, uint seed)
 {
-    int column = px / spacing;
+    int column = px / __ms_nonzero(spacing);
     int localX = int(uint(px) - (uint(column) * uint(spacing)));
-    int bandIndex = py / band;
+    int bandIndex = py / __ms_nonzero(band);
     int localY = int(uint(py) - (uint(bandIndex) * uint(band)));
     float h = ::PixelShading_Hash(column, bandIndex, seed);
     float length = 20.0f + (h * float(band) * 0.45f);
@@ -259,7 +261,7 @@ static bool Occluded(float2 p, float2 lightPosition, float distance, const devic
 
 static bool PixelShading_GlyphCovers(const device uint* __local_font, int glyph, int gx, int gy, int scale)
 {
-    return gx >= 0 && gy >= 0 && gx < int(uint(3) * uint(scale)) && gy < int(uint(5) * uint(scale)) && ((__local_font[glyph] >> (int((uint(gy / scale) * uint(3)) + uint(gx / scale)))) & 1u) != 0u;
+    return gx >= 0 && gy >= 0 && gx < int(uint(3) * uint(scale)) && gy < int(uint(5) * uint(scale)) && ((__local_font[glyph] >> (int((uint(gy / __ms_nonzero(scale)) * uint(3)) + uint(gx / __ms_nonzero(scale))))) & 1u) != 0u;
 }
 
 static uint PixelShading_PackRgb(float3 color)

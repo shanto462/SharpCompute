@@ -8,6 +8,8 @@ inline int __ms_sat_int(float x) { float y = x == x ? x : 0.0f; int r = int(meta
 inline int __ms_sat_int(half x) { return __ms_sat_int(float(x)); }
 inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
 inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 
@@ -130,7 +132,7 @@ static float3 SampleQuarter(float2 at, device packed_float4* bloomQuarter, const
 
 static bool PixelShading_GlyphCovers(const device uint* __local_font, int glyph, int gx, int gy, int scale)
 {
-    return gx >= 0 && gy >= 0 && gx < int(uint(3) * uint(scale)) && gy < int(uint(5) * uint(scale)) && ((__local_font[glyph] >> (int((uint(gy / scale) * uint(3)) + uint(gx / scale)))) & 1u) != 0u;
+    return gx >= 0 && gy >= 0 && gx < int(uint(3) * uint(scale)) && gy < int(uint(5) * uint(scale)) && ((__local_font[glyph] >> (int((uint(gy / __ms_nonzero(scale)) * uint(3)) + uint(gx / __ms_nonzero(scale))))) & 1u) != 0u;
 }
 
 static uint PixelShading_PackRgb(float3 color)

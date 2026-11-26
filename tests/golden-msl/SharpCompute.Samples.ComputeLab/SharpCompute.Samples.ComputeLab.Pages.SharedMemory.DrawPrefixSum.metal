@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+
 constant int PanelY = 104;
 constant int FirstPanelX = 32;
 constant int PanelSize = 384;
@@ -75,8 +78,8 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_SharedMemory_DrawPrefixSum(
                 if (slot < __c.kept)
                 {
                     int index = int(output[slot]);
-                    float sx = float(index % __c.size) / float(__c.size);
-                    float sy = float(index / __c.size) / float(__c.size);
+                    float sx = float(index % __ms_nonzero(__c.size)) / float(__c.size);
+                    float sy = float(index / __ms_nonzero(__c.size)) / float(__c.size);
                     color = float3(0.15f + (0.85f * sy), 0.25f + (0.5f * sx), 1.0f - (0.8f * sy));
                 }
                 else

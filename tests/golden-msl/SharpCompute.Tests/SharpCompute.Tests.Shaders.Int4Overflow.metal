@@ -165,6 +165,8 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int4 __ms_nonzero(int4 x) { return x | int4(metal::reverse_bits(x) == int4(0)); }
 
 constant int Slots = 10;
 
@@ -198,7 +200,7 @@ kernel void SharpCompute_Tests_Shaders_Int4Overflow(
     int4 q = d[i];
     int o = int(uint(i) * uint(::Slots));
     output[o] = int4(uint4(x) * uint4(y));
-    output[int(uint(o) + 1u)] = (int4(uint4(x) * uint4(q))) / q;
+    output[int(uint(o) + 1u)] = (int4(uint4(x) * uint4(q))) / __ms_nonzero(q);
     output[int(uint(o) + 2u)] = int4(uint4(x) * 2u) / 2;
     output[int(uint(o) + 3u)] = int4(__ms_add(uint4(x), uint4(y)));
     output[int(uint(o) + 4u)] = int4(__ms_sub(uint4(x), uint4(y)));

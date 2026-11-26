@@ -110,6 +110,9 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
+inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
 
 constant int Slots = 14;
 
@@ -143,8 +146,8 @@ kernel void SharpCompute_Tests_Conformance_ConformanceULongIntrinsics(
     ulong z = c[i];
     int n = s[i];
     output[int(uint(o) + 0u)] = long(metal::abs(x));
-    output[int(uint(o) + 1u)] = long(metal::popcount(x));
-    output[int(uint(o) + 2u)] = long(metal::clz(x));
+    output[int(uint(o) + 1u)] = long(__ms_popcount(x));
+    output[int(uint(o) + 2u)] = long(__ms_clz(x));
     output[int(uint(o) + 3u)] = long(metal::ctz(x));
     output[int(uint(o) + 4u)] = long(metal::reverse_bits(x));
     output[int(uint(o) + 5u)] = long(metal::min(x, y));

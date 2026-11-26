@@ -16,6 +16,8 @@ inline uint3 __ms_sat_uint3(float3 x) { float3 y = metal::select(float3(0.0f), x
 inline uint3 __ms_sat_uint3(half3 x) { return __ms_sat_uint3(float3(x)); }
 inline uint4 __ms_sat_uint4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); uint4 r = uint4(metal::min(y, float4(4294967040.0f))); return metal::select(r, uint4(4294967295u), x >= 4294967296.0f); }
 inline uint4 __ms_sat_uint4(half4 x) { return __ms_sat_uint4(float4(x)); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int Slots = 18;
 
@@ -49,7 +51,7 @@ kernel void SharpCompute_Tests_Conformance_Semantics_SaturatingHalfVectors(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
     int o = int(uint(i) * uint(::Slots));
-    half4 v = half4(input[i], input[(int(uint(i) + 1u)) % __c.count], input[(int(uint(i) + 2u)) % __c.count], input[(int(uint(i) + 3u)) % __c.count]);
+    half4 v = half4(input[i], input[(int(uint(i) + 1u)) % __ms_nonzero(__c.count)], input[(int(uint(i) + 2u)) % __ms_nonzero(__c.count)], input[(int(uint(i) + 3u)) % __ms_nonzero(__c.count)]);
     int4 i4 = __ms_sat_int4(v);
     uint4 u4 = __ms_sat_uint4(v);
     int3 i3 = __ms_sat_int3(v.xyz);

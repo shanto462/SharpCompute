@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+
 struct __Constants
 {
     int bins;
@@ -43,7 +46,7 @@ kernel void SharpCompute_Tests_Threadgroups_GroupHistogram(
         local[bin] = 0;
     }
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-    metal::atomic_fetch_add_explicit((threadgroup metal::atomic_int*)&(local[int(values[int(__tid.x)] % uint(__c.bins))]), 1, metal::memory_order_relaxed);
+    metal::atomic_fetch_add_explicit((threadgroup metal::atomic_int*)&(local[int(values[int(__tid.x)] % __ms_nonzero(uint(__c.bins)))]), 1, metal::memory_order_relaxed);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     for (int bin = first; bin < __c.bins; bin = int(uint(bin) + uint(stride)))
     {

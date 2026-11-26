@@ -3,6 +3,10 @@
 
 using namespace metal;
 
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+
 constant int PanelX = 32;
 constant uint Background = 4279636238u;
 constant int PanelPitch = 416;
@@ -67,8 +71,8 @@ static uint HashColor(ulong hash)
 static uint HashPanel(int u, int v, device ulong* hashes, constant __Constants& __c)
 {
     int winner = int(__c.largest & 1048575UL);
-    int dx = metal::abs(int(uint(u) - uint(int(uint(winner % __c.size) * uint(::PanelSize)) / __c.size)));
-    int dy = metal::abs(int(uint(v) - uint(int(uint(winner / __c.size) * uint(::PanelSize)) / __c.size)));
+    int dx = metal::abs(int(uint(u) - uint(int(uint(winner % __ms_nonzero(__c.size)) * uint(::PanelSize)) / __ms_nonzero(__c.size))));
+    int dy = metal::abs(int(uint(v) - uint(int(uint(winner / __ms_nonzero(__c.size)) * uint(::PanelSize)) / __ms_nonzero(__c.size))));
     if (dx <= 15 && dy <= 15 && (dx > 1 || dy > 1))
     {
         bool cross = (dx <= 1 && dy >= 5) || (dy <= 1 && dx >= 5);
@@ -97,7 +101,7 @@ static uint Chart(int panel, int u, int c, device uint* before, device uint* aft
     int bin = int(uint(u) * uint(256)) / ::PanelSize;
     uint count = panel == 0 ? before[bin] : after[bin];
     uint tallest = panel == 0 ? __c.tallestBefore : __c.tallestAfter;
-    int height = int(count * 128u / tallest);
+    int height = int(count * 128u / __ms_nonzero(tallest));
     int fromBottom = int(uint(::ChartHeight) - 1u - uint(c));
     uint color = ::ChartBackground;
     if (fromBottom < height || (count != 0u && fromBottom == 0))

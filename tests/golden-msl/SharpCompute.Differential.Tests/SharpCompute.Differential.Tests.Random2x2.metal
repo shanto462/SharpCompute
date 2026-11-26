@@ -173,8 +173,14 @@ inline int4 __ms_sat_int4(half4 x) { return __ms_sat_int4(float4(x)); }
 inline uint __ms_sat_uint(float x) { float y = x > 0.0f ? x : 0.0f; uint r = uint(metal::min(y, 4294967040.0f)); return x >= 4294967296.0f ? 4294967295u : r; }
 inline uint __ms_sat_uint(half x) { return __ms_sat_uint(float(x)); }
 inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
+inline int2 __ms_nonzero(int2 x) { return x | int2(metal::reverse_bits(x) == int2(0)); }
+inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 
-constant int Slots = 29;
+constant int Slots = 26;
 
 struct __GridWindow
 {
@@ -198,9 +204,12 @@ kernel void SharpCompute_Differential_Tests_Random2x2(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int o = int(__tid.x * 123u);
     int p = int(__tid.x * uint(::Slots));
+    bool b0 = (input[int(uint(o) + 0u)] & 1UL) != 0UL;
     bool b1 = (input[int(uint(o) + 1u)] & 1UL) != 0UL;
-    bool b2 = (input[int(uint(o) + 2u)] & 1UL) != 0UL;
+    uchar by1 = uchar(input[int(uint(o) + 4u)]);
+    char sb0 = char(input[int(uint(o) + 6u)]);
     short sh1 = short(input[int(uint(o) + 10u)]);
+    ushort us0 = ushort(input[int(uint(o) + 12u)]);
     ushort us1 = ushort(input[int(uint(o) + 13u)]);
     int i1 = int(input[int(uint(o) + 16u)]);
     int i2 = int(input[int(uint(o) + 17u)]);
@@ -226,8 +235,9 @@ kernel void SharpCompute_Differential_Tests_Random2x2(
     int2 i2a = int2(int(input[int(uint(o) + 69u)]), int(input[int(uint(o) + 70u)]));
     int2 i2b = int2(int(input[int(uint(o) + 71u)]), int(input[int(uint(o) + 72u)]));
     int3 i3a = int3(int(input[int(uint(o) + 73u)]), int(input[int(uint(o) + 74u)]), int(input[int(uint(o) + 75u)]));
+    int4 i4a = int4(int(input[int(uint(o) + 79u)]), int(input[int(uint(o) + 80u)]), int(input[int(uint(o) + 81u)]), int(input[int(uint(o) + 82u)]));
+    int4 i4b = int4(int(input[int(uint(o) + 83u)]), int(input[int(uint(o) + 84u)]), int(input[int(uint(o) + 85u)]), int(input[int(uint(o) + 86u)]));
     uint3 u3a = uint3(uint(input[int(uint(o) + 91u)]), uint(input[int(uint(o) + 92u)]), uint(input[int(uint(o) + 93u)]));
-    uint3 u3b = uint3(uint(input[int(uint(o) + 94u)]), uint(input[int(uint(o) + 95u)]), uint(input[int(uint(o) + 96u)]));
     uint4 u4a = uint4(uint(input[int(uint(o) + 97u)]), uint(input[int(uint(o) + 98u)]), uint(input[int(uint(o) + 99u)]), uint(input[int(uint(o) + 100u)]));
     uint4 u4b = uint4(uint(input[int(uint(o) + 101u)]), uint(input[int(uint(o) + 102u)]), uint(input[int(uint(o) + 103u)]), uint(input[int(uint(o) + 104u)]));
     bool3 b3a = bool3((input[int(uint(o) + 109u)] & 1UL) != 0UL, (input[int(uint(o) + 110u)] & 1UL) != 0UL, (input[int(uint(o) + 111u)] & 1UL) != 0UL);
@@ -247,7 +257,10 @@ kernel void SharpCompute_Differential_Tests_Random2x2(
     output[int(uint(p) + 6u)] = long(c2_1.y);
     output[int(uint(p) + 7u)] = long(c2_1.z);
     output[int(uint(p) + 8u)] = (metal::isfinite(metal::round(metal::fma(f4b, f4a, f4b)).z)) ? 1L : 0L;
-    output[int(uint(p) + 9u)] = long(as_type<uint>(metal::select((b2 ? f2a : f2a) - (f2b * f2b), float2(h2a), (half2(h2b - h2a) == half2(b1 ? half2(half(-0.0f), half(-1.0f)) : h2b))).y));
+    uint c4_0 = u0 + 256u;
+    uint c4_1 = uint(metal::min(by1, uchar(0)));
+    uint c4_2 = uint(us1);
+    output[int(uint(p) + 9u)] = long(__ms_popcount(((c4_1 == 0u) ? 0u : c4_0 % __ms_nonzero(c4_1)) - (((c4_2 == 0u) ? 0u : u1 % __ms_nonzero(c4_2)) << (int(uint(us1) * uint(us0))))));
     output[int(uint(p) + 10u)] = long(as_type<ushort>(metal::round(metal::sign(h2b)).y + half(0.1f)));
     output[int(uint(p) + 11u)] = (metal::any((metal::select(u4a, u4a, b4b) >= (__ms_sub(u4a, u4b))) ^ (float4(metal::select(f4a, float4(NAN, 3.0f, 2.1474836E+09f, 2.0f), bool4(false, false, false, true))) == metal::ceil(f1)))) ? 1L : 0L;
     float2 c7_0 = float2(f0);
@@ -261,9 +274,9 @@ kernel void SharpCompute_Differential_Tests_Random2x2(
     uint c9_0 = u2 << i2;
     uint c9_1 = metal::rotate(u0, (0u - uint(1431655765)) & 31u);
     char c9_2 = char(u1);
-    output[int(uint(p) + 16u)] = (metal::max(l0, long(ulong((c9_1 == 0u) ? 0u : c9_0 % c9_1) - ulong(int(c9_2) == -128 ? char(0) : char(metal::abs(c9_2))))));
+    output[int(uint(p) + 16u)] = (metal::max(l0, long(ulong((c9_1 == 0u) ? 0u : c9_0 % __ms_nonzero(c9_1)) - ulong(int(c9_2) == -128 ? char(0) : char(metal::abs(c9_2))))));
     int c10_0 = int(us1) << i1;
-    c10_0 &= metal::clz(i1);
+    c10_0 &= __ms_clz(i1);
     output[int(uint(p) + 17u)] = long(as_type<ushort>(half(__ms_sat_uint(-f0) >> c10_0)));
     float3 c11_0 = float3(f2a, f2) + metal::select(f3a, f3a, b3a);
     c11_0 *= metal::min(float3(i3a), metal::fmod(f3a, f3b));
@@ -290,14 +303,18 @@ kernel void SharpCompute_Differential_Tests_Random2x2(
     c14_4 /= metal::sqrt(half2(h1)).x;
     half2 c14_5 = c14_4;
     c14_5 -= h2;
-    half2 c14_6 = metal::select(metal::fmod(half2(h2, half(3.0f)), h1), c14_5, (int2(c14_0 % metal::select(c14_1, int2(1), (int2(c14_1) == 0) | ((int2(c14_0) == -2147483647 - 1) & (int2(c14_1) == -1)))) == int2(int2(__ms_sub(uint2(int2(-2147483647 - 1, 46341)), uint2(i2b % metal::select(c14_2, int2(1), (int2(c14_2) == 0) | ((int2(i2b) == -2147483647 - 1) & (int2(c14_2) == -1)))))))));
+    half2 c14_6 = metal::select(metal::fmod(half2(h2, half(3.0f)), h1), c14_5, (int2(c14_0 % __ms_nonzero(metal::select(c14_1, int2(1), (int2(c14_1) == 0) | ((int2(c14_0) == -2147483647 - 1) & (int2(c14_1) == -1))))) == int2(int2(__ms_sub(uint2(int2(-2147483647 - 1, 46341)), uint2(i2b % __ms_nonzero(metal::select(c14_2, int2(1), (int2(c14_2) == 0) | ((int2(i2b) == -2147483647 - 1) & (int2(c14_2) == -1))))))))));
     output[int(uint(p) + 23u)] = long(as_type<ushort>(c14_6.x));
     output[int(uint(p) + 24u)] = long(as_type<ushort>(c14_6.y));
-    uint4 c15_0 = uint4(u0, u1, 1u, u1) * (~metal::max(u4b, u4b));
-    uint4 c15_1 = u3b.zxzz;
-    uint4 c15_2 = c15_0 / metal::select(c15_1, uint4(1u), (uint4(c15_1) == 0u));
-    output[int(uint(p) + 25u)] = long(c15_2.x);
-    output[int(uint(p) + 26u)] = long(c15_2.y);
-    output[int(uint(p) + 27u)] = long(c15_2.z);
-    output[int(uint(p) + 28u)] = long(c15_2.w);
+    char c15_0 = metal::reverse_bits(sb0);
+    char c15_1 = c15_0--;
+    bool c15_2 = b0;
+    char c15_3 = char(-128);
+    char c15_4 = c15_3++;
+    char c15_5 = c15_4;
+    int c15_6 = int(__ms_math_clamp(sb0, metal::min(sb0, sb0), metal::max(sb0, sb0))) ^ (i1 == -2147483647 - 1 ? 0 : int(metal::abs(i1)));
+    int c15_7 = int(int(c15_5) == -128 ? char(0) : char(metal::abs(c15_5)));
+    int c15_8 = (c15_2 ? i4a : (int4(uint4(i4b) * uint4(int4(-2, 32, 31, 3))))).x;
+    int c15_9 = (c15_7 == 0 || (c15_6 == -2147483647 - 1 && c15_7 == -1)) ? 0 : c15_6 % __ms_nonzero(c15_7);
+    output[int(uint(p) + 25u)] = long(__ms_math_clamp(int(c15_1), metal::min(c15_8, c15_9), metal::max(c15_8, c15_9)));
 }

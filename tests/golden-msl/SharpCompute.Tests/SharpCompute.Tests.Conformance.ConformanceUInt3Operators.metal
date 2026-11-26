@@ -58,6 +58,8 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint3 __ms_nonzero(uint3 x) { return x | uint3(metal::reverse_bits(x) == uint3(0)); }
 
 constant int Slots = 75;
 
@@ -103,11 +105,11 @@ kernel void SharpCompute_Tests_Conformance_ConformanceUInt3Operators(
     output[int(uint(o) + 7u)] = long(v6.y);
     output[int(uint(o) + 8u)] = long(v6.z);
     uint3 d = metal::select(y, uint3(1u), (uint3(y) == 0u));
-    uint3 v9 = x / d;
+    uint3 v9 = x / __ms_nonzero(d);
     output[int(uint(o) + 9u)] = long(v9.x);
     output[int(uint(o) + 10u)] = long(v9.y);
     output[int(uint(o) + 11u)] = long(v9.z);
-    uint3 v12 = x % d;
+    uint3 v12 = x % __ms_nonzero(d);
     output[int(uint(o) + 12u)] = long(v12.x);
     output[int(uint(o) + 13u)] = long(v12.y);
     output[int(uint(o) + 14u)] = long(v12.z);

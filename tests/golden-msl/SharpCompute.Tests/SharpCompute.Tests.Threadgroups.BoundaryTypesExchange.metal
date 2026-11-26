@@ -110,6 +110,8 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int Stride = 24;
 
@@ -185,7 +187,7 @@ kernel void SharpCompute_Tests_Threadgroups_BoundaryTypesExchange(
     poses[local].Position.x -= 3.0f;
     poses[local].Id = int(uint(poses[local].Id) + 1u);
     metal::threadgroup_barrier(metal::mem_flags::mem_device | metal::mem_flags::mem_threadgroup);
-    int next = (int(uint(local) + 1u)) % int(__gsize.x * __gsize.y * __gsize.z);
+    int next = (int(uint(local) + 1u)) % __ms_nonzero(int(__gsize.x * __gsize.y * __gsize.z));
     Pose other = poses[next];
     float4 diagonal = (__ms_unpack(poses[next].Transform) * float4(float4(1.0f, 1.0f, 1.0f, 1.0f)));
     int o = int(uint(i) * uint(::Stride));
