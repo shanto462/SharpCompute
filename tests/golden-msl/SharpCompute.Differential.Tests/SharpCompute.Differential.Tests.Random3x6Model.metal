@@ -110,6 +110,8 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
 
 constant int Slots = 37;
 
@@ -220,7 +222,7 @@ kernel void SharpCompute_Differential_Tests_Random3x6Model(
     bool b0 = (input[int(uint(o) + 0u)] & 1UL) != 0UL;
     bool b1 = (input[int(uint(o) + 1u)] & 1UL) != 0UL;
     bool b2 = (input[int(uint(o) + 2u)] & 1UL) != 0UL;
-    uchar by0 = uchar(input[int(uint(o) + 3u)]);
+    uchar by1 = uchar(input[int(uint(o) + 4u)]);
     char sb1 = char(input[int(uint(o) + 7u)]);
     short sh0 = short(input[int(uint(o) + 9u)]);
     short sh2 = short(input[int(uint(o) + 11u)]);
@@ -233,8 +235,6 @@ kernel void SharpCompute_Differential_Tests_Random3x6Model(
     uint u0 = uint(input[int(uint(o) + 18u)]);
     long l0 = long(input[int(uint(o) + 21u)]);
     long l2 = long(input[int(uint(o) + 23u)]);
-    ulong ul0 = input[int(uint(o) + 24u)];
-    ulong ul1 = input[int(uint(o) + 25u)];
     float f0 = as_type<float>(uint(input[int(uint(o) + 27u)]));
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
     float f2 = as_type<float>(uint(input[int(uint(o) + 29u)]));
@@ -250,8 +250,6 @@ kernel void SharpCompute_Differential_Tests_Random3x6Model(
     int4 i4b = int4(int(input[int(uint(o) + 83u)]), int(input[int(uint(o) + 84u)]), int(input[int(uint(o) + 85u)]), int(input[int(uint(o) + 86u)]));
     uint3 u3a = uint3(uint(input[int(uint(o) + 91u)]), uint(input[int(uint(o) + 92u)]), uint(input[int(uint(o) + 93u)]));
     uint3 u3b = uint3(uint(input[int(uint(o) + 94u)]), uint(input[int(uint(o) + 95u)]), uint(input[int(uint(o) + 96u)]));
-    uint4 u4a = uint4(uint(input[int(uint(o) + 97u)]), uint(input[int(uint(o) + 98u)]), uint(input[int(uint(o) + 99u)]), uint(input[int(uint(o) + 100u)]));
-    uint4 u4b = uint4(uint(input[int(uint(o) + 101u)]), uint(input[int(uint(o) + 102u)]), uint(input[int(uint(o) + 103u)]), uint(input[int(uint(o) + 104u)]));
     bool4 b4a = bool4((input[int(uint(o) + 115u)] & 1UL) != 0UL, (input[int(uint(o) + 116u)] & 1UL) != 0UL, (input[int(uint(o) + 117u)] & 1UL) != 0UL, (input[int(uint(o) + 118u)] & 1UL) != 0UL);
     bool4 b4b = bool4((input[int(uint(o) + 119u)] & 1UL) != 0UL, (input[int(uint(o) + 120u)] & 1UL) != 0UL, (input[int(uint(o) + 121u)] & 1UL) != 0UL, (input[int(uint(o) + 122u)] & 1UL) != 0UL);
     float c0_v0_0 = ::GpuModel_Flush(float(sh2) + ::GpuModel_Flush(f0));
@@ -340,13 +338,13 @@ kernel void SharpCompute_Differential_Tests_Random3x6Model(
     float c11_v2_1 = ::GpuModel_Flush((b1 ? f0 : 1E+30f) + c11_v2_0);
     float c11_v2_2 = c11_v2_1;
     output[int(uint(p) + 24u)] = long(as_type<uint>(c11_v2_2));
-    output[int(uint(p) + 25u)] = long(as_type<uint>(::GpuModel_Flush(metal::ldexp(::GpuModel_Flush(::GpuModel_Flush(metal::max(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(-1.0f) + ::GpuModel_Flush(f0))) * ::GpuModel_Flush(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(f0), ::GpuModel_Flush(f1)))))), ::GpuModel_Flush(f1)))), i0 | int(uchar(metal::popcount(u0)))))));
+    output[int(uint(p) + 25u)] = long(as_type<uint>(::GpuModel_Flush(metal::ldexp(::GpuModel_Flush(::GpuModel_Flush(metal::max(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(-1.0f) + ::GpuModel_Flush(f0))) * ::GpuModel_Flush(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(f0), ::GpuModel_Flush(f1)))))), ::GpuModel_Flush(f1)))), i0 | int(uchar(__ms_popcount(u0)))))));
     float c12_v1_0 = ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(-1.0f) + ::GpuModel_Flush(f0)));
     float c12_v1_1 = ::GpuModel_Flush(::GpuModel_Flush(metal::fmod(::GpuModel_Flush(f0), ::GpuModel_Flush(f1))));
-    output[int(uint(p) + 26u)] = long(as_type<uint>(::GpuModel_Flush(metal::ldexp(::GpuModel_Flush(::GpuModel_Flush(metal::max(::GpuModel_Flush(::GpuModel_FlushProduct(c12_v1_0 * c12_v1_1, c12_v1_0, c12_v1_1)), ::GpuModel_Flush(f1)))), i0 | int(uchar(metal::popcount(u0)))))));
+    output[int(uint(p) + 26u)] = long(as_type<uint>(::GpuModel_Flush(metal::ldexp(::GpuModel_Flush(::GpuModel_Flush(metal::max(::GpuModel_Flush(::GpuModel_FlushProduct(c12_v1_0 * c12_v1_1, c12_v1_0, c12_v1_1)), ::GpuModel_Flush(f1)))), i0 | int(uchar(__ms_popcount(u0)))))));
     float c12_v2_0 = ::GpuModel_Flush((-1.0f) + f0);
     float c12_v2_1 = ::GpuModel_Flush(metal::fmod(f0, f1));
-    output[int(uint(p) + 27u)] = long(as_type<uint>(::GpuModel_Flush(metal::ldexp(::GpuModel_Flush(metal::max(::GpuModel_FlushProduct(c12_v2_0 * c12_v2_1, c12_v2_0, c12_v2_1), f1)), i0 | int(uchar(metal::popcount(u0)))))));
+    output[int(uint(p) + 27u)] = long(as_type<uint>(::GpuModel_Flush(metal::ldexp(::GpuModel_Flush(metal::max(::GpuModel_FlushProduct(c12_v2_0 * c12_v2_1, c12_v2_0, c12_v2_1), f1)), i0 | int(uchar(__ms_popcount(u0)))))));
     float c15_v0_0 = f2;
     c15_v0_0 = ::GpuModel_Flush(::GpuModel_Flush(c15_v0_0) - 1.0f);
     float3 c15_v0_1 = float3(::GpuModel_Flush(metal::fma(::GpuModel_Flush(::GpuModel_Flush(metal::trunc(::GpuModel_Flush(f2)))), ::GpuModel_Flush(c15_v0_0), ::GpuModel_Flush(f1))), ::GpuModel_Flush(metal::fma(::GpuModel_Flush(b0 ? 0.1f : f0), ::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f2) + ::GpuModel_Flush(1E-30f))), ::GpuModel_Flush(-f0))), ::GpuModel_Flush_2(::GpuModel_Flush_2(f3a) + ::GpuModel_Flush_2(f3a)).x);

@@ -7,6 +7,8 @@ using namespace metal;
 inline half2 __ms_to_half2(float2 x) { return metal::select(half2(x), metal::select(half2(INFINITY), half2(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 inline half3 __ms_to_half3(float3 x) { return metal::select(half3(x), metal::select(half3(INFINITY), half3(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+// SharpCompute integer helpers (MslPrelude.Integers).
+inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 
 constant int Slots = 9;
 
@@ -40,7 +42,7 @@ kernel void SharpCompute_Tests_Conformance_Semantics_HalfOfFloatVectors(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
     int o = int(uint(i) * uint(::Slots));
-    float4 v = float4(input[i], input[(int(uint(i) + 1u)) % __c.count], input[(int(uint(i) + 2u)) % __c.count], input[(int(uint(i) + 3u)) % __c.count]);
+    float4 v = float4(input[i], input[(int(uint(i) + 1u)) % __ms_nonzero(__c.count)], input[(int(uint(i) + 2u)) % __ms_nonzero(__c.count)], input[(int(uint(i) + 3u)) % __ms_nonzero(__c.count)]);
     half4 h4 = __ms_to_half4(v);
     half3 h3 = __ms_to_half3(v.xyz);
     half2 h2 = __ms_to_half2(v.xy);
