@@ -203,10 +203,8 @@ kernel void SharpCompute_Differential_Tests_Random2x0(
     bool b2 = (input[int(uint(o) + 2u)] & 1UL) != 0UL;
     uchar by2 = uchar(input[int(uint(o) + 5u)]);
     char sb0 = char(input[int(uint(o) + 6u)]);
-    char sb1 = char(input[int(uint(o) + 7u)]);
     short sh0 = short(input[int(uint(o) + 9u)]);
     short sh1 = short(input[int(uint(o) + 10u)]);
-    ushort us1 = ushort(input[int(uint(o) + 13u)]);
     ushort us2 = ushort(input[int(uint(o) + 14u)]);
     int i0 = int(input[int(uint(o) + 15u)]);
     int i1 = int(input[int(uint(o) + 16u)]);
@@ -216,7 +214,9 @@ kernel void SharpCompute_Differential_Tests_Random2x0(
     uint u2 = uint(input[int(uint(o) + 20u)]);
     long l1 = long(input[int(uint(o) + 22u)]);
     long l2 = long(input[int(uint(o) + 23u)]);
+    float f0 = as_type<float>(uint(input[int(uint(o) + 27u)]));
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
+    float f2 = as_type<float>(uint(input[int(uint(o) + 29u)]));
     half h2 = as_type<half>(ushort(input[int(uint(o) + 32u)]));
     float2 f2a = float2(as_type<float>(uint(input[int(uint(o) + 33u)])), as_type<float>(uint(input[int(uint(o) + 34u)])));
     float2 f2b = float2(as_type<float>(uint(input[int(uint(o) + 35u)])), as_type<float>(uint(input[int(uint(o) + 36u)])));
@@ -264,11 +264,14 @@ kernel void SharpCompute_Differential_Tests_Random2x0(
     uint2 c6_0 = metal::max(u2b, __ms_sub(__ms_add(u4b.zy, uint2(u2)), u2b));
     output[int(uint(p) + 14u)] = long(c6_0.x);
     output[int(uint(p) + 15u)] = long(c6_0.y);
-    uint c7_0 = metal::clamp(u1, u0, u0);
-    ushort c7_1 = us1;
-    uint c7_2 = c7_0 >> (int(uint(__ms_math_clamp(sb0, metal::min(sb1, sb1), metal::max(sb1, sb1))) * uint(c7_1)));
-    uint c7_3 = uint(by2);
-    output[int(uint(p) + 16u)] = long((c7_3 == 0u) ? 0u : c7_2 % __ms_nonzero(c7_3));
+    int c7_0 = 2147483647;
+    if (!(i0 == 0 || (c7_0 == -2147483647 - 1 && i0 == -1)))
+    {
+        c7_0 /= __ms_nonzero(i0);
+    }
+    float c7_1 = float(u2);
+    float c7_2 = ++c7_1;
+    output[int(uint(p) + 16u)] = long(as_type<uint>(metal::max((metal::fract(f0) + (f0 * 65504.0f)) * metal::ldexp(b1 ? f0 : 1E-30f, c7_0), c7_2 + metal::min(metal::fma(f1, f1, 16777216.0f), f2))));
     ushort c8_0 = us2;
     int c8_1 = int(metal::clz(sh0));
     int c8_2 = int(c8_0);

@@ -175,7 +175,7 @@ inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
 inline long __ms_nonzero(long x) { return x | long(metal::reverse_bits(x) == long(0)); }
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
 inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
 inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }
 

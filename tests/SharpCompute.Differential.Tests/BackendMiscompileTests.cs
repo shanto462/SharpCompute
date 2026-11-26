@@ -47,6 +47,23 @@ public class BackendMiscompileTests
     }
 
     [MetalFact]
+    public void GuardChains_InLanesThatDivideByDifferentValues_KeepTheirGuards()
+    {
+        // 64 threads, so that the lanes of a SIMD group take both sides of each guard: rows of
+        // (a, b, c) with b zero in every third row. Found by the random differential test, where the
+        // guards held for one thread alone and were dropped for a SIMD group of different divisors.
+        ulong[] input = new ulong[64 * 3];
+        for (int t = 0; t < 64; t++)
+        {
+            input[3 * t] = (ulong)(8 + t * 37);
+            input[3 * t + 1] = t % 3 == 0 ? 0 : (ulong)(t % 7 + 1);
+            input[3 * t + 2] = unchecked((ulong)(t % 2 == 0 ? -8L : t * 1000003L));
+        }
+
+        AssertSame(input, 64, GuardChains.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new GuardChains(i, o)));
+    }
+
+    [MetalFact]
     public void BitCountsOfNarrowedValues_CountAsWithForCpu()
     {
         // Rows of (a, b, c): 16- and 8-bit values of both signs in the low bits, junk above them.
@@ -254,5 +271,51 @@ public readonly partial struct NarrowedBitCounts(ReadOnlyBuffer<ulong> input, Re
         UInt3 w = new((uint)sa, (uint)sb, (uint)(short)(a ^ b));
         output[o + 22] = Gpu.CountBits(w).Z;
         output[o + 23] = Gpu.LeadingZeroCount(w).X;
+    }
+}
+
+/// <summary>Chains of guarded divisions, shrunk from the random differential test.</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct GuardChains(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 5;
+
+    public void Execute()
+    {
+        int t = ThreadIds.X;
+        ulong a = input[3 * t];
+        ushort b = (ushort)input[3 * t + 1];
+        long c = (long)input[3 * t + 2];
+        int o = t * Slots;
+
+        ulong r0 = a;
+        ulong d0 = b;
+        ulong q0 = d0 == 0 ? 0 : a % d0;
+        if (q0 != 0)
+        {
+            r0 %= q0;
+        }
+
+        output[o + 0] = (long)r0;
+
+        uint d1 = b;
+        uint q1 = d1 == 0 ? 0u : 65536u / d1;
+        output[o + 1] = q1 == 0 ? 0u : (uint)a % q1;
+
+        ulong q2 = b == 0 ? 0 : (ulong)(ushort)a / b;
+        output[o + 2] = (long)(q2 == 0 ? 0 : (ulong)c % q2);
+
+        long d3 = (int)b;
+        long q3 = c == 0 || (c == long.MinValue && c == -1) ? 0 : c / c;
+        long q4 = d3 == 0 ? 0 : (long)a / d3;
+        output[o + 3] = q4 == 0 || (q3 == long.MinValue && q4 == -1) ? 0 : q3 / q4;
+
+        ushort u = (ushort)a;
+        if (b != 0)
+        {
+            u /= b;
+        }
+
+        output[o + 4] = u;
     }
 }

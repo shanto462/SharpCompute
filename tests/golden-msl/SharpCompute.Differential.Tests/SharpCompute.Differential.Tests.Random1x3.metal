@@ -176,7 +176,7 @@ inline ulong __ms_sat_ulong(float x) { float y = x > 0.0f ? x : 0.0f; ulong r = 
 inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
 
 constant int Slots = 24;

@@ -14,8 +14,8 @@ inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
 inline uint4 __ms_nonzero(uint4 x) { return x | uint4(metal::reverse_bits(x) == uint4(0)); }
-inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
 inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }

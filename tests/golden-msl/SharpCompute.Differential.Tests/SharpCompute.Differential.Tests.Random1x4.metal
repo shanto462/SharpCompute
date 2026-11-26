@@ -173,7 +173,7 @@ inline ulong __ms_sat_ulong(half x) { return __ms_sat_ulong(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 inline ulong __ms_nonzero(ulong x) { return x | ulong(metal::reverse_bits(x) == ulong(0)); }
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
 
 constant int Slots = 21;
 

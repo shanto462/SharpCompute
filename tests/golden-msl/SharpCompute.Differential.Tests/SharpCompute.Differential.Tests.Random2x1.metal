@@ -118,7 +118,7 @@ inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
 inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
 inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
 

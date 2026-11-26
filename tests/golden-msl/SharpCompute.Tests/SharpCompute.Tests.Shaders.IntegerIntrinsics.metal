@@ -112,10 +112,10 @@ template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
-inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
-inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
+inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(metal::reverse_bits(x))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
 inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
 inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }

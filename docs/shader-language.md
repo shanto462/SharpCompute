@@ -111,8 +111,10 @@ build error `SCG0052`).
     `t == 0 ? 0 : x % t` divided by `Abs(C)`, and `t` itself was not 0. It moves the division
     ahead of the guard and then takes the divisor to be nonzero. So an integer `/` or `%` by
     anything but a nonzero constant divides by `__ms_nonzero(t)`, which is `t`, or 1 for 0, and
-    gives the compiler nothing to assume. On an Apple M4 Pro that costs 2% of a 32-bit unsigned
-    division, 5% of a signed one and 1% of a 64-bit one, in a kernel that does nothing but divide.
+    gives the compiler nothing to assume. That costs three instructions a division: on an Apple M4
+    Pro, 1% of the GPU time of a 3 x 3 box filter that finds its pixel with `i / width` and
+    `i % width`, and 9% (unsigned) to 13% (signed) of a 32-bit division in a loop that does nothing
+    but divide.
   - It divided a constant dividend of 2^32 - 128 or more (one that rounds to 2^32 as a float)
     wrongly: `4294967295u / x` was 3579139454 for `x = 3`, and so was a `long` division it narrows
     to 32 bits (`4294967295L % y`, with `y` a widened `uint`). Such a constant, written in the
@@ -124,10 +126,11 @@ build error `SCG0052`).
     (`Gpu.LeadingZeroCount((uint)(short)i)` was 16 for a negative short, and so was the clz of
     `(x << 16) >> 16`), and counted the junk above the 16 bits of a `short` it computed in a wider
     register (`Gpu.CountBits(b ? s : t)` of the short -2 was 31). So `Gpu.CountBits` and
-    `BitOperations.PopCount` are `__ms_popcount`, a 32-bit popcount of the zero-extended value for
-    the 8- and 16-bit integers and the popcount of `reverse_bits(x)` for the others; and the 32-
+    `BitOperations.PopCount` are `__ms_popcount`, the popcount of `reverse_bits(x)`, which has the
+    same bits and shifts out what is above an 8- or 16-bit value; and the 32-
     and 64-bit `Gpu.LeadingZeroCount` and `BitOperations.LeadingZeroCount` are `__ms_clz`, which is
-    0 for a negative value. That is one instruction more a count.
+    0 for a negative value. That is one instruction more a count: on an Apple M4 Pro, nothing
+    measurable in a Hamming distance over two buffers, and 27% of a loop that does nothing but count.
 
   A shader carries only the helpers it calls.
 - **`checked` arithmetic** (a `checked(...)` expression, a `checked { }` block or a project built

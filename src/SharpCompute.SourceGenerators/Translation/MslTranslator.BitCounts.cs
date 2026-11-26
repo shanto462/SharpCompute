@@ -21,9 +21,11 @@ namespace SharpCompute.SourceGenerators;
 /// </para>
 /// <para>
 /// The workaround. Which values end up sign-extended is up to the optimizer, so every count goes
-/// through the helpers: an 8- or 16-bit popcount is a 32-bit popcount of the zero-extended value; a
-/// 32- or 64-bit popcount (scalar or vector) counts the bits of <c>reverse_bits(x)</c>, which has
-/// the same number of them and which the compiler computes in full; and a 32- or 64-bit clz is
+/// through the helpers: a popcount (of any width, scalar or vector) counts the bits of
+/// <c>reverse_bits(x)</c>, which has the same number of them, which the compiler computes in full,
+/// and which shifts out whatever is above the bits of an 8- or 16-bit value (a popcount of the value
+/// zero-extended to 32 bits is not enough: the compiler drops that extension of a short computed by
+/// a branch in a wider register); and a 32- or 64-bit clz is
 /// selected on the sign, as the clz of a negative value is 0 and that of any other is right. A
 /// rotate by half the width would also make the compiler see every bit, but it folds
 /// <c>popcount(rotate(x))</c> back to <c>popcount(x)</c>. The 8- and 16-bit clz, ctz and the bit reversals were not affected. Measured on

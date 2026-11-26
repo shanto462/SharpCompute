@@ -5,9 +5,9 @@ using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return x | int(metal::reverse_bits(x) == int(0)); }
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
-inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
 inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
 inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }

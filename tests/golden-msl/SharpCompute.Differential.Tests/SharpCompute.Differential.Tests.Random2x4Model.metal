@@ -10,7 +10,7 @@ inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return u
 inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
 inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
 // SharpCompute integer helpers (MslPrelude.Integers).
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
 
 constant int Slots = 54;
 

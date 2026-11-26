@@ -989,9 +989,12 @@ def is_constant_expression(n: Node) -> bool:
 
 def folds_to_constant(n: Node) -> bool:
     """Whether the compiler may fold n to a constant although an operand is not one: `x | C` (all
-    ones), and Min, Max and Clamp with a constant bound."""
-    return n.kind == "op" and any(a.kind == "lit" for a in n.args) and (
-        " | " in n.text or any(f in n.text for f in ("Min(", "Max(", "Clamp(")))
+    ones), Min, Max and Clamp with a constant bound, and an operator of one value twice (`x - x`)."""
+    if n.kind != "op" or len(n.args) < 2:
+        return False
+    if len({render_key(a) for a in n.args}) < len(n.args):
+        return True
+    return any(a.kind == "lit" for a in n.args) and (" | " in n.text or any(f in n.text for f in ("Min(", "Max(", "Clamp(")))
 
 
 def is_ternary(n: Node) -> bool:

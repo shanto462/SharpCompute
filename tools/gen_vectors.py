@@ -893,10 +893,12 @@ def vector_arithmetic_msl() -> list[str]:
 # 16, or a remainder of two sbytes that the optimizer computes in 16 bits) counts the value as if it
 # were zero-extended, and the popcount of a short or ushort that the optimizer computes in a wider
 # register counts the junk above its 16 bits. The MSL is correct; the GPU result is not.
-# - An 8- or 16-bit popcount is a 32-bit popcount of the zero-extended value.
-# - A 32- or 64-bit popcount counts the bits of the reversed value: popcount does not depend on the
-#   order of the bits, and the reversal makes the compiler materialize every bit of the register.
-#   (A rotate by half the width does not: the compiler folds popcount(rotate(x)) to popcount(x).)
+# - A popcount counts the bits of the reversed value: popcount does not depend on the order of the
+#   bits, and the reversal makes the compiler materialize every bit of the register, and for an 8-
+#   or 16-bit value shifts whatever is above its bits out. (A rotate by half the width does not
+#   work: the compiler folds popcount(rotate(x)) to popcount(x). Nor does a popcount of the value
+#   zero-extended to 32 bits: the compiler drops the extension of a short that a branch computed in
+#   a wider register.)
 # - A 32- or 64-bit clz is 0 for a negative value, which is what clz is for it, so it is selected on
 #   the sign; the clz of a non-negative value is right. The 8- and 16-bit clz are not affected.
 PRELUDE_POPCOUNT = "__ms_popcount"
@@ -908,7 +910,7 @@ def bit_count_msl() -> list[str]:
     lines = []
     for t in NEGATE_TYPES:
         if t.bits < 32:
-            lines.append(f"inline {t.msl} {PRELUDE_POPCOUNT}({t.msl} x) {{ return {t.msl}(metal::popcount(uint({t.unsigned_msl}(x)))); }}")
+            lines.append(f"inline {t.msl} {PRELUDE_POPCOUNT}({t.msl} x) {{ return {t.msl}(metal::popcount(metal::reverse_bits(x))); }}")
         else:
             lines.append(f"inline {t.msl} {PRELUDE_POPCOUNT}({t.msl} x) {{ return metal::popcount(metal::reverse_bits(x)); }}")
     for t in ("int", "uint"):
@@ -933,10 +935,12 @@ def bit_count_msl() -> list[str]:
 #   zero arm, so for l == C both t and the result are wrong. Guards around a chain of divisions
 #   (`t = d == 0 ? 0 : a / d`) went the same way. The divisor __ms_nonzero(t) is t, except that a
 #   zero divisor is 1: a division by zero has no C# result to keep (it throws), and a divisor that
-#   cannot be zero gives the compiler nothing to assume. The top bit of (t - 1) & ~t, computed
-#   unsigned, is set for zero only. The compilers do not fold it to t under the guard, as they do a
-#   select on t == 0 and clz(t) >> 5 (which the GPU compiler reads as t == 0). It costs four
-#   instructions: a subtraction, an and-not, a shift and an or.
+#   cannot be zero gives the compiler nothing to assume. The low bit is set from
+#   reverse_bits(t) == 0. The test has to be one the compilers cannot fold to "false" under the
+#   guard, or the divisor is t again where the division is guarded: a select on t == 0 is folded by
+#   the front end, and clz(t) >> 5 and the top bit of (t - 1) & ~t were folded by the GPU compiler
+#   in some shaders (measured: guards still dropped in random shaders, and in a shader specialized
+#   by a function constant). It costs a bit reversal, a compare and an or.
 # - A 32-bit unsigned division or remainder of a constant dividend of 2^32 - 128 or more (one that
 #   rounds to 2^32 as a float) is wrong for some divisors: 4294967295u / 3 is 3579139454. A long
 #   division whose operands fit in 32 bits is narrowed to one (4294967295L % y, with y a widened

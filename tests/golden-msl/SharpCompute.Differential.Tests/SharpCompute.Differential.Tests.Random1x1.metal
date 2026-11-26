@@ -115,7 +115,7 @@ inline long __ms_sat_long(float x) { float y = x == x ? x : 0.0f; long r = long(
 inline long __ms_sat_long(half x) { return __ms_sat_long(float(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline uint __ms_nonzero(uint x) { return x | uint(metal::reverse_bits(x) == uint(0)); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
 
 constant int Slots = 24;

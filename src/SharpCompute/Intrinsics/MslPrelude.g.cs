@@ -243,10 +243,10 @@ public static class MslPrelude
         inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
         inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
         inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
-        inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
-        inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
-        inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
-        inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+        inline char __ms_popcount(char x) { return char(metal::popcount(metal::reverse_bits(x))); }
+        inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(metal::reverse_bits(x))); }
+        inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
+        inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
         inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
         inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
         inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }

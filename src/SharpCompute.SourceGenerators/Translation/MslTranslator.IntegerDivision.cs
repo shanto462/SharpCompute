@@ -23,12 +23,14 @@ namespace SharpCompute.SourceGenerators;
 /// divides by <c>__ms_nonzero(t)</c>: <c>t</c>, or 1 when <c>t</c> is zero, which leaves the
 /// compiler nothing to assume. A division by zero has no C# result to keep: the GPU result was
 /// unspecified before and is the dividend (or 0 for <c>%</c>) now. The helper sets the low bit of
-/// <c>t</c> from the top bit of <c>(t - 1) &amp; ~t</c> (computed unsigned), which is set for zero only.
-/// Neither the front end nor the GPU compiler folds that back to <c>t</c> under the guard, as they do
-/// a select on <c>t == 0</c> and <c>t | (clz(t) &gt;&gt; 5)</c>, which the GPU compiler reads as
-/// <c>t == 0</c> in larger shaders. It costs four instructions; measured on an M4 Pro, in a loop that
-/// does nothing but divide, that is 2% of a 32-bit unsigned division, 5% of a signed one and 1% of a
-/// 64-bit one.
+/// <c>t</c> when <c>reverse_bits(t) == 0</c>. The test must be one the compilers cannot fold to false
+/// under the guard, or the divisor is <c>t</c> again where it is guarded: the front end folds a select
+/// on <c>t == 0</c>, and the GPU compiler folded <c>clz(t) &gt;&gt; 5</c> and the top bit of
+/// <c>(t - 1) &amp; ~t</c> in some shaders (random shaders, and one specialized by a function
+/// constant, with the lanes of a SIMD group dividing by different values). It costs a bit reversal,
+/// a compare and an or. Measured on an M4 Pro (median of 14 runs of 4M threads): in a loop that does
+/// nothing but divide, 9% of a 32-bit unsigned division, 13% of a signed one and 1% of a 64-bit one;
+/// in a 3 x 3 box filter that finds its pixel with <c>i / width</c> and <c>i % width</c>, 1%.
 /// </para>
 /// <para>
 /// A constant dividend near 2^32. A 32-bit unsigned <c>/</c> or <c>%</c> of a constant of
