@@ -3,11 +3,12 @@
 
 using namespace metal;
 
-// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+// SharpCompute float and half conversions (MslPrelude.Conversions).
 inline int4 __ms_sat_int4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); int4 r = int4(metal::clamp(y, float4(-2147483648.0f), float4(2147483520.0f))); return metal::select(r, int4(2147483647), x >= 2147483648.0f); }
 inline int4 __ms_sat_int4(half4 x) { return __ms_sat_int4(float4(x)); }
 inline uint4 __ms_sat_uint4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); uint4 r = uint4(metal::min(y, float4(4294967040.0f))); return metal::select(r, uint4(4294967295u), x >= 4294967296.0f); }
 inline uint4 __ms_sat_uint4(half4 x) { return __ms_sat_uint4(float4(x)); }
+inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 
 static_assert(sizeof(packed_float4) == 16, "SharpCompute: size of 'packed_float4' does not match its C# layout");
 static_assert(sizeof(packed_int4) == 16, "SharpCompute: size of 'packed_int4' does not match its C# layout");
@@ -40,7 +41,7 @@ kernel void SharpCompute_Tests_Intrinsics_HalfConversions(
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int(__tid.x);
-    toHalf[int(uint(i) * 3u)] = half4(floats[i]);
+    toHalf[int(uint(i) * 3u)] = __ms_to_half4(floats[i]);
     toHalf[int((uint(i) * 3u) + 1u)] = half4(ints[i]);
     toHalf[int((uint(i) * 3u) + 2u)] = half4(uint4(ints[i]));
     toFloat[i] = float4(halves[i]);

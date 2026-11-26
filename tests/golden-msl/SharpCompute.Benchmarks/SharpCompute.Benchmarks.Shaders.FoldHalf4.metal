@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+
 static_assert(sizeof(packed_half4) == 8, "SharpCompute: size of 'packed_half4' does not match its C# layout");
 
 struct __Constants
@@ -34,7 +37,7 @@ kernel void SharpCompute_Benchmarks_Shaders_FoldHalf4(
     uint3 __tid_in [[thread_position_in_grid]])
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
-    half4 p = half4(float4(float(int(__tid.x)) / float(__c.size), float(int(__tid.y)) / float(__c.size), 0.5f, 0.25f));
+    half4 p = __ms_to_half4(float4(float(int(__tid.x)) / float(__c.size), float(int(__tid.y)) / float(__c.size), 0.5f, 0.25f));
     for (int i = 0; i < __c.rounds; i = int(uint(i) + 1u))
     {
         p = (metal::abs(metal::fract((p * half(1.7f)) + (p.yzwx * half(0.3f))) - half(0.5f)) * half(1.9f)) + (p.zwxy * half(0.05f));

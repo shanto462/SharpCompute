@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
+
 constant half3 Weights = half3(float3(0.5f, 0.25f, 2.0f));
 
 static_assert(sizeof(packed_half2) == 4, "SharpCompute: size of 'packed_half2' does not match its C# layout");
@@ -76,7 +79,7 @@ kernel void SharpCompute_Tests_Intrinsics_HalfBoundary(
     texel.Color = neighbour * ::Weights;
     texel.Weight = float(three.x);
     texel.Uv = two.yx;
-    texel.Bias = half(__c.gain);
+    texel.Bias = __ms_to_half(__c.gain);
     texel.Tint = fours[i].wzyx;
     texels[i] = texel;
     sums[i] = texels[i].Color + threes[i].zyx;

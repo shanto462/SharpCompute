@@ -3,11 +3,12 @@
 
 using namespace metal;
 
-// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+// SharpCompute float and half conversions (MslPrelude.Conversions).
 inline int4 __ms_sat_int4(float4 x) { float4 y = metal::select(float4(0.0f), x, x == x); int4 r = int4(metal::clamp(y, float4(-2147483648.0f), float4(2147483520.0f))); return metal::select(r, int4(2147483647), x >= 2147483648.0f); }
 inline int4 __ms_sat_int4(half4 x) { return __ms_sat_int4(float4(x)); }
 inline uint4 __ms_sat_uint4(float4 x) { float4 y = metal::select(float4(0.0f), x, x > 0.0f); uint4 r = uint4(metal::min(y, float4(4294967040.0f))); return metal::select(r, uint4(4294967295u), x >= 4294967296.0f); }
 inline uint4 __ms_sat_uint4(half4 x) { return __ms_sat_uint4(float4(x)); }
+inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
 
 constant int Slots = 12;
 
@@ -40,7 +41,7 @@ kernel void SharpCompute_Tests_Conformance_ConformanceFloat4Conversions(
     float4 y = float4(b[int(4u * uint(i) + 0u)], b[int(4u * uint(i) + 1u)], b[int(4u * uint(i) + 2u)], b[int(4u * uint(i) + 3u)]);
     float4 z = float4(c[int(4u * uint(i) + 0u)], c[int(4u * uint(i) + 1u)], c[int(4u * uint(i) + 2u)], c[int(4u * uint(i) + 3u)]);
     int n = s[i];
-    half4 v0 = half4(x);
+    half4 v0 = __ms_to_half4(x);
     output[int(uint(o) + 0u)] = long(as_type<ushort>(v0.x));
     output[int(uint(o) + 1u)] = long(as_type<ushort>(v0.y));
     output[int(uint(o) + 2u)] = long(as_type<ushort>(v0.z));

@@ -142,7 +142,7 @@ public class TranslationTests
             uint u = uint(i);
             float g = float(u) + float(i);
             int j = int(uint(__ms_sat_int(f * 2.0f)) + u);
-            half h = half(f);
+            half h = __ms_to_half(f);
             float k = float(h) + f;
             buffer[0] = g + float(j) + k;
             """,
@@ -745,7 +745,7 @@ public class TranslationTests
     {
         AssertKernel(
             """
-            half a = half(buffer[0]);
+            half a = __ms_to_half(buffer[0]);
             half b = a * a + __c.bias;
             b += a;
             bool larger = b > a;

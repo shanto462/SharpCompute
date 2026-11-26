@@ -55,6 +55,13 @@ internal static class MslNames
     public const string Saturate = "__ms_sat_";
 
     /// <summary>
+    /// The conversion of a float to a half, <c>__ms_to_half</c>, and of a float vector to a half
+    /// vector, <c>__ms_to_half3</c>: a magnitude of 65520 or more is ±∞, as in C#. They are in
+    /// <c>MslPrelude.Conversions</c>.
+    /// </summary>
+    public const string ToHalf = "__ms_to_half";
+
+    /// <summary>
     /// The prelude's <c>System.Math</c> / <c>MathF</c> <c>Min</c>, <c>Max</c> (floats) and <c>Clamp</c>
     /// (every scalar type), with .NET's semantics, which <c>ForCpu</c> runs: a NaN operand gives NaN
     /// (<c>metal::max(NaN, 1)</c> is 1), <c>-0</c> orders below <c>+0</c>, and <c>Clamp</c> is

@@ -111,6 +111,8 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
 
 constant int BlockStride = 16;
 
@@ -155,7 +157,7 @@ kernel void SharpCompute_Tests_Shaders_WaveMatrixShared(
     for (int i = __ms_thread; i < 256; i = int(uint(i) + 64u))
     {
         tile[i] = source[int(uint(groupOrigin) + uint(i))] * 2.0f;
-        halves[i] = half(source[int(uint(groupOrigin) + uint(i))]);
+        halves[i] = __ms_to_half(source[int(uint(groupOrigin) + uint(i))]);
     }
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     metal::simdgroup_float8x8 a = __ms_wave_matrix_load(tile + int(uint(group) * 8u), ulong(::BlockStride), __c.transpose != 0);
