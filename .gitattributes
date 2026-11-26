@@ -5,3 +5,6 @@
 *.gif binary
 *.jpg binary
 *.metallib binary
+
+# The golden MSL snapshots are generator output: they do not count as a language of the repository.
+tests/golden-msl/** linguist-detectable=false
