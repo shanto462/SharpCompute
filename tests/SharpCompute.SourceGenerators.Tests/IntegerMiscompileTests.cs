@@ -28,6 +28,8 @@ public class IntegerMiscompileTests
                 private const uint Max = uint.MaxValue;
                 private static readonly uint ReadOnlyMax = 0xFFFFFFF0u;
 
+                private static void Bump(ref uint x) => x++;
+
                 public void Execute()
                 {
                     int i = ThreadIds.X;
@@ -77,6 +79,20 @@ public class IntegerMiscompileTests
     [InlineData("uints[2] = 0xFFFFFF7Fu / u;", "uints[2] = 4294967167u / __ms_nonzero(u);")]
     [InlineData("longs[2] = 4294967296L / l;", "longs[2] = 4294967296L / __ms_nonzero(l);")]
     public void AConstantDividendNear2To32_IsDividedThroughTheHelper(string body, string expected) =>
+        Assert.Equal(expected, Statement(body));
+
+    [Theory]
+    [InlineData("uint m = uint.MaxValue; uints[2] = m / u;", "uints[2] = __ms_div_near_max(m, u);")]
+    [InlineData("long m = 4294967295; longs[2] = m % l;", "longs[2] = __ms_rem_near_max(m, l);")]
+    [InlineData("uint m = uint.MaxValue; uint k = m; uints[2] = k / u;", "uints[2] = __ms_div_near_max(k, u);")]
+    [InlineData("UInt3 m = new UInt3(uint.MaxValue, 1, 2); vectors[1] = m / v;", "vectors[1] = __ms_div_near_max(m, v);")]
+    // A local that is written after its declaration is divided as any dividend.
+    [InlineData("uint m = uint.MaxValue; m = u; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = uint.MaxValue; m -= 1; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = uint.MaxValue; m++; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = uint.MaxValue; Bump(ref m); uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    [InlineData("uint m = u; uints[2] = m / u;", "uints[2] = m / __ms_nonzero(u);")]
+    public void AConstantLocalNear2To32_IsDividedThroughTheHelperUnlessItIsWritten(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
 
     [Theory]

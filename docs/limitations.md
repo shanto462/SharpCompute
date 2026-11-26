@@ -39,13 +39,25 @@ to the page that explains it.
   the compiler dropped, a constant dividend of 2^32 - 128 or more that it divided wrongly, and
   `Gpu.CountBits` and `Gpu.LeadingZeroCount` of a value it holds as a sign-extended 16-bit one. What
   remains is a constant dividend near 2^32 that only the Metal compiler sees as one, through a
-  local or a helper's parameter (`uint m = uint.MaxValue; ... m / x`): write the constant in the
-  division, or read it from a buffer. A division by zero, which throws in C# and with `ForCpu`,
+  helper's parameter (`Div(uint.MaxValue, x)` with `uint Div(uint a, uint b) => a / b`) or a local
+  that is also written (a local with a constant initializer that is never written is recognized):
+  write the constant in the division, or read it from a buffer. A division by zero, which throws in C# and with `ForCpu`,
   does not trap on the GPU and its result is unspecified. The workarounds were verified with Metal
   compiler 32023.922 (Xcode 27.2, macOS 27.2.1); a later compiler may need them re-checked.
   ([Integers](shader-language.md#integers))
+- **A GPU compiler crash on one combination of integer statements.** A kernel that holds a guarded
+  `%` of two `int`s inside a `Clamp` of an `Int2`, an `Int3` division by a constant vector chosen by
+  `Gpu.Select`, and a `short` shifted right by 21 and converted to `float` fails to build its
+  pipeline: the first dispatch (or `Prepare`) throws `ShaderCompilationException` with
+  "XPC_ERROR_CONNECTION_INTERRUPTED". It fails loudly, never with a wrong result. The three are needed
+  together: without any one of them, or with the shift written as the sign fill it amounts to
+  (`s >>= 15`, which is what the generator now writes for `s >>= 21` on a `short`), the pipeline
+  builds.
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
+  - *A product with `Gpu.Step`* can be +0 where C# gives -0: the compiler writes `Gpu.Step(e, x) * c`
+    as a select, so a zero step times a negative `c` is +0. And `Gpu.Step(x, x)` is 1 also for a NaN
+    `x`, where C# (`x >= x`) gives 0.
   - *A half division by a constant* is a multiplication by the constant's reciprocal, up to one
     half ULP off: `h / (Half)3f` is 931 for 2794. Divide by a value read from a buffer for the
     correctly rounded quotient.

@@ -1012,9 +1012,27 @@ def is_swizzle(n: Node) -> bool:
 
 
 def through_swizzles(n: Node) -> Node:
-    while n.kind == "let" or is_swizzle(n):
+    """n through locals, swizzles and increments (whose value is the target's, before or after)."""
+    while n.kind in ("let", "inc") or is_swizzle(n):
         n = n.args[0]
     return n
+
+
+def has_constant_lane(n: Node) -> bool:
+    """has_constant_part, or a componentwise Gpu function of an operand with one: the compiler folds
+    Gpu.Abs(new Half4(-65504, h, h, 1)) to a vector with constant lanes."""
+    if has_constant_part(n):
+        return True
+    return n.kind == "op" and n.text.startswith("Gpu.") and any(has_constant_lane(a) for a in n.args)
+
+
+def may_be_large(n: Node) -> bool:
+    """Whether n may be a float of 2^24 or more in magnitude: an integer of 32 bits or more converted
+    to a float, or a literal that large, through locals and swizzles."""
+    n = through_swizzles(n)
+    if n.kind == "lit":
+        return any(x in n.text for x in ("e10f", "e30f", "16777216f", "2147483648f", "4294967296f", "MaxValue"))
+    return n.kind == "op" and n.text.startswith("((") and len(n.args) == 1 and elem_of(n.args[0].t).kind == "int" and elem_of(n.args[0].t).bits >= 32
 
 
 def is_division(n: Node) -> bool:
@@ -1032,13 +1050,14 @@ def known_difference(root: Node) -> str | None:
         if is_division(n):
             dividend, divisor = n.args[0], n.args[1]
             if e in (UINT, LONG, ULONG) and (has_constant_part(dividend) or any(folds_to_constant(m) for m in dividend.walk())) and not (
-                    n.kind == "op" and 0 not in n.bind and is_constant_expression(dividend)):
+                    n.kind == "op" and is_constant_expression(through_locals(dividend))):
                 # The generator divides a constant dividend near 2^32 through a helper when it can
-                # see the constant: a C# constant expression or a constant vector written in the
-                # division. One the compiler only finds through a local (a bound operand, the target
-                # of a compound assignment), an increment, a lane or a fold is still divided wrongly.
+                # see the constant: a C# constant expression or a constant vector, written in the
+                # division or the initializer of a local that is never written (a let, a bound
+                # operand). One the compiler only finds through the target of a compound assignment,
+                # an increment, a lane or a fold is still divided wrongly.
                 return "ConstantDividend"
-            if e is HALF and has_constant_part(divisor):
+            if e is HALF and has_constant_lane(divisor):
                 return "HalfDivisionByConstant"
             if e.floating and (zero_sign_open(divisor) or zero_sign_open(dividend)):
                 # Policy: which of two operands that are equal once flushed (±0, subnormals) Min and
@@ -1059,6 +1078,13 @@ def known_difference(root: Node) -> str | None:
         if "tol" in n.flags and any(zero_sign_open(a) for a in n.args):
             # Policy: Atan2 and Pow of a zero of either sign, which Min and Max leave open, differ by π or ∞.
             return "ZeroSignOfMinMax"
+        if n.text.startswith(("Gpu.Pow(", "MathF.Pow(")) and any("Fract(" in m.text for m in n.args[0].walk() if m.kind == "op") and may_be_large(n.args[1]):
+            # The GPU's pow of a base next to 1 (Fract gives 0.99999994) and a large exponent
+            # overflows where the result is finite.
+            return "PowNearOne"
+        if n.text.startswith("Gpu.Step(") and render_key(n.args[0]) == render_key(n.args[1]):
+            # Policy: the GPU simplifies step(x, x) to 1, which C# (x >= x) gives except for NaN.
+            return "SameOperands"
         if "tol" in n.flags and len({render_key(a) for a in n.args}) < len(n.args):
             # Policy: the GPU simplifies mix(x, x, t) to x; ForCpu evaluates the GPU's formula, which cancels.
             return "SameOperands"
@@ -1398,12 +1424,15 @@ def result_kind(t: Ty) -> str:
     return {"float": "Float", "half": "Half"}.get(e.kind, "Integer")
 
 
-ZERO_SIGN_OPEN = ("Min(", "Max(", "Clamp(", "Saturate(")
+# Step: the GPU compiler writes a product with a Step as a select, whose zero is +0 where a zero
+# Step times a negative value is -0 (step(2, 1) * -2.5f is +0).
+ZERO_SIGN_OPEN = ("Min(", "Max(", "Clamp(", "Saturate(", "Step(")
 
 
 def zero_sign_open(root: Node) -> bool:
-    """Whether a float or half Min, Max, Clamp or Saturate is in the tree: which zero they return for
-    zeros of both signs is open (IEEE leaves it, and the GPU compares flushed operands)."""
+    """Whether a float or half Min, Max, Clamp, Saturate or Step is in the tree: which zero they return
+    for zeros of both signs is open (IEEE leaves it, and the GPU compares flushed operands), and the
+    zero of a product with a Step."""
     for n in root.walk():
         if n.kind == "op" and n.t.floating and any(f in n.text for f in ZERO_SIGN_OPEN):
             return True

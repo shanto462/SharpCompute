@@ -112,7 +112,7 @@ public class BackendMiscompileTests
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct NearMaxDividends(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 24;
+    public const int Slots = 27;
 
     private const uint Constant = 0xFFFFFFF0u;
     private static readonly uint ReadOnlyMax = uint.MaxValue;
@@ -154,6 +154,14 @@ public readonly partial struct NearMaxDividends(ReadOnlyBuffer<ulong> input, Rea
         // Not near 2^32: the native operator, through a nonzero divisor.
         output[o + 22] = 0x7FFFFFFFu / x;
         output[o + 23] = 4294967296L / y;
+
+        // Constant locals that are never written.
+        uint m = uint.MaxValue;
+        long n = -4294967200L;
+        UInt3 w = new(0xFFFFFF80u, 3u, uint.MaxValue);
+        output[o + 24] = m / x;
+        output[o + 25] = n % y;
+        output[o + 26] = (w / v).Z;
     }
 }
 
