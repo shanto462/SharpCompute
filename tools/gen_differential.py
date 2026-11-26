@@ -1034,7 +1034,7 @@ def has_constant_lane(n: Node) -> bool:
         return False
     if n.text.startswith("Gpu.") or (n.text.startswith("((") and len(n.args) == 1):
         return any(has_constant_lane(a) for a in n.args)
-    if n.t.vector and "arith" in n.flags:
+    if n.t.vector and {"add", "sub", "mul", "div"} & n.flags:
         return all(has_constant_lane(a) for a in n.args)
     return False
 
