@@ -14,6 +14,11 @@ the [security policy](SECURITY.md), not public issues.
 - Optional: the Xcode Metal Toolchain, to precompile shaders at build time; without it they are
   compiled at run time and the tests that need a precompiled library are skipped.
 - Optional, for screenshots and GIFs: `ffmpeg` (and `pngquant`), from Homebrew.
+- Tested with macOS 27.2.1 (26B131), Xcode 27.2 (27B52) and Metal compiler 32023.922. The generator
+  works around bugs in Apple's Metal compiler ([Metal compiler bugs](docs/metal-compiler-bugs.md)),
+  so results and test outcomes can differ on other versions. After updating macOS or Xcode, run the
+  checks in [After a macOS or Xcode update](docs/metal-compiler-bugs.md#after-a-macos-or-xcode-update),
+  and say which versions you used in a bug report.
 
 ## Build and test
 

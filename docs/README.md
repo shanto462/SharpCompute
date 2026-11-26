@@ -36,6 +36,7 @@ demos and the headline numbers.
 
 | Page | What it covers |
 |---|---|
+| [Metal compiler bugs](metal-compiler-bugs.md) | Bugs in Apple's Metal compiler that the generator works around, what each costs, the toolchain they were verified on, and what to run after a macOS or Xcode update |
 | [CPU execution](cpu-execution.md) | `ForCpu` and `ForSplit`, the conformance suite that holds the GPU to `ForCpu`, and how each feature behaves on the CPU |
 | [Interop with existing Metal code](interop.md) | `FromNative`, wrapping native buffers and textures, `EncodeInto`, native handles |
 | [Warm-up and precompiled shaders](precompiled-shaders.md) | `Prepare`, and `.metallib` libraries built with the project |
