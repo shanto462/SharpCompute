@@ -91,9 +91,10 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
   zero of the same sign (a result that rounds up to the smallest normal from below as well), and
   `ForCpu` does not. Float arithmetic, comparisons, conversions from float and the float functions
   that are not transcendental give `ForCpu`'s result for the operands as they are or with their
-  subnormals flushed. `Abs`, `CopySign`, negation and `%` copy a subnormal unflushed; `Min`, `Max`,
-  `Clamp` and `Select` compare the flushed operands and return one of them unflushed. Half
-  subnormals are kept.
+  subnormals flushed. `Abs`, `CopySign`, negation and selection copy a subnormal unflushed; `Min`,
+  `Max`, `Clamp` and `Select` compare the flushed operands and return one of them unflushed; `%`
+  returns a dividend smaller than the divisor unflushed and gives NaN for a subnormal divisor. Half
+  subnormals are kept. [Subnormals](shader-language.md#subnormals) lists every operation.
 - **Within a tolerance**: the transcendental functions (`Sin`, `Exp`, `Log`, `Pow`, `Atan2` and the
   rest, of `Gpu` and of `MathF`) within 4 float ULP or 1 half ULP, and the composite ones (`Lerp`,
   `Smoothstep`, `Dot`, `Length`, `Normalize`, `Reflect`, `Cross`) as well, except near the subnormal

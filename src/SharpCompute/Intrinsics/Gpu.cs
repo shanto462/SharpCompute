@@ -44,9 +44,11 @@ namespace SharpCompute;
 /// <see cref="Lerp(float, float, float)"/>, Dot, Cross and Reflect.
 /// </para>
 /// <para>
-/// Known differences that are not reproduced: Apple GPUs flush float subnormals to zero (inputs and
-/// results, also in safe math); pow/exp/log/trigonometric/hyperbolic functions agree within a few
-/// ULP only (up to 4 ULP for tan on Apple GPUs).
+/// Known differences that are not reproduced: Apple GPUs flush float subnormals to zero in most
+/// operations, also in safe math (arithmetic, comparisons, Sqrt, Floor, Log, Exp and others; the
+/// bit casts, Abs, negation, Sin, Tan, Asin, Sinh and Tanh keep them; docs/shader-language.md lists
+/// every operation); pow/exp/log/trigonometric/hyperbolic functions agree within a few ULP only (up
+/// to 4 ULP for tan on Apple GPUs).
 /// </para>
 /// <para>
 /// Half precision: the functions have <see cref="Half2"/>, <see cref="Half3"/> and <see cref="Half4"/>

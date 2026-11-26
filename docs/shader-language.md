@@ -222,8 +222,42 @@ unorm8 packing as patterns (`scripts/demo-computelab.sh --page bits`):
 - `Gpu.Log10` and `Gpu.Exp10` agree within a few ULP, like the other transcendentals.
 - `Fma`, `CopySign`, `Log10` and `Exp10` have `Float2..4` overloads.
 
-GPU math follows Apple GPU behaviour: it flushes subnormal floats (not halves) to zero, and fuses
-multiply-adds unless a shader turns that off with [`FpContract = false`](#compile-options).
+GPU math follows Apple GPU behaviour: most float operations flush subnormal floats (not halves) to
+zero (see [Subnormals](#subnormals) for which), and multiply-adds are fused unless a shader turns that
+off with [`FpContract = false`](#compile-options).
+
+## Subnormals
+
+An Apple GPU flushes float subnormals (magnitudes below 2^-126, about 1.18e-38) to a zero of the same
+sign in most operations, also under safe math. Half subnormals are never flushed: half arithmetic
+keeps them bit for bit (see [Half precision](half-precision.md#what-it-computes)). `ForCpu` keeps
+float subnormals everywhere, so the two differ only where an operand or a result is subnormal.
+
+What each operation does, measured on an Apple M4 Pro and pinned by
+[`SubnormalFlushTests`](../tests/SharpCompute.Tests/SubnormalFlushTests.cs) against plain C#:
+
+| Operation | Subnormal operand | Subnormal result | Notes |
+|---|---|---|---|
+| Buffer load and store, `Gpu.AsFloat`, `Gpu.AsInt`, `Gpu.AsUInt`, the `BitConverter` casts | kept | kept | The bits pass through unchanged |
+| `-x`, `Gpu.Abs`, `Gpu.CopySign`, `c ? x : y` | kept | kept | Sign and selection only |
+| `+`, `-`, `*`, `/`, `Gpu.Fma`, a fused `a * b + c` | flushed | flushed | Tininess is decided before rounding: a product, quotient or fma that rounds up to ±2^-126 from below gives ±0 |
+| `<`, `<=`, `==`, `!=` and the other comparisons | flushed | | `1e-45f == 0f` is true |
+| `Gpu.Min`, `Gpu.Max`, `Gpu.Clamp` | compared flushed | | Return one of the operands unflushed. When both flush to the same zero, `Min` and `Max` return `y` |
+| `MathF.Min`, `MathF.Max` (and `Math`, `float`) | compared flushed | | Return one of the operands unflushed. When both flush to the same zero, `Min` returns `x` if its sign bit is set and `y` otherwise, `Max` returns `x` if the sign bit of `y` is set and `y` otherwise |
+| `x % y` | see notes | flushed | A dividend smaller in magnitude than the divisor is returned as it is, subnormal or not. A subnormal divisor gives NaN. Otherwise the remainder of the flushed operands, with a subnormal remainder flushed |
+| `Gpu.Floor`, `Gpu.Ceil`, `Gpu.Fract`, `Gpu.Sign`, `Gpu.Sqrt`, `Gpu.Rsqrt` | flushed | | `Floor(-1e-45f)` is `-0`, `Ceil(1e-45f)` is 0, `Rsqrt` of a subnormal is +∞ |
+| `Gpu.Trunc`, `Gpu.Round`, conversions to integers | either | | The result is the same zero either way |
+| `(Half)x`, `(float)h`, `(float)n` | either | | A float subnormal is below the half range (±0 either way). A half subnormal is a normal float, converted exactly. An integer is never subnormal |
+| `Gpu.Sin`, `Gpu.Tan`, `Gpu.Asin`, `Gpu.Sinh`, `Gpu.Tanh` | kept | kept | A subnormal `x` is returned as it is |
+| `Gpu.Atan`, `Gpu.Log`, `Gpu.Log2`, `Gpu.Log10` | flushed | | `Log` of a subnormal is -∞, `Atan` of one is a zero |
+| `Gpu.Exp`, `Gpu.Exp2`, `Gpu.Exp10` | flushed | flushed | `Exp(-100f)` is 0 |
+| `Gpu.Pow` | flushed | flushed | Except `Pow(x, 1)`, which returns `x` as it is |
+| `Gpu.Atan2` | flushed | flushed | A result below the smallest normal is `+0`, whatever its sign |
+| `Gpu.Cos`, `Gpu.Cosh`, `Gpu.Acos` | either | | The result for a subnormal is the result for zero |
+
+The `MathF` and `Math` forms of these functions compile to the same Metal functions as their `Gpu`
+forms. The [conformance suite](cpu-execution.md#semantics-and-conformance) compares the GPU with
+`ForCpu` up to this flushing.
 
 ## unorm8 packing
 

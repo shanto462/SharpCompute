@@ -35,9 +35,10 @@ to the page that explains it.
   `UShort2..4`). A `static readonly` half or bool value can be initialized with constructors, casts
   and operators, but not with a function call (`SCG0024`): the compile-time evaluation only does
   32-bit arithmetic. ([Half precision](half-precision.md#functions-that-take-a-scalar-half))
-- **GPU math** follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero and
-  fuses multiply-adds (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader).
-  Transcendental functions agree with the CPU to within a few ULP.
+- **GPU math** follows Apple GPU behaviour, which flushes subnormal floats (not halves) to zero in
+  most operations ([Subnormals](shader-language.md#subnormals)) and fuses multiply-adds
+  (`[ShaderOptions(FpContract = false)]` turns the fusing off for one shader). Transcendental
+  functions agree with the CPU to within a few ULP.
   ([Compile options](shader-language.md#compile-options))
 - **Local arrays** have a compile-time length and one name: they cannot be sliced, copied to another
   variable or returned (pass them to a helper instead), and multi-dimensional and jagged arrays are

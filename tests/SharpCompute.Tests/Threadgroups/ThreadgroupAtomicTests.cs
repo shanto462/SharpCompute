@@ -212,7 +212,7 @@ public class ThreadgroupAtomicTests
         Assert.Equal(Enumerable.Repeat(expectedFloats, groups).SelectMany(static g => g), Bits(floats.ToArray()));
     }
 
-    private static uint[] Bits(float[] values) => values.Select(BitConverter.SingleToUInt32Bits).ToArray();
+    private static uint[] Bits(float[] values) => FloatBits.Comparable(values);
 
     // ---- the float add --------------------------------------------------------------------------------
     // MSL has no atomic float in threadgroup memory: the add is a compare-and-swap loop over the bits.
