@@ -338,6 +338,36 @@ internal sealed class ShaderAnalyzer
         public int Offset { get; set; }
     }
 
+    /// <summary>
+    /// Reports, once and on the shader, the integer arithmetic that the project's
+    /// <c>CheckForOverflowUnderflow</c> makes checked (SCG0052). One diagnostic per operation would
+    /// flood the build with a single cause; the count and the first operation say what to look for.
+    /// </summary>
+    private void ReportProjectChecked(MslTranslator translator, DiagnosticBag diagnostics)
+    {
+        if (translator.FirstProjectChecked is not { } first)
+        {
+            return;
+        }
+
+        int count = translator.ProjectCheckedCount;
+        // A helper can live in another file than the shader: then the line says which file.
+        int line = first.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+        string where = "line " + line.ToString(CultureInfo.InvariantCulture);
+
+        if (first.SyntaxTree != _declaration.SyntaxTree && first.SyntaxTree.FilePath.Length > 0)
+        {
+            where += " of " + System.IO.Path.GetFileName(first.SyntaxTree.FilePath);
+        }
+
+        string operations = count == 1 ? "1 checked operation" : count.ToString(CultureInfo.InvariantCulture) + " checked operations";
+        diagnostics.Report(
+            DiagnosticDescriptors.CheckedArithmetic,
+            _location,
+            $"Shader '{_symbol.Name}' has {operations}, the first '{first}' at {where}, because the project enables CheckForOverflowUnderflow, which makes all integer arithmetic checked",
+            "Turn CheckForOverflowUnderflow off, or put the shader's code in 'unchecked { }'");
+    }
+
     private Translation Translate(HashSet<string> reservedLocalNames)
     {
         var translation = new Translation();
@@ -356,6 +386,7 @@ internal sealed class ShaderAnalyzer
         var translator = new MslTranslator(_semanticModel, _symbol, types, captures, diagnostics, globalNames, reservedLocalNames, _isPixelShader, _cancellationToken);
         translator.CollectGroupShared();
         string? body = translator.TranslateKernel(execute, out Builtins builtins, out IReadOnlyList<GroupSharedField> groupShared);
+        ReportProjectChecked(translator, diagnostics);
 
         translation.LocalNames = translator.LocalNames;
         translation.StructNames.UnionWith(types.Structs.Select(static s => s.MslName));

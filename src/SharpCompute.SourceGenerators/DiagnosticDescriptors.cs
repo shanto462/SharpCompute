@@ -422,7 +422,9 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor CheckedArithmetic = new(
         id: "SCG0052",
         title: "Checked arithmetic in a shader",
-        messageFormat: "'{0}' is checked arithmetic: in C#, and in ForCpu, it throws OverflowException on overflow, but the GPU cannot throw and would wrap or saturate silently. Write it unchecked, as 'unchecked({0})' or inside 'unchecked {{ }}', which wraps on both, or test the operands before the operation{1}.",
+        // {0} names the operation, or, under the project's CheckForOverflowUnderflow, counts the
+        // shader's checked operations (reported once, on the shader); {1} is the fix for that case.
+        messageFormat: "{0}: in C#, and in ForCpu, checked arithmetic throws OverflowException on overflow, but the GPU cannot throw and would wrap or saturate silently. {1}.",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
