@@ -218,8 +218,8 @@ public class ScalarTypeTests
 
         // Integer to float rounds to nearest even on both; compare the bits.
         AssertSame(
-            [.. cpuReals.ToArray().Select(BitConverter.SingleToUInt32Bits)],
-            [.. gpuReals.ToArray().Select(BitConverter.SingleToUInt32Bits)],
+            FloatBits.Comparable(cpuReals.ToArray()),
+            FloatBits.Comparable(gpuReals.ToArray()),
             FloatIntegerConversions.RealStride,
             "integer to float conversions");
 

@@ -73,6 +73,22 @@ internal delegate void ConformanceDispatch<T>(
     ReadWriteBuffer<long> output)
     where T : unmanaged;
 
+/// <summary>How the GPU's values are changed before they are compared, to show that the comparisons are not vacuous.</summary>
+internal enum Mutation
+{
+    None,
+
+    /// <summary>An integer plus one, a float or a half with a bit of its exponent flipped: every compared slot must report it.</summary>
+    Exponent,
+
+    /// <summary>
+    /// An integer plus one, a float or a half that is not a NaN moved by one unit in the last place (its
+    /// lowest bit flipped; a NaN stays as it is): every <see cref="Check.Exact"/> slot must report it,
+    /// so that treating every NaN as equal does not hide a difference between numbers.
+    /// </summary>
+    LastBit,
+}
+
 /// <summary>A family without its element type: what the tests and the coverage summary need.</summary>
 internal interface IConformanceFamily
 {
@@ -83,11 +99,10 @@ internal interface IConformanceFamily
     IReadOnlyList<ConformanceSlot> Slots { get; }
 
     /// <summary>
-    /// Runs the family on the GPU and with ForCpu and compares every slot of every thread. With
-    /// <paramref name="mutate"/>, every GPU value is changed first (an integer by one, a float or a
-    /// half in its exponent), which every compared slot must then report.
+    /// Runs the family on the GPU and with ForCpu and compares every slot of every thread. With a
+    /// <paramref name="mutation"/>, every GPU value is changed first (see <see cref="Mutation"/>).
     /// </summary>
-    ConformanceResult Run(GraphicsDevice device, bool mutate = false);
+    ConformanceResult Run(GraphicsDevice device, Mutation mutation = Mutation.None);
 }
 
 /// <summary>A generated shader and the slots it writes, over operands of type <typeparamref name="T"/>.</summary>
@@ -100,12 +115,15 @@ internal sealed class ConformanceFamily<T>(string title, string values, int lane
 
     public IReadOnlyList<ConformanceSlot> Slots { get; } = slots;
 
-    public ConformanceResult Run(GraphicsDevice device, bool mutate = false) => ConformanceHarness.Run(device, this, ConformanceValues.For<T>(values), dispatch, mutate);
+    public ConformanceResult Run(GraphicsDevice device, Mutation mutation = Mutation.None) => ConformanceHarness.Run(device, this, ConformanceValues.For<T>(values), dispatch, mutation);
 }
 
 /// <summary>The outcome of one family: how much was compared, and a table of what differed.</summary>
-internal sealed record ConformanceResult(string Title, int Threads, int Slots, int ComparedSlots, long Comparisons, long Flushed, int FailedSlots, string Report)
+internal sealed record ConformanceResult(string Title, int Threads, int Slots, int ComparedSlots, long Comparisons, long Flushed, IReadOnlyList<int> Failed, string Report)
 {
+    /// <summary>How many slots differ (their indices are <see cref="Failed"/>).</summary>
+    public int FailedSlots => Failed.Count;
+
     public bool Passed => FailedSlots == 0;
 }
 
@@ -141,7 +159,7 @@ internal static class ConformanceHarness
     /// 0 of every vector family sees every pair of values and every value every shift count. The
     /// other lanes and <c>z</c> are drawn from the values with a fixed seed.
     /// </summary>
-    public static ConformanceResult Run<T>(GraphicsDevice device, IConformanceFamily family, ConformanceValues.Set<T> values, ConformanceDispatch<T> dispatch, bool mutate = false)
+    public static ConformanceResult Run<T>(GraphicsDevice device, IConformanceFamily family, ConformanceValues.Set<T> values, ConformanceDispatch<T> dispatch, Mutation mutation = Mutation.None)
         where T : unmanaged
     {
         T[] v = values.Values;
@@ -168,14 +186,16 @@ internal static class ConformanceHarness
 
         long[] gpu = Execute(device, dispatch, false, threads, slots, a, b, c, s);
 
-        if (mutate)
+        if (mutation != Mutation.None)
         {
             for (int at = 0; at < gpu.Length; at++)
             {
-                gpu[at] = family.Slots[at % slots].Kind switch
+                gpu[at] = (family.Slots[at % slots].Kind, mutation) switch
                 {
-                    ResultKind.Float => gpu[at] ^ 0x40000000L,
-                    ResultKind.Half => gpu[at] ^ 0x4000L,
+                    (ResultKind.Float, Mutation.Exponent) => gpu[at] ^ 0x40000000L,
+                    (ResultKind.Half, Mutation.Exponent) => gpu[at] ^ 0x4000L,
+                    (ResultKind.Float, _) => FloatBits.IsNaN((uint)gpu[at]) ? gpu[at] : gpu[at] ^ 1L,
+                    (ResultKind.Half, _) => FloatBits.IsNaN((ushort)gpu[at]) ? gpu[at] : gpu[at] ^ 1L,
                     _ => gpu[at] + 1,
                 };
             }
@@ -190,7 +210,8 @@ internal static class ConformanceHarness
         }
 
         long comparisons = 0, flushedMatches = 0;
-        int failedSlots = 0, comparedSlots = 0;
+        int comparedSlots = 0;
+        List<int> failed = [];
         StringBuilder report = new();
 
         for (int slot = 0; slot < slots; slot++)
@@ -259,19 +280,19 @@ internal static class ConformanceHarness
 
             if (differ > 0)
             {
-                failedSlots++;
+                failed.Add(slot);
                 string policy = info.Check is Check.Ulp or Check.Near ? $"{info.Check}, within {info.Ulps} ULP" : info.Check.ToString();
                 report.AppendLine(CultureInfo.InvariantCulture, $"  | {info.Name} | {policy} | {differ} of {threads} threads differ |");
                 examples.ForEach(line => report.AppendLine(line));
             }
         }
 
-        if (failedSlots > 0)
+        if (failed.Count > 0)
         {
-            report.Insert(0, $"{family.Title}: {failedSlots} of {slots} slots differ between the GPU and ForCpu\n  | slot | check | |\n");
+            report.Insert(0, $"{family.Title}: {failed.Count} of {slots} slots differ between the GPU and ForCpu\n  | slot | check | |\n");
         }
 
-        return new ConformanceResult(family.Title, threads, slots, comparedSlots, comparisons, flushedMatches, failedSlots, report.ToString());
+        return new ConformanceResult(family.Title, threads, slots, comparedSlots, comparisons, flushedMatches, failed, report.ToString());
     }
 
     private static long[] Execute<T>(GraphicsDevice device, ConformanceDispatch<T> dispatch, bool cpu, int threads, int slots, T[] a, T[] b, T[] c, int[] s)
@@ -317,8 +338,8 @@ internal static class ConformanceHarness
 
     public static bool Same(ResultKind kind, long gpu, long cpu) => kind switch
     {
-        ResultKind.Float => (uint)gpu == (uint)cpu || (IsNaN32((uint)gpu) && IsNaN32((uint)cpu)),
-        ResultKind.Half => (ushort)gpu == (ushort)cpu || (IsNaN16((ushort)gpu) && IsNaN16((ushort)cpu)),
+        ResultKind.Float => FloatBits.SameBits((uint)gpu, (uint)cpu),
+        ResultKind.Half => FloatBits.SameBits((ushort)gpu, (ushort)cpu),
         _ => gpu == cpu,
     };
 
@@ -351,18 +372,14 @@ internal static class ConformanceHarness
 
     private static bool Close(ResultKind kind, long gpu, long cpu, int ulps) => kind switch
     {
-        ResultKind.Float => Same(kind, gpu, cpu) || (!IsNaN32((uint)gpu) && !IsNaN32((uint)cpu) && Math.Abs(Ordered32((uint)gpu) - Ordered32((uint)cpu)) <= ulps),
-        ResultKind.Half => Same(kind, gpu, cpu) || (!IsNaN16((ushort)gpu) && !IsNaN16((ushort)cpu) && Math.Abs(Ordered16((ushort)gpu) - Ordered16((ushort)cpu)) <= ulps),
+        ResultKind.Float => Same(kind, gpu, cpu) || (!FloatBits.IsNaN((uint)gpu) && !FloatBits.IsNaN((uint)cpu) && Math.Abs(Ordered32((uint)gpu) - Ordered32((uint)cpu)) <= ulps),
+        ResultKind.Half => Same(kind, gpu, cpu) || (!FloatBits.IsNaN((ushort)gpu) && !FloatBits.IsNaN((ushort)cpu) && Math.Abs(Ordered16((ushort)gpu) - Ordered16((ushort)cpu)) <= ulps),
         _ => gpu == cpu,
     };
 
     /// <summary>A float result as the GPU stores it: a subnormal becomes a zero of the same sign.</summary>
     private static long FlushResult(ResultKind kind, long value) =>
         kind == ResultKind.Float && ((uint)value & 0x7F800000u) == 0 ? (uint)value & 0x80000000u : value;
-
-    private static bool IsNaN32(uint bits) => (bits & 0x7FFFFFFFu) > 0x7F800000u;
-
-    private static bool IsNaN16(ushort bits) => (bits & 0x7FFF) > 0x7C00;
 
     /// <summary>The bits as a signed integer that orders like the floats, with both zeros at 0.</summary>
     private static long Ordered32(uint bits) => (bits & 0x80000000u) != 0 ? -(long)(bits & 0x7FFFFFFFu) : bits;

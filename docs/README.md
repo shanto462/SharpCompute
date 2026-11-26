@@ -8,7 +8,7 @@ demos and the headline numbers.
 | Page | What it covers |
 |---|---|
 | [Getting started](getting-started.md) | Requirements, project references, a compute shader and a pixel shader, what a shader may contain |
-| [Shader language](shader-language.md) | Scalar types, integer semantics and overflow, vectors, bool vectors, matrices, bits, unorm8 packing, compile options, evaluation order |
+| [Shader language](shader-language.md) | Scalar types, integer semantics and overflow, vectors, bool vectors, matrices, bits, subnormals, unorm8 packing, compile options, evaluation order |
 | [Half precision](half-precision.md) | `Half2..4`: what they compute on the GPU and the CPU, and what they buy |
 | [Local arrays](local-arrays.md) | `stackalloc`, `new T[N]`, constant tables and inline arrays inside a thread |
 | [Sharing code between shaders](shared-code.md) | Static methods, generic methods, and struct methods, operators and constructors |
