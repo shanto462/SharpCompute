@@ -21,8 +21,9 @@
 # MTL_DEBUG_LAYER_ERROR_MODE=nslog logs it and carries on, so one run reports all of them. `dotnet
 # test` does not show the test host's stderr, but its --diag log records every line of it, and that
 # is what this script reads. Each report is then matched against scripts/validate-gpu.allow; the
-# script exits 1 if a test failed or a report is not allow-listed, and 2 if the run cannot be trusted:
-# the layers' start-up banners are missing (nothing was validated) or a diag log was rotated.
+# script exits 1 if a test failed, the test host crashed or a report is not allow-listed, and 2 if the
+# run cannot be trusted: the layers' start-up banners are missing (nothing was validated), a diag log
+# was rotated, or a shader report could not be parsed.
 #
 # The suite is heavy and instrumented shaders are slower: set VALIDATE_GPU_LOCK to a directory path
 # to serialize with other GPU-heavy jobs. The script then waits until it can create that directory
@@ -41,7 +42,7 @@ while [[ $# -gt 0 ]]; do
     --filter) filter="$2"; shift 2 ;;
     --out) mkdir -p "$2"; out="$(cd "$2" && pwd)"; shift 2 ;;
     --abort) abort=1; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -83,8 +84,12 @@ for project in "${projects[@]}"; do
   # tracelevel=warning: stderr lines are traced as warnings, and the verbose trace is several times larger.
   args=(test "tests/$project" --no-build --nologo --diag "$out/$project/diag.txt;tracelevel=warning")
   [[ -z "$filter" ]] || args+=(--filter "$filter")
-  dotnet "${args[@]}" 2>&1 | tee "$out/$project/test.txt" | grep -Ev '^\s+(Passed|Skipped) ' || true
-  [[ ${PIPESTATUS[0]} -eq 0 ]] || tests_failed=1
+  # dotnet's own status, not grep's (which is 1 when it prints nothing): read before anything else runs.
+  set +e
+  dotnet "${args[@]}" 2>&1 | tee "$out/$project/test.txt" | grep -Ev '^\s+(Passed|Skipped) '
+  test_status=${PIPESTATUS[0]}
+  set -e
+  [[ $test_status -eq 0 ]] || tests_failed=1
   # vstest traces each line the test host wrote to stderr; nothing else shows them.
   sed -n 's/^.*Test host standard error line: //p' "$out/$project/diag.txt" >> "$out/stderr.txt"
   # vstest starts a new log when one grows past its limit and keeps only the previous one.
@@ -156,8 +161,17 @@ if [[ -s "$out/violations.txt" ]]; then
   unique "$out/violations.txt" >&2
   [[ $status -ne 0 ]] || status=1
 fi
+# A report whose lines another thread's output interleaved could fail to parse; then the counts differ.
+if [[ $(grep -c '^Invalid Metal usage' "$out/stderr.txt" || true) -ne $(grep -c '^shader: ' "$out/reports.txt" || true) ]]; then
+  echo "error: not every 'Invalid Metal usage' line in $out/stderr.txt became a report; read it by hand." >&2
+  status=2
+fi
+# Besides dotnet's exit status: the counted failures, and a test host that died without a result line.
+if [[ $(total Failed) -gt 0 ]] || grep -qE 'Test host process crashed|The active test run was aborted' "$out"/*/test.txt; then
+  tests_failed=1
+fi
 if [[ $tests_failed -ne 0 ]]; then
-  echo "error: tests failed under the validation layers (see $out/*/test.txt)." >&2
+  echo "error: tests failed or the test host crashed under the validation layers (see $out/*/test.txt)." >&2
   [[ $status -ne 0 ]] || status=1
 fi
 exit $status
