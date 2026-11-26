@@ -68,8 +68,11 @@ build error `SCG0052`).
   result is as wide as C# says, and a cast back to the small type wraps at its width. Compound
   assignments and `++`/`--` on a small integer truncate on every step, as in C#.
 - **Shifts.** The count is masked with 31 for `int` and the smaller integers (which are `int`s by
-  the time they are shifted), and with 63 for `long` and `ulong`: `1L << 65` is 2. `>>>` works on
-  `int` and `long`.
+  the time they are shifted, also in a compound `s >>= n` on a `short`), and with 63 for `long` and
+  `ulong`: `1L << 65` is 2. The generator writes a constant count masked (`s >>= 1431655765` is
+  `s >>= 15` on a `short`, the sign fill that C#'s `s >> 21` gives); MSL takes a variable count
+  modulo the width of the promoted operand, as C# does. `>>>` works on `int` and `long`, and on the
+  smaller integers in compound assignments.
 - **Overflow wraps** at the width of the type, signed and unsigned. `int`, `long` and `IntN`
   arithmetic is exact modulo 2^n, so `int.MaxValue + 1` is `int.MinValue`, `a + 1 > a` is false for
   `int.MaxValue`, and `(a * b) / b` divides the wrapped product.

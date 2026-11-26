@@ -707,7 +707,7 @@ internal sealed partial class MslTranslator
         }
 
         Expr left = Expression(operation.LeftOperand);
-        Expr right = Expression(operation.RightOperand);
+        Expr right = MaskedShiftCount(operation.OperatorKind, operation.RightOperand, leftType) ?? Expression(operation.RightOperand);
 
         if (operation.OperatorKind == BinaryOperatorKind.Remainder && IsFloating(operation.LeftOperand.Type, operation.RightOperand.Type, operation.Type))
         {
@@ -847,8 +847,8 @@ internal sealed partial class MslTranslator
             return new Expr(target.Operand(Expr.Unary) + " " + text + "= " + divisor, Expr.Assignment);
         }
 
-        Expr value = Expression(operation.Value);
         GpuType? targetType = _types.Resolve(operation.Target.Type);
+        Expr value = MaskedShiftCount(operation.OperatorKind, operation.Value, targetType) ?? Expression(operation.Value);
 
         if (packed)
         {
@@ -904,7 +904,66 @@ internal sealed partial class MslTranslator
             return new Expr(target.Operand(Expr.Unary) + " = " + Call(targetType.MslName, shifted).Text, Expr.Assignment);
         }
 
+        if (NarrowShiftPastTheWidth(operation, targetType) is { } past)
+        {
+            return new Expr(target.Operand(Expr.Unary) + past, Expr.Assignment);
+        }
+
         return new Expr(target.Operand(Expr.Unary) + " " + text + "= " + value.Operand(Expr.Assignment), Expr.Assignment);
+    }
+
+    /// <summary>
+    /// The assignment of <c>t &lt;&lt;= c</c> or <c>t &gt;&gt;= c</c> on an 8- or 16-bit target whose
+    /// masked constant count <c>c</c> is at least the target's width: <c> = short(0)</c>, or for the
+    /// <c>&gt;&gt;=</c> of a signed target the sign fill, <c> &gt;&gt;= 15</c>. C# shifts the promoted
+    /// <c>int</c> and truncates, which gives exactly that; MSL would too, but clang warns about a
+    /// compound shift of a 16-bit value by 16 or more. Null otherwise.
+    /// </summary>
+    private string? NarrowShiftPastTheWidth(ICompoundAssignmentOperation operation, GpuType? target)
+    {
+        if (operation.OperatorKind is not (BinaryOperatorKind.LeftShift or BinaryOperatorKind.RightShift) ||
+            target is not { Kind: GpuTypeKind.Scalar, IsFloating: false } || target.MslName is not ("char" or "uchar" or "short" or "ushort") ||
+            MaskedShiftCount(operation.OperatorKind, operation.Value, target) is not { } count)
+        {
+            return null;
+        }
+
+        int width = target.MslName.EndsWith("char", System.StringComparison.Ordinal) ? 8 : 16;
+
+        if (int.Parse(count.Text, System.Globalization.CultureInfo.InvariantCulture) < width)
+        {
+            return null;
+        }
+
+        return operation.OperatorKind == BinaryOperatorKind.RightShift && !target.IsUnsigned
+            ? " >>= " + (width - 1).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : " = " + target.MslName + "(0)";
+    }
+
+    private static bool IsShift(BinaryOperatorKind kind) =>
+        kind is BinaryOperatorKind.LeftShift or BinaryOperatorKind.RightShift or BinaryOperatorKind.UnsignedRightShift;
+
+    /// <summary>
+    /// The count of a shift of <paramref name="shifted"/> by a constant, masked as C# masks it: with
+    /// 63 for <c>long</c> and <c>ulong</c>, and with 31 for <c>int</c>, <c>uint</c> and the 8- and 16-bit
+    /// integers, which C# shifts as <c>int</c>s (also in <c>s &gt;&gt;= n</c> on a <c>short</c>
+    /// target). Null when <paramref name="kind"/> is no shift or the count is not a constant. MSL takes
+    /// a shift count modulo the width of the promoted operand too, so the result is the same, but a
+    /// constant out of that range is a clang warning (<c>-Wshift-count-overflow</c>) and a literal the
+    /// reader has to reduce: <c>s &gt;&gt;= 1431655765</c> is <c>s &gt;&gt;= 21</c>. A count that is not a
+    /// constant is left to MSL's modulo.
+    /// </summary>
+    private Expr? MaskedShiftCount(BinaryOperatorKind kind, IOperation count, GpuType? shifted)
+    {
+        if (!IsShift(kind) || shifted is not { Kind: GpuTypeKind.Scalar or GpuTypeKind.Vector, IsFloating: false } ||
+            count.ConstantValue is not { HasValue: true, Value: { } constant } || constant is not (int or uint or long or ulong or short or ushort or sbyte or byte))
+        {
+            return null;
+        }
+
+        long mask = shifted.MslName.StartsWith("long", System.StringComparison.Ordinal) || shifted.MslName.StartsWith("ulong", System.StringComparison.Ordinal) ? 63 : 31;
+        long masked = System.Convert.ToInt64(constant, System.Globalization.CultureInfo.InvariantCulture) & mask;
+        return new Expr(masked.ToString(System.Globalization.CultureInfo.InvariantCulture), Expr.Primary);
     }
 
     private Expr IncrementOrDecrement(IIncrementOrDecrementOperation operation)

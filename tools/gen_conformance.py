@@ -197,6 +197,14 @@ def integer_operators(t: Scalar) -> Family:
     for op in ("<<=", ">>=", ">>>="):
         f.add(f"t {op} n", t.cs, value=f"t{k}", setup=f"{t.cs} t{k} = x; t{k} {op} n;")
         k += 1
+    # Constant counts beyond the width: C# masks them (with 31, or 63 for the 64-bit types), also
+    # for a small target, which it shifts as an int.
+    for op in ("<<=", ">>=", ">>>="):
+        for count in (17, 33, 1431655765, -1):
+            f.add(f"t {op} {count}", t.cs, value=f"t{k}", setup=f"{t.cs} t{k} = x; t{k} {op} {count};")
+            k += 1
+    for op in ("<<", ">>", ">>>"):
+        f.add(f"x {op} 33", p)
     for op in ("t++", "t--", "++t", "--t"):
         # The value of the expression and the variable afterwards, in one slot each.
         f.add(f"{op} (value)", t.cs, value=f"u{k}", setup=f"{t.cs} t{k} = x; {t.cs} u{k} = {op.replace('t', f't{k}')};")
