@@ -103,10 +103,11 @@ build error `SCG0052`).
   components of the target (`data[Next()].XY += w`). Vectors of floats and halves, and all
   scalars, are not affected and keep their operators.
 - **Division by zero** does not trap. Where C# throws `DivideByZeroException`, the GPU carries on:
-  `x / 0` is `x` and `x % 0` is 0. `long.MinValue / -1`, which overflows in C#, gives
-  `long.MinValue`. Don't depend on either.
+  the result of `x / 0` and `x % 0` is unspecified (it is usually `x` and 0, but not for every
+  dividend). `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on
+  either.
 - **Division and bit counts go through helpers** that work around bugs in Apple's GPU compiler
-  (reported to Apple), which compiles correct MSL into wrong results:
+  (verified with Metal compiler 32023.922), which compiles correct MSL into wrong results:
   - It dropped a guard against division by zero: with `t = l == C ? 0 : Math.Abs(l)`,
     `t == 0 ? 0 : x % t` divided by `Abs(C)`, and `t` itself was not 0. It moves the division
     ahead of the guard and then takes the divisor to be nonzero. So an integer `/` or `%` by

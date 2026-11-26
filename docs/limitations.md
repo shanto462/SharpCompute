@@ -41,7 +41,8 @@ to the page that explains it.
   remains is a constant dividend near 2^32 that only the Metal compiler sees as one, through a
   local or a helper's parameter (`uint m = uint.MaxValue; ... m / x`): write the constant in the
   division, or read it from a buffer. A division by zero, which throws in C# and with `ForCpu`,
-  gives the dividend on the GPU (0 for `%`). Reported to Apple.
+  does not trap on the GPU and its result is unspecified. The workarounds were verified with Metal
+  compiler 32023.922 (Xcode 27.2, macOS 27.2.1); a later compiler may need them re-checked.
   ([Integers](shader-language.md#integers))
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
