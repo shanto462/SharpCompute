@@ -1,6 +1,6 @@
 # SharpCompute
 
-**Write GPU compute shaders in C# and run them on Metal, Vulkan and OpenGL.** A Roslyn source
+**Write GPU compute shaders in C# and run them on Metal today, with Vulkan and OpenGL planned.** A Roslyn source
 generator translates shader structs to the GPU's shading language at build time, and a small,
 dependency-free runtime compiles, caches and dispatches them. The same C# also runs on the CPU, on
 all cores, for checking and debugging.
@@ -52,16 +52,10 @@ To use it in your own project, reference the runtime, and the generator as an an
 ```
 
 A shader is a `readonly partial struct`. `Execute()` runs once per thread and is translated to Metal
-Shading Language when you build:
+Shading Language when you build. This is a whole `Program.cs`:
 
 ```csharp
 using SharpCompute;
-
-[GeneratedComputeShaderDescriptor]
-public readonly partial struct MultiplyByTwo(ReadWriteBuffer<float> buffer) : IComputeShader
-{
-    public void Execute() => buffer[ThreadIds.X] *= 2;
-}
 
 GraphicsDevice device = GraphicsDevice.GetDefault();
 using ReadWriteBuffer<float> buffer = device.AllocateReadWriteBuffer<float>([1, 2, 3, 4]);
@@ -69,6 +63,12 @@ device.For(buffer.Length, new MultiplyByTwo(buffer));        // on the GPU
 float[] result = buffer.ToArray();                           // [2, 4, 6, 8]
 
 device.ForCpu(buffer.Length, new MultiplyByTwo(buffer));     // the same shader on the CPU: now [4, 8, 12, 16]
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct MultiplyByTwo(ReadWriteBuffer<float> buffer) : IComputeShader
+{
+    public void Execute() => buffer[ThreadIds.X] *= 2;
+}
 ```
 
 [Getting started](docs/getting-started.md) continues with pixel shaders, and what a shader may
@@ -116,10 +116,12 @@ one synchronous dispatch without uploads or read-back:
 Compute-heavy work wins big; memory-bound work like SAXPY doesn't. The matrix product is the naive
 kernel: written with [`WaveMatrix8x8`](docs/matrix-units.md), the same product takes 0.42 ms of GPU
 time, within 5 % of Apple's `MPSMatrixMultiplication`, and generated kernels match the same kernels
-hand-written in MSL to about 1 %. Where data has to move, skipping
-the copies through unified memory matters more: a 4K image pipeline goes from 12.2 ms to 3.10 ms,
-and summing a 256 MB file from 42.0 ms to 4.06 ms. [Performance](docs/performance.md) has the rest of the numbers and how to read
-them, [Unified memory](docs/unified-memory.md) explains when sharing memory pays off, and
+hand-written in MSL to about 1 %.
+
+Where data has to move, skipping the copies through unified memory matters more: a 4K image
+pipeline goes from 12.2 ms to 3.10 ms, and summing a 256 MB file from 42.0 ms to 4.06 ms.
+[Performance](docs/performance.md) has the rest of the numbers and how to read them,
+[Unified memory](docs/unified-memory.md) explains when sharing memory pays off, and
 [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) is the full report.
 
 ## Demos
@@ -280,7 +282,8 @@ the details.
   elements.
 - Local arrays have a compile-time length and cannot be sliced, copied or returned. Shared shader
   code must be C# source in the shader's own project.
-- Textures are 2D with one mip level, and samplers are six fixed ones.
+- Textures are 2D with one mip level, and samplers are six fixed ones. A dispatch that writes a
+  buffer or texture can bind it only once (no aliased or overlapping bindings).
 - GPU math flushes subnormal floats to zero and fuses multiply-adds by default. `checked` arithmetic
   is a build error (`SCG0052`).
 - Wave matrices are 8 × 8, `float` or `Half`, and need all 32 lanes of a SIMD group.

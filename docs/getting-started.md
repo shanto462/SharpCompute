@@ -43,20 +43,21 @@ To have the shaders compiled when the project is built instead of when they are 
 A shader is a `readonly partial struct` marked `[GeneratedComputeShaderDescriptor]`. Its fields (or
 primary constructor parameters) are what it captures: buffers, textures and constants. At build time
 the generator translates `Execute()` to Metal Shading Language (MSL) and writes the binding code.
+This is a whole `Program.cs` (top-level statements come before the type):
 
 ```csharp
 using SharpCompute;
+
+GraphicsDevice device = GraphicsDevice.GetDefault();
+using ReadWriteBuffer<float> buffer = device.AllocateReadWriteBuffer<float>([1, 2, 3, 4]);
+device.For(buffer.Length, new MultiplyByTwo(buffer));
+float[] result = buffer.ToArray(); // [2, 4, 6, 8]
 
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct MultiplyByTwo(ReadWriteBuffer<float> buffer) : IComputeShader
 {
     public void Execute() => buffer[ThreadIds.X] *= 2;
 }
-
-GraphicsDevice device = GraphicsDevice.GetDefault();
-using ReadWriteBuffer<float> buffer = device.AllocateReadWriteBuffer<float>([1, 2, 3, 4]);
-device.For(buffer.Length, new MultiplyByTwo(buffer));
-float[] result = buffer.ToArray(); // [2, 4, 6, 8]
 ```
 
 `IComputeShader` is general compute over a 1D, 2D or 3D grid: `device.For(x, shader)`,

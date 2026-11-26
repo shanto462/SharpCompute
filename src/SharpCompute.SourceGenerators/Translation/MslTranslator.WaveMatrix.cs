@@ -207,6 +207,13 @@ internal sealed partial class MslTranslator
             }
 
             name = buffer.Operand(Expr.Primary);
+
+            if (isStore)
+            {
+                // A store writes the buffer without naming an element of it: the binding is written.
+                // (A load reads it, which leaves a read-write buffer free to be bound twice.)
+                RecordBufferStore(memory);
+            }
         }
         else
         {

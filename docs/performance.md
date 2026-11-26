@@ -84,8 +84,8 @@ bandwidth: both sides use the same memory controller.
 |---|---|---|---|
 | Decode or read straight into GPU memory, convert on the GPU | 4K image pipeline 12.2 → 3.10 ms | Memory-bound kernels (SAXPY) | Same bandwidth; the CPU ties or wins |
 | `MapReadOnlyBuffer` instead of reading a file | 256 MB: 42.0 → 4.06 ms | Tiny one-off dispatches | ~0.1 ms floor per dispatch; the CPU finishes first |
-| Many small dispatches in one `ComputeContext` | ~99 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
-| `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (7 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
+| Many small dispatches in one `ComputeContext` | ~100 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
+| `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (8 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
 | | | Splitting one grid between CPU and GPU (`ForSplit`) | 0.97–1.09× of GPU-only: scalar C# on the CPU, and the GPU slows while the CPU is busy |
 
 The full guide, with how to choose an API and the lifetime rules that come with zero copy, is
@@ -105,7 +105,8 @@ Feature pages carry their own measurements (all on an Apple M4 Pro):
 | SIMD-group emulation on the CPU | [SIMD groups: on the CPU](simd-groups.md#on-the-cpu) |
 | Matrix units against MPS and hand-written MSL | [Matrix units: how fast](matrix-units.md#how-fast) |
 | Indirect dispatch and compaction | [Dispatch: indirect dispatch](dispatch.md#indirect-dispatch) |
-| Span copies against `device.Copy` | [Resources: copy, fill and clear](resources.md#copy-fill-and-clear) |
+| Span copies against `device.Copy`, unaligned copies | [Resources: copy, fill and clear](resources.md#copy-fill-and-clear) |
+| The overlapping-bindings check | [Resources: overlapping bindings](resources.md#overlapping-bindings) |
 | First-frame compile, `Prepare`, precompiled shaders | [Precompiled shaders: what it saves](precompiled-shaders.md#what-it-saves) |
 | Image decode and encode | [Imaging: speed](imaging.md#speed) |
 | A native Metal host with SharpCompute passes | [Interop: example app](interop.md#example-app) |

@@ -683,6 +683,12 @@ public sealed unsafe class ReadOnlyTexture2D<T> : Texture2D<T>
 /// CPU. Metal only promises that after <c>texture.fence()</c>, which the generator puts after every
 /// write of a texture the shader also reads; a hand-written descriptor has to do the same.
 /// </para>
+/// <para>
+/// That holds for one capture. A texture bound to one dispatch twice (captured twice, or together
+/// with <see cref="AsReadOnly"/>) is two textures to the shader, and a read through one does not
+/// see a write through the other: a dispatch whose shader writes such a texture is refused with
+/// an <see cref="ArgumentException"/> when it is recorded. Bound twice and only read, it is fine.
+/// </para>
 /// </remarks>
 public sealed unsafe class ReadWriteTexture2D<T> : Texture2D<T>
     where T : unmanaged
@@ -727,8 +733,11 @@ public sealed unsafe class ReadWriteTexture2D<T> : Texture2D<T>
     /// </summary>
     /// <remarks>
     /// The view owns nothing. Disposing it releases nothing, it counts as disposed once this texture
-    /// is, and a dispatch that binds it leases this texture's memory. Do not bind the view and this
-    /// texture to the same dispatch when that dispatch writes the texture.
+    /// is, and a dispatch that binds it leases this texture's memory. A dispatch may bind the view
+    /// and this texture together only if its shader does not write the texture; one that does
+    /// (a pixel shader whose output is this texture included) is refused with an
+    /// <see cref="ArgumentException"/>, because on the GPU the reads through the view would not see
+    /// the writes. Write to a second texture and swap the two between dispatches.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">The texture has been disposed.</exception>
     public ReadOnlyTexture2D<T> AsReadOnly() => new(this);

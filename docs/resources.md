@@ -6,6 +6,7 @@ the GPU copies between them.
 - [Buffers](#buffers)
   - [Zero-copy data paths](#zero-copy-data-paths)
   - [Views](#views)
+  - [Overlapping bindings](#overlapping-bindings)
   - [Copy, fill and clear](#copy-fill-and-clear)
   - [Using memory safely](#using-memory-safely)
 - [Textures](#textures)
@@ -60,6 +61,40 @@ device.For(250_000, new Integrate(particles.Slice(500_000, 250_000), dt)); // to
 A view owns no memory. It is disposed with the buffer it came from, and a dispatch that binds it
 keeps that buffer's memory alive until the GPU is done.
 
+### Overlapping bindings
+
+A shader names each buffer it captures as memory of its own, and Metal compiles it that way: a value
+read through one capture is kept across a write through another. So one buffer passed as two
+captures, where the shader writes one and reads the other, computes something else on the GPU than
+its C# says. Measured on an M4 Pro: `a[i] = b[i] + 1` twice and then `o[i] = b[i]`, with one buffer
+as `a` and `b`, leaves 1 and reads 0, where the CPU gives 2 and 2.
+
+SharpCompute checks the bindings when a dispatch is recorded and throws an `ArgumentException`
+rather than run it, on every path (`For`, `ForCpu`, `ForSplit`, `ForAsync`, a `ComputeContext`):
+
+| Two bindings of one dispatch | The shader writes neither | The shader writes one of them |
+|---|---|---|
+| The same buffer captured twice | allowed | `ArgumentException` |
+| Overlapping views (`Slice`) of one buffer | allowed | `ArgumentException` |
+| Buffers that wrap the same or overlapping memory (`WrapReadWriteBuffer`, `WrapNative...`) | allowed | `ArgumentException` |
+| A texture and the buffer its pixels are stored in (a wrapped linear texture) | allowed | `ArgumentException` |
+| The same texture twice, or with its `AsReadOnly()` view | allowed | `ArgumentException` |
+| Different buffers, disjoint views, an empty view | allowed | allowed |
+
+- **"Writes" is what the shader's code does**, not the type of the capture. The generator works out
+  which captures `Execute` and its helpers store to, so a `ReadWriteBuffer<T>` that is only read can
+  be passed twice (`new Blend(layer, layer, ...)`). A wave matrix's `Store` is a store to its
+  destination and its `Load` a read of its source.
+- **A hand-written descriptor** says it with `writer.SetBuffer(index, buffer, written: false)`;
+  without that, a read-write buffer or texture counts as written.
+- **Cost.** The check compares address ranges and allocates nothing in the steady state: recording
+  a dispatch with six buffers into a `ComputeContext` takes about 52 ns with it and 43 ns without,
+  on an M4 Pro, which a recorded and executed dispatch (about 1.55 µs) does not show.
+- **To update a buffer from its own contents**, capture it once (`data[i] = f(data[i])`), or write to
+  a second buffer and swap the two (or `Copy` the result back).
+
+Textures follow the same rule: see [Sampling what a pass wrote](#sampling-what-a-pass-wrote).
+
 ### Copy, fill and clear
 
 `Copy`, `Fill` and `Clear` run on the GPU as blits. On the device they are one command buffer each.
@@ -82,6 +117,12 @@ device.Copy(simulation, texture); // buffer -> texture, texture -> buffer and te
 - Offsets and counts are in elements.
 - Source and destination must not overlap.
 - `Fill` takes a byte, so only 0 is the same element for every type.
+- **Any range works**, also of 1-, 2- or 3-byte elements at odd offsets. Metal documents its buffer
+  blits to need byte offsets and sizes that are multiples of 4 on macOS, so the aligned part of such
+  a range goes to the blit and the rest (up to 3 bytes at each end, or all of it when the two offsets
+  differ modulo 4) is copied or filled by a small compute kernel in the same command buffer, in the
+  same place in the order. Unaligned ends cost nothing measurable; a range the kernel copies whole
+  takes about 1.2 ms for 16 MB on an M4 Pro, against 0.4 ms for a blit.
 - Buffers are unified memory, so when nothing on the GPU is pending, a span copy is faster than
   `device.Copy`: 0.02 ms against about 0.13 ms for 1 MB on an M4 Pro. At 64 MB the GPU is ahead,
   about 0.8 ms against 1.05 ms.
@@ -184,6 +225,15 @@ using (ComputeContext context = device.CreateComputeContext())
     context.ForEach(frame, new ShowHeat(result)); // samples what the last pass wrote
 }
 ```
+
+The view is the same pixels, so it must not be bound to a dispatch that writes them. A dispatch
+whose shader writes a texture can bind that texture only once: captured twice, or together with its
+`AsReadOnly()` view (or as the output of a `ForEach` whose shader also captures it), the two are
+separate textures to the GPU, and a read through one does not see what was written through the
+other. Such a dispatch is refused with an `ArgumentException` when it is recorded, on the GPU and
+the CPU alike, instead of returning stale pixels; ping-pong between two textures, as above, is the
+pattern that works. A texture bound twice and only read is fine. See
+[Overlapping bindings](#overlapping-bindings).
 
 `scripts/demo-textures.sh` shows all of this live: the six samplers side by side on any of the eight
 formats (on your own picture with `--image photo.jpg`), and a simulation that ping-pongs between two

@@ -10,9 +10,24 @@ namespace SharpCompute;
 /// <c>id&lt;MTLComputeCommandEncoder&gt;</c>. Signatures are part of the generator↔runtime ABI.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Before a CPU dispatch the runtime runs <c>SetArguments</c> with a writer that has no encoder: it
 /// performs the same checks (null, disposed and wrong-device buffers and textures fail up front,
 /// exactly as on the GPU) and leases each of them for the duration of the dispatch instead of binding it.
+/// </para>
+/// <para>
+/// <b>Overlapping bindings.</b> Every buffer and texture bound through the writer is compared with
+/// the ones bound before it, and the dispatch is refused with an <see cref="ArgumentException"/> when
+/// two of them reach the same memory and the shader writes through either: the same buffer or texture
+/// bound twice, overlapping views of one buffer, a texture and its
+/// <see cref="ReadWriteTexture2D{T}.AsReadOnly"/> view, a texture and the buffer that stores its
+/// pixels, or buffers wrapping the same memory. On the GPU such a shader reads stale data (Metal
+/// compiles a kernel as if its buffer arguments never overlap, and shows a thread its texture writes
+/// only through the argument it wrote), so it would not compute what its C# does.
+/// Overlap among bindings the shader only reads is fine. Whether a binding is written is what the
+/// three-argument overloads say; the two-argument ones take every <see cref="ReadWriteBuffer{T}"/>
+/// and <see cref="ReadWriteTexture2D{T}"/> as written.
+/// </para>
 /// </remarks>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public unsafe ref struct ShaderArgumentWriter
@@ -32,38 +47,67 @@ public unsafe ref struct ShaderArgumentWriter
     // Non-null only for a CPU dispatch: the buffer and texture handles leased so far, released by the dispatcher.
     private readonly List<ObjCHandle>? _cpuLeases;
 
+    // What this dispatch has bound so far, to refuse a binding that overlaps one of them (see BindingTable).
+    private readonly BindingTable? _bindings;
+
     // leased receives a lease on every bound buffer; the caller releases them (DangerousRelease)
     // after the command buffer completes. Without it, a buffer is leased only for the bind call.
-    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, List<ObjCHandle>? leased = null)
+    // bindings records what is bound, to refuse overlapping bindings; the caller rents and returns it.
+    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, List<ObjCHandle>? leased, BindingTable bindings)
     {
         Encoder = encoder;
         _device = device;
         _leased = leased;
+        _bindings = bindings;
     }
 
-    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, CommandBatch batch)
+    internal ShaderArgumentWriter(nint encoder, GraphicsDevice device, CommandBatch batch, BindingTable bindings)
     {
         Encoder = encoder;
         _device = device;
         _batch = batch;
+        _bindings = bindings;
     }
 
     /// <summary>A writer for a CPU dispatch: validates and leases buffers into <paramref name="leases"/>, binds nothing.</summary>
-    internal ShaderArgumentWriter(GraphicsDevice device, List<ObjCHandle> leases)
+    internal ShaderArgumentWriter(GraphicsDevice device, List<ObjCHandle> leases, BindingTable bindings)
     {
         _device = device;
         _cpuLeases = leases;
+        _bindings = bindings;
     }
 
     /// <summary>
     /// <c>setBuffer:offset:atIndex:index</c>. The offset is 0 for a buffer that owns its memory; a view
     /// (<c>Slice</c>) binds its source's <c>MTLBuffer</c> at the view's start, and leases the source.
     /// </summary>
+    /// <remarks>
+    /// The buffer counts as written by the shader when it is a <see cref="ReadWriteBuffer{T}"/>; see
+    /// <see cref="SetBuffer{T}(int, Buffer{T}, bool)"/> to say otherwise.
+    /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
-    /// <exception cref="ArgumentException"><paramref name="buffer"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="buffer"/> was allocated from a different device, or it overlaps another binding
+    /// of this dispatch and the shader writes one of the two.
+    /// </exception>
     /// <exception cref="ObjectDisposedException"><paramref name="buffer"/> has been disposed.</exception>
     /// <exception cref="NotSupportedException">A CPU dispatch binds a buffer the CPU cannot access (<see cref="Buffer{T}.IsCpuAccessible"/>).</exception>
     public void SetBuffer<T>(int index, Buffer<T> buffer)
+        where T : unmanaged => SetBuffer(index, buffer, written: buffer is ReadWriteBuffer<T>);
+
+    /// <summary>
+    /// <see cref="SetBuffer{T}(int, Buffer{T})"/>, saying whether the shader can write the buffer
+    /// through this binding.
+    /// </summary>
+    /// <param name="index">The buffer index, 0..30.</param>
+    /// <param name="buffer">The buffer to bind.</param>
+    /// <param name="written">
+    /// False when no code of the kernel stores to an element through this binding, which lets the
+    /// buffer overlap other bindings that are not written either. The generator passes false for a
+    /// <see cref="ReadWriteBuffer{T}"/> the shader only reads. True is always safe.
+    /// </param>
+    /// <inheritdoc cref="SetBuffer{T}(int, Buffer{T})" path="/exception"/>
+    public void SetBuffer<T>(int index, Buffer<T> buffer, bool written)
         where T : unmanaged
     {
         GraphicsDevice device = Validate(index);
@@ -77,6 +121,9 @@ public unsafe ref struct ShaderArgumentWriter
                 $"The buffer bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
                 nameof(buffer));
         }
+
+        // Before anything is leased or bound: a dispatch with overlapping bindings is not recorded at all.
+        _bindings?.AddBuffer(index, buffer, written);
 
         if (_cpuLeases is not null)
         {
@@ -121,11 +168,34 @@ public unsafe ref struct ShaderArgumentWriter
     /// <c>setTexture:atIndex:index</c>. A <see cref="ReadOnlyTexture2D{T}"/> made by
     /// <see cref="ReadWriteTexture2D{T}.AsReadOnly"/> binds (and leases) its source's texture.
     /// </summary>
+    /// <remarks>
+    /// The texture counts as written by the shader when it is a <see cref="ReadWriteTexture2D{T}"/>;
+    /// see <see cref="SetTexture{T}(int, Texture2D{T}, bool)"/> to say otherwise.
+    /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not in 0..30.</exception>
-    /// <exception cref="ArgumentException"><paramref name="texture"/> was allocated from a different device.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="texture"/> was allocated from a different device, or it is bound to this
+    /// dispatch twice (or shares memory with a bound buffer) and the shader writes one of the two.
+    /// </exception>
     /// <exception cref="ObjectDisposedException"><paramref name="texture"/> has been disposed.</exception>
     /// <exception cref="NotSupportedException">A CPU dispatch binds a texture the CPU cannot address (<see cref="Texture2D{T}.IsCpuAccessible"/>).</exception>
     public void SetTexture<T>(int index, Texture2D<T> texture)
+        where T : unmanaged => SetTexture(index, texture, written: texture is ReadWriteTexture2D<T>);
+
+    /// <summary>
+    /// <see cref="SetTexture{T}(int, Texture2D{T})"/>, saying whether the shader can write the texture
+    /// through this binding.
+    /// </summary>
+    /// <param name="index">The texture index, 0..30.</param>
+    /// <param name="texture">The texture to bind.</param>
+    /// <param name="written">
+    /// False when no code of the kernel writes a pixel through this binding, which lets the texture
+    /// be bound again (itself or its <see cref="ReadWriteTexture2D{T}.AsReadOnly"/> view) as long as
+    /// no binding of it is written. The generator passes false for a
+    /// <see cref="ReadWriteTexture2D{T}"/> the shader only reads. True is always safe.
+    /// </param>
+    /// <inheritdoc cref="SetTexture{T}(int, Texture2D{T})" path="/exception"/>
+    public void SetTexture<T>(int index, Texture2D<T> texture, bool written)
         where T : unmanaged
     {
         GraphicsDevice device = Validate(index, Metal.MaxTextureBindings, "Texture");
@@ -139,6 +209,9 @@ public unsafe ref struct ShaderArgumentWriter
                 $"The texture bound at index {index} was allocated from a different GraphicsDevice than the one dispatching the shader.",
                 nameof(texture));
         }
+
+        // Before anything is leased or bound, as for a buffer.
+        _bindings?.AddTexture(index, texture, written);
 
         // Both handles are leased everywhere below: the MTLTexture is what is bound, and the MTLBuffer
         // is the memory behind it, which the CPU reads directly and which must not be released (nor
@@ -239,6 +312,13 @@ public unsafe ref struct ShaderArgumentWriter
             }
         }
     }
+
+    /// <summary>
+    /// Records the texture a pixel shader writes its result to, which the runtime binds at texture
+    /// index 0 itself: a capture of the same texture (or of its read-only view) then fails like any
+    /// other texture that is written and bound twice.
+    /// </summary>
+    internal readonly void NoteOutput(ReadWriteTexture2D<Rgba32> output) => _bindings?.AddTexture(0, output, written: true, isOutput: true);
 
     private readonly GraphicsDevice Validate(int index, int limit = Metal.MaxBufferBindings, string kind = "Buffer")
     {

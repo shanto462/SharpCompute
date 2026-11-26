@@ -90,8 +90,7 @@ result, and precompiling makes no difference. `SharpCompute.Benchmarks --first-f
 full table.
 
 Every sample in this repository is built this way. ComputeLab's Indirect and FastMath pages say
-whether their kernel was precompiled when the lab was built or compiled at run time:
-
-![ComputeLab's FastMath page: a field of a million values computed by a kernel of sines, cosines, exponentials and powers on the left, its error against the CPU on the right, and under the field the lines "default: IEEE-safe, precise functions" and "kernel: precompiled"](screenshots/computelab-fastmath.png)
+whether their kernel was precompiled when the lab was built or compiled at run time: the FastMath
+page's [screenshot](shader-language.md#compile-options) shows "kernel: precompiled" under its field.
 
 To build the repository without precompiled shaders, see [Building from source](building.md).

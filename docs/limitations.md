@@ -63,6 +63,13 @@ to the page that explains it.
   `[GroupShared]` arrays, and (minimum and maximum only) on `ulong` buffer elements. Not on struct
   fields, and not on `long` or the 8- and 16-bit integers, which have no atomics in MSL.
   ([Atomics](atomics.md#rules))
+- **One binding per written resource.** A dispatch whose shader writes a buffer or texture can bind
+  that memory only once: the same buffer or texture as two captures, overlapping views, or a texture
+  with its `AsReadOnly()` view throw an `ArgumentException` when one of them is written, because the
+  GPU would read stale data. Update in place through one capture, or ping-pong between two. Two
+  different `MTLTexture` objects that share storage without a CPU-visible buffer behind them (a
+  texture view other Metal code made of a wrapped texture, a linear texture over a private buffer)
+  are not recognized as the same memory. ([Overlapping bindings](resources.md#overlapping-bindings))
 - **Textures** are 2D with one mip level (a wrapped mipmapped texture uses level 0); samplers are the
   six fixed ones. ([Textures](resources.md#textures))
 - **An indirect dispatch runs whole threadgroups**, so `DispatchSize` is a multiple of the

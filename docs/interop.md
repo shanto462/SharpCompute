@@ -48,6 +48,11 @@ ReadOnlyTexture2D<Rgba32> image = device.WrapNativeReadOnlyTexture2D<Rgba32>(mtl
 Untracked resources (`MTLHazardTrackingModeUntracked`, the default inside an `MTLHeap`) are
 rejected: SharpCompute orders its passes through Metal's hazard tracking.
 
+Wrapping the same object twice, or a texture and the buffer it is a view of, gives two SharpCompute
+objects over one piece of memory. They are compared by that memory when a dispatch binds them, so
+the rule for [overlapping bindings](resources.md#overlapping-bindings) holds for them too: bound
+together, the shader may read both but write neither.
+
 ## Encoding into the app's command buffer
 
 `EncodeInto` encodes what a context recorded into a command buffer the app created, without
