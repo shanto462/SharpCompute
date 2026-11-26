@@ -60,14 +60,19 @@ others over 262,144 operand sets), and it is what `ForCpu` reproduces.
 
 - `+ - * /`, negation and every conversion are IEEE half operations, rounded once to the nearest half
   (ties to even), and identical on the GPU and the CPU bit for bit. That includes subnormals: the GPU
-  flushes float subnormals to zero, but not half ones.
+  flushes float subnormals to zero, but not half ones. The exceptions are a division by a constant,
+  which the compiler turns into a multiplication by its reciprocal (up to one half ULP off), a
+  conversion from `long` or `ulong`, and `(Half)Gpu.Fract(x)` (see
+  [Limitations](limitations.md#shader-language)).
 - The GPU fuses `a * b + c` into one half fused multiply-add, as it does for floats. With
   `[ShaderOptions(FpContract = false)]` it does not, and half arithmetic then gives the same bits on
   both sides throughout.
 - Bit for bit as well: `Abs`, `Min`, `Max`, `Clamp`, `Saturate`, `Sign`, `Floor`, `Ceil`, `Round`,
   `Trunc`, `Fract`, `Fmod`, `Sqrt`, `Rsqrt`, `Fma`, `Lerp`, `Step`, `Smoothstep`, `CopySign`, `Dot`,
   `Cross`, `Length`, `Distance`, `Normalize` and `Reflect`. The one exception is which zero `Min`,
-  `Max` and `Clamp` return for zeros of both signs.
+  `Max` and `Clamp` return for zeros of both signs. (`Sqrt` and `Rsqrt` of a half converted to
+  *float* are one float ULP off, and `Rsqrt` of -0 is -∞ only where it is stored: see
+  [Limitations](limitations.md#shader-language).)
 - The transcendental functions (`Pow`, `Exp*`, `Log*`, trigonometric and hyperbolic) agree within
   one half ULP. The GPU's `tan` and `atan` are that one ULP off for 3.5 % and 5.7 % of all halves,
   the others for at most 7 of the 65,536.

@@ -39,7 +39,7 @@ kernel void SharpCompute_Tests_Conformance_ConformanceUIntConversions(
     output[int(uint(o) + 2u)] = long(short(x));
     output[int(uint(o) + 3u)] = long(ushort(x));
     output[int(uint(o) + 4u)] = long(int(x));
-    output[int(uint(o) + 5u)] = (long(x));
+    output[int(uint(o) + 5u)] = long(x);
     output[int(uint(o) + 6u)] = long(ulong(x));
     output[int(uint(o) + 7u)] = long(as_type<uint>(float(x)));
     output[int(uint(o) + 8u)] = long(as_type<ushort>(half(x)));

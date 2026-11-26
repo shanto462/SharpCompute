@@ -51,7 +51,9 @@ also compiles the pipeline that `ForSplit` runs on the GPU (see
 - Integer results are identical: conversions from float saturate, shift counts are masked, and
   arithmetic wraps on both, signed and unsigned (see [Integers](shader-language.md#integers)).
 - The CPU implementations of `Gpu.*` are bit-for-bit for arithmetic, rounding functions, `sqrt` and
-  `fmod`, and within a few ULP for transcendentals. With `[ShaderOptions(FpContract = false)]`,
+  `fmod`, and within a few ULP for transcendentals, apart from the
+  [known differences](limitations.md#shader-language) (a half division by a constant, `sqrt` of a
+  half converted to float, and the others listed there). With `[ShaderOptions(FpContract = false)]`,
   arithmetic that uses only `+ - * /` and `Gpu.Sqrt` gives the same bits on both (subnormal results
   aside, which the GPU flushes to zero).
 - Both run the shader's expressions in the same order: one whose result would depend on C#'s
@@ -112,6 +114,16 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
 - **`checked`** arithmetic is refused at build time (`SCG0052`): it would throw on the CPU and wrap
   on the GPU.
 
+**Random expressions.** `tests/SharpCompute.Differential.Tests` holds the operations to the same
+policies in combination: random, well-typed expressions and small statement blocks over every scalar
+and vector type, from fixed seeds (`tools/gen_differential.py`), run on the GPU and with `ForCpu`. A
+case with floats in it is compared with `ForCpu`'s value of the case and of its models: the same case
+with every float operation flushed as the GPU flushes, and with every multiply-add the GPU may
+contract fused. `scripts/fuzz-differential.sh --seed S --count N` runs other seeds and shrinks each
+mismatch to a repro shader. What it found that is not fixed, mostly folds the Metal compiler makes
+on the ground that an out-of-range conversion or a division by zero is undefined, is listed with a
+repro for each in `KnownDifferencesTests` of that project.
+
 ## Feature by feature
 
 | Feature | On the CPU | Details |
@@ -121,6 +133,6 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
 | Atomics | `Interlocked` operations; final values match. A shader with atomics on buffer elements is never split | [Atomics](atomics.md#on-the-cpu-and-between-devices) |
 | Textures | The same reads, writes and address modes, exact where the GPU rounds | [Textures on the CPU](resources.md#textures-on-the-cpu) |
 | Local arrays | Real C# arrays and spans, bounds-checked. `new T[N]` allocates per thread: prefer `stackalloc` | [Local arrays](local-arrays.md#rules) |
-| Half precision | Reproduces the GPU's half arithmetic bit for bit, subnormals included | [Half precision](half-precision.md#what-it-computes) |
+| Half precision | Reproduces the GPU's half arithmetic bit for bit, subnormals included, except a division by a constant ([Limitations](limitations.md#shader-language)) | [Half precision](half-precision.md#what-it-computes) |
 | Shared code | The same methods, unchanged | [Sharing code](shared-code.md#rules) |
 | Matrix units | The lanes meet at every matrix operation and the matrix is storage the group shares; lanes at different calls, different arguments or fewer than 32 lanes are refused | [Matrix units](matrix-units.md#on-the-cpu) |

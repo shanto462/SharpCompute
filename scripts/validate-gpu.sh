@@ -25,9 +25,10 @@
 # run cannot be trusted: the layers' start-up banners are missing (nothing was validated), a diag log
 # was rotated, or a shader report could not be parsed.
 #
-# The suite is heavy and instrumented shaders are slower: set VALIDATE_GPU_LOCK to a directory path
-# to serialize with other GPU-heavy jobs. The script then waits until it can create that directory
-# and removes it when it exits; when the variable is unset it takes no lock.
+# The suite is heavy and instrumented shaders are slower: set SHARPCOMPUTE_RUN_LOCK to a directory
+# path to serialize with other GPU-heavy jobs (scripts/fuzz-differential.sh uses the same variable).
+# The script then waits until it can create that directory and removes it when it exits; when the
+# variable is unset it takes no lock. VALIDATE_GPU_LOCK, its former name, still works.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,7 +54,7 @@ echo "== build"
 dotnet build SharpCompute.slnx --nologo -v quiet
 
 # The lock is released only by the shell that took it: the trap is set after mkdir succeeds.
-lock="${VALIDATE_GPU_LOCK:-}"
+lock="${SHARPCOMPUTE_RUN_LOCK:-${VALIDATE_GPU_LOCK:-}}"
 if [[ -n "$lock" ]]; then
   waited=0
   until mkdir "$lock" 2>/dev/null; do

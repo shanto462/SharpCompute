@@ -49,6 +49,6 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_SaltAndPepper(
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     int i = int((__tid.y * uint(__c.size)) + __tid.x);
     uint h = ::Hash(uint(i) ^ (__c.seed * 2654435769u));
-    bool hit = (h & 16777215u) < uint(__c.density * 16777216.0f);
+    bool hit = (h & 16777215u) < uint(metal::max(__c.density * 16777216.0f, 0.0f));
     noisy[i] = hit ? ((h >> 31) == 0u ? 4278190080u : 4294967295u) : clean[i];
 }

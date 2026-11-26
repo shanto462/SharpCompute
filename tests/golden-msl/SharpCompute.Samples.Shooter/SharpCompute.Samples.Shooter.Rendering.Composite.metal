@@ -130,9 +130,9 @@ static bool PixelShading_GlyphCovers(const device uint* __local_font, int glyph,
 static uint PixelShading_PackRgb(float3 color)
 {
     color = metal::saturate(color);
-    uint red = uint((color.x * 255.0f) + 0.5f);
-    uint green = uint((color.y * 255.0f) + 0.5f);
-    uint blue = uint((color.z * 255.0f) + 0.5f);
+    uint red = uint(metal::max((color.x * 255.0f) + 0.5f, 0.0f));
+    uint green = uint(metal::max((color.y * 255.0f) + 0.5f, 0.0f));
+    uint blue = uint(metal::max((color.z * 255.0f) + 0.5f, 0.0f));
     return red | (green << 8) | (blue << 16) | 4278190080u;
 }
 

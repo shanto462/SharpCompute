@@ -54,7 +54,7 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_SharedMemory_GenerateScanField
     float2 c2 = float2(0.5f - (0.3f * metal::sin(__c.time * 0.27f)), 0.5f + (0.3f * metal::cos(__c.time * 0.19f)));
     float waves = metal::sin((metal::length(uv - c1) * 38.0f) - (__c.time * 1.7f)) + metal::sin((metal::length(uv - c2) * 27.0f) + (__c.time * 1.1f));
     float grain = float(::Hash(uint(x) + (::Hash(uint(y)) * 31u)) >> 8) * (1.0f / 16777216.0f);
-    uint value = uint(metal::saturate(0.5f + (0.22f * waves) + ((grain - 0.5f) * 0.18f)) * 65535.0f);
+    uint value = uint(metal::max(metal::saturate(0.5f + (0.22f * waves) + ((grain - 0.5f) * 0.18f)) * 65535.0f, 0.0f));
     int i = int((uint(y) * uint(__c.size)) + uint(x));
     source[i] = value;
     flags[i] = value >= __c.cutoff ? 1 : 0;

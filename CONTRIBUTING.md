@@ -60,6 +60,11 @@ Match the code around your change:
   stores; `tests/SharpCompute.SourceGenerators.Tests/Conformance` pins the generator's side.
   `--filter Category=Conformance` runs all of them, the operator, conversion and intrinsic suite
   included. See [Semantics and conformance](docs/cpu-execution.md#semantics-and-conformance).
+- `tests/SharpCompute.Differential.Tests` combines them: random expressions from fixed seeds
+  (`tools/gen_differential.py`, built into the project), GPU against `ForCpu`. For a change to the
+  generator or the runtime, also run the long mode, `scripts/fuzz-differential.sh --seed S --count N`,
+  which tries other seeds and prints each mismatch shrunk to a repro shader (set
+  `SHARPCOMPUTE_RUN_LOCK` as for `scripts/validate-gpu.sh` to serialize it with other GPU-heavy jobs).
 
 ## Validating with Metal's debug layers
 
@@ -86,8 +91,10 @@ scripts/validate-gpu.sh --abort --filter <test>      # stop at the first violati
   reason per line. Fix a real violation; add an entry only for a false positive or for a test that
   provokes the report on purpose.
 - The run is slower than a plain `dotnet test` (every shader is instrumented). Set
-  `VALIDATE_GPU_LOCK` to a directory path to serialize with other GPU-heavy jobs: the script waits
-  until it can create the directory and removes it when it exits. Unset, it takes no lock.
+  `SHARPCOMPUTE_RUN_LOCK` to a directory path to serialize with other GPU-heavy jobs (the long mode
+  of the differential test reads the same variable): the script waits until it can create the
+  directory and removes it when it exits. Unset, it takes no lock. `VALIDATE_GPU_LOCK`, its former
+  name, still works.
 - Not covered: the opt-in window tests start their own processes and keep their stderr.
 
 ## Golden MSL snapshots

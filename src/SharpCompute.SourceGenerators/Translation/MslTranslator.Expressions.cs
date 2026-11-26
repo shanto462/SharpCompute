@@ -16,13 +16,20 @@ internal sealed partial class MslTranslator
         Expr result = ExpressionCore(operation);
 
         // IOperation drops parentheses; keep the ones the user wrote so the MSL reads like the C#.
-        if (!operation.IsImplicit && operation.Syntax.Parent is ParenthesizedExpressionSyntax)
+        // Not around a conversion or a constructor, which are already primary expressions and where
+        // they can change the parse: C++ reads `(float(uint(x))) * y` as a C-style cast of `*y` to
+        // the function type `float(uint x)`, so `((float)(uint)x) * y` did not compile.
+        if (!operation.IsImplicit && operation.Syntax.Parent is ParenthesizedExpressionSyntax && !IsTypeNamedPrimary(operation, result))
         {
             result = result.Parenthesize();
         }
 
         return result;
     }
+
+    /// <summary>A conversion or a constructor whose MSL is a type name applied to its operands: <c>float(x)</c>, <c>float3(a, b, c)</c>.</summary>
+    private static bool IsTypeNamedPrimary(IOperation operation, Expr result) =>
+        result.Precedence == Expr.Primary && operation is IConversionOperation or IObjectCreationOperation;
 
     private Expr ExpressionCore(IOperation operation)
     {
@@ -385,6 +392,32 @@ internal sealed partial class MslTranslator
 
             UsesPrelude = true;
             return Call(MslNames.FloatToLong, operand);
+        }
+
+        if (target is { IsIntegerScalar: true, Size: 1 or 2 } && !_function.IsGlobalInitializer
+            && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: true })
+        {
+            // `uchar(x)` saturates on the GPU, but MSL leaves an out-of-range conversion undefined, and
+            // the Metal compiler folds `uchar(float(i))` into a truncation of `i` on that ground: an
+            // integer that went through a float or a half wraps instead of saturating
+            // ((byte)(float)i is 44 for i = 300, not 255). An int holds every 8- and 16-bit value and a
+            // float does not hold every int, so `int(x)` is not folded: the conversion saturates
+            // there and the clamp to the target's range is exact. NaN still gives 0. (A
+            // program-scope initializer must not call a function, and C# folds a constant conversion
+            // before it gets here.)
+            long min = target.IsUnsigned ? 0 : -(1L << ((target.Size * 8) - 1));
+            long max = target.IsUnsigned ? (1L << (target.Size * 8)) - 1 : (1L << ((target.Size * 8) - 1)) - 1;
+            return Call(target.MslName, $"metal::clamp(int({operand}), {min.ToString(CultureInfo.InvariantCulture)}, {max.ToString(CultureInfo.InvariantCulture)})");
+        }
+
+        if (target is { IsIntegerScalar: true, IsUnsigned: true } && !_function.IsGlobalInitializer
+            && _types.Resolve(operation.Operand.Type) is { Kind: GpuTypeKind.Scalar, IsFloating: true } source)
+        {
+            // The same fold for `uint(float(s))` of a small signed s: a float holds every value of s,
+            // so the compiler turns the conversion into a zero extension, and (uint)(float)(short)-1
+            // is 65535 instead of 0. Negative values (and NaN, which metal::max drops) are 0 in C#
+            // anyway, so clamping them first changes nothing else.
+            return Call(target.MslName, $"metal::max({operand}, {(source.MslName == "half" ? "0.0h" : "0.0f")})");
         }
 
         return Call(target.MslName, operand);

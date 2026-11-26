@@ -46,5 +46,5 @@ kernel void SharpCompute_Benchmarks_Shaders_BlurRgba8Vertical(
         sum += source[int((uint(metal::clamp(int(uint(y) + uint(k)), 0, int(uint(__c.height) - 1u))) * uint(__c.width)) + uint(x))] * weights[int(uint(k) + uint(__c.radius))];
     }
     float4 q = (metal::saturate(sum) * 255.0f) + 0.5f;
-    destination[int((uint(y) * uint(__c.width)) + uint(x))] = uint(q.x) | (uint(q.y) << 8) | (uint(q.z) << 16) | (uint(q.w) << 24);
+    destination[int((uint(y) * uint(__c.width)) + uint(x))] = uint(metal::max(q.x, 0.0f)) | (uint(metal::max(q.y, 0.0f)) << 8) | (uint(metal::max(q.z, 0.0f)) << 16) | (uint(metal::max(q.w, 0.0f)) << 24);
 }

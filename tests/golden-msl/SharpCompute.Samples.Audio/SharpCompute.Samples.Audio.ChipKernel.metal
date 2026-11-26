@@ -148,7 +148,7 @@ static float Oscillator(int wave, float phase, float dt, float duty, uint seed)
     {
         return metal::sin(6.2831855f * p);
     }
-    uint h = ::Hash(uint(metal::floor(phase)) ^ (seed * 2654435769u));
+    uint h = ::Hash(uint(metal::max(metal::floor(phase), 0.0f)) ^ (seed * 2654435769u));
     return (float(h >> 8) * (1.0f / 8388608.0f)) - 1.0f;
 }
 

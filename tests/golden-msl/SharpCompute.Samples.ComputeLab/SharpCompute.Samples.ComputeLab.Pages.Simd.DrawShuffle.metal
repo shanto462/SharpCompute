@@ -73,7 +73,7 @@ static float Value(int curve, float position, device float* plot, constant __Con
 static uint Pack(float3 color)
 {
     float3 c = metal::round(metal::saturate(color) * 255.0f);
-    return uint(c.x) | (uint(c.y) << 8) | (uint(c.z) << 16) | 4278190080u;
+    return uint(metal::max(c.x, 0.0f)) | (uint(metal::max(c.y, 0.0f)) << 8) | (uint(metal::max(c.z, 0.0f)) << 16) | 4278190080u;
 }
 
 kernel void SharpCompute_Samples_ComputeLab_Pages_Simd_DrawShuffle(

@@ -199,7 +199,7 @@ kernel void SharpCompute_Tests_Shaders_SubnormalProbe(
     words[int(uint(w) + 2u)] = x == y ? 1u : 0u;
     words[int(uint(w) + 3u)] = x != y ? 1u : 0u;
     words[int(uint(w) + 4u)] = uint(int(x));
-    words[int(uint(w) + 5u)] = uint(x);
+    words[int(uint(w) + 5u)] = uint(metal::max(x, 0.0f));
     words[int(uint(w) + 6u)] = as_type<uint>(x);
     words[int(uint(w) + 7u)] = uint(as_type<int>(x));
     words[int(uint(w) + 8u)] = uint(as_type<ushort>(half(x)));
