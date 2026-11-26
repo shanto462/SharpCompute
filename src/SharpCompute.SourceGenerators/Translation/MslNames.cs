@@ -133,6 +133,12 @@ internal static class MslNames
     public const string NonZero = "__ms_nonzero";
 
     /// <summary>
+    /// <see cref="NonZero"/> for a division whose dividend is a constant the generator can see, with a
+    /// barrier the front end folds when the divisor becomes a constant (see <c>MslTranslator.IntegerDivision</c>).
+    /// </summary>
+    public const string NonZeroOfConstant = "__ms_nonzero_c";
+
+    /// <summary>
     /// The division and remainder of a constant dividend near 2^32, which Apple's GPU compiler gets
     /// wrong as an operator (see <c>MslTranslator.IntegerDivision</c>). In <c>MslPrelude.Integers</c>.
     /// </summary>

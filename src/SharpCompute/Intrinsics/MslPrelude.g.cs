@@ -231,6 +231,38 @@ public static class MslPrelude
         inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(__ms_nonzero(int2(x))); }
         inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(__ms_nonzero(int3(x))); }
         inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(__ms_nonzero(int4(x))); }
+        inline int __ms_nonzero_c(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
+        inline int2 __ms_nonzero_c(int2 x) { uint2 u = uint2(x); return int2(u | (((u - 1u) & ~u) >> 31)); }
+        inline int3 __ms_nonzero_c(int3 x) { uint3 u = uint3(x); return int3(u | (((u - 1u) & ~u) >> 31)); }
+        inline int4 __ms_nonzero_c(int4 x) { uint4 u = uint4(x); return int4(u | (((u - 1u) & ~u) >> 31)); }
+        inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
+        inline uint2 __ms_nonzero_c(uint2 x) { uint2 u = uint2(x); return uint2(u | (((u - 1u) & ~u) >> 31)); }
+        inline uint3 __ms_nonzero_c(uint3 x) { uint3 u = uint3(x); return uint3(u | (((u - 1u) & ~u) >> 31)); }
+        inline uint4 __ms_nonzero_c(uint4 x) { uint4 u = uint4(x); return uint4(u | (((u - 1u) & ~u) >> 31)); }
+        inline long __ms_nonzero_c(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
+        inline long2 __ms_nonzero_c(long2 x) { ulong2 u = ulong2(x); return long2(u | (((u - 1UL) & ~u) >> 63)); }
+        inline long3 __ms_nonzero_c(long3 x) { ulong3 u = ulong3(x); return long3(u | (((u - 1UL) & ~u) >> 63)); }
+        inline long4 __ms_nonzero_c(long4 x) { ulong4 u = ulong4(x); return long4(u | (((u - 1UL) & ~u) >> 63)); }
+        inline ulong __ms_nonzero_c(ulong x) { ulong u = ulong(x); return ulong(u | (((u - 1UL) & ~u) >> 63)); }
+        inline ulong2 __ms_nonzero_c(ulong2 x) { ulong2 u = ulong2(x); return ulong2(u | (((u - 1UL) & ~u) >> 63)); }
+        inline ulong3 __ms_nonzero_c(ulong3 x) { ulong3 u = ulong3(x); return ulong3(u | (((u - 1UL) & ~u) >> 63)); }
+        inline ulong4 __ms_nonzero_c(ulong4 x) { ulong4 u = ulong4(x); return ulong4(u | (((u - 1UL) & ~u) >> 63)); }
+        inline char __ms_nonzero_c(char x) { return char(__ms_nonzero_c(int(x))); }
+        inline char2 __ms_nonzero_c(char2 x) { return char2(__ms_nonzero_c(int2(x))); }
+        inline char3 __ms_nonzero_c(char3 x) { return char3(__ms_nonzero_c(int3(x))); }
+        inline char4 __ms_nonzero_c(char4 x) { return char4(__ms_nonzero_c(int4(x))); }
+        inline uchar __ms_nonzero_c(uchar x) { return uchar(__ms_nonzero_c(int(x))); }
+        inline uchar2 __ms_nonzero_c(uchar2 x) { return uchar2(__ms_nonzero_c(int2(x))); }
+        inline uchar3 __ms_nonzero_c(uchar3 x) { return uchar3(__ms_nonzero_c(int3(x))); }
+        inline uchar4 __ms_nonzero_c(uchar4 x) { return uchar4(__ms_nonzero_c(int4(x))); }
+        inline short __ms_nonzero_c(short x) { return short(__ms_nonzero_c(int(x))); }
+        inline short2 __ms_nonzero_c(short2 x) { return short2(__ms_nonzero_c(int2(x))); }
+        inline short3 __ms_nonzero_c(short3 x) { return short3(__ms_nonzero_c(int3(x))); }
+        inline short4 __ms_nonzero_c(short4 x) { return short4(__ms_nonzero_c(int4(x))); }
+        inline ushort __ms_nonzero_c(ushort x) { return ushort(__ms_nonzero_c(int(x))); }
+        inline ushort2 __ms_nonzero_c(ushort2 x) { return ushort2(__ms_nonzero_c(int2(x))); }
+        inline ushort3 __ms_nonzero_c(ushort3 x) { return ushort3(__ms_nonzero_c(int3(x))); }
+        inline ushort4 __ms_nonzero_c(ushort4 x) { return ushort4(__ms_nonzero_c(int4(x))); }
         inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
         inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
         inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }

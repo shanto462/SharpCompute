@@ -6,8 +6,9 @@ using namespace metal;
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
-inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
 inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
+inline long __ms_nonzero_c(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
 inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
 inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
 inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
@@ -70,8 +71,8 @@ kernel void SharpCompute_Differential_Tests_NearMaxDividends(
     output[int(uint(o) + 19u)] = long(r.x);
     output[int(uint(o) + 20u)] = long(r.y);
     output[int(uint(o) + 21u)] = long(r.z);
-    output[int(uint(o) + 22u)] = long(2147483647u / __ms_nonzero(x));
-    output[int(uint(o) + 23u)] = 4294967296L / __ms_nonzero(y);
+    output[int(uint(o) + 22u)] = long(2147483647u / __ms_nonzero_c(x));
+    output[int(uint(o) + 23u)] = 4294967296L / __ms_nonzero_c(y);
     uint m = 4294967295u;
     long n = -4294967200L;
     uint3 w = uint3(4294967168u, 3u, 4294967295u);

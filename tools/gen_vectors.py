@@ -954,6 +954,15 @@ def bit_count_msl() -> list[str]:
 # These and the bit counts above are not in the prelude's source but in a block of their own
 # (MslPrelude.Integers), one overload a line, of which a shader carries the ones it calls.
 PRELUDE_NONZERO = "__ms_nonzero"
+# The divisor of a division whose dividend is a constant the generator can see. reverse_bits(t) is
+# what keeps the guard of a division by a variable dividend, but the GPU compiler folds a division
+# of a constant by a constant it gets from reverse_bits wrongly for most even divisors
+# (2863311530u % 2 is 4294967212), and a divisor can become a constant only after the front end
+# has unrolled a loop, too late for __builtin_constant_p (1000000007u % k for k = 1..8). This one
+# sets the low bit from the top bit of (t - 1) & ~t, computed unsigned: plain arithmetic, which the
+# front end folds for such a k, and which kept the guards of the constant-dividend shapes of the
+# guard bug (the GPU compiler folded it under a guard of a variable dividend's division).
+PRELUDE_NONZERO_OF_CONSTANT = "__ms_nonzero_c"
 PRELUDE_DIV_NEAR_MAX = "__ms_div_near_max"
 PRELUDE_REM_NEAR_MAX = "__ms_rem_near_max"
 
@@ -976,6 +985,15 @@ def integers_msl() -> list[str]:
                 lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return {v}({lanes}); }}")
             else:
                 lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return __builtin_constant_p(x) ? x : x | {v}(metal::reverse_bits(x) == {v}(0)); }}")
+    for t in sorted(NEGATE_TYPES, key=lambda t: t.bits < 32):
+        for suffix in ("", "2", "3", "4"):
+            v = f"{t.msl}{suffix}"
+            if t.bits < 32:
+                lines.append(f"inline {v} {PRELUDE_NONZERO_OF_CONSTANT}({v} x) {{ return {v}({PRELUDE_NONZERO_OF_CONSTANT}(int{suffix}(x))); }}")
+                continue
+            u = f"{t.unsigned_msl}{suffix}"
+            one, top = ("1u", 31) if t.bits == 32 else ("1UL", 63)
+            lines.append(f"inline {v} {PRELUDE_NONZERO_OF_CONSTANT}({v} x) {{ {u} u = {u}(x); return {v}(u | (((u - {one}) & ~u) >> {top})); }}")
     for t, zero, one in (("uint", "0u", "1u"), ("ulong", "0UL", "1UL")):
         lines.append(f"inline {t} {PRELUDE_DIV_NEAR_MAX}({t} a, {t} b) {{ return b > a ? {zero} : (a - b) / {PRELUDE_NONZERO}(b) + {one}; }}")
         lines.append(f"inline {t} {PRELUDE_REM_NEAR_MAX}({t} a, {t} b) {{ return b > a ? a : (a - b) % {PRELUDE_NONZERO}(b); }}")

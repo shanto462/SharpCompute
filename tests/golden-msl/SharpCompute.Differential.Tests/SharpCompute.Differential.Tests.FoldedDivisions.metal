@@ -5,9 +5,9 @@ using namespace metal;
 
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
-inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
-inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
-inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
+inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
+inline uint3 __ms_nonzero_c(uint3 x) { uint3 u = uint3(x); return uint3(u | (((u - 1u) & ~u) >> 31)); }
+inline long __ms_nonzero_c(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
 
 constant int Slots = 8;
 
@@ -43,17 +43,17 @@ kernel void SharpCompute_Differential_Tests_FoldedDivisions(
     output[int(uint(o) + 0u)] = long(a);
     uint b = 2863311530u;
     uint d = uint(false ? u : ushort(2));
-    output[int(uint(o) + 1u)] = long(d == 0u ? 0u : b % __ms_nonzero(d));
-    output[int(uint(o) + 2u)] = long(d == 0u ? 0u : b / __ms_nonzero(d));
+    output[int(uint(o) + 1u)] = long(d == 0u ? 0u : b % __ms_nonzero_c(d));
+    output[int(uint(o) + 2u)] = long(d == 0u ? 0u : b / __ms_nonzero_c(d));
     uint e = false ? uint(u) : 12u;
-    output[int(uint(o) + 3u)] = long(b / __ms_nonzero(e));
-    output[int(uint(o) + 4u)] = long(b % __ms_nonzero(e));
+    output[int(uint(o) + 3u)] = long(b / __ms_nonzero_c(e));
+    output[int(uint(o) + 4u)] = long(b % __ms_nonzero_c(e));
     long f = 1431655765L;
     long g = false ? long(u) : 6L;
-    output[int(uint(o) + 5u)] = f / __ms_nonzero(g);
+    output[int(uint(o) + 5u)] = f / __ms_nonzero_c(g);
     uint3 h = uint3(2863311530u, 1431655765u, 100u);
     uint3 k = uint3(false ? uint(u) : 2u, 4u, 6u);
-    uint3 q = h % __ms_nonzero(k);
+    uint3 q = h % __ms_nonzero_c(k);
     output[int(uint(o) + 6u)] = long(q.x);
     output[int(uint(o) + 7u)] = long(q.y + q.z);
 }

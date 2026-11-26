@@ -148,6 +148,14 @@ public class KnownDifferencesTests
     [MetalFact(Skip = Unfixed)]
     public void StepTimesConstant() => AssertSame([0x40000000, 0x3F800000], StepTimesConstantRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new StepTimesConstantRepro(i, o)));
 
+    /// <summary>
+    /// <c>2863311530u % Gpu.ReverseBits(0x40000000u)</c> (a divisor of 2 that only the GPU compiler
+    /// folds from <c>reverse_bits</c>) is 4294967212 instead of 0: the GPU compiler folds a 32-bit
+    /// division of a constant by such a divisor wrongly for most even divisors.
+    /// </summary>
+    [MetalFact(Skip = Unfixed)]
+    public void DivisionByReverseBitsOfAConstant() => AssertSame([0x40000000], ReverseBitsDivisorRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new ReverseBitsDivisorRepro(i, o)));
+
     private static void Dispatch<TShader>(GraphicsDevice device, bool cpu, in TShader shader)
         where TShader : struct, IComputeShader, IComputeShaderDescriptor<TShader> => DifferentialHarness.Dispatch(device, cpu, 1, shader);
 
@@ -350,4 +358,16 @@ public readonly partial struct StepTimesConstantRepro(ReadOnlyBuffer<ulong> inpu
     public const int Slots = 1;
 
     public void Execute() => output[0] = Gpu.AsUInt(Gpu.Step(Gpu.AsFloat((uint)input[0]), Gpu.AsFloat((uint)input[1])) * -2.5f);
+}
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct ReverseBitsDivisorRepro(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 2;
+
+    public void Execute()
+    {
+        output[0] = 2863311530u % Gpu.ReverseBits(0x40000000u);
+        output[1] = 1431655765u / Gpu.ReverseBits(0x20000000u) + (uint)input[0] * 0u;
+    }
 }

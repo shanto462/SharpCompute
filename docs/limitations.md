@@ -51,6 +51,13 @@ verified on.
   Reported to Apple as FB25737964 (the guard), FB25737954 (the constant dividend) and FB25737978
   (the bit counts).
   ([Integers](shader-language.md#integers))
+- **A constant divided by `Gpu.ReverseBits` of a constant** is wrong on the GPU for most even
+  divisors (`2863311530u % Gpu.ReverseBits(0x40000000u)` is 4294967212, not 0): the GPU compiler
+  folds a division by a constant it gets from `reverse_bits` wrongly. So is a constant that reaches
+  a division through a helper's parameter, divided by a divisor that is a constant only once a loop
+  is unrolled. Write the divisor's constant itself, or read it from a buffer. A constant written in
+  the division (or in a `const`, `static readonly` or never-written local) is divided correctly.
+  ([Metal compiler bugs](metal-compiler-bugs.md#what-is-left))
 - **GPU compiler crashes on some combinations of integer statements.** Some kernels fail to build
   their pipeline: the first dispatch (or `Prepare`) throws `ShaderCompilationException` with
   "XPC_ERROR_CONNECTION_INTERRUPTED". It fails loudly, never with a wrong result. The reduced case

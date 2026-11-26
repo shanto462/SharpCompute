@@ -11,9 +11,9 @@ inline int2 __ms_sat_int2(half2 x) { return __ms_sat_int2(float2(x)); }
 // SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(metal::reverse_bits(x) == int(0)); }
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
-inline uint3 __ms_nonzero(uint3 x) { return uint3(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z)); }
 inline uint4 __ms_nonzero(uint4 x) { return uint4(__ms_nonzero(x.x), __ms_nonzero(x.y), __ms_nonzero(x.z), __ms_nonzero(x.w)); }
-inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline uint3 __ms_nonzero_c(uint3 x) { uint3 u = uint3(x); return uint3(u | (((u - 1u) & ~u) >> 31)); }
+inline ulong __ms_nonzero_c(ulong x) { ulong u = ulong(x); return ulong(u | (((u - 1UL) & ~u) >> 63)); }
 inline short __ms_popcount(short x) { return short(metal::popcount(metal::reverse_bits(x))); }
 inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(metal::reverse_bits(x))); }
 inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
@@ -120,7 +120,7 @@ kernel void SharpCompute_Differential_Tests_Random2x5(
         c5_1 /= __ms_nonzero(int(sh1));
     }
     uchar c5_2 = by2;
-    output[int(uint(p) + 8u)] = long((__ms_popcount((ul1 == 0UL) ? 0UL : c5_0 % __ms_nonzero(ul1)) * ((ul2 >> 33) - ulong(metal::clamp(by2, by0, by2)))) >> (int(uint(c5_1) * uint(c5_2))));
+    output[int(uint(p) + 8u)] = long((__ms_popcount((ul1 == 0UL) ? 0UL : c5_0 % __ms_nonzero_c(ul1)) * ((ul2 >> 33) - ulong(metal::clamp(by2, by0, by2)))) >> (int(uint(c5_1) * uint(c5_2))));
     output[int(uint(p) + 9u)] = long(as_type<uint>(metal::fract(metal::abs(metal::sqrt(float(sh1))))));
     int2 c7_0 = __ms_sat_int2(-metal::min(float2(f1, f0), f2a / f2b));
     output[int(uint(p) + 10u)] = long(c7_0.x);
@@ -138,7 +138,7 @@ kernel void SharpCompute_Differential_Tests_Random2x5(
     short c12_0 = sh0;
     c12_0 &= int(short(0));
     uint3 c12_1 = uint3(2147483649u, 256u, 65535u);
-    uint3 c12_2 = (!(int(__ms_sat_short(f0)) >= int(c12_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_1 / __ms_nonzero(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
+    uint3 c12_2 = (!(int(__ms_sat_short(f0)) >= int(c12_0))) ? metal::select((2147483649u + uint(us2)) * (u3b * u3b), __ms_popcount(uint3(u0)), (b3b | b3a).zyy) : ((metal::select(u3b, u3a, b3a) | (c12_1 / __ms_nonzero_c(metal::select(u3a, uint3(1u), (uint3(u3a) == 0u))))) * u3a);
     output[int(uint(p) + 16u)] = long(c12_2.x);
     output[int(uint(p) + 17u)] = long(c12_2.y);
     output[int(uint(p) + 18u)] = long(c12_2.z);

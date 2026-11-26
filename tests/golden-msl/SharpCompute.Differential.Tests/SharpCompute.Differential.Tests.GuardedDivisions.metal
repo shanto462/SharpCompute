@@ -8,6 +8,8 @@ inline int __ms_nonzero(int x) { return __builtin_constant_p(x) ? x : x | int(me
 inline uint __ms_nonzero(uint x) { return __builtin_constant_p(x) ? x : x | uint(metal::reverse_bits(x) == uint(0)); }
 inline long __ms_nonzero(long x) { return __builtin_constant_p(x) ? x : x | long(metal::reverse_bits(x) == long(0)); }
 inline ulong __ms_nonzero(ulong x) { return __builtin_constant_p(x) ? x : x | ulong(metal::reverse_bits(x) == ulong(0)); }
+inline int __ms_nonzero_c(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
+inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
 
 constant int Slots = 16;
 
@@ -67,8 +69,8 @@ kernel void SharpCompute_Differential_Tests_GuardedDivisions(
     output[int(uint(o) + 11u)] = long(u == 0UL ? 0UL : ulong(x) % __ms_nonzero(u));
     int e = d == 0 ? 0 : xi / __ms_nonzero(d);
     output[int(uint(o) + 12u)] = long(e);
-    output[int(uint(o) + 13u)] = long(e == 0 ? 0 : 100 % __ms_nonzero(e));
+    output[int(uint(o) + 13u)] = long(e == 0 ? 0 : 100 % __ms_nonzero_c(e));
     uint f = d == 0 ? 0u : uint(xi) / __ms_nonzero(uint(d));
     output[int(uint(o) + 14u)] = long(f);
-    output[int(uint(o) + 15u)] = long(f == 0u ? 0u : 1000u / __ms_nonzero(f));
+    output[int(uint(o) + 15u)] = long(f == 0u ? 0u : 1000u / __ms_nonzero_c(f));
 }

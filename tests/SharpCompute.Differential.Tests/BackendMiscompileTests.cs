@@ -27,8 +27,11 @@ public class BackendMiscompileTests
         AssertSame(input, input.Length, NearMaxDividends.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new NearMaxDividends(i, o)));
     }
 
-    [MetalFact]
-    public void GuardedDivisions_KeepTheirGuardAsWithForCpu()
+    [MetalTheory]
+    [InlineData(1)]
+    [InlineData(64)]
+    [InlineData(4096)]
+    public void GuardedDivisions_KeepTheirGuardAsWithForCpu(int threads)
     {
         // Rows of (x, l, d): l hits each guard (5, long.MinValue, 0) and misses it; d is zero or not.
         ulong[] input =
@@ -43,15 +46,39 @@ public class BackendMiscompileTests
             unchecked((ulong)-3L), 1, 100,
         ];
 
-        AssertSame(input, input.Length / 3, GuardedDivisions.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new GuardedDivisions(i, o)));
+        // One thread a row alone, or the rows repeated over 64 and 4096 threads (SIMD groups whose
+        // lanes take different sides of the guards).
+        foreach (ulong[] rows in Spread(input, 3, threads))
+        {
+            AssertSame(rows, rows.Length / 3, GuardedDivisions.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new GuardedDivisions(i, o)));
+        }
     }
 
-    [MetalFact]
-    public void GuardChains_InLanesThatDivideByDifferentValues_KeepTheirGuards()
+    /// <summary>
+    /// Each row of <paramref name="rows"/> (of <paramref name="width"/> values) alone for one thread,
+    /// or all of them repeated over <paramref name="threads"/> threads.
+    /// </summary>
+    private static ulong[][] Spread(ulong[] rows, int width, int threads)
     {
-        // 64 threads, so that the lanes of a SIMD group take both sides of each guard: rows of
-        // (a, b, c) with b zero in every third row. Found by the random differential test, where the
-        // guards held for one thread alone and were dropped for a SIMD group of different divisors.
+        int count = rows.Length / width;
+
+        if (threads == 1)
+        {
+            return Enumerable.Range(0, count).Select(r => rows.Skip(r * width).Take(width).ToArray()).ToArray();
+        }
+
+        return [Enumerable.Range(0, threads).SelectMany(t => rows.Skip(t % count * width).Take(width)).ToArray()];
+    }
+
+    [MetalTheory]
+    [InlineData(1)]
+    [InlineData(64)]
+    [InlineData(4096)]
+    public void GuardChains_InLanesThatDivideByDifferentValues_KeepTheirGuards(int threads)
+    {
+        // So that the lanes of a SIMD group take both sides of each guard: rows of (a, b, c) with b
+        // zero in every third row. Found by the random differential test, where the guards held for
+        // one thread alone and were dropped for a SIMD group of different divisors.
         ulong[] input = new ulong[64 * 3];
         for (int t = 0; t < 64; t++)
         {
@@ -60,7 +87,24 @@ public class BackendMiscompileTests
             input[3 * t + 2] = unchecked((ulong)(t % 2 == 0 ? -8L : t * 1000003L));
         }
 
-        AssertSame(input, 64, GuardChains.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new GuardChains(i, o)));
+        foreach (ulong[] rows in Spread(input, 3, threads == 1 ? 1 : threads))
+        {
+            AssertSame(rows, rows.Length / 3, GuardChains.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new GuardChains(i, o)));
+        }
+    }
+
+    [MetalTheory]
+    [InlineData(1)]
+    [InlineData(64)]
+    [InlineData(4096)]
+    public void ConstantDividends_ByDivisorsTheFrontEndOnlyFoldsLate_DivideAsWithForCpu(int threads)
+    {
+        // A constant divided by a divisor that is a constant only once the front end has unrolled a
+        // loop, or that only the GPU compiler folds (Clamp, Max, TrailingZeroCount of constants):
+        // the GPU compiler folds such a division of constants wrongly for most even divisors when
+        // the divisor's barrier hides the constant behind reverse_bits (it is plain arithmetic now).
+        ulong[] input = Enumerable.Range(0, threads).Select(static t => (ulong)(t * 2654435761u)).ToArray();
+        AssertSame(input, threads, LateConstantDivisors.Slots, static (d, cpu, n, i, o) => Dispatch(d, cpu, n, new LateConstantDivisors(i, o)));
     }
 
     [MetalFact]
@@ -374,5 +418,159 @@ public readonly partial struct FoldedDivisions(ReadOnlyBuffer<ulong> input, Read
         UInt3 q = h % k;
         output[o + 6] = q.X;
         output[o + 7] = q.Y + q.Z;
+    }
+}
+
+/// <summary>Constant dividends by divisors that become constants late (see the test).</summary>
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct LateConstantDivisors(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 26;
+
+    public void Execute()
+    {
+        int t = ThreadIds.X;
+        uint x = (uint)input[t];
+        int o = t * Slots;
+
+        // The loop of the review: an unrolled 1..8, even and odd divisors.
+        uint acc = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            acc = (acc * 31u) + (1000000007u % k);
+        }
+
+        output[o + 0] = acc;
+
+        // Every dividend of the review, written in the division, by the even and odd divisors of the loop.
+        uint f1 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f1 = (f1 * 31u) + (123456789u % k) + (123456789u / k);
+        }
+
+        output[o + 1] = f1;
+        uint f2 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f2 = (f2 * 31u) + (1000000007u % k) + (1000000007u / k);
+        }
+
+        output[o + 2] = f2;
+        uint f3 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f3 = (f3 * 31u) + (0x9E3779B9u % k) + (0x9E3779B9u / k);
+        }
+
+        output[o + 3] = f3;
+        uint f4 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f4 = (f4 * 31u) + (0xAAAAAAAAu % k) + (0xAAAAAAAAu / k);
+        }
+
+        output[o + 4] = f4;
+        uint f5 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f5 = (f5 * 31u) + (3000000000u % k) + (3000000000u / k);
+        }
+
+        output[o + 5] = f5;
+        uint f6 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f6 = (f6 * 31u) + (4000000000u % k) + (4000000000u / k);
+        }
+
+        output[o + 6] = f6;
+        uint f7 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f7 = (f7 * 31u) + (0xFFFF0000u % k) + (0xFFFF0000u / k);
+        }
+
+        output[o + 7] = f7;
+        uint f8 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f8 = (f8 * 31u) + (16777216u % k) + (16777216u / k);
+        }
+
+        output[o + 8] = f8;
+        uint f9 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f9 = (f9 * 31u) + (16777217u % k) + (16777217u / k);
+        }
+
+        output[o + 9] = f9;
+        uint f10 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f10 = (f10 * 31u) + (0x7FFFFFFFu % k) + (0x7FFFFFFFu / k);
+        }
+
+        output[o + 10] = f10;
+        uint f11 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f11 = (f11 * 31u) + (0x80000000u % k) + (0x80000000u / k);
+        }
+
+        output[o + 11] = f11;
+        uint f12 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            f12 = (f12 * 31u) + (7u % k) + (7u / k);
+        }
+
+        output[o + 12] = f12;
+
+        int sacc = 0;
+        for (int k = 1; k <= 8; k++)
+        {
+            sacc = (sacc * 31) + (-1431655766 % k) + (-1431655766 / k) + (100000007 % k) + (-100000007 / k);
+        }
+
+        output[o + 13] = sacc;
+
+        // Divisors that only the GPU compiler folds.
+        output[o + 14] = 1000000007u % Gpu.Clamp(x, 2u, 2u);
+        output[o + 15] = 0xAAAAAAAAu / Gpu.Max(x & 0u, 4u);
+        output[o + 16] = 0xAAAAAAAAu % Gpu.TrailingZeroCount(4u);
+        output[o + 17] = 123456789u / Gpu.Clamp(x, 6u, 6u);
+        output[o + 18] = 3000000000u % Gpu.Max(x & 0u, 3u);
+        output[o + 19] = -1431655766 % Gpu.Clamp((int)x, 2, 2);
+
+        // 64-bit constants, which were right, and a variable dividend.
+        long lacc = 0;
+        for (long k = 1; k <= 8; k++)
+        {
+            lacc = (lacc * 31L) + (-1000000000000007L % k) + (long)(4000000000UL / (ulong)k);
+        }
+
+        output[o + 20] = lacc;
+        uint vacc = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            vacc = (vacc * 31u) + ((x | 0x80000001u) % k);
+        }
+
+        output[o + 21] = vacc;
+
+        // A divisor computed in a loop of constants, and one from a constant local.
+        uint d = 1;
+        for (int k = 0; k < 3; k++)
+        {
+            d *= 2;
+        }
+
+        output[o + 22] = 0x9E3779B9u % d;
+        uint e = 6;
+        output[o + 23] = 4000000000u / e;
+        output[o + 24] = 0xFFFF0000u % (e + 4u);
+        output[o + 25] = (long)(0xAAAAAAAAu / (uint)(x % 1u + 2u));
     }
 }

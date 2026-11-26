@@ -58,6 +58,15 @@ public class IntegerMiscompileTests
         Assert.Equal(expected, Statement(body));
 
     [Theory]
+    [InlineData("uints[2] = 1000000007u % u;", "uints[2] = 1000000007u % __ms_nonzero_c(u);")]
+    [InlineData("ints[2] = -1431655766 / b;", "ints[2] = -1431655766 / __ms_nonzero_c(b);")]
+    [InlineData("uint c = 123456789u; uints[2] = c / u;", "uints[2] = c / __ms_nonzero_c(u);")]
+    [InlineData("vectors[1] = new UInt3(1, 2, 3) % v;", "vectors[1] = uint3(1u, 2u, 3u) % __ms_nonzero_c(v);")]
+    [InlineData("uints[2] = (u + 1u) % u;", "uints[2] = (u + 1u) % __ms_nonzero(u);")]
+    public void AConstantDividend_DividesByTheFoldableNonzeroDivisor(string body, string expected) =>
+        Assert.Equal(expected, Statement(body));
+
+    [Theory]
     [InlineData("ints[2] = a / 3;", "ints[2] = a / 3;")]
     [InlineData("ints[2] = a % -7;", "ints[2] = a % -7;")]
     [InlineData("uints[2] = u / 10u;", "uints[2] = u / 10u;")]
@@ -76,8 +85,8 @@ public class IntegerMiscompileTests
     [InlineData("vectors[1] = new UInt3(uint.MaxValue, 1, 2) / v;", "vectors[1] = __ms_div_near_max(uint3(4294967295u, 1u, 2u), v);")]
     [InlineData("vectors[1] = uint.MaxValue % v;", "vectors[1] = __ms_rem_near_max(uint3(4294967295u), v);")]
     // Below 2^32 - 128 the constant is divided as any dividend.
-    [InlineData("uints[2] = 0xFFFFFF7Fu / u;", "uints[2] = 4294967167u / __ms_nonzero(u);")]
-    [InlineData("longs[2] = 4294967296L / l;", "longs[2] = 4294967296L / __ms_nonzero(l);")]
+    [InlineData("uints[2] = 0xFFFFFF7Fu / u;", "uints[2] = 4294967167u / __ms_nonzero_c(u);")]
+    [InlineData("longs[2] = 4294967296L / l;", "longs[2] = 4294967296L / __ms_nonzero_c(l);")]
     public void AConstantDividendNear2To32_IsDividedThroughTheHelper(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
 
