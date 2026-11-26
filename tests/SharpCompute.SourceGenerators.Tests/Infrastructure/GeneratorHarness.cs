@@ -131,10 +131,15 @@ internal sealed record ShaderDescriptor(Type Type, string EntryPoint, string Msl
 
         Assert.True(result.Success, $"Metal rejected the generated MSL:\n{result.Messages}\n\n{MslSource}");
         // An unused local in the C# is an unused local in the MSL; that is the user's code, faithfully
-        // translated. Every other warning would point at something the generator emitted badly.
+        // translated. -Wstack-exhausted is about the thread clang ran on, not about the source: it
+        // appears on some runs under Metal's validation layers (scripts/validate-gpu.sh), for shaders
+        // that compile without it on the next run. Every other warning would point at something the
+        // generator emitted badly.
         string[] warnings = result.Warnings
             .Split("\n", StringSplitOptions.RemoveEmptyEntries)
-            .Where(static line => line.Contains(": warning:", StringComparison.Ordinal) && !line.Contains("[-Wunused-", StringComparison.Ordinal))
+            .Where(static line => line.Contains(": warning:", StringComparison.Ordinal)
+                && !line.Contains("[-Wunused-", StringComparison.Ordinal)
+                && !line.Contains("[-Wstack-exhausted]", StringComparison.Ordinal))
             .ToArray();
 
         Assert.True(warnings.Length == 0, $"Metal reported warnings for the generated MSL:\n{result.Warnings}\n\n{MslSource}");

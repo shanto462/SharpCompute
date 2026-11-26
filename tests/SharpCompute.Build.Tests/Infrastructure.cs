@@ -48,6 +48,17 @@ internal static class Tool
 {
     public static (int ExitCode, string Output) Run(string fileName, string workingDirectory, params string[] arguments)
     {
+        (int exitCode, string output, string error) = RunApplication(fileName, workingDirectory, arguments);
+        return (exitCode, output + error);
+    }
+
+    /// <summary>
+    /// Runs a program and keeps what it wrote to stderr apart from its output. An application that uses
+    /// Metal is run with this one: under Metal's validation layers (<c>scripts/validate-gpu.sh</c>) its
+    /// stderr carries the layers' banners and reports, which are not part of what it prints.
+    /// </summary>
+    public static (int ExitCode, string Output, string Error) RunApplication(string fileName, string workingDirectory, params string[] arguments)
+    {
         ProcessStartInfo info = new(fileName)
         {
             WorkingDirectory = workingDirectory,
@@ -79,7 +90,7 @@ internal static class Tool
         }
 
         process.WaitForExit();
-        return (process.ExitCode, standardOutput.Result + standardError.Result);
+        return (process.ExitCode, standardOutput.Result, standardError.Result);
     }
 
     /// <summary>The <c>dotnet</c> that runs these tests.</summary>
