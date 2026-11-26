@@ -107,7 +107,8 @@ build error `SCG0052`).
   dividend). `long.MinValue / -1`, which overflows in C#, gives `long.MinValue`. Don't depend on
   either.
 - **Division and bit counts go through helpers** that work around bugs in Apple's GPU compiler
-  (verified with Metal compiler 32023.922), which compiles correct MSL into wrong results:
+  (verified with Metal compiler 32023.922; reported to Apple as FB25737964, FB25737954 and
+  FB25737978), which compiles correct MSL into wrong results:
   - It dropped a guard against division by zero: with `t = l == C ? 0 : Math.Abs(l)`,
     `t == 0 ? 0 : x % t` divided by `Abs(C)`, and `t` itself was not 0. It moves the division
     ahead of the guard and then takes the divisor to be nonzero. So an integer `/` or `%` by

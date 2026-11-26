@@ -47,6 +47,8 @@ verified on.
   division, or read it from a buffer. A division by zero, which throws in C# and with `ForCpu`,
   does not trap on the GPU and its result is unspecified. The workarounds were verified with Metal
   compiler 32023.922 (Xcode 27.2, macOS 27.2.1); a later compiler may need them re-checked.
+  Reported to Apple as FB25737964 (the guard), FB25737954 (the constant dividend) and FB25737978
+  (the bit counts).
   ([Integers](shader-language.md#integers))
 - **Float and half results that differ from `ForCpu`**, beyond subnormal flushing and the
   transcendental tolerance (repros in [`KnownDifferencesTests`](../tests/SharpCompute.Differential.Tests/KnownDifferencesTests.cs)):
