@@ -12,6 +12,10 @@ to the page that explains it.
 
 ## Shader language
 
+Several items below come from bugs in Apple's Metal compiler that the generator works around;
+[Metal compiler bugs](metal-compiler-bugs.md) has them in one place, with the toolchain they were
+verified on.
+
 - **Integers.** The 8-, 16- and 64-bit integers are scalars only: there are no vectors of them, the
   SIMD-group operations take `float`, `int`, `uint` and `Half`, and a `static readonly` initializer
   can use their operators and literals but not call an intrinsic on them.

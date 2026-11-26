@@ -27,6 +27,9 @@ C# shader code can run on macOS, Linux, Android and more:
 - The .NET 11 SDK.
 - Optional: the Xcode Metal Toolchain, to [precompile shaders](docs/precompiled-shaders.md) at build
   time. Without it, shaders compile when first used.
+- Tested with macOS 27.2.1, Xcode 27.2 and Metal compiler 32023.922. SharpCompute works around bugs
+  in Apple's Metal compiler that turn correct shader code into wrong results; other macOS or Xcode
+  versions can behave differently. See [Metal compiler bugs](docs/metal-compiler-bugs.md).
 
 ## Quick start
 
@@ -287,8 +290,10 @@ the details.
 - GPU math flushes subnormal floats to zero and fuses multiply-adds by default. `checked` arithmetic
   is a build error (`SCG0052`).
 - Wave matrices are 8 × 8, `float` or `Half`, and need all 32 lanes of a SIMD group.
-- A Metal compiler bug can drop a lane of integer vector arithmetic. The generator works around
-  every negation it can see; write the others as `-v`.
+- Apple's Metal compiler has bugs that turn correct shader code into wrong results (integer vector
+  arithmetic, division, bit counts, conversions). The generator works around each known one, at
+  little or no cost; [Metal compiler bugs](docs/metal-compiler-bugs.md) lists them, the workarounds,
+  the toolchain they were verified on, and what to run after a macOS or Xcode update.
 - On the CPU, SIMD-group operations need uniform control flow, and shared memory and SIMD groups are
   far slower than on the GPU: use them for checking, not bulk work.
 
