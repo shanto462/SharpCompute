@@ -516,7 +516,7 @@ internal sealed class ShaderAnalyzer
             constants.Any(static c => c.Type.NeedsExplicitPacking) ||
             types.Structs.Any(static s => s.Fields.Any(static f => f.Type.NeedsExplicitPacking));
 
-        if (usesPrelude && (prelude = ReadPrelude()) is null)
+        if (usesPrelude && (prelude = ReadPrelude("Source")) is null)
         {
             diagnostics.Report(
                 DiagnosticDescriptors.UnsupportedMethodCall,
@@ -524,6 +524,23 @@ internal sealed class ShaderAnalyzer
                 "__ms_*",
                 "the shader uses an MSL prelude helper, but the referenced SharpCompute assembly has no 'SharpCompute.MslPrelude.Source' constant");
             return translation;
+        }
+
+        if (translator.UsesVectorArithmetic)
+        {
+            // The lane-by-lane sums and differences of integer vectors are a block of their own, after
+            // the prelude: only a shader that adds or subtracts integer vectors carries them.
+            if (ReadPrelude("VectorArithmetic") is not { } vectorArithmetic)
+            {
+                diagnostics.Report(
+                    DiagnosticDescriptors.UnsupportedMethodCall,
+                    _location,
+                    "__ms_*",
+                    "the shader adds or subtracts integer vectors, but the referenced SharpCompute assembly has no 'SharpCompute.MslPrelude.VectorArithmetic' constant");
+                return translation;
+            }
+
+            prelude = prelude is null ? vectorArithmetic : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + vectorArithmetic;
         }
 
         int constantsSize = LayOutConstants(constants, out bool explicitConstants);
@@ -593,10 +610,10 @@ internal sealed class ShaderAnalyzer
         return TypeResolver.AlignUp(offset, alignment);
     }
 
-    /// <summary>Reads <c>SharpCompute.MslPrelude.Source</c> from the referenced SharpCompute assembly.</summary>
-    private string? ReadPrelude() =>
+    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>) from the referenced SharpCompute assembly.</summary>
+    private string? ReadPrelude(string constant) =>
         _semanticModel.Compilation.GetTypeByMetadataName("SharpCompute.MslPrelude")?
-            .GetMembers("Source")
+            .GetMembers(constant)
             .OfType<IFieldSymbol>()
             .FirstOrDefault(static f => f.IsConst)?
             .ConstantValue as string;
@@ -1000,7 +1017,7 @@ internal sealed class ShaderAnalyzer
 
         public bool IsPixelShader { get; }
 
-        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used.</summary>
+        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted.</summary>
         public string? Prelude { get; }
 
         /// <summary>The <c>constexpr sampler</c> declarations of the samplers the shader uses.</summary>

@@ -7,9 +7,12 @@ namespace SharpCompute.SourceGenerators.Tests;
 /// The negation of an integer vector is emitted as the prelude's <c>__ms_neg(v)</c>, never as the
 /// native <c>-v</c>: the Metal compiler miscompiles that operator when a lane of its result is unused
 /// and the same vector is subtracted elsewhere (see <c>MslTranslator.VectorNegation</c>). So are the
-/// operators that negate by a constant, <c>0 - v</c>, <c>v * -1</c> and <c>v / -1</c>; a constant that
-/// negates only some lanes goes through <c>C + __ms_neg(v)</c> or the lane-by-lane <c>__ms_mul</c>.
-/// Floats, halves and scalars keep their operators. Every result is compiled with Metal.
+/// operators that negate by a constant, <c>0 - v</c>, <c>v * -1</c> and <c>v / -1</c>; a product
+/// with a constant that negates only some lanes goes through the lane-by-lane <c>__ms_mul</c>. And
+/// because the compiler derives a negation from other arithmetic too (<c>~v + 1</c>,
+/// <c>v - 2 * v</c>), every sum and difference of integer vectors is lane by lane as well,
+/// <c>__ms_add</c> and <c>__ms_sub</c>, which leaves no vector chain for a negation to be reused
+/// in. Floats, halves and scalars keep their operators. Every result is compiled with Metal.
 /// </summary>
 public class VectorNegationTests
 {
@@ -17,7 +20,7 @@ public class VectorNegationTests
 
     private static ShaderDescriptor Translate(string body, string members = "") => Run(body, members).Verify(Shader);
 
-    private static GeneratorRun Run(string body, string members = "") =>
+    private static GeneratorRun Run(string body, string members = "", string extraBuffer = "ReadWriteBuffer<int> extra") =>
         GeneratorHarness.Run($$"""
             using System;
             using SharpCompute;
@@ -50,9 +53,16 @@ public class VectorNegationTests
                 public static Byte2 operator -(Byte2 v) => new((byte)-v.X, (byte)-v.Y);
             }
 
+            public struct Cell
+            {
+                public Int3 V;
+                public Int2 P;
+                public UInt4 U;
+            }
+
             [GeneratedComputeShaderDescriptor]
             [ThreadGroupSize(64, 1, 1)]
-            public readonly partial struct TestShader(ReadWriteBuffer<int> ints, ReadWriteBuffer<Int3> vectors, ReadWriteBuffer<UInt3> unsigneds, ReadWriteBuffer<Float3> floats, ReadWriteBuffer<long> longs) : IComputeShader
+            public readonly partial struct TestShader(ReadWriteBuffer<int> ints, ReadWriteBuffer<Int3> vectors, ReadWriteBuffer<UInt3> unsigneds, ReadWriteBuffer<Float3> floats, ReadWriteBuffer<long> longs, {{extraBuffer}}) : IComputeShader
             {
                 {{members}}
 
@@ -81,7 +91,7 @@ public class VectorNegationTests
     [InlineData("vectors[0] = -v;", "vectors[0] = __ms_neg(v);")]
     [InlineData("vectors[0] = -vectors[1];", "vectors[0] = __ms_neg(vectors[1]);")]
     [InlineData("vectors[0] = -(-v);", "vectors[0] = __ms_neg(__ms_neg(v));")]
-    [InlineData("vectors[0] = -(v + w);", "vectors[0] = __ms_neg(int3(uint3(v) + uint3(w)));")]
+    [InlineData("vectors[0] = -(v + w);", "vectors[0] = __ms_neg(int3(__ms_add(uint3(v), uint3(w))));")]
     [InlineData("vectors[0] = new Int3(-v.XY, a);", "vectors[0] = int3(__ms_neg(v.xy), a);")]
     [InlineData("vectors[0] = Gpu.Select(v < 0, -v, v);", "vectors[0] = metal::select(v, __ms_neg(v), v < 0);")]
     [InlineData("vectors[0] = -new Int3(a, b, a ^ b) >> 1;", "vectors[0] = __ms_neg(int3(a, b, a ^ b)) >> 1;")]
@@ -89,12 +99,12 @@ public class VectorNegationTests
         Assert.Equal(expected, Statement(body));
 
     [Theory]
-    [InlineData("vectors[0] = w + -v;", "vectors[0] = int3(uint3(w) + __ms_neg(uint3(v)));")]
-    [InlineData("vectors[0] = -v * 3 - w;", "vectors[0] = int3(__ms_neg(uint3(v)) * 3u - uint3(w));")]
-    [InlineData("vectors[0] = w - -(v * 2);", "vectors[0] = int3(uint3(w) - __ms_neg(uint3(v) * 2u));")]
+    [InlineData("vectors[0] = w + -v;", "vectors[0] = int3(__ms_add(uint3(w), __ms_neg(uint3(v))));")]
+    [InlineData("vectors[0] = -v * 3 - w;", "vectors[0] = int3(__ms_sub(__ms_neg(uint3(v)) * 3u, uint3(w)));")]
+    [InlineData("vectors[0] = w - -(v * 2);", "vectors[0] = int3(__ms_sub(uint3(w), __ms_neg(uint3(v) * 2u)));")]
     [InlineData("vectors[0] = w * -vectors[1];", "vectors[0] = int3(uint3(w) * __ms_neg(uint3(vectors[1])));")]
-    [InlineData("w += -v; vectors[0] = w;", "w = int3(uint3(w) + __ms_neg(uint3(v)));")]
-    [InlineData("vectors[Bump(3)] -= -v; vectors[0] = w;", "reinterpret_cast<device packed_uint3&>(vectors[::Bump(3, ints)]) -= __ms_neg(uint3(v));")]
+    [InlineData("w += -v; vectors[0] = w;", "w = __ms_add(w, __ms_neg(v));")]
+    [InlineData("vectors[Bump(3)] -= -v; vectors[0] = w;", "__ms_sub_from(vectors[::Bump(3, ints)], int3(__ms_neg(v)));")]
     public void UnaryMinus_InsideAWrappedChain_NegatesTheUnsignedVectorThroughTheHelper(string body, string expected) =>
         Assert.Contains(expected, Translate(body).KernelBody.Split('\n').Select(static line => line.Trim()));
 
@@ -137,35 +147,35 @@ public class VectorNegationTests
         Assert.Equal(expected, Statement(body));
 
     [Theory]
-    [InlineData("vectors[0] = w + (0 - v);", "vectors[0] = int3(uint3(w) + (__ms_neg(uint3(v))));")]
-    [InlineData("vectors[0] = w - v * -1;", "vectors[0] = int3(uint3(w) - __ms_neg(uint3(v)));")]
-    [InlineData("vectors[0] = (w + v) * -1 + w;", "vectors[0] = int3(__ms_neg(uint3(w) + uint3(v)) + uint3(w));")]
+    [InlineData("vectors[0] = w + (0 - v);", "vectors[0] = int3(__ms_add(uint3(w), __ms_neg(uint3(v))));")]
+    [InlineData("vectors[0] = w - v * -1;", "vectors[0] = int3(__ms_sub(uint3(w), __ms_neg(uint3(v))));")]
+    [InlineData("vectors[0] = (w + v) * -1 + w;", "vectors[0] = int3(__ms_add(__ms_neg(__ms_add(uint3(w), uint3(v))), uint3(w)));")]
     public void ANegationByAConstant_InsideAWrappedChain_NegatesTheUnsignedVector(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
 
     [Theory]
-    [InlineData("vectors[0] = new Int3(0, 5, 0) - v;", "vectors[0] = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(v)));")]
-    [InlineData("vectors[0] = new Int3(7, 0, 9) - vectors[1];", "vectors[0] = int3(uint3(int3(7, 0, 9)) + __ms_neg(uint3(vectors[1])));")]
-    [InlineData("vectors[0] = Offsets - v;", "vectors[0] = int3(uint3(::Offsets) + __ms_neg(uint3(v)));")]
-    [InlineData("vectors[0] = w + (new Int3(0, 5, 0) - v) * 3;", "vectors[0] = int3(uint3(w) + (uint3(int3(0, 5, 0)) + __ms_neg(uint3(v))) * 3u);")]
-    [InlineData("vectors[0] = new Int3(0, 5, 0) - v - w;", "vectors[0] = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(v)) - uint3(w));")]
-    [InlineData("vectors[0] = w - (new Int3(0, 5, 0) - v);", "vectors[0] = int3(uint3(w) - (uint3(int3(0, 5, 0)) + __ms_neg(uint3(v))));")]
-    [InlineData("vectors[0] = new Int3(0, 5, 0) - a;", "vectors[0] = int3(uint3(int3(0, 5, 0)) + __ms_neg(uint3(uint(a))));")]
-    [InlineData("unsigneds[0] = new UInt3(0u, 5u, 0u) - u;", "unsigneds[0] = uint3(0u, 5u, 0u) + __ms_neg(u);")]
-    [InlineData("unsigneds[0] = (new UInt3(0u, 5u, 0u) - u) * 3u;", "unsigneds[0] = (uint3(0u, 5u, 0u) + __ms_neg(u)) * 3u;")]
-    [InlineData("unsigneds[0] = u - (new UInt3(0u, 5u, 0u) - u);", "unsigneds[0] = u - (uint3(0u, 5u, 0u) + __ms_neg(u));")]
-    public void ADifference_FromAConstantWithAZeroLane_AddsTheNegation(string body, string expected) =>
+    [InlineData("vectors[0] = new Int3(0, 5, 0) - v;", "vectors[0] = int3(__ms_sub(uint3(int3(0, 5, 0)), uint3(v)));")]
+    [InlineData("vectors[0] = new Int3(7, 0, 9) - vectors[1];", "vectors[0] = int3(__ms_sub(uint3(int3(7, 0, 9)), uint3(vectors[1])));")]
+    [InlineData("vectors[0] = Offsets - v;", "vectors[0] = int3(__ms_sub(uint3(::Offsets), uint3(v)));")]
+    [InlineData("vectors[0] = w + (new Int3(0, 5, 0) - v) * 3;", "vectors[0] = int3(__ms_add(uint3(w), (__ms_sub(uint3(int3(0, 5, 0)), uint3(v))) * 3u));")]
+    [InlineData("vectors[0] = new Int3(0, 5, 0) - v - w;", "vectors[0] = int3(__ms_sub(__ms_sub(uint3(int3(0, 5, 0)), uint3(v)), uint3(w)));")]
+    [InlineData("vectors[0] = w - (new Int3(0, 5, 0) - v);", "vectors[0] = int3(__ms_sub(uint3(w), __ms_sub(uint3(int3(0, 5, 0)), uint3(v))));")]
+    [InlineData("vectors[0] = new Int3(0, 5, 0) - a;", "vectors[0] = int3(__ms_sub(uint3(int3(0, 5, 0)), uint3(uint(a))));")]
+    [InlineData("unsigneds[0] = new UInt3(0u, 5u, 0u) - u;", "unsigneds[0] = __ms_sub(uint3(0u, 5u, 0u), u);")]
+    [InlineData("unsigneds[0] = (new UInt3(0u, 5u, 0u) - u) * 3u;", "unsigneds[0] = (__ms_sub(uint3(0u, 5u, 0u), u)) * 3u;")]
+    [InlineData("unsigneds[0] = u - (new UInt3(0u, 5u, 0u) - u);", "unsigneds[0] = __ms_sub(u, __ms_sub(uint3(0u, 5u, 0u), u));")]
+    public void ADifference_FromAConstantWithAZeroLane_IsSubtractedLaneByLane(string body, string expected) =>
         Assert.Equal(expected, Statement(body, "private static readonly Int3 Offsets = new Int3(4, 0, 0);"));
 
     [Theory]
     [InlineData("vectors[0] = v * new Int3(-1, 7, -1);", "vectors[0] = __ms_mul(v, int3(-1, 7, -1));")]
     [InlineData("vectors[0] = new Int3(1, -1, 1) * v;", "vectors[0] = __ms_mul(int3(1, -1, 1), v);")]
     [InlineData("vectors[0] = vectors[1] * Flip;", "vectors[0] = __ms_mul(vectors[1], ::Flip);")]
-    [InlineData("vectors[0] = w + v * new Int3(1, -1, 1);", "vectors[0] = int3(uint3(w) + __ms_mul(uint3(v), uint3(int3(1, -1, 1))));")]
-    [InlineData("vectors[0] = (v + w) * new Int3(1, 1, -1) - w;", "vectors[0] = int3(__ms_mul(uint3(v) + uint3(w), uint3(int3(1, 1, -1))) - uint3(w));")]
+    [InlineData("vectors[0] = w + v * new Int3(1, -1, 1);", "vectors[0] = int3(__ms_add(uint3(w), __ms_mul(uint3(v), uint3(int3(1, -1, 1)))));")]
+    [InlineData("vectors[0] = (v + w) * new Int3(1, 1, -1) - w;", "vectors[0] = int3(__ms_sub(__ms_mul(__ms_add(uint3(v), uint3(w)), uint3(int3(1, 1, -1))), uint3(w)));")]
     [InlineData("vectors[0] = a * new Int3(1, -1, 1);", "vectors[0] = __ms_mul(int3(a), int3(1, -1, 1));")]
     [InlineData("unsigneds[0] = u * new UInt3(uint.MaxValue, 7u, 1u);", "unsigneds[0] = __ms_mul(u, uint3(4294967295u, 7u, 1u));")]
-    [InlineData("unsigneds[0] = new UInt3(1u, 0xFFFFFFFFu, 1u) * u + u;", "unsigneds[0] = __ms_mul(uint3(1u, 4294967295u, 1u), u) + u;")]
+    [InlineData("unsigneds[0] = new UInt3(1u, 0xFFFFFFFFu, 1u) * u + u;", "unsigneds[0] = __ms_add(__ms_mul(uint3(1u, 4294967295u, 1u), u), u);")]
     public void AProduct_WithAConstantWithALaneOfMinusOne_IsMultipliedLaneByLane(string body, string expected) =>
         Assert.Equal(expected, Statement(body, "private static readonly Int3 Flip = new Int3(1, -1, 1);"));
 
@@ -173,7 +183,7 @@ public class VectorNegationTests
     // The scalar is negated in every lane.
     [InlineData("vectors[0] = new Int3(0) - a;", "vectors[0] = __ms_neg(int3(a));")]
     [InlineData("vectors[0] = a * new Int3(-1);", "vectors[0] = __ms_neg(int3(a));")]
-    [InlineData("vectors[0] = w + (new Int3(0) - a);", "vectors[0] = int3(uint3(w) + (__ms_neg(uint3(uint(a)))));")]
+    [InlineData("vectors[0] = w + (new Int3(0) - a);", "vectors[0] = int3(__ms_add(uint3(w), __ms_neg(uint3(uint(a)))));")]
     [InlineData("unsigneds[0] = new UInt3(0) - (uint)a;", "unsigneds[0] = __ms_neg(uint3(uint(a)));")]
     public void ANegationByAConstant_OfAScalar_NegatesItInEveryLane(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
@@ -223,22 +233,158 @@ public class VectorNegationTests
     }
 
     [Theory]
-    [InlineData("vectors[0] = v - new Int3(0);", "vectors[0] = int3(uint3(v) - uint3(int3(0)));")]
-    [InlineData("vectors[0] = 1 - v;", "vectors[0] = int3(1u - uint3(v));")]
     [InlineData("vectors[0] = v * 1;", "vectors[0] = int3(uint3(v) * 1u);")]
     [InlineData("vectors[0] = v % -1;", "vectors[0] = v % -1;")]
     [InlineData("vectors[0] = -1 / v;", "vectors[0] = -1 / v;")]
     [InlineData("vectors[0] = v * a;", "vectors[0] = int3(uint3(v) * uint(a));")]
-    [InlineData("vectors[0] = ~v + 1;", "vectors[0] = int3(uint3(~v) + 1u);")]
-    // No lane of these constants negates: no zero on the left of a difference, no minus one in a product.
-    [InlineData("vectors[0] = new Int3(1, 5, 2) - v;", "vectors[0] = int3(uint3(int3(1, 5, 2)) - uint3(v));")]
-    [InlineData("vectors[0] = v - new Int3(0, 5, 0);", "vectors[0] = int3(uint3(v) - uint3(int3(0, 5, 0)));")]
-    [InlineData("vectors[0] = v + new Int3(0, -1, 0);", "vectors[0] = int3(uint3(v) + uint3(int3(0, -1, 0)));")]
+    // No lane of this constant is minus one.
     [InlineData("vectors[0] = v * new Int3(2, 7, 1);", "vectors[0] = int3(uint3(v) * uint3(int3(2, 7, 1)));")]
     // A division by a constant with a lane of minus one does not lose a lane.
     [InlineData("vectors[0] = v / new Int3(-1, 7, -1);", "vectors[0] = v / int3(-1, 7, -1);")]
     public void OtherOperators_OnIntVectors_AreUnchanged(string body, string expected) =>
         Assert.Equal(expected, Statement(body));
+
+    [Theory]
+    // An int vector: lane by lane inside the unsigned chain, where the lanes wrap as in C#.
+    [InlineData("vectors[0] = v + w;", "vectors[0] = int3(__ms_add(uint3(v), uint3(w)));")]
+    [InlineData("vectors[0] = v - w;", "vectors[0] = int3(__ms_sub(uint3(v), uint3(w)));")]
+    [InlineData("vectors[0] = v - new Int3(0);", "vectors[0] = int3(__ms_sub(uint3(v), uint3(int3(0))));")]
+    [InlineData("vectors[0] = new Int3(1, 5, 2) - v;", "vectors[0] = int3(__ms_sub(uint3(int3(1, 5, 2)), uint3(v)));")]
+    [InlineData("vectors[0] = v - new Int3(0, 5, 0);", "vectors[0] = int3(__ms_sub(uint3(v), uint3(int3(0, 5, 0))));")]
+    [InlineData("vectors[0] = v + new Int3(0, -1, 0);", "vectors[0] = int3(__ms_add(uint3(v), uint3(int3(0, -1, 0))));")]
+    [InlineData("vectors[0] = vectors[1] + vectors[2];", "vectors[0] = int3(__ms_add(uint3(vectors[1]), uint3(vectors[2])));")]
+    // A scalar operand is converted to the vector, as MSL would broadcast it.
+    [InlineData("vectors[0] = 1 - v;", "vectors[0] = int3(__ms_sub(uint3(1u), uint3(v)));")]
+    [InlineData("vectors[0] = v + a;", "vectors[0] = int3(__ms_add(uint3(v), uint3(uint(a))));")]
+    // The shapes that only amount to a negation: none is left a vector sum or difference.
+    [InlineData("vectors[0] = ~v + 1;", "vectors[0] = int3(__ms_add(uint3(~v), uint3(1u)));")]
+    [InlineData("vectors[0] = v - 2 * v;", "vectors[0] = int3(__ms_sub(uint3(v), 2u * uint3(v)));")]
+    [InlineData("vectors[0] = v - (v + v);", "vectors[0] = int3(__ms_sub(uint3(v), __ms_add(uint3(v), uint3(v))));")]
+    [InlineData("vectors[0] = v - (v << 1);", "vectors[0] = int3(__ms_sub(uint3(v), uint3(v << 1)));")]
+    [InlineData("vectors[0] = v + (-v);", "vectors[0] = int3(__ms_add(uint3(v), __ms_neg(uint3(v))));")]
+    [InlineData("vectors[0] = (0 - v) - v;", "vectors[0] = int3(__ms_sub(__ms_neg(uint3(v)), uint3(v)));")]
+    [InlineData("vectors[0] = ~(v - 1);", "vectors[0] = ~(int3(__ms_sub(uint3(v), uint3(1u))));")]
+    // Inside a product, which keeps its operator.
+    [InlineData("vectors[0] = (v + w) * 3 - w;", "vectors[0] = int3(__ms_sub((__ms_add(uint3(v), uint3(w))) * 3u, uint3(w)));")]
+    // A uint vector, which has no chain to be in.
+    [InlineData("unsigneds[0] = u + u;", "unsigneds[0] = __ms_add(u, u);")]
+    [InlineData("unsigneds[0] = u - unsigneds[2];", "unsigneds[0] = __ms_sub(u, unsigneds[2]);")]
+    [InlineData("unsigneds[0] = ~u + 1u;", "unsigneds[0] = __ms_add(~u, uint3(1u));")]
+    [InlineData("unsigneds[0] = u - 2u * u;", "unsigneds[0] = __ms_sub(u, 2u * u);")]
+    [InlineData("unsigneds[0] = u * 3u + 7u - u;", "unsigneds[0] = __ms_sub(__ms_add(u * 3u, uint3(7u)), u);")]
+    public void SumsAndDifferences_OfIntegerVectors_AreLaneByLane(string body, string expected) =>
+        Assert.Equal(expected, Statement(body));
+
+    [Theory]
+    // Nothing has side effects: the helper's result is assigned.
+    [InlineData("w += v; vectors[0] = w;", "w = __ms_add(w, v);")]
+    [InlineData("w -= v * 2; vectors[0] = w;", "w = __ms_sub(w, int3(uint3(v) * 2u));")]
+    [InlineData("w -= 1; vectors[0] = w;", "w = __ms_sub(w, int3(1));")]
+    [InlineData("vectors[i] += v;", "vectors[i] = __ms_add(vectors[i], v);")]
+    [InlineData("vectors[i] -= vectors[i + 1];", "vectors[i] = __ms_sub(vectors[i], vectors[int(uint(i) + 1u)]);")]
+    [InlineData("u += u; unsigneds[0] = u;", "u = __ms_add(u, u);")]
+    [InlineData("unsigneds[i] -= 3u;", "unsigneds[i] = __ms_sub(unsigneds[i], uint3(3u));")]
+    // Components of a vector are a vector too.
+    [InlineData("w.XY += v.XY; vectors[0] = w;", "w.xy = __ms_add(w.xy, v.xy);")]
+    // Side effects in the target or in the value: the target is named once, through a reference.
+    [InlineData("vectors[Bump(3)] += v;", "__ms_add_to(vectors[::Bump(3, ints)], v);")]
+    [InlineData("vectors[Bump(3)] -= new Int3(a);", "__ms_sub_from(vectors[::Bump(3, ints)], int3(a));")]
+    [InlineData("vectors[Bump(3)] -= a;", "__ms_sub_from(vectors[::Bump(3, ints)], int3(a));")]
+    [InlineData("vectors[Bump(3)] += vectors[1];", "__ms_add_to(vectors[::Bump(3, ints)], int3(vectors[1]));")]
+    [InlineData("unsigneds[Bump(3)] += u * 2u;", "__ms_add_to(unsigneds[::Bump(3, ints)], uint3(u * 2u));")]
+    [InlineData("w += new Int3(Bump(3)); vectors[0] = w;", "__ms_add_to(w, int3(::Bump(3, ints)));")]
+    // The value of the assignment is the helper's result.
+    [InlineData("vectors[0] = vectors[Bump(3)] += v;", "vectors[0] = __ms_add_to(vectors[::Bump(3, ints)], v);")]
+    public void CompoundSumsAndDifferences_OfIntegerVectors_AreLaneByLane(string body, string expected) =>
+        Assert.Contains(expected, Translate(body).KernelBody.Split('\n').Select(static line => line.Trim()));
+
+    [Fact]
+    public void ACompoundSum_OnComponentsWhoseExpressionHasSideEffects_IsUnsupported()
+    {
+        // Components bind no reference, the assignment would name the target twice, and the native
+        // operator is a vector sum.
+        Diagnostic diagnostic = Run("cells[Bump(3)].V.XY += v.XY;", "", "ReadWriteBuffer<Cell> cells").AssertOnlyDiagnostic("SCG0012", "cells[Bump(3)].V.XY += v.XY");
+
+        Assert.Contains("'+=' on components of an integer vector whose expression has side effects", diagnostic.GetMessage());
+        Assert.Contains("put the index in a local first", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void SumsOfUserVectorsOfAnyIntegerType_AreLaneByLane()
+    {
+        string[] lines = Translate(
+            """
+            Long3 wide = new Long3(a, b, a ^ b);
+            Long3 difference = wide - new Long3(1, 2, 3);
+            difference -= wide;
+            longs[0] = difference.X;
+            """).KernelBody.Split('\n').Select(static line => line.Trim()).ToArray();
+
+        Assert.Contains("long3 difference = __ms_sub(wide, long3(1L, 2L, 3L));", lines);
+        Assert.Contains("difference = __ms_sub(difference, wide);", lines);
+    }
+
+    [Fact]
+    public void TheSumHelpers_AreABlockOfTheirOwn_WhichOnlyAShaderThatUsesThemCarries()
+    {
+        ShaderDescriptor sum = Translate("vectors[0] = v + w;");
+        ShaderDescriptor negation = Translate("vectors[0] = -v;");
+        ShaderDescriptor both = Translate("vectors[0] = -v + w;");
+
+        Assert.Contains(MslPrelude.VectorArithmetic, sum.MslSource);
+        Assert.DoesNotContain("__ms_neg", sum.MslSource);
+        Assert.DoesNotContain("__ms_add", negation.MslSource);
+        Assert.Contains(MslPrelude.Source, negation.MslSource);
+
+        // The prelude first, then the block.
+        Assert.True(both.MslSource.IndexOf(MslPrelude.Source, System.StringComparison.Ordinal) < both.MslSource.IndexOf(MslPrelude.VectorArithmetic, System.StringComparison.Ordinal));
+
+        foreach (string scalar in new[] { "char", "uchar", "short", "ushort", "int", "uint", "long", "ulong" })
+        {
+            for (int width = 2; width <= 4; width++)
+            {
+                Assert.Contains($"inline {scalar}{width} __ms_add({scalar}{width} a, {scalar}{width} b) {{ return {scalar}{width}(", MslPrelude.VectorArithmetic);
+                Assert.Contains($"inline {scalar}{width} __ms_sub({scalar}{width} a, {scalar}{width} b) {{ return {scalar}{width}(", MslPrelude.VectorArithmetic);
+            }
+        }
+
+        // Each lane wraps: a signed lane is computed in the unsigned type of its width.
+        Assert.Contains("inline int3 __ms_add(int3 a, int3 b) { return int3(int(uint(a.x) + uint(b.x)), int(uint(a.y) + uint(b.y)), int(uint(a.z) + uint(b.z))); }", MslPrelude.VectorArithmetic);
+        Assert.Contains("inline uint2 __ms_sub(uint2 a, uint2 b) { return uint2(a.x - b.x, a.y - b.y); }", MslPrelude.VectorArithmetic);
+        Assert.Contains("inline short2 __ms_sub(short2 a, short2 b) { return short2(short(ushort(a.x) - ushort(b.x)), short(ushort(a.y) - ushort(b.y))); }", MslPrelude.VectorArithmetic);
+
+        // No helper adds or subtracts vectors, and the by-reference forms exist for each address space.
+        Assert.DoesNotContain("a + b", MslPrelude.VectorArithmetic);
+        Assert.DoesNotContain("a - b", MslPrelude.VectorArithmetic);
+
+        foreach (string space in new[] { "thread", "device", "threadgroup" })
+        {
+            Assert.Contains($"template <typename T, typename V> inline V __ms_add_to({space} T& target, V value) {{ V result = __ms_add(V(target), value); target = result; return result; }}", MslPrelude.VectorArithmetic);
+            Assert.Contains($"template <typename T, typename V> inline V __ms_sub_from({space} T& target, V value) {{ V result = __ms_sub(V(target), value); target = result; return result; }}", MslPrelude.VectorArithmetic);
+        }
+    }
+
+    [Fact]
+    public void TheByReferenceHelpers_CompileForEveryKindOfTarget()
+    {
+        // A local, a buffer element (packed), a struct field in a buffer, a [GroupShared] element and
+        // a struct local's field, each with side effects in the target or the value.
+        Run(
+            """
+            Int3 local = v;
+            local += new Int3(Bump(3));
+            vectors[Bump(3)] += local;
+            cells[Bump(3)].V -= local;
+            cells[Bump(3)].P += local.XY;
+            cells[Bump(3)].U -= new UInt4(u, 1u);
+            Tile[Bump(3) & 63] += local;
+            Cell cell = cells[i];
+            cell.V -= new Int3(Bump(3));
+            cells[i] = cell;
+            """,
+            "[GroupShared] private static readonly Int3[] Tile = new Int3[64];",
+            "ReadWriteBuffer<Cell> cells").Verify(Shader);
+    }
 
     [Fact]
     public void FloatAndHalfVectors_AndScalars_KeepTheirOperators_AndNeedNoPrelude()
@@ -301,7 +447,8 @@ public class VectorNegationTests
             Short4 negatedSmall = -small;
             Byte2 bytes = new Byte2((byte)a, (byte)b);
             Byte2 negatedBytes = -bytes;
-            // The folder evaluates int and uint constants only: these keep their operators.
+            // The folder evaluates int and uint constants only: the product keeps its operator, and the
+            // difference is one like any other.
             Long3 scaled = wide * -1L;
             Long3 zeroMinus = default(Long3) - wide;
             longs[0] = negatedWide.X + negatedSmall.W + negatedBytes.Y + scaled.Y + zeroMinus.Z;
@@ -311,14 +458,14 @@ public class VectorNegationTests
         Assert.Contains("short4 negatedSmall = __ms_neg(small);", lines);
         Assert.Contains("uchar2 negatedBytes = __ms_neg(bytes);", lines);
         Assert.Contains("long3 scaled = wide * -1L;", lines);
-        Assert.Contains("long3 zeroMinus = long3(0) - wide;", lines);
+        Assert.Contains("long3 zeroMinus = __ms_sub(long3(0), wide);", lines);
     }
 
     [Fact]
     public void AProgramScopeInitializer_KeepsTheNativeOperator_BecauseItMayNotCallAFunction()
     {
         ShaderDescriptor descriptor = Translate(
-            "vectors[0] = Flipped + Mirrored + Scaled + Shifted + Turned;",
+            "vectors[0] = Flipped; vectors[1] = Mirrored; vectors[2] = Scaled; vectors[3] = Shifted; vectors[4] = Turned; vectors[5] = Summed;",
             """
             private static readonly Int3 Offsets = new Int3(1, -2, int.MinValue);
             private static readonly Int3 Flipped = -Offsets;
@@ -326,6 +473,7 @@ public class VectorNegationTests
             private static readonly Int3 Scaled = Offsets * -1;
             private static readonly Int3 Shifted = new Int3(0, 5, 0) - Offsets;
             private static readonly Int3 Turned = Offsets * new Int3(1, -1, 1);
+            private static readonly Int3 Summed = Offsets + new Int3(1, 2, 3);
             """);
 
         Assert.Contains("constant int3 Flipped = int3(-uint3(::Offsets));", descriptor.MslSource);
@@ -333,6 +481,7 @@ public class VectorNegationTests
         Assert.Contains("constant int3 Scaled = int3(uint3(::Offsets) * uint(-1));", descriptor.MslSource);
         Assert.Contains("constant int3 Shifted = int3(uint3(int3(0, 5, 0)) - uint3(::Offsets));", descriptor.MslSource);
         Assert.Contains("constant int3 Turned = int3(uint3(::Offsets) * uint3(int3(1, -1, 1)));", descriptor.MslSource);
+        Assert.Contains("constant int3 Summed = int3(uint3(::Offsets) + uint3(int3(1, 2, 3)));", descriptor.MslSource);
         Assert.DoesNotContain("__ms_", descriptor.MslSource);
     }
 

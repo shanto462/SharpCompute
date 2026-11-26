@@ -609,7 +609,7 @@ public class TranslationTests
             float2 g = metal::fmod(e, b);
             float2 h = float2(1.5f);
             int2 i = int2(e);
-            int2 j = int2((uint2(i) + uint2(i)) * 2u) & (i >> 1);
+            int2 j = int2((__ms_add(uint2(i), uint2(i))) * 2u) & (i >> 1);
             int2 k = ~j % i;
             float2 l = float2(k);
             d.xy = l;

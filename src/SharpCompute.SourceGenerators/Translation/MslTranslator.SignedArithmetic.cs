@@ -12,8 +12,9 @@ namespace SharpCompute.SourceGenerators;
 /// type of the same width, whose arithmetic is defined modulo 2^n, and converted back:
 /// <c>a * b + c</c> on <c>int</c>s is <c>int(uint(a) * uint(b) + uint(c))</c>. The conversion back
 /// keeps the bits (Apple GPUs are two's complement, as C# is), so the result is C#'s, bit for bit.
-/// The negation of a vector is the exception: it goes through the prelude's <c>__ms_neg</c>, inside
-/// a chain as <c>__ms_neg(uint3(v))</c> (see <c>MslTranslator.VectorNegation</c>).
+/// The negation, sum and difference of vectors are the exception: they go through the lane-by-lane
+/// helpers <c>__ms_neg</c>, <c>__ms_add</c> and <c>__ms_sub</c>, inside a chain as
+/// <c>__ms_add(uint3(a) * uint3(b), uint3(c))</c> (see <c>MslTranslator.VectorNegation</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -100,8 +101,16 @@ internal sealed partial class MslTranslator
 
         if (UnsignedArithmeticType(operation.Type) == unsigned && LaneNegation(operation, unsigned) is { } lanes)
         {
-            // A constant that negates some lanes: `uint3(C) + __ms_neg(uint3(v))`, `__ms_mul(uint3(v), uint3(C))`.
+            // A constant that negates some lanes: `__ms_mul(uint3(v), uint3(C))`.
             return lanes;
+        }
+
+        if (UnsignedArithmeticType(operation.Type) == unsigned && VectorSum(operation, unsigned) is { } sum)
+        {
+            // `+` and `-` on an int vector inside a chain: `__ms_add(uint3(a), uint3(b))`, lane by
+            // lane, so that the Metal compiler has no vector chain to reuse a negation in (see
+            // MslTranslator.VectorNegation).
+            return sum;
         }
 
         switch (operation)

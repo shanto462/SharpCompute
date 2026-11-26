@@ -85,10 +85,10 @@ public class BitAndMathIntrinsicTests
             i[1] = int(uint(metal::popcount(i[0])) + uint(metal::clz(i[0])) + uint(metal::ctz(i[0])) + uint(metal::reverse_bits(i[0])));
             u[1] = metal::popcount(u[0]) + metal::clz(u[0]) + metal::ctz(u[0]) + metal::reverse_bits(u[0]);
             uint4 raw = uint4(u[0], 1u, 2u, 3u);
-            uint4 counted = metal::popcount(raw) + metal::clz(raw) + metal::ctz(raw) + metal::reverse_bits(raw);
+            uint4 counted = __ms_add(__ms_add(__ms_add(metal::popcount(raw), metal::clz(raw)), metal::ctz(raw)), metal::reverse_bits(raw));
             int2 pair = int2(i[0], -1);
-            int2 signedCounts = int2(uint2(metal::popcount(pair)) + uint2(metal::clz(pair)) + uint2(metal::ctz(pair)) + uint2(metal::reverse_bits(pair)));
-            uint3 three = metal::popcount(raw.xyz) + metal::reverse_bits(raw.zyx);
+            int2 signedCounts = int2(__ms_add(__ms_add(__ms_add(uint2(metal::popcount(pair)), uint2(metal::clz(pair))), uint2(metal::ctz(pair))), uint2(metal::reverse_bits(pair))));
+            uint3 three = __ms_add(metal::popcount(raw.xyz), metal::reverse_bits(raw.zyx));
             u[2] = counted.x + uint(signedCounts.y) + three.z;
             """,
             """

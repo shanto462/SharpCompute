@@ -441,8 +441,7 @@ internal sealed partial class MslTranslator
         {
             // `-v` on an integer vector: `__ms_neg(v)`. The Metal compiler miscompiles the native
             // operator when a lane of its result is unused and `v` is subtracted elsewhere (see
-            // MslTranslator.VectorNegation). A negation the generator cannot see, such as `~v + 1`,
-            // is still exposed to that bug until Apple fixes it.
+            // MslTranslator.VectorNegation).
             return negation;
         }
 
@@ -545,8 +544,7 @@ internal sealed partial class MslTranslator
 
         if (LaneNegation(operation) is { } lanes)
         {
-            // A constant that negates some lanes, `new UInt3(0, 5, 0) - v` or `v * new Int3(1, -1, 1)`:
-            // `C + __ms_neg(v)` or `__ms_mul(v, C)`. (The difference of an int vector wraps: below.)
+            // A constant that negates some lanes, `v * new Int3(1, -1, 1)`: `__ms_mul(v, C)`.
             return lanes;
         }
 
@@ -554,6 +552,13 @@ internal sealed partial class MslTranslator
         {
             // Signed `+`, `-` and `*` are computed unsigned, where overflow wraps as in C#.
             return wrapped;
+        }
+
+        if (VectorSum(operation) is { } sum)
+        {
+            // `+` and `-` on the other integer vectors (uint, and the [MslType] ones): `__ms_add(a, b)`,
+            // lane by lane, as inside the chain of an int vector (see MslTranslator.VectorNegation).
+            return sum;
         }
 
         Expr left = Expression(operation.LeftOperand);
@@ -678,6 +683,12 @@ internal sealed partial class MslTranslator
         {
             // `v *= -1` on an integer vector: `v = __ms_neg(v)`.
             return negation;
+        }
+
+        if (!packed && VectorSumAssignment(operation, target, text) is { } sum)
+        {
+            // `v += w` on an integer vector: `v = __ms_add(v, w)`, or `__ms_add_to(v, int3(w))`.
+            return sum;
         }
 
         if (!packed && SignedCompoundAssignment(operation, target, text, precedence) is { } wrapped)
