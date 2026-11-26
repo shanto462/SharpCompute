@@ -9,8 +9,10 @@ inline int __ms_nonzero_c(int x) { uint u = uint(x); return int(u | (((u - 1u) &
 inline uint __ms_nonzero_c(uint x) { uint u = uint(x); return uint(u | (((u - 1u) & ~u) >> 31)); }
 inline long __ms_nonzero_c(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
 inline ulong __ms_nonzero_c(ulong x) { ulong u = ulong(x); return ulong(u | (((u - 1UL) & ~u) >> 63)); }
+inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero_c(b) + 1u; }
+inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero_c(b); }
 
-constant int Slots = 26;
+constant int Slots = 28;
 
 struct __GridWindow
 {
@@ -147,4 +149,13 @@ kernel void SharpCompute_Differential_Tests_LateConstantDivisors(
     output[int(uint(o) + 23u)] = long(4000000000u / __ms_nonzero_c(e));
     output[int(uint(o) + 24u)] = long(4294901760u % __ms_nonzero_c(e + 4u));
     output[int(uint(o) + 25u)] = long(2863311530u / __ms_nonzero_c(x % 1u + 2u));
+    uint m0 = 0u;
+    uint m1 = 0u;
+    for (uint k = 1u; k <= 8u; k++)
+    {
+        m0 = (m0 * 31u) + (__ms_rem_near_max(4294967295u, k));
+        m1 = (m1 * 31u) + (__ms_div_near_max(4294967184u, k));
+    }
+    output[int(uint(o) + 26u)] = long(m0);
+    output[int(uint(o) + 27u)] = long(m1);
 }

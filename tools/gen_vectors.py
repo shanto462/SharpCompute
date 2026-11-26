@@ -995,12 +995,12 @@ def integers_msl() -> list[str]:
             one, top = ("1u", 31) if t.bits == 32 else ("1UL", 63)
             lines.append(f"inline {v} {PRELUDE_NONZERO_OF_CONSTANT}({v} x) {{ {u} u = {u}(x); return {v}(u | (((u - {one}) & ~u) >> {top})); }}")
     for t, zero, one in (("uint", "0u", "1u"), ("ulong", "0UL", "1UL")):
-        lines.append(f"inline {t} {PRELUDE_DIV_NEAR_MAX}({t} a, {t} b) {{ return b > a ? {zero} : (a - b) / {PRELUDE_NONZERO}(b) + {one}; }}")
-        lines.append(f"inline {t} {PRELUDE_REM_NEAR_MAX}({t} a, {t} b) {{ return b > a ? a : (a - b) % {PRELUDE_NONZERO}(b); }}")
+        lines.append(f"inline {t} {PRELUDE_DIV_NEAR_MAX}({t} a, {t} b) {{ return b > a ? {zero} : (a - b) / {PRELUDE_NONZERO_OF_CONSTANT}(b) + {one}; }}")
+        lines.append(f"inline {t} {PRELUDE_REM_NEAR_MAX}({t} a, {t} b) {{ return b > a ? a : (a - b) % {PRELUDE_NONZERO_OF_CONSTANT}(b); }}")
     for n in (2, 3, 4):
         v = f"uint{n}"
-        lines.append(f"inline {v} {PRELUDE_DIV_NEAR_MAX}({v} a, {v} b) {{ return metal::select((a - b) / {PRELUDE_NONZERO}(b) + 1u, {v}(0u), b > a); }}")
-        lines.append(f"inline {v} {PRELUDE_REM_NEAR_MAX}({v} a, {v} b) {{ return metal::select((a - b) % {PRELUDE_NONZERO}(b), a, b > a); }}")
+        lines.append(f"inline {v} {PRELUDE_DIV_NEAR_MAX}({v} a, {v} b) {{ return metal::select((a - b) / {PRELUDE_NONZERO_OF_CONSTANT}(b) + 1u, {v}(0u), b > a); }}")
+        lines.append(f"inline {v} {PRELUDE_REM_NEAR_MAX}({v} a, {v} b) {{ return metal::select((a - b) % {PRELUDE_NONZERO_OF_CONSTANT}(b), a, b > a); }}")
     magnitude = "{0} < 0L ? 0UL - ulong({0}) : ulong({0})"
     lines.append(
         f"inline long {PRELUDE_DIV_NEAR_MAX}(long a, long b) {{ ulong q = {PRELUDE_DIV_NEAR_MAX}({magnitude.format('a')}, {magnitude.format('b')}); "

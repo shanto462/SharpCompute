@@ -62,9 +62,10 @@ Costs are GPU time on an Apple M4 Pro, from the pull request that added each wor
   constant initializer that is never written is recognized (`uint m = uint.MaxValue; ... m / x`
   takes the workaround). Write the constant in the division, or read it from a buffer.
 - **A constant divided by `Gpu.ReverseBits` of a constant** (`2863311530u % Gpu.ReverseBits(0x40000000u)`,
-  4294967212 instead of 0), and a constant dividend the generator cannot see (a helper's parameter)
-  by a divisor that becomes a constant only in an unrolled loop, are still folded wrongly by the GPU
-  compiler for most even divisors. `KnownDifferencesTests.DivisionByReverseBitsOfAConstant` pins the
+  4294967212 instead of 0), and a dividend that becomes a constant only in the compiler (a helper's
+  parameter, a compound assignment such as `q /= k` on a constant local, or an expression of the
+  loop counter such as `(3000000000u + k) % k`), divided by a divisor that is constant only after a
+  loop is unrolled, are still folded wrongly by the GPU compiler for most even divisors. `KnownDifferencesTests.DivisionByReverseBitsOfAConstant` pins the
   first. Write the divisor's constant, or read it from a buffer.
 - **A compiler service crash** (FB25737990) on some combinations of integer statements has no
   general workaround: the first dispatch throws `ShaderCompilationException`. Changing any of the

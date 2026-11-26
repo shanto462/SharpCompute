@@ -140,7 +140,7 @@ internal sealed partial class MslTranslator
             // The long ones divide the magnitudes as ulong; each divides by a nonzero divisor.
             string unsigned = type == "long" ? "ulong" : type;
             _integerHelpers.Add(helper + "(" + unsigned);
-            UseIntegerHelper(MslNames.NonZero, unsigned);
+            UseIntegerHelper(MslNames.NonZeroOfConstant, unsigned);
         }
     }
 
@@ -291,11 +291,20 @@ internal sealed partial class MslTranslator
         IOperation child = reference;
         IOperation? parent = reference.Parent;
 
-        // A tuple element of a deconstruction target is written like the target itself.
-        while (parent is ITupleOperation)
+        // A tuple element of a deconstruction target is written like the target itself, and so is a
+        // field, property or swizzle of the local (`v.X = x`, `v.X++`, `F(ref v.X)`).
+        while (parent is ITupleOperation ||
+               parent is IFieldReferenceOperation field && field.Instance == child ||
+               parent is IPropertyReferenceOperation property && property.Instance == child)
         {
             child = parent;
             parent = parent.Parent;
+        }
+
+        if (parent is IInvocationOperation invocation && invocation.Instance == child)
+        {
+            // A method of the local's struct may change it.
+            return true;
         }
 
         return parent switch

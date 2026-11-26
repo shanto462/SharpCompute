@@ -425,7 +425,7 @@ public readonly partial struct FoldedDivisions(ReadOnlyBuffer<ulong> input, Read
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct LateConstantDivisors(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
 {
-    public const int Slots = 26;
+    public const int Slots = 28;
 
     public void Execute()
     {
@@ -572,5 +572,17 @@ public readonly partial struct LateConstantDivisors(ReadOnlyBuffer<ulong> input,
         output[o + 23] = 4000000000u / e;
         output[o + 24] = 0xFFFF0000u % (e + 4u);
         output[o + 25] = (long)(0xAAAAAAAAu / (uint)(x % 1u + 2u));
+
+        // Near-2^32 dividends, through __ms_div_near_max and __ms_rem_near_max.
+        uint m0 = 0;
+        uint m1 = 0;
+        for (uint k = 1; k <= 8; k++)
+        {
+            m0 = (m0 * 31u) + (0xFFFFFFFFu % k);
+            m1 = (m1 * 31u) + (0xFFFFFF90u / k);
+        }
+
+        output[o + 26] = m0;
+        output[o + 27] = m1;
     }
 }
