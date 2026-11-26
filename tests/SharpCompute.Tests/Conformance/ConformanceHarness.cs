@@ -312,7 +312,7 @@ internal static class ConformanceHarness
     /// flushed operands <paramref name="model"/> (already flushed): either one, or, for a model of
     /// ±2^-126, the zero of its sign, since the GPU decides tininess before rounding.
     /// </summary>
-    private static bool SameFlushed(ResultKind kind, long gpu, long cpu, long model) =>
+    internal static bool SameFlushed(ResultKind kind, long gpu, long cpu, long model) =>
         Same(kind, gpu, cpu) || Same(kind, gpu, model) || (kind == ResultKind.Float && ((uint)model & 0x7FFFFFFFu) == 0x00800000u && (uint)gpu == ((uint)model & 0x80000000u));
 
     public static bool Same(ResultKind kind, long gpu, long cpu) => kind switch
@@ -331,7 +331,7 @@ internal static class ConformanceHarness
     };
 
     /// <summary>Whether a float result is within 2^-120 of zero (a half result never is, for this purpose).</summary>
-    private static bool NearZero(ResultKind kind, long value) =>
+    internal static bool NearZero(ResultKind kind, long value) =>
         kind == ResultKind.Float && MathF.Abs(BitConverter.UInt32BitsToSingle((uint)value)) < 7.5231638e-37f;
 
     /// <summary>Whether a float operand of the thread is nonzero and within 2^-64 of zero.</summary>
@@ -349,7 +349,7 @@ internal static class ConformanceHarness
         return false;
     }
 
-    private static bool Close(ResultKind kind, long gpu, long cpu, int ulps) => kind switch
+    internal static bool Close(ResultKind kind, long gpu, long cpu, int ulps) => kind switch
     {
         ResultKind.Float => Same(kind, gpu, cpu) || (!IsNaN32((uint)gpu) && !IsNaN32((uint)cpu) && Math.Abs(Ordered32((uint)gpu) - Ordered32((uint)cpu)) <= ulps),
         ResultKind.Half => Same(kind, gpu, cpu) || (!IsNaN16((ushort)gpu) && !IsNaN16((ushort)cpu) && Math.Abs(Ordered16((ushort)gpu) - Ordered16((ushort)cpu)) <= ulps),
@@ -357,7 +357,7 @@ internal static class ConformanceHarness
     };
 
     /// <summary>A float result as the GPU stores it: a subnormal becomes a zero of the same sign.</summary>
-    private static long FlushResult(ResultKind kind, long value) =>
+    internal static long FlushResult(ResultKind kind, long value) =>
         kind == ResultKind.Float && ((uint)value & 0x7F800000u) == 0 ? (uint)value & 0x80000000u : value;
 
     private static bool IsNaN32(uint bits) => (bits & 0x7FFFFFFFu) > 0x7F800000u;
@@ -371,7 +371,7 @@ internal static class ConformanceHarness
 
     // ---- formatting -----------------------------------------------------------------------------
 
-    private static string Format(ResultKind kind, long value) => kind switch
+    internal static string Format(ResultKind kind, long value) => kind switch
     {
         ResultKind.Float => $"{BitConverter.UInt32BitsToSingle((uint)value).ToString("R", CultureInfo.InvariantCulture)} (0x{(uint)value:X8})",
         ResultKind.Half => $"{((float)BitConverter.UInt16BitsToHalf((ushort)value)).ToString("R", CultureInfo.InvariantCulture)} (0x{(ushort)value:X4})",

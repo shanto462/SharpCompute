@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Random-expression differential test: shaders generated from fixed seeds by
+    tools/gen_differential.py at build time, compiled by the real source generator, and run on the
+    GPU and with ForCpu. scripts/fuzz-differential.sh builds this project with other seeds
+    (DifferentialSource names the file it generated instead).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!--
+      The generated expressions compare a value with itself (x == x is the NaN test), mix
+      sign-extended operands in bitwise operators and compare small integers with constants beyond
+      their range on purpose: CS1718, CS0675 and CS0652 are what they test, not mistakes.
+    -->
+    <NoWarn>$(NoWarn);CS1718;CS0675;CS0652</NoWarn>
+    <DifferentialGenerated>$(BaseIntermediateOutputPath)DifferentialShaders.g.cs</DifferentialGenerated>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SharpCompute\SharpCompute.csproj" />
+    <ProjectReference Include="..\..\src\SharpCompute.SourceGenerators\SharpCompute.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The conformance suite's comparisons and edge values, shared rather than copied. -->
+    <Compile Include="..\SharpCompute.Tests\Conformance\ConformanceHarness.cs" Link="Conformance\ConformanceHarness.cs" />
+    <Compile Include="..\SharpCompute.Tests\Conformance\ConformanceValues.cs" Link="Conformance\ConformanceValues.cs" />
+    <Compile Include="..\SharpCompute.Tests\MetalFactAttribute.cs" Link="MetalFactAttribute.cs" />
+  </ItemGroup>
+  <!--
+    Always runs (it takes a fraction of a second); the script rewrites the file only when its text
+    changes, so an unchanged generator does not recompile the project.
+  -->
+  <Target Name="GenerateDifferentialShaders" BeforeTargets="CoreCompile" Condition="'$(DifferentialSource)' == ''">
+    <Exec Command="python3 -I &quot;$(MSBuildThisFileDirectory)..\..\tools\gen_differential.py&quot; generate --out &quot;$(DifferentialGenerated)&quot;" />
+    <ItemGroup>
+      <Compile Include="$(DifferentialGenerated)" />
+    </ItemGroup>
+  </Target>
+  <Target Name="IncludeDifferentialSource" BeforeTargets="CoreCompile" Condition="'$(DifferentialSource)' != ''">
+    <ItemGroup>
+      <Compile Include="$(DifferentialSource)" />
+    </ItemGroup>
+  </Target>
+</Project>

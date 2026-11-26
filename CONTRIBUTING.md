@@ -60,6 +60,10 @@ Match the code around your change:
   stores; `tests/SharpCompute.SourceGenerators.Tests/Conformance` pins the generator's side.
   `--filter Category=Conformance` runs all of them, the operator, conversion and intrinsic suite
   included. See [Semantics and conformance](docs/cpu-execution.md#semantics-and-conformance).
+- `tests/SharpCompute.Differential.Tests` combines them: random expressions from fixed seeds
+  (`tools/gen_differential.py`, built into the project), GPU against `ForCpu`. For a change to the
+  generator or the runtime, also run the long mode, `scripts/fuzz-differential.sh --seed S --count N`,
+  which tries other seeds and prints each mismatch shrunk to a repro shader.
 
 ## Golden MSL snapshots
 

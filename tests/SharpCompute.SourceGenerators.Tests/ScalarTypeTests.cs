@@ -422,20 +422,22 @@ public class ScalarTypeTests
         ShaderDescriptor descriptor = run.Verify(Shader);
 
         // On an Apple GPU `long(x)` wraps for a float beyond the range of a long, where .NET
-        // saturates; every other float to integer conversion already saturates as .NET does.
+        // saturates; every other float to integer conversion saturates as .NET does. The 8- and
+        // 16-bit and the unsigned ones are written so that the Metal compiler cannot fold a
+        // conversion of an integer through a float into a truncation (FloatToSmallInteger_...).
         Assert.Equal(
             """
             float f = floats[0];
             half h = half(f);
             longs[0] = __ms_float_to_long(f);
             longs[1] = __ms_float_to_long(h);
-            ulongs[0] = ulong(f);
-            bytes[0] = uchar(f);
-            sbytes[0] = char(f);
-            shorts[0] = short(f);
-            ushorts[0] = ushort(f);
+            ulongs[0] = ulong(metal::max(f, 0.0f));
+            bytes[0] = uchar(metal::clamp(int(f), 0, 255));
+            sbytes[0] = char(metal::clamp(int(f), -128, 127));
+            shorts[0] = short(metal::clamp(int(f), -32768, 32767));
+            ushorts[0] = ushort(metal::clamp(int(f), 0, 65535));
             ints[0] = int(f);
-            uints[0] = uint(f);
+            uints[0] = uint(metal::max(f, 0.0f));
             floats[1] = float(longs[2]);
             floats[2] = float(ulongs[2]);
             floats[3] = float(bytes[2]) + float(shorts[2]);
@@ -444,6 +446,67 @@ public class ScalarTypeTests
             """.ReplaceLineEndings("\n"),
             descriptor.KernelBody);
         Assert.Contains("inline long __ms_float_to_long(float x) { return x >= 9223372036854775808.0f ? 9223372036854775807L :", descriptor.MslSource);
+    }
+
+    /// <summary>
+    /// MSL leaves a float to integer conversion out of range undefined, so the Metal compiler folds
+    /// <c>uchar(float(i))</c> into a truncation of <c>i</c> and <c>uint(float(s))</c> of a small signed
+    /// <c>s</c> into a zero extension: (byte)(float)300 was 44 and (uint)(float)(short)-1 was 65535 on
+    /// the GPU. The conversion to a small type goes through <c>int</c>, which a float does not fold
+    /// into, and is clamped there; the unsigned ones clamp the negative values (and NaN) to 0 first.
+    /// The GPU side is pinned in SharpCompute.Differential.Tests (ConversionRegressionTests).
+    /// </summary>
+    [Fact]
+    public void FloatToSmallInteger_GoesThroughAClampedInt_AndFloatToUnsignedClampsAtZero()
+    {
+        GeneratorRun run = RunBody(
+            """
+            int i = ints[0];
+            short s = shorts[0];
+            Half h = (Half)floats[0];
+            bytes[0] = (byte)(float)i;
+            sbytes[0] = (sbyte)h;
+            ushorts[0] = (ushort)(Half)s;
+            uints[0] = (uint)(float)s;
+            ulongs[0] = (ulong)h;
+            ints[1] = (int)(float)s;
+            """);
+
+        Assert.Equal(
+            """
+            int i = ints[0];
+            short s = shorts[0];
+            half h = half(floats[0]);
+            bytes[0] = uchar(metal::clamp(int(float(i)), 0, 255));
+            sbytes[0] = char(metal::clamp(int(h), -128, 127));
+            ushorts[0] = ushort(metal::clamp(int(half(s)), 0, 65535));
+            uints[0] = uint(metal::max(float(s), 0.0f));
+            ulongs[0] = ulong(metal::max(h, 0.0h));
+            ints[1] = int(float(s));
+            """.ReplaceLineEndings("\n"),
+            run.Verify(Shader).KernelBody);
+    }
+
+    /// <summary>
+    /// The parentheses the C# has are kept, except around a primary expression: C++ reads
+    /// <c>(float(uint(x))) * y</c> as a C-style cast of <c>*y</c> to the function type
+    /// <c>float(uint x)</c>, so a parenthesized nested conversion followed by <c>*</c>, <c>-</c>,
+    /// <c>+</c> or <c>&amp;</c> did not compile. Verify compiles the MSL.
+    /// </summary>
+    [Fact]
+    public void ParenthesizedNestedConversion_BeforeAnOperatorThatIsAlsoUnary_Compiles()
+    {
+        AssertKernel(
+            """
+            floats[0] = float(uint(longs[0])) * floats[1];
+            ulongs[0] = ulong(short(ushorts[0])) - ulong(bytes[0]);
+            floats[1] = +(float(half(shorts[0])) * floats[2]);
+            """,
+            """
+            floats[0] = ((float)(uint)longs[0]) * floats[1];
+            ulongs[0] = ((ulong)(short)ushorts[0]) - (ulong)bytes[0];
+            floats[1] = +((float)(Half)shorts[0] * floats[2]);
+            """);
     }
 
     [Fact]

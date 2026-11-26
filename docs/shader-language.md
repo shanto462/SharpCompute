@@ -106,7 +106,11 @@ build error `SCG0052`).
   type, exactly as .NET does: `(byte)300f` is 255, `(sbyte)-129f` is -128, `(ulong)-1f` is 0,
   `(long)1e30f` is `long.MaxValue`. MSL's own `long(x)` wraps instead for a float beyond the range
   of a `long` (2^63 becomes `long.MinValue`), so that one conversion goes through a prelude helper
-  that clamps first. All the others are plain MSL casts. Integer to float rounds to nearest even.
+  that clamps first. MSL leaves the others undefined out of range, and the Metal compiler folds
+  `uchar(float(i))` into a truncation of `i` on that ground, so a conversion to an 8- or 16-bit
+  integer goes through a clamped `int` (`uchar(metal::clamp(int(x), 0, 255))`) and one to `uint`
+  or `ulong` clamps the negative values first (`uint(metal::max(x, 0.0f))`). `int` is a plain MSL
+  cast. Integer to float rounds to nearest even.
 - **Literals** keep their C# type: `(byte)5` is `uchar(5)`, `5L` is `5L`, `ulong.MaxValue` is
   `18446744073709551615UL`.
 - **Layout.** A `byte` is aligned to 1, a `short` to 2 and a `long` to 8, in C# and in MSL alike, so

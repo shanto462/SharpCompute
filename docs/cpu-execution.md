@@ -111,6 +111,16 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
 - **`checked`** arithmetic is refused at build time (`SCG0052`): it would throw on the CPU and wrap
   on the GPU.
 
+**Random expressions.** `tests/SharpCompute.Differential.Tests` holds the operations to the same
+policies in combination: random, well-typed expressions and small statement blocks over every scalar
+and vector type, from fixed seeds (`tools/gen_differential.py`), run on the GPU and with `ForCpu`. A
+case with floats in it is compared with `ForCpu`'s value of the case and of its models: the same case
+with every float operation flushed as the GPU flushes, and with every multiply-add the GPU may
+contract fused. `scripts/fuzz-differential.sh --seed S --count N` runs other seeds and shrinks each
+mismatch to a repro shader. What it found that is not fixed, mostly folds the Metal compiler makes
+on the ground that an out-of-range conversion or a division by zero is undefined, is listed with a
+repro for each in `KnownDifferencesTests` of that project.
+
 ## Feature by feature
 
 | Feature | On the CPU | Details |
