@@ -97,8 +97,11 @@ and negative ones, ±0, subnormals, ±∞ and NaNs of both signs) and compares t
 - **Within a tolerance**: the transcendental functions (`Sin`, `Exp`, `Log`, `Pow`, `Atan2` and the
   rest, of `Gpu` and of `MathF`) within 4 float ULP or 1 half ULP, and the composite ones (`Lerp`,
   `Smoothstep`, `Dot`, `Length`, `Normalize`, `Reflect`, `Cross`) as well, except near the subnormal
-  range, where an intermediate result can be flushed. `a * b + c` is fused into one fma on the GPU
-  (unless `[ShaderOptions(FpContract = false)]`), so it is not compared.
+  range, where an intermediate result can be flushed.
+- **Fused or not**: `a * b + c` is fused into one fma on the GPU (unless
+  `[ShaderOptions(FpContract = false)]`), and `ForCpu` rounds the product and the sum. The suite
+  accepts exactly those two results, `MathF.FusedMultiplyAdd(a, b, c)` and `a * b + c`, each up to
+  subnormal flushing.
 - **Unspecified**, and only checked not to crash: integer division and remainder by zero, and
   `MathF.ReciprocalSqrtEstimate`, whose precision is the CPU's.
 - **Where .NET throws**, `ForCpu` throws and the GPU carries on, and the suite pins what it returns:

@@ -46,6 +46,14 @@ internal enum Check
     /// </summary>
     Near,
 
+    /// <summary>
+    /// <c>x * y + z</c> of scalar floats, which the GPU contracts into one fused multiply-add by
+    /// default: <see cref="Ftz"/> against ForCpu's value (the product and the sum each rounded), or
+    /// <see cref="Ftz"/> against <see cref="MathF.FusedMultiplyAdd"/> of the same operands (rounded
+    /// once). Any other value fails, so a wrong contraction is caught as well as a wrong product.
+    /// </summary>
+    MultiplyAdd,
+
     /// <summary>Runs on both sides, so it must not crash or hang, but the values are not compared.</summary>
     Unspecified,
 }
@@ -219,10 +227,13 @@ internal static class ConformanceHarness
                     continue;
                 }
 
+                (long Value, long Model)? fused = info.Check == Check.MultiplyAdd ? Fused(a, b, c, k, lanes, values.Flush, info) : null;
+
                 bool same = info.Check switch
                 {
                     Check.Exact => Same(info.Kind, g, e),
-                    Check.Ftz => Same(info.Kind, g, e) || Same(info.Kind, g, model) || (info.Kind == ResultKind.Float && ((uint)model & 0x7FFFFFFFu) == 0x00800000u && (uint)g == ((uint)model & 0x80000000u)),
+                    Check.Ftz => SameFlushed(info.Kind, g, e, model),
+                    Check.MultiplyAdd => SameFlushed(info.Kind, g, e, model) || SameFlushed(info.Kind, g, fused!.Value.Value, fused.Value.Model),
                     Check.Value => SameNumber(info.Kind, FlushResult(info.Kind, g), FlushResult(info.Kind, e)) || SameNumber(info.Kind, FlushResult(info.Kind, g), model),
                     _ => Close(info.Kind, g, e, info.Ulps) || Close(info.Kind, g, model, info.Ulps),
                 };
@@ -240,7 +251,8 @@ internal static class ConformanceHarness
                     {
                         string operands = $"x = {Operand(a, k, lanes)}, y = {Operand(b, k, lanes)}, z = {Operand(c, k, lanes)}, n = {s[k]}";
                         string flushedText = f is { } fv ? $", CPU on flushed operands {Format(info.Kind, FlushResult(info.Kind, fv))}" : string.Empty;
-                        examples.Add($"      {operands}: GPU {Format(info.Kind, g)}, CPU {Format(info.Kind, e)}{flushedText}");
+                        string fusedText = fused is { } fu ? $", fused {Format(info.Kind, fu.Value)}, fused on flushed operands {Format(info.Kind, fu.Model)}" : string.Empty;
+                        examples.Add($"      {operands}: GPU {Format(info.Kind, g)}, CPU {Format(info.Kind, e)}{flushedText}{fusedText}");
                     }
                 }
             }
@@ -275,7 +287,33 @@ internal static class ConformanceHarness
         return output.ToArray();
     }
 
+    /// <summary>
+    /// The bits of <see cref="MathF.FusedMultiplyAdd"/> of thread <paramref name="thread"/>'s operands,
+    /// and of its flushed operands with the result flushed: what a GPU that contracts <c>x * y + z</c>
+    /// computes.
+    /// </summary>
+    private static (long Value, long Model) Fused<T>(T[] a, T[] b, T[] c, int thread, int lanes, Func<T, T>? flush, ConformanceSlot info)
+        where T : unmanaged
+    {
+        if (lanes != 1 || info.Kind != ResultKind.Float || a[thread] is not float x || b[thread] is not float y || c[thread] is not float z || flush is not Func<float, float> flushFloat)
+        {
+            throw new NotSupportedException($"{info.Name}: {nameof(Check.MultiplyAdd)} compares scalar floats only.");
+        }
+
+        long value = BitConverter.SingleToUInt32Bits(MathF.FusedMultiplyAdd(x, y, z));
+        long model = FlushResult(ResultKind.Float, BitConverter.SingleToUInt32Bits(MathF.FusedMultiplyAdd(flushFloat(x), flushFloat(y), flushFloat(z))));
+        return (value, model);
+    }
+
     // ---- comparisons ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// The <see cref="Check.Ftz"/> comparison with a CPU result <paramref name="cpu"/> and its model on
+    /// flushed operands <paramref name="model"/> (already flushed): either one, or, for a model of
+    /// ±2^-126, the zero of its sign, since the GPU decides tininess before rounding.
+    /// </summary>
+    private static bool SameFlushed(ResultKind kind, long gpu, long cpu, long model) =>
+        Same(kind, gpu, cpu) || Same(kind, gpu, model) || (kind == ResultKind.Float && ((uint)model & 0x7FFFFFFFu) == 0x00800000u && (uint)gpu == ((uint)model & 0x80000000u));
 
     public static bool Same(ResultKind kind, long gpu, long cpu) => kind switch
     {
