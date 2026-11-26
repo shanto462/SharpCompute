@@ -287,7 +287,7 @@ public class TextureTests
     [Fact]
     public void ReadmeExample_Translates()
     {
-        // The ping-pong and AsReadOnly example of the README's "Textures" section.
+        // The ping-pong and AsReadOnly example of docs/resources.md ("Sampling what a pass wrote").
         GeneratorRun run = GeneratorHarness.Run("""
             using SharpCompute;
 

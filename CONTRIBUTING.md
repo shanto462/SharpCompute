@@ -53,9 +53,12 @@ Match the code around your change:
   `[MetalTheory]`, so they are skipped, not failed, on a machine without a Metal device.
 - Generator changes get tests in `tests/SharpCompute.SourceGenerators.Tests` for the emitted MSL
   and for the diagnostics.
-- Language semantics the GPU must reproduce (scans, evaluation order, compound targets, in-place
-  stores) are pinned in `tests/SharpCompute.Tests/Conformance/Semantics` and
-  `tests/SharpCompute.SourceGenerators.Tests/Conformance`; run them with `--filter Category=Conformance`.
+- The conformance suites pin what the GPU must reproduce. `tests/SharpCompute.Tests/Conformance`
+  runs every operator, conversion and intrinsic family on the GPU and with `ForCpu` over edge
+  values, and its `Semantics` folder pins scans, evaluation order, compound targets and in-place
+  stores; `tests/SharpCompute.SourceGenerators.Tests/Conformance` pins the generator's side.
+  `--filter Category=Conformance` runs all of them, the operator, conversion and intrinsic suite
+  included. See [Semantics and conformance](docs/cpu-execution.md#semantics-and-conformance).
 
 ## Diagnostics
 
@@ -69,12 +72,18 @@ disagree. Numbers are never reused.
 
 A new feature comes with a demo: a sample, or a ComputeLab page, that runs in a window and also
 headless. A new sample has a `scripts/demo-<name>.sh` built on `scripts/_common.sh` and is added to
-`scripts/run-demos.sh`.
+`scripts/run-demos.sh`. Its screenshots need a `demo_<name>` function and an entry in `DEMOS` in
+`scripts/make-screenshots.sh` (a new ComputeLab page is picked up by the `computelab` demo).
 
 The README shows every demo. A new or changed demo regenerates its screenshot and thumbnail with
 `scripts/make-screenshots.sh <demo>` (and its animation with `scripts/make-gifs.sh <name>`), and
-appears in the README's [Demos](README.md#demos) grid. The `ReadmeImage` tests check that every
-image exists, has alt text, is opaque and is within its size limit. Don't commit `demo-output/`,
+appears in the README's [Demos](README.md#demos) grid: a new ComputeLab page is a cell of
+[ComputeLab pages](README.md#computelab-pages), a new demo a cell of the grid. The grids show the
+thumbnails in `docs/screenshots/thumbs/`, each linking to its full image. The `ReadmeImage` tests
+check that every image the README shows exists, has alt text, is opaque and stays within its limit:
+400,000 bytes for a screenshot, 100,000 for a thumbnail and 2,000,000 for a GIF (the limits in
+`scripts/_common.sh`). They also check that every relative link and image in the README and in
+`docs/` resolves. Don't commit `demo-output/`,
 build output or benchmark artifacts.
 
 Timings quoted in a pull request or the README name the hardware and are the median of several runs
@@ -85,10 +94,14 @@ on an otherwise idle machine.
 - One topic per pull request, branched from `main`.
 - A clear title and a description with sections like the existing pull requests: what and why, the
   API, tests, design decisions (each judgement call with its reason) and limitations.
-- Update the README when behaviour, the API or a limitation changes.
+- Update the documentation when behaviour, the API or a limitation changes: the page in
+  [`docs/`](docs/README.md) for the feature, [Limitations](docs/limitations.md), and the README's
+  feature table when a feature is new.
 - Every pull request is reviewed before it is merged, and merges are squash merges, so the title
   becomes the commit message on `main`.
 
 ## License
 
-Contributions are licensed under the [MIT License](LICENSE) of the project.
+Contributions are licensed under the [MIT License](LICENSE) of the project, except Shadertoy ports
+in `samples/SharpCompute.Samples.Shaders`, which keep their license (see
+[NOTICE.md](samples/SharpCompute.Samples.Shaders/NOTICE.md)).

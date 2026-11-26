@@ -261,7 +261,7 @@ public class HalfBoolVectorTests
             "public readonly ReadOnlyBuffer<Half3> halves; public readonly Half3 captured; public readonly byte small;");
     }
 
-    /// <summary>The example of the README's "Half precision" section, as it is printed there.</summary>
+    /// <summary>The example of docs/half-precision.md, as it is printed there.</summary>
     [Fact]
     public void HalfVectors_TheReadmeExampleTranslates()
     {

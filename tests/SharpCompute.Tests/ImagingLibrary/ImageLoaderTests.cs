@@ -510,7 +510,7 @@ public sealed class ImageLoaderTests : IDisposable
     }
 }
 
-/// <summary>The README's example shader: darkens a photo toward its corners.</summary>
+/// <summary>The example shader of docs/imaging.md: darkens a photo toward its corners.</summary>
 [GeneratedComputeShaderDescriptor]
 public readonly partial struct Vignette(ReadOnlyTexture2D<Rgba32> photo) : IComputeShader<Float4>
 {

@@ -48,7 +48,7 @@ communicate reasons for moderation decisions when appropriate.
 ## Scope
 
 This Code of Conduct applies within all community spaces of the project (its repository, issues,
-pull requests and discussions), and also applies when an individual is officially representing the
+and pull requests), and also applies when an individual is officially representing the
 community in public spaces.
 
 ## Enforcement

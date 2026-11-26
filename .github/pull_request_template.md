@@ -23,4 +23,4 @@ full-suite result: "Full suite: N passed, M skipped, 0 failed". -->
 
 - [ ] `dotnet build SharpCompute.slnx` has 0 warnings, and `dotnet test SharpCompute.slnx` passes
 - [ ] Public APIs have XML docs and tests
-- [ ] The README is updated (features, limitations, and the screenshot of a new or changed demo)
+- [ ] The docs are updated: the feature's page in `docs/`, `docs/limitations.md`, and the README's feature table and the screenshot of a new or changed demo

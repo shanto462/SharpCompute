@@ -15,7 +15,7 @@ whether a problem still reproduces on the latest `main` before you report it.
 Report it privately through GitHub's private vulnerability reporting: on the repository's
 **Security** tab, choose **Report a vulnerability**
 ([direct link](https://github.com/shanto462/SharpCompute/security/advisories/new)). Please don't
-open a public issue, discussion or pull request for a vulnerability.
+open a public issue or pull request for a vulnerability.
 
 A useful report has the commit you tested, your macOS version and chip, what an attacker controls
 (a shader's source, a file that is loaded, a buffer's contents), and the smallest reproduction you

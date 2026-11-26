@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for the report. For a security problem, use [private vulnerability reporting](https://github.com/shanto462/SharpCompute/security/advisories/new) instead.
-        Please check the README's [Limitations](https://github.com/shanto462/SharpCompute#limitations) first: some differences are documented.
+        Please check the [Limitations](https://github.com/shanto462/SharpCompute/blob/main/docs/limitations.md) first: some differences are documented.
   - type: textarea
     id: description
     attributes:

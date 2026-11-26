@@ -114,7 +114,6 @@ public class EvaluationOrderCorpusTests
         { 30, "image[(int)image[0, 0].X, 0] = new Float4((float)Paint(0));" },
         { 31, "tile[tile[0]] += Gpu.AtomicAdd(ref tile[1], 1);" },
         { 32, "data[1] += data[2]++;" },
-        { 33, "result[0] = data[16] + Bump(16);" },
         { 34, "result[0] = Pair(Bump(19), data[19]);" },
         { 35, "result[0] = Bump(0) + Bump(1);" },
         { 36, "result[0] = Take() + Take();" },

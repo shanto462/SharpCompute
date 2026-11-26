@@ -315,7 +315,7 @@ public readonly partial struct WaveMatrixSplitOrder(ReadWriteBuffer<float> data,
 }
 
 /// <summary>
-/// The README's example, as it is printed there: one SIMD group per threadgroup computes an 8 × 8
+/// The example of docs/matrix-units.md, as it is printed there: one SIMD group per threadgroup computes an 8 × 8
 /// block of <c>c = a × b</c> for n × n row-major matrices.
 /// </summary>
 [ThreadGroupSize(32)]

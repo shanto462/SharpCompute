@@ -12,7 +12,8 @@ namespace SharpCompute.Tests;
 /// The README's pictures: every image it shows exists, has alt text, is opaque and within its byte
 /// limit; every file in docs/screenshots is shown or linked; the grids show thumbnails that link to
 /// the full image; and the screenshots of demos that draw text keep that text off their top and
-/// bottom edges. <c>scripts/make-screenshots.sh</c> and <c>scripts/make-gifs.sh</c> write them, with
+/// bottom edges. Every relative link and image in the README and in docs/*.md resolves as well.
+/// <c>scripts/make-screenshots.sh</c> and <c>scripts/make-gifs.sh</c> write them, with
 /// the same limits (<c>scripts/_common.sh</c>).
 /// </summary>
 public sealed partial class ReadmeImageTests
@@ -155,6 +156,43 @@ public sealed partial class ReadmeImageTests
     }
 
     [Fact]
+    public void EveryRelativeLinkAndImage_InTheReadmeAndTheDocs_Resolves()
+    {
+        // The reference lives in docs/*.md and links back and forth with the README; a page that is
+        // renamed or an image that is moved must not leave a dead link behind. Code is skipped: a
+        // C# indexer such as items[i](x) is not a link.
+        string[] pages = [Path.Combine(Root, "README.md"), .. Directory.GetFiles(Path.Combine(Root, "docs"), "*.md")];
+        int checkedLinks = 0;
+
+        foreach (string page in pages)
+        {
+            string text = CodePattern().Replace(File.ReadAllText(page), string.Empty);
+
+            foreach (Match image in MarkdownImagePattern().Matches(text))
+            {
+                Assert.False(string.IsNullOrWhiteSpace(image.Groups[1].Value), $"{Path.GetFileName(page)}: {image.Groups[2].Value} has no alt text");
+            }
+
+            foreach (Match link in RelativeTargetPattern().Matches(text))
+            {
+                string target = link.Groups[1].Success ? link.Groups[1].Value : link.Groups[2].Value;
+
+                if (target.Contains(':', StringComparison.Ordinal) || target.StartsWith('#'))
+                {
+                    continue;
+                }
+
+                string file = target.Split('#')[0];
+                string resolved = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(page)!, file));
+                Assert.True(File.Exists(resolved) || Directory.Exists(resolved), $"{Path.GetRelativePath(Root, page)} links to {target}, which does not exist");
+                checkedLinks++;
+            }
+        }
+
+        Assert.True(checkedLinks >= 100, $"only {checkedLinks} relative links found: is the link syntax still recognized?");
+    }
+
+    [Fact]
     public void Png_DecodesRgbAndPaletteImages()
     {
         // 2 x 2 palette image: palette [black, white], pixels 0 1 / 1 0, filter 0 on each row.
@@ -206,6 +244,14 @@ public sealed partial class ReadmeImageTests
 
     [GeneratedRegex("<a href=\"([^\"]+)\"><img src=\"([^\"]+)\"")]
     private static partial Regex LinkedImagePattern();
+
+    /// <summary>Fenced code blocks and inline code spans, which hold no links.</summary>
+    [GeneratedRegex(@"```.*?```|`[^`\n]*`", RegexOptions.Singleline)]
+    private static partial Regex CodePattern();
+
+    /// <summary>The target of a Markdown link or image, <c>](target)</c>, or of an HTML <c>href</c> or <c>src</c>.</summary>
+    [GeneratedRegex(@"\]\(([^)\s]+)\)|\b(?:href|src)=""([^""]+)""")]
+    private static partial Regex RelativeTargetPattern();
 
     private static string? FindRoot()
     {
