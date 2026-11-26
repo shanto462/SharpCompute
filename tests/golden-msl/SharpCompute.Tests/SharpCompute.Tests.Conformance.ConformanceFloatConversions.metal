@@ -143,13 +143,13 @@ kernel void SharpCompute_Tests_Conformance_ConformanceFloatConversions(
     float y = b[i];
     float z = c[i];
     int n = s[i];
-    output[int(uint(o) + 0u)] = long(uchar(x));
-    output[int(uint(o) + 1u)] = long(char(x));
-    output[int(uint(o) + 2u)] = long(short(x));
-    output[int(uint(o) + 3u)] = long(ushort(x));
+    output[int(uint(o) + 0u)] = long(uchar(metal::clamp(int(x), 0, 255)));
+    output[int(uint(o) + 1u)] = long(char(metal::clamp(int(x), -128, 127)));
+    output[int(uint(o) + 2u)] = long(short(metal::clamp(int(x), -32768, 32767)));
+    output[int(uint(o) + 3u)] = long(ushort(metal::clamp(int(x), 0, 65535)));
     output[int(uint(o) + 4u)] = long(int(x));
-    output[int(uint(o) + 5u)] = long(uint(x));
-    output[int(uint(o) + 6u)] = (__ms_float_to_long(x));
-    output[int(uint(o) + 7u)] = long(ulong(x));
+    output[int(uint(o) + 5u)] = long(uint(metal::max(x, 0.0f)));
+    output[int(uint(o) + 6u)] = __ms_float_to_long(x);
+    output[int(uint(o) + 7u)] = long(ulong(metal::max(x, 0.0f)));
     output[int(uint(o) + 8u)] = long(as_type<ushort>(half(x)));
 }

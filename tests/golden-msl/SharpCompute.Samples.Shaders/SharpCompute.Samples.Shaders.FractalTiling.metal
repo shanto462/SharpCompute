@@ -32,7 +32,7 @@ kernel void SharpCompute_Samples_Shaders_FractalTiling(
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
     const uint3 __grid = __windowed ? uint3(__window.size) : __grid_in;
-    float2 position = ((float2(int2(256u * __tid.xy))) / float(int(__grid.x))) + __c.time;
+    float2 position = (float2(int2(256u * __tid.xy)) / float(int(__grid.x))) + __c.time;
     float4 color = float4(0.0f);
     for (int i = 0; i < 6; i = int(uint(i) + 1u))
     {

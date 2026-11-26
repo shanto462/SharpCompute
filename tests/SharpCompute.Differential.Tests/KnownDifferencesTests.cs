@@ -93,6 +93,21 @@ public class KnownDifferencesTests
     [MetalFact(Skip = Unfixed)]
     public void SqrtOfConvertedHalf() => AssertSame([0x3E00, 0x6975], SqrtOfHalfRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new SqrtOfHalfRepro(i, o)));
 
+    /// <summary>
+    /// <c>(Half)Gpu.Fract(x)</c>: the compiler computes the fraction's clamp below 1 in half
+    /// precision, so <c>x = -1e-30</c> gives 0.9995117 where the float fraction, 0.99999994,
+    /// rounds to the half 1.
+    /// </summary>
+    [MetalFact(Skip = Unfixed)]
+    public void HalfOfFract() => AssertSame([0x8DA24260], HalfOfFractRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new HalfOfFractRepro(i, o)));
+
+    /// <summary>
+    /// <c>Gpu.Pow(0.99999994f, -1.2484603e9f)</c> is +∞ on the GPU where the result is 2.08e32: far outside
+    /// the 4 ULP the transcendental functions otherwise hold, for a base next to 1 and a large exponent.
+    /// </summary>
+    [MetalFact(Skip = Unfixed)]
+    public void PowNearOne() => AssertSame([0x3F7FFFFF, 0xCE94D225], PowNearOneRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new PowNearOneRepro(i, o)));
+
     private static void Dispatch<TShader>(GraphicsDevice device, bool cpu, in TShader shader)
         where TShader : struct, IComputeShader, IComputeShaderDescriptor<TShader> => DifferentialHarness.Dispatch(device, cpu, 1, shader);
 
@@ -259,4 +274,20 @@ public readonly partial struct SqrtOfHalfRepro(ReadOnlyBuffer<ulong> input, Read
         output[0] = Gpu.AsUInt(Gpu.Rsqrt((Float3)new Half3(Gpu.AsHalf((ushort)input[0]))).X);
         output[1] = Gpu.AsUInt(Gpu.Sqrt((float)Gpu.AsHalf((ushort)input[1])));
     }
+}
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct HalfOfFractRepro(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 1;
+
+    public void Execute() => output[0] = Gpu.AsUShort((Half)Gpu.Fract(Gpu.AsFloat((uint)input[0])));
+}
+
+[GeneratedComputeShaderDescriptor]
+public readonly partial struct PowNearOneRepro(ReadOnlyBuffer<ulong> input, ReadWriteBuffer<long> output) : IComputeShader
+{
+    public const int Slots = 1;
+
+    public void Execute() => output[0] = float.IsInfinity(Gpu.Pow(Gpu.AsFloat((uint)input[0]), Gpu.AsFloat((uint)input[1]))) ? 1 : 0;
 }

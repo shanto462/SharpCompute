@@ -176,7 +176,9 @@ internal static partial class DifferentialHarness
     /// <summary>
     /// Runs the shader on the GPU and with ForCpu, and its model shader with ForCpu, and compares every
     /// lane of every case on every thread. With <paramref name="mutate"/>, every GPU value is changed
-    /// first (an integer by one, a float or a half in its exponent), which every case must then report.
+    /// first (an integer in many of its bits, a float or a half in its exponent), which every case must
+    /// then report. Not by one: a bool or a sign computed from a float has models that disagree by one
+    /// (flushed or not), so a value off by one can still be one of them.
     /// </summary>
     public static DifferentialResult Run(GraphicsDevice device, DifferentialShader shader, bool mutate = false)
     {
@@ -200,7 +202,7 @@ internal static partial class DifferentialHarness
                         {
                             ResultKind.Float => gpu[at] ^ 0x40000000L,
                             ResultKind.Half => gpu[at] ^ 0x4000L,
-                            _ => gpu[at] + 1,
+                            _ => gpu[at] ^ 0x5A5A5A5A5A5A5A5AL,
                         };
                     }
                 }

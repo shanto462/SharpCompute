@@ -55,5 +55,5 @@ kernel void SharpCompute_Samples_ComputeLab_Pages_GenerateGray(
     float noise = float(::Hash(uint(x) + (::Hash(uint(y)) * 31u)) >> 8) * (1.0f / 16777216.0f);
     float value = (0.4f * bands) + (0.25f * rings * glow) + (0.35f * glow * glow);
     float gray = 0.29f + (0.34f * value) + ((noise - 0.5f) * 0.012f);
-    image[int((uint(y) * uint(__c.size)) + uint(x))] = uchar(gray * 255.0f);
+    image[int((uint(y) * uint(__c.size)) + uint(x))] = uchar(metal::clamp(int(gray * 255.0f), 0, 255));
 }

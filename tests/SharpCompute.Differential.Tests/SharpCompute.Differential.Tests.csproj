@@ -33,6 +33,7 @@
     <Compile Include="..\SharpCompute.Tests\Conformance\ConformanceHarness.cs" Link="Conformance\ConformanceHarness.cs" />
     <Compile Include="..\SharpCompute.Tests\Conformance\ConformanceValues.cs" Link="Conformance\ConformanceValues.cs" />
     <Compile Include="..\SharpCompute.Tests\MetalFactAttribute.cs" Link="MetalFactAttribute.cs" />
+    <Compile Include="..\SharpCompute.Tests\FloatBits.cs" Link="FloatBits.cs" />
   </ItemGroup>
   <!--
     Always runs (it takes a fraction of a second); the script rewrites the file only when its text
