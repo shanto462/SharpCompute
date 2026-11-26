@@ -49,6 +49,7 @@ Costs are GPU time on an Apple M4 Pro, from the pull request that added each wor
 | **Bit counts of 16-bit values** | `Gpu.LeadingZeroCount` of a 32- or 64-bit value holding a sign-extended 16-bit one counted it as zero-extended: `Gpu.LeadingZeroCount((uint)(short)i)` was 16 instead of 0 for a negative short. And a 16-bit count of a value computed in a wider register counted the bits above it: `Gpu.CountBits(b ? s : t)` of the short -2 was 31 instead of 15. | Popcounts are `popcount(reverse_bits(x))`; a 32- or 64-bit leading-zero count is `x < 0 ? 0 : clz(x)`. | none in a Hamming-distance kernel; +27% (popcount), +9% (clz) in a loop that only counts | FB25737978 |
 | **Out-of-range float to integer** | MSL leaves these conversions undefined, and the compiler folded them or assumed a range: `(byte)(float)i` became `i & 255`. | Every float and half to integer conversion saturates as in C# (NaN gives 0), through `__ms_sat_*` helpers. | up to +2.6% (a noise kernel with eight `(int)Floor` per pixel), +0.5% colour packing | not a bug: undefined in MSL |
 | **Float to half overflow** | A float the compiler could bound beyond the half range converted to 65504 instead of infinity: `(Half4)Gpu.Max(v, 1e30f)`. | Float to half conversions select ±∞ for a magnitude of 65520 or more (`__ms_to_half`). | under 1% | |
+| **Compiler service crash** | Creating the compute pipeline of one valid integer kernel, found by the differential test, crashed the GPU compiler service (`XPC_ERROR_CONNECTION_INTERRUPTED`). It needs a guarded `%` of two ints in a `Clamp` of an `Int2`, an `Int3` division used as a shift count of a 16-bit bit count, and a `short` shifted, added to a float and rounded, all together. | None: it is loud, not wrong. The first dispatch throws `ShaderCompilationException`; change any of the statements involved. | none | FB25737990 |
 
 [Shader language](shader-language.md#integers) describes each helper in more detail.
 
@@ -58,6 +59,9 @@ Costs are GPU time on an Apple M4 Pro, from the pull request that added each wor
   parameter or an expression only it folds (`uint m = uint.MaxValue; ... m / x`, or
   `BitOperations.RotateLeft(uint.MaxValue, n) / x`), can still divide wrongly. Write the constant in
   the division, or read it from a buffer.
+- **A compiler service crash** (FB25737990) on one rare combination of integer statements has no
+  workaround: the first dispatch throws `ShaderCompilationException`. Changing any of the statements
+  involved avoids it.
 - **Two forms are build errors** (`SCG0012`), because the lane-by-lane workaround would have to name
   a target with side effects twice: `v *= -1` on such a target, and `+=` or `-=` on components of one
   (`data[Next()].XY += w`). Put the index in a local first.
