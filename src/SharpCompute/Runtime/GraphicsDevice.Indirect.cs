@@ -52,7 +52,7 @@ public sealed unsafe partial class GraphicsDevice
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentsIndex"/> is not an element of <paramref name="arguments"/>.</exception>
-    /// <exception cref="ArgumentException"><paramref name="arguments"/> or a resource of <paramref name="shader"/> belongs to a different device.</exception>
+    /// <exception cref="ArgumentException"><paramref name="arguments"/> or a resource of <paramref name="shader"/> belongs to a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>).</exception>
     /// <exception cref="ObjectDisposedException">The device, <paramref name="arguments"/> or a resource of <paramref name="shader"/> has been disposed.</exception>
     /// <exception cref="ShaderCompilationException">The shader failed to compile.</exception>
     /// <exception cref="MetalException">The GPU failed to execute the shader.</exception>
@@ -293,8 +293,9 @@ internal readonly struct DispatchArgumentsKernel<TCount>(
 
     public static void SetArguments(in DispatchArgumentsKernel<TCount> shader, ref ShaderArgumentWriter writer)
     {
-        writer.SetBuffer(0, shader._count);
-        writer.SetBuffer(1, shader._arguments);
+        // The count is only read, whatever kind of buffer the caller keeps it in.
+        writer.SetBuffer(0, shader._count, written: false);
+        writer.SetBuffer(1, shader._arguments, written: true);
         writer.SetBytes(2, new Parameters(shader._countIndex, shader._argumentsIndex, shader._threadGroupSize, typeof(TCount) == typeof(int) ? 1u : 0u));
     }
 

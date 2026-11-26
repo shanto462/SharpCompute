@@ -41,6 +41,16 @@ public sealed unsafe partial class GraphicsDevice
     /// start); either buffer may be a view, read-only or read-write.
     /// </para>
     /// <para>
+    /// Metal documents the blit to need byte offsets and a size that are multiples of 4 on macOS.
+    /// Elements of 1, 2, 3 or 6 bytes have ranges that are not, and those are still copied exactly:
+    /// the part of the range that is aligned on both sides goes to the blit, and the rest (at most 3
+    /// bytes at each end, or the whole range when the two offsets differ modulo 4, as from an odd
+    /// index of 2-byte elements to an even one) is copied by a small compute kernel in the same
+    /// command buffer. The kernel is compiled the first time such a copy is made on a device. A copy
+    /// with unaligned ends costs what the blit alone does; a range the kernel copies whole is slower
+    /// (measured on an Apple M4 Pro: 1.2 ms for 16 MB, against 0.4 ms for a blit of the same size).
+    /// </para>
+    /// <para>
     /// Every buffer is unified memory, so <see cref="Buffer{T}.CopyTo"/> or a span copy does the same
     /// job on the CPU and is faster when the data is not waiting on the GPU: this call pays a command
     /// buffer round trip. Use the GPU copy when the source is still being produced by GPU work, and
@@ -179,7 +189,10 @@ public sealed unsafe partial class GraphicsDevice
     /// and every <c>float</c> a NaN, and only 0 gives the same element for every type (see
     /// <see cref="Clear{T}"/>). A view is filled over its own range only. Like <c>Copy</c>, the fill is
     /// ordered with everything else committed to the device, and on the CPU
-    /// <c>buffer.AsSpan().Fill(...)</c> is faster when nothing on the GPU is pending.
+    /// <c>buffer.AsSpan().Fill(...)</c> is faster when nothing on the GPU is pending. A range whose
+    /// byte offset or size is not a multiple of 4, which Metal documents the blit to need on macOS,
+    /// is filled exactly all the same: its aligned middle by the blit and the up to 3 bytes at each
+    /// end by a small compute kernel in the same command buffer.
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="buffer"/> belongs to a different device.</exception>
     /// <exception cref="ObjectDisposedException">The device or the buffer has been disposed.</exception>
@@ -212,6 +225,12 @@ public sealed unsafe partial class GraphicsDevice
     /// <inheritdoc cref="Fill{T}" path="/exception"/>
     public void Clear<T>(Buffer<T> buffer)
         where T : unmanaged => Fill(buffer, 0);
+
+    /// <summary>The kernel that copies the bytes of a range a blit may not be given; compiled on first use (see <see cref="CommandBatch"/>).</summary>
+    internal ComputePipeline CopyBytesPipeline => GetPipeline<CopyBytesKernel>();
+
+    /// <summary>The kernel that fills the bytes of a range a blit may not be given; compiled on first use.</summary>
+    internal ComputePipeline FillBytesPipeline => GetPipeline<FillBytesKernel>();
 
     /// <summary>The preconditions of a whole-buffer copy; false when there is nothing to copy.</summary>
     internal bool ValidateCopy<T>(Buffer<T> source, Buffer<T> destination)

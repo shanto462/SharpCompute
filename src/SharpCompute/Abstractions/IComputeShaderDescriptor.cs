@@ -108,5 +108,12 @@ public interface IComputeShaderDescriptor<TSelf>
     /// Binds the shader's captured state. The binding order is generator-internal; the runtime
     /// assumes nothing beyond the writer calls made here.
     /// </summary>
+    /// <remarks>
+    /// The writer refuses bindings that overlap when the shader writes one of them (see
+    /// <see cref="ShaderArgumentWriter"/>). A read-write buffer or texture counts as written unless
+    /// it is bound with <c>written: false</c>, which the generator does for every capture the kernel
+    /// and its helpers never store to; a hand-written descriptor that reads the same resource
+    /// through two bindings has to say so the same way.
+    /// </remarks>
     static abstract void SetArguments(in TSelf shader, ref ShaderArgumentWriter writer);
 }

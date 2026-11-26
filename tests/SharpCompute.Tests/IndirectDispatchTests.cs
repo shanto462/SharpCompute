@@ -183,10 +183,11 @@ public class IndirectDispatchTests
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using ReadWriteBuffer<int> counter = device.AllocateReadWriteBuffer<int>(1);
+        using ReadWriteBuffer<int> touched = device.AllocateReadWriteBuffer<int>(1);
         using ReadWriteBuffer<int> stats = device.AllocateReadWriteBuffer<int>(2);
         using ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>([new DispatchArguments(uint.MaxValue)]);
 
-        ArgumentException error = Assert.Throws<ArgumentException>(() => device.ForIndirectCpu(arguments, new IndirectProbe64(counter, counter, stats)));
+        ArgumentException error = Assert.Throws<ArgumentException>(() => device.ForIndirectCpu(arguments, new IndirectProbe64(counter, touched, stats)));
         Assert.Equal("arguments", error.ParamName);
         Assert.Equal(0, stats[0]);
     }
@@ -414,6 +415,7 @@ public class IndirectDispatchTests
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using GraphicsDevice other = GraphicsDevice.CreateStandInForAnotherDevice();
         using ReadWriteBuffer<int> counter = device.AllocateReadWriteBuffer<int>(1);
+        using ReadWriteBuffer<int> touched = device.AllocateReadWriteBuffer<int>(1);
         using ReadWriteBuffer<int> stats = device.AllocateReadWriteBuffer<int>(2);
         using ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>(2);
         using ReadWriteBuffer<DispatchArguments> empty = device.AllocateReadWriteBuffer<DispatchArguments>(0);
@@ -421,7 +423,7 @@ public class IndirectDispatchTests
         using ReadWriteBuffer<int> foreignCounter = other.AllocateReadWriteBuffer<int>(1);
         ReadWriteBuffer<DispatchArguments> disposed = device.AllocateReadWriteBuffer<DispatchArguments>(2);
         disposed.Dispose();
-        IndirectProbe64 shader = new(counter, counter, stats);
+        IndirectProbe64 shader = new(counter, touched, stats);
 
         using ComputeContext context = device.CreateComputeContext();
 
@@ -482,21 +484,23 @@ public class IndirectDispatchTests
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using ReadWriteBuffer<int> counter = device.AllocateReadWriteBuffer<int>([1]);
+        using ReadWriteBuffer<int> touched = device.AllocateReadWriteBuffer<int>(1);
         using ReadWriteBuffer<int> stats = device.AllocateReadWriteBuffer<int>(2);
         using ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>([new DispatchArguments(1)]);
         using ComputeContext context = device.CreateComputeContext();
 
-        context.ForIndirect(arguments, new IndirectProbe64(counter, counter, stats));
+        context.ForIndirect(arguments, new IndirectProbe64(counter, touched, stats));
         context.SimulateGpuError("Injected");
 
         Assert.Contains($"shader '{typeof(IndirectProbe64).FullName}'", Assert.Throws<MetalException>(context.Execute).Message);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void RecordAndLeak(GraphicsDevice device, ReadWriteBuffer<DispatchArguments> arguments, ReadWriteBuffer<int> counter, ReadWriteBuffer<int> stats)
+    private static void RecordAndLeak(
+        GraphicsDevice device, ReadWriteBuffer<DispatchArguments> arguments, ReadWriteBuffer<int> counter, ReadWriteBuffer<int> touched, ReadWriteBuffer<int> stats)
     {
         ComputeContext context = device.CreateComputeContext();
-        context.ForIndirect(arguments, new IndirectProbe64(counter, counter, stats));
+        context.ForIndirect(arguments, new IndirectProbe64(counter, touched, stats));
     }
 
     [MetalFact]
@@ -504,13 +508,14 @@ public class IndirectDispatchTests
     {
         GraphicsDevice device = GraphicsDevice.GetDefault();
         using ReadWriteBuffer<int> counter = device.AllocateReadWriteBuffer<int>([1]);
+        using ReadWriteBuffer<int> touched = device.AllocateReadWriteBuffer<int>(1);
         using ReadWriteBuffer<int> stats = device.AllocateReadWriteBuffer<int>(2);
         ReadWriteBuffer<DispatchArguments> arguments = device.AllocateReadWriteBuffer<DispatchArguments>([new DispatchArguments(1)]);
         nint mtlArguments = ObjC.Retain(arguments.Handle.DangerousGetHandle());
 
         try
         {
-            RecordAndLeak(device, arguments, counter, stats);
+            RecordAndLeak(device, arguments, counter, touched, stats);
             arguments.Dispose();
 
             GC.Collect();

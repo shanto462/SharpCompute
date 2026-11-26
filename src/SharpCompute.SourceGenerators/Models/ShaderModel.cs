@@ -60,8 +60,11 @@ internal sealed record TypeDeclarationInfo(string Keyword, string Name);
 /// A buffer bound with <c>writer.SetBuffer(Index, Access)</c>, or a texture bound with
 /// <c>writer.SetTexture(Index, Access)</c>. <see cref="DisplayName"/> (<c>Shader.field</c>) names it in
 /// the exception thrown when it is null, e.g. for <c>default(Shader)</c>.
+/// <see cref="NeverWritten"/> is true for a read-write buffer or texture that no code of the shader
+/// stores to: it is bound with <c>written: false</c>, which lets it overlap other bindings the shader
+/// only reads.
 /// </summary>
-internal sealed record BufferArgument(int Index, string Access, string DisplayName);
+internal sealed record BufferArgument(int Index, string Access, string DisplayName, bool NeverWritten = false);
 
 /// <summary>
 /// A field of the C# constants mirror struct, assigned from <see cref="Value"/>. <see cref="Offset"/>

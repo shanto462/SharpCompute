@@ -194,6 +194,13 @@ public abstract unsafe class Buffer<T> : IDisposable
     internal nuint ByteOffset => (nuint)_start * (nuint)sizeof(T);
 
     /// <summary>
+    /// The CPU address of this buffer's first element (a view's own first element), or 0 for a buffer
+    /// the CPU cannot access. Two buffers reach the same memory exactly when their address ranges
+    /// overlap, whichever <c>MTLBuffer</c> each one is: this is what a dispatch compares its bindings by.
+    /// </summary>
+    internal nuint ContentsAddress => (nuint)_contents;
+
+    /// <summary>
     /// The offset to bind this buffer at (<c>setBuffer:offset:atIndex:</c>). An empty view binds the
     /// start of the buffer instead of its own position: Metal rejects an offset at the very end of a
     /// buffer, and a shader has no element of an empty buffer it may touch anyway.
@@ -500,8 +507,11 @@ public sealed class ReadWriteBuffer<T> : Buffer<T>
     /// The view owns nothing. Disposing it releases nothing, it counts as disposed once the buffer
     /// that owns the memory is (this buffer, or for a view of a view the buffer at the root), and a
     /// dispatch that binds it leases that memory until the GPU is done. Views may
-    /// overlap each other and this buffer; binding two that overlap to one dispatch that writes
-    /// either is a data race, exactly like binding the same buffer twice.
+    /// overlap each other and this buffer, and a dispatch may bind overlapping ones as long as its
+    /// shader writes none of them. One that writes either of two overlapping bindings is refused
+    /// with an <see cref="ArgumentException"/>, exactly like one that binds the same buffer twice
+    /// and writes it: Metal compiles a kernel as if its buffers were different memory, so the reads
+    /// through one would not see the writes through the other. Bind views that do not overlap.
     /// </para>
     /// <para>
     /// The offset always satisfies Metal's alignment rule for buffer bindings (a multiple of the

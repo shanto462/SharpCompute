@@ -74,6 +74,7 @@ internal sealed unsafe class CommandBatch
     private readonly Action<CommandBatch>? _recycle;
     private byte[] _constants = [];
     private int _constantsLength;
+    private BindingTable? _bindings;
     private List<nint>? _temporaries;
     private TaskCompletionSource? _completion;
     private nint _queue;
@@ -81,6 +82,10 @@ internal sealed unsafe class CommandBatch
     private nint _encoder;
     private bool _encoderIsBlit;
     private nint _currentPipeline;
+    // Copies and fills as the caller recorded them: one of them can be several blits and dispatches
+    // (see RecordCopy), and the dispatches of those are counted apart from the caller's own.
+    private int _copyCount;
+    private int _helperDispatches;
     private int _released;
     private string? _simulatedError;
     // Written by the thread that saw the command buffer complete (possibly Metal's) before the batch is
@@ -119,6 +124,8 @@ internal sealed unsafe class CommandBatch
         _queue = 0;
         _constantsLength = 0;
         _currentPipeline = 0;
+        _copyCount = 0;
+        _helperDispatches = 0;
         _shaderTypes.Clear();
         _dispatches.Clear();
         _blits.Clear();
@@ -149,11 +156,11 @@ internal sealed unsafe class CommandBatch
         }
     }
 
-    /// <summary>Number of dispatches recorded so far (direct and indirect).</summary>
-    internal int DispatchCount => _dispatches.Count;
+    /// <summary>Number of dispatches recorded so far (direct and indirect), not counting the kernels a copy or fill may need.</summary>
+    internal int DispatchCount => _dispatches.Count - _helperDispatches;
 
-    /// <summary>Number of operations recorded so far: dispatches, copies and fills.</summary>
-    internal int OperationCount => _dispatches.Count + _blits.Count;
+    /// <summary>Number of operations recorded so far: dispatches, copies and fills, each as the caller recorded it.</summary>
+    internal int OperationCount => DispatchCount + _copyCount;
 
     /// <summary><see cref="GpuTimeTicks"/> of a batch whose command buffer has not completed: still recording, abandoned, or dropped uncommitted.</summary>
     internal const long NotRun = -1;
@@ -230,7 +237,18 @@ internal sealed unsafe class CommandBatch
                 _commands.Add(new Command(CommandKind.Texture, texture, 0));
             }
 
-            ShaderArgumentWriter writer = new(0, _device, this);
+            // What this dispatch binds, to refuse bindings that overlap (see BindingTable). The batch
+            // records one dispatch at a time, so one table of its own serves them all.
+            BindingTable bindings = _bindings ??= new BindingTable();
+            bindings.Clear();
+
+            ShaderArgumentWriter writer = new(0, _device, this, bindings);
+
+            if (output is not null)
+            {
+                writer.NoteOutput(output);
+            }
+
             T.SetArguments(in shader, ref writer);
 
             if (indirect is null)
@@ -282,22 +300,180 @@ internal sealed unsafe class CommandBatch
     }
 
     /// <summary>
-    /// Records <c>copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:</c>. Offsets and
-    /// <paramref name="size"/> are in bytes and already validated; both buffers are leased now.
+    /// Records a copy of <paramref name="size"/> bytes between two buffers. Offsets and
+    /// <paramref name="size"/> are in bytes and already validated (the ranges do not overlap); both
+    /// buffers are leased now.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A blit (<c>copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:</c>) when both offsets
+    /// and the size are multiples of 4, which is what Metal documents the blit to need on macOS, and
+    /// which every copy of 4-byte (or 8-, 12-, 16-byte...) elements is.
+    /// </para>
+    /// <para>
+    /// Otherwise the bytes the blit may not be given are copied by <see cref="CopyBytesKernel"/>, in
+    /// the same command buffer and so in the same place in the recorded order. When the two offsets
+    /// are the same distance from a multiple of 4, that is at most 3 bytes at each end: the aligned
+    /// middle is still one blit. When they are not (2-byte elements copied from an odd index to an even
+    /// one), no part of the range is aligned on both sides and the kernel copies all of it.
+    /// The three parts touch different bytes, so their order among themselves does not matter; the
+    /// blit goes first, which costs no more encoder switches than any other order.
+    /// </para>
+    /// </remarks>
     internal void RecordCopy(
         ObjCHandle source, object sourceOwner, nuint sourceOffset, ObjCHandle destination, object destinationOwner, nuint destinationOffset, nuint size)
     {
         nint from = Lease(source, sourceOwner);
         nint to = Lease(destination, destinationOwner);
-        RecordBlit(new BlitOperation(BlitKind.CopyBuffer, from, sourceOffset, to, destinationOffset, size));
+
+        if (((sourceOffset | destinationOffset | size) & BlitAlignmentMask) == 0)
+        {
+            RecordBlit(new BlitOperation(BlitKind.CopyBuffer, from, sourceOffset, to, destinationOffset, size));
+            _copyCount++;
+            return;
+        }
+
+        // Compiled on the first copy that needs it; nothing is recorded if that fails.
+        ComputePipeline kernel = _device.CopyBytesPipeline;
+        Checkpoint checkpoint = new(this);
+
+        try
+        {
+            SplitAtAlignment(sourceOffset, size, out nuint head, out nuint middle);
+
+            if (((sourceOffset ^ destinationOffset) & BlitAlignmentMask) != 0 || middle == 0)
+            {
+                RecordByteKernel(kernel, from, sourceOffset, to, destinationOffset, size, value: 0);
+            }
+            else
+            {
+                nuint tail = size - head - middle;
+
+                RecordBlit(new BlitOperation(BlitKind.CopyBuffer, from, sourceOffset + head, to, destinationOffset + head, middle));
+
+                if (head != 0)
+                {
+                    RecordByteKernel(kernel, from, sourceOffset, to, destinationOffset, head, value: 0);
+                }
+
+                if (tail != 0)
+                {
+                    RecordByteKernel(kernel, from, sourceOffset + head + middle, to, destinationOffset + head + middle, tail, value: 0);
+                }
+            }
+        }
+        catch
+        {
+            checkpoint.Restore(this);
+            throw;
+        }
+
+        _copyCount++;
     }
 
-    /// <summary>Records <c>fillBuffer:range:value:</c> over <paramref name="size"/> bytes from <paramref name="offset"/>; the buffer is leased now.</summary>
+    /// <summary>Records a fill of <paramref name="size"/> bytes from <paramref name="offset"/> with <paramref name="value"/>; the buffer is leased now.</summary>
+    /// <remarks>
+    /// A blit (<c>fillBuffer:range:value:</c>) when the offset and the size are multiples of 4, as
+    /// Metal documents it to need on macOS. Otherwise the aligned middle of the range is that blit
+    /// and the up to 3 bytes at each end are set by <see cref="FillBytesKernel"/>; see <see cref="RecordCopy(ObjCHandle, object, nuint, ObjCHandle, object, nuint, nuint)"/>.
+    /// </remarks>
     internal void RecordFill(ObjCHandle buffer, object owner, nuint offset, nuint size, byte value)
     {
         nint target = Lease(buffer, owner);
-        RecordBlit(new BlitOperation(BlitKind.FillBuffer, 0, 0, target, offset, size, Value: value));
+
+        if (((offset | size) & BlitAlignmentMask) == 0)
+        {
+            RecordBlit(new BlitOperation(BlitKind.FillBuffer, 0, 0, target, offset, size, Value: value));
+            _copyCount++;
+            return;
+        }
+
+        ComputePipeline kernel = _device.FillBytesPipeline;
+        Checkpoint checkpoint = new(this);
+
+        try
+        {
+            SplitAtAlignment(offset, size, out nuint head, out nuint middle);
+
+            if (middle == 0)
+            {
+                RecordByteKernel(kernel, source: 0, sourceOffset: 0, target, offset, size, value);
+            }
+            else
+            {
+                nuint tail = size - head - middle;
+
+                RecordBlit(new BlitOperation(BlitKind.FillBuffer, 0, 0, target, offset + head, middle, Value: value));
+
+                if (head != 0)
+                {
+                    RecordByteKernel(kernel, source: 0, sourceOffset: 0, target, offset, head, value);
+                }
+
+                if (tail != 0)
+                {
+                    RecordByteKernel(kernel, source: 0, sourceOffset: 0, target, offset + head + middle, tail, value);
+                }
+            }
+        }
+        catch
+        {
+            checkpoint.Restore(this);
+            throw;
+        }
+
+        _copyCount++;
+    }
+
+    /// <summary>What Metal documents a buffer blit's offsets and size to be multiples of on macOS, as a mask.</summary>
+    private const nuint BlitAlignmentMask = 3;
+
+    /// <summary>
+    /// Divides <paramref name="size"/> bytes at <paramref name="offset"/> into the bytes before the
+    /// first multiple of 4 (<paramref name="head"/>, 0 to 3), the whole 4-byte units after them
+    /// (<paramref name="middle"/>) and the rest (0 to 3 bytes).
+    /// </summary>
+    private static void SplitAtAlignment(nuint offset, nuint size, out nuint head, out nuint middle)
+    {
+        head = Math.Min((4 - (offset & BlitAlignmentMask)) & BlitAlignmentMask, size);
+        middle = (size - head) & ~BlitAlignmentMask;
+    }
+
+    /// <summary>
+    /// Records one dispatch of a byte kernel over <paramref name="size"/> bytes: its pipeline, the
+    /// buffers bound at the bytes the range starts at (<paramref name="source"/> is 0 for a fill, which
+    /// has none), its constants and a grid of one thread per <see cref="ByteKernel.Chunk"/> bytes.
+    /// The buffers are already leased by the caller.
+    /// </summary>
+    private void RecordByteKernel(ComputePipeline kernel, nint source, nuint sourceOffset, nint destination, nuint destinationOffset, nuint size, byte value)
+    {
+        nint state = kernel.State.DangerousGetHandle();
+
+        if (state != _currentPipeline)
+        {
+            state = Lease(kernel.State, _device);
+            _commands.Add(new Command(CommandKind.Pipeline, state, 0));
+            _currentPipeline = state;
+        }
+
+        int index = 0;
+
+        if (source != 0)
+        {
+            _commands.Add(new Command(CommandKind.Buffer, source, index++, sourceOffset));
+        }
+
+        _commands.Add(new Command(CommandKind.Buffer, destination, index++, destinationOffset));
+
+        ByteKernel.Parameters parameters = new(size, ByteKernel.Chunk, value);
+        RecordBytes(&parameters, sizeof(ByteKernel.Parameters), index);
+
+        nuint threads = (size + ByteKernel.Chunk - 1) / ByteKernel.Chunk;
+        nuint threadsPerThreadgroup = Math.Min(Math.Min(threads, 256), kernel.MaxTotalThreadsPerThreadgroup);
+
+        _dispatches.Add(new DispatchSizes(new MTLSize(threads, 1, 1), new MTLSize(threadsPerThreadgroup, 1, 1)));
+        _helperDispatches++;
+        _commands.Add(new Command(CommandKind.Dispatch, 0, _dispatches.Count - 1));
     }
 
     /// <summary>
@@ -310,6 +486,7 @@ internal sealed unsafe class CommandBatch
         nint from = LeaseTexture(source);
         nint to = LeaseTexture(destination);
         RecordBlit(new BlitOperation(BlitKind.CopyTexture, from, 0, to, 0, 0));
+        _copyCount++;
     }
 
     /// <summary>
@@ -324,6 +501,7 @@ internal sealed unsafe class CommandBatch
         nint to = LeaseTexture(destination);
         RecordBlit(new BlitOperation(
             BlitKind.CopyBufferToTexture, from, sourceOffset, to, 0, (nuint)destination.Width * (nuint)Unsafe.SizeOf<T>(), destination.Width, destination.Height));
+        _copyCount++;
     }
 
     /// <summary>
@@ -338,6 +516,7 @@ internal sealed unsafe class CommandBatch
         nint to = Lease(destination, destinationOwner);
         RecordBlit(new BlitOperation(
             BlitKind.CopyTextureToBuffer, from, 0, to, destinationOffset, (nuint)source.Width * (nuint)Unsafe.SizeOf<T>(), source.Width, source.Height));
+        _copyCount++;
     }
 
     /// <summary>Leases a texture and the buffer that stores its pixels, as binding it does, and returns the <c>id&lt;MTLTexture&gt;</c>.</summary>
@@ -812,18 +991,21 @@ internal sealed unsafe class CommandBatch
     /// <summary>"shader 'X'" for one dispatch, otherwise the operation counts and every shader type in the batch.</summary>
     private string Describe()
     {
-        if (_dispatches.Count == 1 && _shaderTypes.Count == 1 && _blits.Count == 0)
+        // As the caller recorded them: a copy is one copy, however many blits and kernels it became.
+        int dispatches = DispatchCount;
+
+        if (dispatches == 1 && _shaderTypes.Count == 1 && _copyCount == 0)
         {
             return $"shader '{_shaderTypes[0]}'";
         }
 
-        if (_dispatches.Count == 0)
+        if (dispatches == 0)
         {
-            return _blits.Count == 1 ? "a GPU copy or fill" : $"a batch of {_blits.Count} GPU copies and fills";
+            return _copyCount == 1 ? "a GPU copy or fill" : $"a batch of {_copyCount} GPU copies and fills";
         }
 
-        string blits = _blits.Count == 0 ? string.Empty : $" and {_blits.Count} copies or fills";
-        return $"a batch of {_dispatches.Count} dispatches{blits} (shaders: {string.Join(", ", _shaderTypes.ConvertAll(static t => $"'{t}'"))})";
+        string copies = _copyCount == 0 ? string.Empty : $" and {_copyCount} copies or fills";
+        return $"a batch of {dispatches} dispatches{copies} (shaders: {string.Join(", ", _shaderTypes.ConvertAll(static t => $"'{t}'"))})";
     }
 
     private void ReleaseResources()
@@ -909,6 +1091,30 @@ internal sealed unsafe class CommandBatch
         public int Index { get; } = index;
 
         public CommandKind Kind { get; } = kind;
+    }
+
+    /// <summary>
+    /// What a recording that takes several steps puts back when one of them fails, so that nothing of
+    /// it stays recorded. Leases taken since then stay with the batch, which only delays their release.
+    /// </summary>
+    private readonly struct Checkpoint(CommandBatch batch)
+    {
+        private readonly int _commands = batch._commands.Count;
+        private readonly int _dispatches = batch._dispatches.Count;
+        private readonly int _blits = batch._blits.Count;
+        private readonly int _constantsLength = batch._constantsLength;
+        private readonly int _helperDispatches = batch._helperDispatches;
+        private readonly nint _currentPipeline = batch._currentPipeline;
+
+        public void Restore(CommandBatch batch)
+        {
+            batch._commands.RemoveRange(_commands, batch._commands.Count - _commands);
+            batch._dispatches.RemoveRange(_dispatches, batch._dispatches.Count - _dispatches);
+            batch._blits.RemoveRange(_blits, batch._blits.Count - _blits);
+            batch._constantsLength = _constantsLength;
+            batch._helperDispatches = _helperDispatches;
+            batch._currentPipeline = _currentPipeline;
+        }
     }
 
     /// <summary>The sizes of one dispatch. An indirect dispatch has no <see cref="Grid"/>: its counts come from a buffer.</summary>

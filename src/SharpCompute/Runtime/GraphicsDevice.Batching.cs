@@ -50,7 +50,7 @@ public sealed partial class GraphicsDevice
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">A dimension is negative. (Thrown, not stored in the task.)</exception>
-    /// <exception cref="ArgumentException">A bound resource belongs to a different device. (Thrown.)</exception>
+    /// <exception cref="ArgumentException">A bound resource belongs to a different device, or two of the shader's buffers or textures overlap and it writes one of them (see <see cref="ShaderArgumentWriter"/>). (Thrown.)</exception>
     /// <exception cref="ObjectDisposedException">The device or a bound resource has been disposed. (Thrown.)</exception>
     /// <exception cref="ShaderCompilationException">The shader failed to compile. (Thrown.)</exception>
     /// <exception cref="MetalException">The GPU failed to execute the shader. (Stored in the returned task.)</exception>
@@ -62,7 +62,10 @@ public sealed partial class GraphicsDevice
     /// GPU has finished. Binding and grid follow <see cref="ForEach{T}"/>.
     /// </summary>
     /// <inheritdoc cref="ForAsync{T}(int, int, int, in T)" path="/remarks"/>
-    /// <exception cref="ArgumentException"><paramref name="texture"/> was allocated from a different device. (Thrown.)</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="texture"/> was allocated from a different device, or <paramref name="shader"/>
+    /// captures <paramref name="texture"/> itself (or its read-only view), or overlapping resources it writes. (Thrown.)
+    /// </exception>
     /// <exception cref="ObjectDisposedException">The device or <paramref name="texture"/> has been disposed. (Thrown.)</exception>
     /// <exception cref="MetalException">The GPU failed to execute the shader. (Stored in the returned task.)</exception>
     public Task ForEachAsync<T>(ReadWriteTexture2D<Rgba32> texture, in T shader)

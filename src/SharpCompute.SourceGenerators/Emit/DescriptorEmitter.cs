@@ -256,13 +256,13 @@ internal static class DescriptorEmitter
         {
             // `default(Shader)` has null buffers: name the shader and field rather than the writer's parameter.
             string message = $"The buffer '{buffer.DisplayName}' is null. Create the shader with its constructor (not 'default') and pass a buffer.";
-            writer.Line($"{writerName}.SetBuffer({buffer.Index.ToString(CultureInfo.InvariantCulture)}, {buffer.Access} ?? throw new global::System.ArgumentNullException({Literal(buffer.DisplayName)}, {Literal(message)}));");
+            writer.Line($"{writerName}.SetBuffer({buffer.Index.ToString(CultureInfo.InvariantCulture)}, {buffer.Access} ?? throw new global::System.ArgumentNullException({Literal(buffer.DisplayName)}, {Literal(message)}){NotWritten(buffer)});");
         }
 
         foreach (BufferArgument texture in model.Textures)
         {
             string message = $"The texture '{texture.DisplayName}' is null. Create the shader with its constructor (not 'default') and pass a texture.";
-            writer.Line($"{writerName}.SetTexture({texture.Index.ToString(CultureInfo.InvariantCulture)}, {texture.Access} ?? throw new global::System.ArgumentNullException({Literal(texture.DisplayName)}, {Literal(message)}));");
+            writer.Line($"{writerName}.SetTexture({texture.Index.ToString(CultureInfo.InvariantCulture)}, {texture.Access} ?? throw new global::System.ArgumentNullException({Literal(texture.DisplayName)}, {Literal(message)}){NotWritten(texture)});");
         }
 
         if (model.Constants.Count == 0)
@@ -279,6 +279,12 @@ internal static class DescriptorEmitter
 
         writer.Line($"{writerName}.SetBytes({model.ConstantsIndex.ToString(CultureInfo.InvariantCulture)}, in __constants);");
     }
+
+    /// <summary>
+    /// The extra argument for a read-write buffer or texture the shader never stores to. Everything
+    /// else binds with the two-argument overload, which takes a read-write resource as written.
+    /// </summary>
+    private static string NotWritten(BufferArgument argument) => argument.NeverWritten ? ", written: false" : string.Empty;
 
     /// <summary>A C# string literal for <paramref name="text"/>.</summary>
     private static string Literal(string text) =>

@@ -332,8 +332,8 @@ bandwidth: both sides use the same memory controller.
 |---|---|---|---|
 | Decode or read straight into GPU memory, convert on the GPU | 4K image pipeline 12.2 → 3.10 ms | Memory-bound kernels (SAXPY) | Same bandwidth; the CPU ties or wins |
 | `MapReadOnlyBuffer` instead of reading a file | 256 MB: 42.0 → 4.06 ms | Tiny one-off dispatches | ~0.1 ms floor per dispatch; the CPU finishes first |
-| Many small dispatches in one `ComputeContext` | ~99 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
-| `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (7 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
+| Many small dispatches in one `ComputeContext` | ~100 µs → ~1.9 µs per dispatch | Single heavy kernels | Nothing to copy or batch |
+| `ForAsync` double-buffering, CPU and GPU in parallel | 1.38× (8 % above the ideal) | GPU-private buffers | Same speed as shared on Apple silicon |
 | | | Splitting one grid between CPU and GPU (`ForSplit`) | 0.97–1.09× of GPU-only: scalar C# on the CPU, and the GPU slows while the CPU is busy |
 
 The full guide, with how to choose an API and the lifetime rules that come with zero copy, is
@@ -469,6 +469,14 @@ using (ComputeContext context = device.CreateComputeContext())
     context.ForEach(frame, new ShowHeat(result)); // samples what the last pass wrote
 }
 ```
+
+The view is the same pixels, so it must not be bound to a dispatch that writes them. A dispatch
+whose shader writes a texture can bind that texture only once: captured twice, or together with its
+`AsReadOnly()` view (or as the output of a `ForEach` whose shader also captures it), the two are
+separate textures to the GPU, and a read through one does not see what was written through the
+other. Such a dispatch is refused with an `ArgumentException` when it is recorded, on the GPU and
+the CPU alike, instead of returning stale pixels; ping-pong between two textures, as above, is the
+pattern that works. A texture bound twice and only read is fine.
 
 `scripts/demo-textures.sh` shows all of this live: the six samplers side by side on any of the eight
 formats (on your own picture with `--image photo.jpg`), and a simulation that ping-pongs between two
@@ -1185,6 +1193,34 @@ device.For(250_000, new Integrate(particles.Slice(500_000, 250_000), dt)); // to
 A view owns no memory: it is disposed with the buffer it came from, and a dispatch that binds it
 keeps that buffer's memory alive until the GPU is done.
 
+**Overlapping bindings.** A shader names each buffer it captures as memory of its own, and Metal
+compiles it that way: a value read through one capture is kept across a write through another. So
+one buffer passed as two captures, where the shader writes one and reads the other, computes
+something else on the GPU than its C# says (measured on an M4 Pro: `a[i] = b[i] + 1` twice and then
+`o[i] = b[i]`, with one buffer as `a` and `b`, leaves 1 and reads 0, where the CPU gives 2 and 2).
+SharpCompute checks the bindings when a dispatch is recorded and throws an `ArgumentException`
+rather than run it, on every path (`For`, `ForCpu`, `ForSplit`, `ForAsync`, a `ComputeContext`):
+
+| Two bindings of one dispatch | The shader writes neither | The shader writes one of them |
+|---|---|---|
+| The same buffer captured twice | allowed | `ArgumentException` |
+| Overlapping views (`Slice`) of one buffer | allowed | `ArgumentException` |
+| Buffers that wrap the same or overlapping memory (`WrapReadWriteBuffer`, `WrapNative...`) | allowed | `ArgumentException` |
+| A texture and the buffer its pixels are stored in (a wrapped linear texture) | allowed | `ArgumentException` |
+| The same texture twice, or with its `AsReadOnly()` view | allowed | `ArgumentException` |
+| Different buffers, disjoint views, an empty view | allowed | allowed |
+
+"Writes" is what the shader's code does, not the type of the capture: the generator works out which
+captures `Execute` and its helpers store to, so a `ReadWriteBuffer<T>` that is only read can be
+passed twice (`new Blend(layer, layer, ...)`). A wave matrix's `Store` is a store to its destination
+and its `Load` a read of its source. A hand-written descriptor says it with
+`writer.SetBuffer(index, buffer, written: false)`; without that, a read-write buffer or texture
+counts as written. The check compares address ranges and allocates nothing in the steady state:
+recording a dispatch with six buffers into a `ComputeContext` takes about 52 ns with it and 43 ns
+without, on an M4 Pro, which a recorded and executed dispatch (about 1.55 µs) does not show. To update a buffer from its own contents,
+capture it once (`data[i] = f(data[i])`), or write to a second buffer and swap the two (or
+`Copy` the result back).
+
 **Copy, fill, clear.** `Copy`, `Fill` and `Clear` run on the GPU as blits. On the device they are
 one command buffer each; in a `ComputeContext` they run in recorded order with the dispatches, which
 is the point: a copy sees what the pass before it wrote, without the CPU waiting in between.
@@ -1202,7 +1238,13 @@ device.Copy(simulation, texture); // buffer -> texture, texture -> buffer and te
 ```
 
 Offsets and counts are in elements; source and destination must not overlap. `Fill` takes a byte,
-so only 0 is the same element for every type. Buffers are unified memory, so when nothing on the GPU
+so only 0 is the same element for every type. Any range works, also of 1-, 2- or 3-byte elements at
+odd offsets: Metal documents its buffer blits to need byte offsets and sizes that are multiples of 4
+on macOS, so the aligned part of such a range goes to the blit and the rest (up to 3 bytes at each
+end, or all of it when the two offsets differ modulo 4) is copied or filled by a small compute
+kernel in the same command buffer, in the same place in the order. Unaligned ends cost nothing
+measurable; a range the kernel copies whole takes about 1.2 ms for 16 MB on an M4 Pro, against
+0.4 ms for a blit. Buffers are unified memory, so when nothing on the GPU
 is pending a span copy is faster than `device.Copy` (0.02 ms against about 0.13 ms for 1 MB on an
 M4 Pro; at 64 MB the GPU is ahead, about 0.8 ms against 1.05 ms).
 
@@ -1465,6 +1507,11 @@ ReadOnlyTexture2D<Rgba32> image = device.WrapNativeReadOnlyTexture2D<Rgba32>(mtl
 
 Untracked resources (`MTLHazardTrackingModeUntracked`, the default inside an `MTLHeap`) are rejected:
 SharpCompute orders its passes through Metal's hazard tracking.
+
+Wrapping the same object twice, or a texture and the buffer it is a view of, gives two SharpCompute
+objects over one piece of memory. They are compared by that memory when a dispatch binds them, so
+the rule for [overlapping bindings](#buffers-and-dispatch) holds for them too: bound together, the
+shader may read both but write neither.
 
 **Into the app's command buffer.** `EncodeInto` encodes what a context recorded into a command buffer
 the app created, without committing it, so SharpCompute's passes run in order with the app's own
@@ -1988,6 +2035,13 @@ and 2,000,000 for a GIF (the limits in `scripts/_common.sh`).
   by-reference (`ref`/`out`) argument has to be a local or a parameter, not a buffer element.
 - Textures are 2D with one mip level (a wrapped mipmapped texture uses level 0); samplers are the
   six fixed ones.
+- A dispatch whose shader writes a buffer or texture can bind that memory only once: the same
+  buffer or texture as two captures, overlapping views, or a texture with its `AsReadOnly()` view
+  throw an `ArgumentException` when one of them is written (see **Overlapping bindings**), because
+  the GPU would read stale data. Update in place through one capture, or ping-pong between two.
+  Two different `MTLTexture` objects that share storage without a CPU-visible buffer behind them (a
+  texture view other Metal code made of a wrapped texture, a linear texture over a private buffer)
+  are not recognized as the same memory.
 - `SharpCompute.Imaging` loads the first image of a file (not the other frames of a GIF or HEIC
   sequence) and saves one image. ImageIO does not report a file cut off inside its pixel data, so
   such a file loads with the missing part zero. An oriented image with translucent pixels goes through
