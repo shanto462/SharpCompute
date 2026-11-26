@@ -59,6 +59,9 @@ Costs are GPU time on an Apple M4 Pro, from the pull request that added each wor
   parameter or an expression only it folds (`uint m = uint.MaxValue; ... m / x`, or
   `BitOperations.RotateLeft(uint.MaxValue, n) / x`), can still divide wrongly. Write the constant in
   the division, or read it from a buffer.
+- **A compiler service crash** (FB25737990) on one rare combination of integer statements has no
+  workaround: the first dispatch throws `ShaderCompilationException`. Changing any of the statements
+  involved avoids it.
 - **Two forms are build errors** (`SCG0012`), because the lane-by-lane workaround would have to name
   a target with side effects twice: `v *= -1` on such a target, and `+=` or `-=` on components of one
   (`data[Next()].XY += w`). Put the index in a local first.
