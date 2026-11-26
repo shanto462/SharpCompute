@@ -193,7 +193,7 @@ public class PixelShaderTests
         ShaderDescriptor descriptor = run.Verify("Palette");
 
         Assert.Contains("texture2d<float, access::write> __output [[texture(0)]],\n    const device packed_float4* colors [[buffer(0)]],\n    constant __Constants& __c [[buffer(1)]],", descriptor.MslSource);
-        Assert.Equal("__output.write(colors[int(__tid.x) % int(__c.__length_colors)] * __c.scale, __tid.xy);\nreturn;", descriptor.KernelBody);
+        Assert.Equal("__output.write(colors[int(__tid.x) % __ms_nonzero(int(__c.__length_colors))] * __c.scale, __tid.xy);\nreturn;", descriptor.KernelBody);
     }
 
     [Theory]

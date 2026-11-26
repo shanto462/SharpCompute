@@ -932,16 +932,17 @@ def bit_count_msl() -> list[str]:
 #   uint), and so is one of the negated constant. __ms_div_near_max(c, b) divides c - b instead,
 #   which is not a constant: c / b is (c - b) / b + 1 for b <= c, and 0 for b > c (the remainder:
 #   (c - b) % b, and c). A long is divided as the magnitudes, with the sign of C#'s result.
-# These are not in the prelude's source but in a block of their own (MslPrelude.IntegerDivision),
-# which only a shader that divides integers gets.
+# These and the bit counts above are not in the prelude's source but in a block of their own
+# (MslPrelude.Integers), one overload a line, of which a shader carries the ones it calls.
 PRELUDE_NONZERO = "__ms_nonzero"
 PRELUDE_DIV_NEAR_MAX = "__ms_div_near_max"
 PRELUDE_REM_NEAR_MAX = "__ms_rem_near_max"
 
 
-def integer_division_msl() -> list[str]:
-    """MslPrelude.IntegerDivision: the nonzero divisors and the near-2^32 dividends (see PRELUDE_NONZERO)."""
-    lines = ["// SharpCompute integer division (MslPrelude.IntegerDivision)."]
+def integers_msl() -> list[str]:
+    """MslPrelude.Integers: the nonzero divisors, the near-2^32 dividends (see PRELUDE_NONZERO) and
+    the bit counts (see PRELUDE_POPCOUNT). A helper is declared after the ones it calls."""
+    lines = ["// SharpCompute integer helpers (MslPrelude.Integers)."]
     # The 32- and 64-bit ones first: the 8- and 16-bit ones call the int ones. Only a compound
     # `s /= t` divides by a small integer, which MSL promotes to int.
     for t in sorted(NEGATE_TYPES, key=lambda t: t.bits < 32):
@@ -970,6 +971,7 @@ def integer_division_msl() -> list[str]:
     lines.append(
         f"inline long {PRELUDE_REM_NEAR_MAX}(long a, long b) {{ ulong r = {PRELUDE_REM_NEAR_MAX}({magnitude.format('a')}, {magnitude.format('b')}); "
         "return long(a < 0L ? 0UL - r : r); }")
+    lines.extend(bit_count_msl())
     return lines
 
 
@@ -1060,7 +1062,6 @@ def prelude_msl() -> list[str]:
         mask = f"{t.bits - 1}u"
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_RIGHT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}((0u - uint(count)) & {mask})); }}")
-    lines.extend(bit_count_msl())
     lines.extend(negate_msl())
     lines.extend(multiply_msl())
     for n, packed in PACKED_MATRICES.items():
@@ -1112,14 +1113,14 @@ def gen_prelude() -> str:
     out.append('        """;')
     out.append("")
     out.append("    /// <summary>")
-    out.append("    /// The divisor of an integer division or remainder that cannot be zero (<c>__ms_nonzero</c>), and")
-    out.append("    /// the division and remainder of a constant dividend near 2^32 (<c>__ms_div_near_max</c>,")
-    out.append("    /// <c>__ms_rem_near_max</c>). The generator emits this block, after <see cref=\"Source\"/>, for a")
-    out.append("    /// shader that divides integers: Apple's GPU compiler drops the guard of a division whose")
-    out.append("    /// divisor may be zero, and divides a constant dividend that rounds to 2^32 as a float wrongly.")
+    out.append("    /// The integer helpers that work around miscompiles in Apple's GPU compiler: the divisor of an")
+    out.append("    /// integer division or remainder, which cannot be zero (<c>__ms_nonzero</c>), the division and")
+    out.append("    /// remainder of a constant dividend near 2^32 (<c>__ms_div_near_max</c>, <c>__ms_rem_near_max</c>),")
+    out.append("    /// and the bit counts (<c>__ms_popcount</c>, <c>__ms_clz</c>). The generator emits the overloads a")
+    out.append("    /// shader calls, after <see cref=\"Source\"/>: one per line here, which is how it picks them.")
     out.append("    /// </summary>")
-    out.append('    public const string IntegerDivision = """')
-    out.extend("        " + line for line in integer_division_msl())
+    out.append('    public const string Integers = """')
+    out.extend("        " + line for line in integers_msl())
     out.append('        """;')
     out.append("")
     out.append("    /// <summary>")

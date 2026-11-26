@@ -461,12 +461,12 @@ internal sealed partial class MslTranslator
             // The prelude's counts, as for Gpu.CountBits and Gpu.LeadingZeroCount (see MslTranslator.BitCounts).
             case ("BitOperations", "PopCount(uint)"):
             case ("BitOperations", "PopCount(ulong)"):
-                UsesPrelude = true;
+                UseIntegerHelper(MslNames.PopCount, types[0]);
                 return Call("int", MslNames.PopCount + "(" + arguments[0] + ")");
 
             case ("BitOperations", "LeadingZeroCount(uint)"):
             case ("BitOperations", "LeadingZeroCount(ulong)"):
-                UsesPrelude = true;
+                UseIntegerHelper(MslNames.LeadingZeroCount, types[0]);
                 return Call("int", MslNames.LeadingZeroCount + "(" + arguments[0] + ")");
 
             case ("BitOperations", "TrailingZeroCount(int)"):

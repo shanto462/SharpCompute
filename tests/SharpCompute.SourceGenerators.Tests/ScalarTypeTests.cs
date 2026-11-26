@@ -1189,11 +1189,11 @@ public class ScalarTypeTests
             sbytes[1] = metal::abs(sb);
             sbytes[2] = metal::reverse_bits(sb);
             shorts[1] = metal::clamp(s, short(-5), short(5));
-            ushorts[1] = metal::popcount(us);
+            ushorts[1] = __ms_popcount(us);
             longs[1] = long(ulong(metal::abs(a)) + ulong(metal::ctz(a)));
             ulongs[1] = metal::max(u, 1UL << 40);
             ulongs[2] = __ms_rotate_right(u, n);
-            ints[0] = int(uint(metal::min(int(b), 5)) + uint(metal::clz(int(b))));
+            ints[0] = int(uint(metal::min(int(b), 5)) + uint(__ms_clz(int(b))));
             """,
             """
             int n = ThreadIds.X;
@@ -1226,7 +1226,7 @@ public class ScalarTypeTests
             long a = longs[0];
             long b = longs[1];
             ulong u = ulongs[0];
-            ints[0] = int(uint(int(metal::popcount(u))) + uint(int(metal::clz(u))) + uint(int(metal::ctz(u))) + uint(int(metal::ctz(a))));
+            ints[0] = int(uint(int(__ms_popcount(u))) + uint(int(__ms_clz(u))) + uint(int(metal::ctz(u))) + uint(int(metal::ctz(a))));
             ulongs[1] = metal::rotate(u, ulong(uint(n) & 63u)) ^ metal::rotate(u, ulong((0u - uint(int(uint(n) + 1u))) & 63u));
             longs[2] = long(ulong(metal::min(a, b)) + ulong(metal::max(a, b)) + ulong(__ms_math_clamp(a, -10L, 10L)) + ulong(long(metal::abs(b))));
             bytes[0] = metal::max(bytes[1], bytes[2]);

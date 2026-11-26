@@ -979,6 +979,17 @@ def has_constant_part(n: Node) -> bool:
 OUT_OF_RANGE = ("NaN", "Infinity", "MaxValue", "MinValue", "e10f", "e30f", "16777216f", "2147483648f", "4294967296f", "65504f")
 
 
+CALL = re.compile(r"[A-Za-z_][A-Za-z_0-9.]*\(")
+
+
+def is_constant_expression(n: Node) -> bool:
+    """Whether n is a constant to C# or to the generator's folder: a literal (a constant vector
+    included), or operators and casts of them, but no call, member access, local or increment."""
+    if n.kind == "lit":
+        return True
+    return n.kind == "op" and not CALL.search(n.text) and "{0}." not in n.text and all(is_constant_expression(a) for a in n.args)
+
+
 def is_ternary(n: Node) -> bool:
     return n.kind == "op" and n.text.startswith("({0} ? ")
 
@@ -1006,19 +1017,20 @@ def is_division(n: Node) -> bool:
 def known_difference(root: Node) -> str | None:
     """The known difference the tree would run into, or None. Each name but ZeroSignOfMinMax,
     SameOperands and ConstantSubnormal (policy: what IEEE leaves open, an exact simplification the
-    GPU makes, and constants the compiler folds without flushing) is a skipped test of
-    KnownDifferencesTests.cs that holds a minimal repro."""
+    GPU makes, and constants the compiler folds without flushing) is a test of
+    KnownDifferencesTests.cs that holds a minimal repro: skipped, or, for ConstantDividend, the
+    repro of the shapes the generator works around."""
     for n in root.walk():
         e = elem_of(n.t)
         if is_division(n):
             dividend, divisor = n.args[0], n.args[1]
-            if e in (UINT, LONG, ULONG) and has_constant_part(dividend):
+            if e in (UINT, LONG, ULONG) and has_constant_part(dividend) and not is_constant_expression(dividend):
+                # The generator divides a constant dividend near 2^32 through a helper when it can
+                # see the constant (a C# constant expression or a constant vector); one the compiler
+                # only finds through a local, an increment or a lane is still divided wrongly.
                 return "ConstantDividend"
             if e is HALF and has_constant_part(divisor):
                 return "HalfDivisionByConstant"
-            if e.kind == "int" and (n.kind == "compound" or any(
-                    " ? " in m.text or is_division(m) for m in through_locals(divisor).walk() if m.kind == "op" or m.kind == "compound")):
-                return "GuardedDivisionChain"
             if e.floating and (zero_sign_open(divisor) or zero_sign_open(dividend)):
                 # Policy: which of two operands that are equal once flushed (±0, subnormals) Min and
                 # Max return is open, and a division does not hide the difference.
@@ -1052,9 +1064,6 @@ def known_difference(root: Node) -> str | None:
             return "HalfOfFract"
         if "l2h" in n.flags:
             return "LongToHalf"
-        if "bits" in n.flags and any(elem_of(m.t) in (BYTE, SBYTE, SHORT, USHORT) for m in n.args[0].walk()):
-            if not (n.args[0].kind == "var" and n.args[0].t in (SHORT, USHORT, BYTE, SBYTE)):
-                return "BitsOfSmallIntegerValue"
         if n.text.startswith(("Gpu.AsFloat(", "BitConverter.Int32BitsToSingle(", "BitConverter.UInt32BitsToSingle(", "Gpu.AsHalf(")) and may_be_constant(n.args[0]):
             return "ConstantSubnormal"
     return None

@@ -56,30 +56,6 @@ inline long __ms_rotate_left(long x, int count) { return metal::rotate(x, long(u
 inline long __ms_rotate_right(long x, int count) { return metal::rotate(x, long((0u - uint(count)) & 63u)); }
 inline ulong __ms_rotate_left(ulong x, int count) { return metal::rotate(x, ulong(uint(count) & 63u)); }
 inline ulong __ms_rotate_right(ulong x, int count) { return metal::rotate(x, ulong((0u - uint(count)) & 63u)); }
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
-inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
-inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
-inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
-inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
-inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
-inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
-inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }
-inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
-inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
-inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
-inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
-inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
-inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
-inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 inline char2 __ms_neg(char2 x) { return char2(char(-uchar(x.x)), char(-uchar(x.y))); }
 inline char3 __ms_neg(char3 x) { return char3(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z))); }
 inline char4 __ms_neg(char4 x) { return char4(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z)), char(-uchar(x.w))); }
@@ -192,53 +168,11 @@ template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, 
 // SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
 inline uchar __ms_sat_uchar(float x) { float y = x > 0.0f ? x : 0.0f; return uchar(metal::min(y, 255.0f)); }
 inline uchar __ms_sat_uchar(half x) { return __ms_sat_uchar(float(x)); }
-// SharpCompute integer division (MslPrelude.IntegerDivision).
+// SharpCompute integer helpers (MslPrelude.Integers).
 inline int __ms_nonzero(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
-inline int2 __ms_nonzero(int2 x) { uint2 u = uint2(x); return int2(u | (((u - 1u) & ~u) >> 31)); }
-inline int3 __ms_nonzero(int3 x) { uint3 u = uint3(x); return int3(u | (((u - 1u) & ~u) >> 31)); }
-inline int4 __ms_nonzero(int4 x) { uint4 u = uint4(x); return int4(u | (((u - 1u) & ~u) >> 31)); }
-inline uint __ms_nonzero(uint x) { return x | (((x - 1u) & ~x) >> 31); }
-inline uint2 __ms_nonzero(uint2 x) { return x | (((x - 1u) & ~x) >> 31); }
-inline uint3 __ms_nonzero(uint3 x) { return x | (((x - 1u) & ~x) >> 31); }
-inline uint4 __ms_nonzero(uint4 x) { return x | (((x - 1u) & ~x) >> 31); }
-inline long __ms_nonzero(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
-inline long2 __ms_nonzero(long2 x) { ulong2 u = ulong2(x); return long2(u | (((u - 1UL) & ~u) >> 63)); }
-inline long3 __ms_nonzero(long3 x) { ulong3 u = ulong3(x); return long3(u | (((u - 1UL) & ~u) >> 63)); }
-inline long4 __ms_nonzero(long4 x) { ulong4 u = ulong4(x); return long4(u | (((u - 1UL) & ~u) >> 63)); }
 inline ulong __ms_nonzero(ulong x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline ulong2 __ms_nonzero(ulong2 x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline ulong3 __ms_nonzero(ulong3 x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline ulong4 __ms_nonzero(ulong4 x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline char __ms_nonzero(char x) { return char(__ms_nonzero(int(x))); }
-inline char2 __ms_nonzero(char2 x) { return char2(__ms_nonzero(int2(x))); }
-inline char3 __ms_nonzero(char3 x) { return char3(__ms_nonzero(int3(x))); }
-inline char4 __ms_nonzero(char4 x) { return char4(__ms_nonzero(int4(x))); }
-inline uchar __ms_nonzero(uchar x) { return uchar(__ms_nonzero(int(x))); }
-inline uchar2 __ms_nonzero(uchar2 x) { return uchar2(__ms_nonzero(int2(x))); }
-inline uchar3 __ms_nonzero(uchar3 x) { return uchar3(__ms_nonzero(int3(x))); }
-inline uchar4 __ms_nonzero(uchar4 x) { return uchar4(__ms_nonzero(int4(x))); }
-inline short __ms_nonzero(short x) { return short(__ms_nonzero(int(x))); }
-inline short2 __ms_nonzero(short2 x) { return short2(__ms_nonzero(int2(x))); }
-inline short3 __ms_nonzero(short3 x) { return short3(__ms_nonzero(int3(x))); }
-inline short4 __ms_nonzero(short4 x) { return short4(__ms_nonzero(int4(x))); }
-inline ushort __ms_nonzero(ushort x) { return ushort(__ms_nonzero(int(x))); }
-inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(__ms_nonzero(int2(x))); }
-inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(__ms_nonzero(int3(x))); }
-inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(__ms_nonzero(int4(x))); }
-inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
-inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
-inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
-inline ulong __ms_rem_near_max(ulong a, ulong b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
-inline uint2 __ms_div_near_max(uint2 a, uint2 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint2(0u), b > a); }
-inline uint2 __ms_rem_near_max(uint2 a, uint2 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline uint3 __ms_div_near_max(uint3 a, uint3 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint3(0u), b > a); }
-inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline uint4 __ms_div_near_max(uint4 a, uint4 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint4(0u), b > a); }
-inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
-inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
 
-constant int Slots = 21;
+constant int Slots = 22;
 
 struct __GridWindow
 {
@@ -267,18 +201,22 @@ kernel void SharpCompute_Differential_Tests_Random1x6(
     uchar by0 = uchar(input[int(uint(o) + 3u)]);
     uchar by1 = uchar(input[int(uint(o) + 4u)]);
     uchar by2 = uchar(input[int(uint(o) + 5u)]);
+    char sb1 = char(input[int(uint(o) + 7u)]);
     char sb2 = char(input[int(uint(o) + 8u)]);
     short sh0 = short(input[int(uint(o) + 9u)]);
     short sh1 = short(input[int(uint(o) + 10u)]);
     short sh2 = short(input[int(uint(o) + 11u)]);
+    ushort us0 = ushort(input[int(uint(o) + 12u)]);
     ushort us2 = ushort(input[int(uint(o) + 14u)]);
     int i0 = int(input[int(uint(o) + 15u)]);
     int i1 = int(input[int(uint(o) + 16u)]);
     int i2 = int(input[int(uint(o) + 17u)]);
     uint u0 = uint(input[int(uint(o) + 18u)]);
+    long l1 = long(input[int(uint(o) + 22u)]);
     ulong ul0 = input[int(uint(o) + 24u)];
     ulong ul1 = input[int(uint(o) + 25u)];
     ulong ul2 = input[int(uint(o) + 26u)];
+    float f0 = as_type<float>(uint(input[int(uint(o) + 27u)]));
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
     float f2 = as_type<float>(uint(input[int(uint(o) + 29u)]));
     half h0 = as_type<half>(ushort(input[int(uint(o) + 30u)]));
@@ -291,8 +229,6 @@ kernel void SharpCompute_Differential_Tests_Random1x6(
     int2 i2a = int2(int(input[int(uint(o) + 69u)]), int(input[int(uint(o) + 70u)]));
     int2 i2b = int2(int(input[int(uint(o) + 71u)]), int(input[int(uint(o) + 72u)]));
     int4 i4a = int4(int(input[int(uint(o) + 79u)]), int(input[int(uint(o) + 80u)]), int(input[int(uint(o) + 81u)]), int(input[int(uint(o) + 82u)]));
-    uint2 u2a = uint2(uint(input[int(uint(o) + 87u)]), uint(input[int(uint(o) + 88u)]));
-    uint2 u2b = uint2(uint(input[int(uint(o) + 89u)]), uint(input[int(uint(o) + 90u)]));
     uint4 u4a = uint4(uint(input[int(uint(o) + 97u)]), uint(input[int(uint(o) + 98u)]), uint(input[int(uint(o) + 99u)]), uint(input[int(uint(o) + 100u)]));
     uint4 u4b = uint4(uint(input[int(uint(o) + 101u)]), uint(input[int(uint(o) + 102u)]), uint(input[int(uint(o) + 103u)]), uint(input[int(uint(o) + 104u)]));
     bool4 b4a = bool4((input[int(uint(o) + 115u)] & 1UL) != 0UL, (input[int(uint(o) + 116u)] & 1UL) != 0UL, (input[int(uint(o) + 117u)] & 1UL) != 0UL, (input[int(uint(o) + 118u)] & 1UL) != 0UL);
@@ -304,43 +240,60 @@ kernel void SharpCompute_Differential_Tests_Random1x6(
     output[int(uint(p) + 1u)] = long(metal::max(c1_0, c1_2));
     half c2_0 = (h0 * half(-1.0f)) + (h1 - h2);
     output[int(uint(p) + 2u)] = long(as_type<ushort>(((u4a > u4b) & (b1 ? b4a : b4a)).y ? as_type<half>(sh0) : c2_0));
-    output[int(uint(p) + 3u)] = long(int(uint(by1) - uint(char(~i1))));
+    uchar c3_0 = by0;
+    c3_0 &= int(by1);
+    int c3_1 = int(c3_0);
+    int c3_2 = metal::clamp(i0, i2, 255);
+    int c3_3 = i0;
+    c3_3 = int(uint(c3_3) + 1u);
+    output[int(uint(p) + 3u)] = long(as_type<uint>((((c3_2 == 0 || (c3_1 == -2147483647 - 1 && c3_2 == -1)) ? 0 : c3_1 % __ms_nonzero(c3_2)) > int(metal::ctz(metal::clamp(us0, us2, us0)))) ? metal::ceil(f0 - __ms_math_min(f2, -2.5f)) : ((float(c3_3) / (f0 + 0.5f)) - float(metal::ctz(sh2)))));
     int2 c4_0 = i2a;
     c4_0 &= i2b;
     output[int(uint(p) + 4u)] = long((int2(__ms_sub(uint2(i2a), uint2(metal::ctz(c4_0))))).x);
-    uint2 c5_0 = u2a;
-    uint2 c5_1 = (__ms_add(u4a, u4b)).zy;
-    uint2 c5_2 = c5_0 << __ms_rotate_left(i1, i1);
-    uint2 c5_3 = (c5_1 % __ms_nonzero(metal::select(c5_2, uint2(1u), (uint2(c5_2) == 0u)))) * u2b;
-    output[int(uint(p) + 5u)] = long(c5_3.x);
-    output[int(uint(p) + 6u)] = long(c5_3.y);
-    output[int(uint(p) + 7u)] = (ulong(metal::isinf(f2 + f1) ? uchar(ushort(by0)) : __ms_sat_uchar(f1 * (-0.5f))) >= (((ul1 + 4294967295UL) ^ ulong(ushort(i2))) + (+metal::rotate(ul2, ulong((0u - uint(i1)) & 63u))))) ? 1L : 0L;
-    ulong c7_0 = ul2 >> i1;
-    ulong c7_1 = ul0 ^ ul2;
-    ulong c7_2 = ul2;
-    ulong c7_3 = ++c7_2;
-    output[int(uint(p) + 8u)] = long(short(metal::min((c7_1 == 0UL) ? 0UL : c7_0 / __ms_nonzero(c7_1), c7_3)));
-    output[int(uint(p) + 9u)] = long(as_type<ushort>(__ms_half_rem((half(i0) * (h2 * h1)) + as_type<half>(short(by1)), metal::trunc(half2(h0)).x / half(sh1))));
+    int c5_0 = i0;
+    if (!(i0 == 0 || (c5_0 == -2147483647 - 1 && i0 == -1)))
+    {
+        c5_0 %= __ms_nonzero(i0);
+    }
+    int c5_1 = i1;
+    c5_1 = int(uint(c5_1) + uint(i2));
+    int3 c5_2 = int3(uint3(int3(metal::max(i1, i2), c5_0, c5_1)) * uint3(int4(__ms_add(u4b, u4b)).xyx));
+    output[int(uint(p) + 5u)] = long(c5_2.x);
+    output[int(uint(p) + 6u)] = long(c5_2.y);
+    output[int(uint(p) + 7u)] = long(c5_2.z);
+    output[int(uint(p) + 8u)] = (ulong(metal::isinf(f2 + f1) ? uchar(ushort(by0)) : __ms_sat_uchar(f1 * (-0.5f))) >= (((ul1 + 4294967295UL) ^ ulong(ushort(i2))) + (+metal::rotate(ul2, ulong((0u - uint(i1)) & 63u))))) ? 1L : 0L;
+    long c7_0 = l1;
+    c7_0 = long(ulong(c7_0) - 1UL);
+    ulong c7_1 = metal::min(ulong(c7_0), __ms_rotate_left(ul0, i0) - ulong(metal::max(by2, uchar(128))));
+    ulong c7_2 = +(metal::max(ul1, ul0) << (b1 ? i1 : 0));
+    if (!(c7_2 == 0UL))
+    {
+        c7_1 %= __ms_nonzero(c7_2);
+    }
+    output[int(uint(p) + 9u)] = long(c7_1);
+    uint c8_0 = metal::rotate(u0 >> (-1), (0u - uint(int(short(255)) >> i1)) & 31u);
+    c8_0 -= (metal::rotate(256u, uint(i1) & 31u) + uint(sb1));
+    output[int(uint(p) + 10u)] = (long(c8_0) ^ long(int(__ms_rotate_left(ulong(by0) + ul2, i4a.x))));
     half4 c9_0 = (h4b * h4b) + h4a;
     half4 c9_1 = h4a - c9_0;
-    output[int(uint(p) + 10u)] = long(as_type<ushort>(c9_1.x));
-    output[int(uint(p) + 11u)] = long(as_type<ushort>(c9_1.y));
-    output[int(uint(p) + 12u)] = long(as_type<ushort>(c9_1.z));
-    output[int(uint(p) + 13u)] = long(as_type<ushort>(c9_1.w));
+    output[int(uint(p) + 11u)] = long(as_type<ushort>(c9_1.x));
+    output[int(uint(p) + 12u)] = long(as_type<ushort>(c9_1.y));
+    output[int(uint(p) + 13u)] = long(as_type<ushort>(c9_1.z));
+    output[int(uint(p) + 14u)] = long(as_type<ushort>(c9_1.w));
     half2 c10_0 = h2a;
     c10_0 -= h2a;
     half2 c10_1 = metal::tan(c10_0 * h2b);
-    output[int(uint(p) + 14u)] = long(as_type<ushort>(c10_1.x));
-    output[int(uint(p) + 15u)] = long(as_type<ushort>(c10_1.y));
+    output[int(uint(p) + 15u)] = long(as_type<ushort>(c10_1.x));
+    output[int(uint(p) + 16u)] = long(as_type<ushort>(c10_1.y));
     float c11_0 = f1;
-    output[int(uint(p) + 16u)] = long(as_type<uint>(float(metal::min(metal::max(sh0, sh0), metal::reverse_bits(sh2))) * (0.0f - c11_0)));
-    output[int(uint(p) + 17u)] = long(metal::abs(int(-uint((b0 ? i4a : int4(65535, 1431655765, 33, 1)).z))));
+    output[int(uint(p) + 17u)] = long(as_type<uint>(float(metal::min(metal::max(sh0, sh0), metal::reverse_bits(sh2))) * (0.0f - c11_0)));
+    output[int(uint(p) + 18u)] = long(metal::abs(int(-uint((b0 ? i4a : int4(65535, 1431655765, 33, 1)).z))));
     short c13_0 = sh1;
     short c13_1 = --c13_0;
     short c13_2 = c13_1;
     c13_2 >>= (int(uint(sh0) - uint(by2)));
-    output[int(uint(p) + 18u)] = long(int(c13_2) >> i0);
+    output[int(uint(p) + 19u)] = long(int(c13_2) >> i0);
     uint c14_0 = u0;
-    output[int(uint(p) + 19u)] = (int(metal::abs(uchar(ul1))) > (int(-uint(char(c14_0))))) ? 1L : 0L;
-    output[int(uint(p) + 20u)] = long(metal::ctz(sh1));
+    output[int(uint(p) + 20u)] = (int(metal::abs(uchar(ul1))) > (int(-uint(char(c14_0))))) ? 1L : 0L;
+    output[int(uint(p) + 21u)] = long(ushort(metal::clz((i0 > i0) ? by2 : metal::ctz(by1))));
 }

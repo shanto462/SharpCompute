@@ -109,7 +109,7 @@ internal static class MslNames
     public const string SubtractFrom = "__ms_sub_from";
 
     /// <summary>
-    /// The prelude's bit counts, which stand for <c>metal::popcount</c> (of every integer type) and
+    /// The bit counts of <c>MslPrelude.Integers</c>, which stand for <c>metal::popcount</c> (of every integer type) and
     /// <c>metal::clz</c> (of the 32- and 64-bit integers and the <c>int</c> and <c>uint</c> vectors): Apple's GPU compiler miscounts
     /// some values (see <c>MslTranslator.BitCounts</c>).
     /// </summary>
@@ -120,14 +120,14 @@ internal static class MslNames
 
     /// <summary>
     /// The divisor of an integer division or remainder, which is the divisor itself unless that is
-    /// zero (see <c>MslTranslator.IntegerDivision</c>). In <c>MslPrelude.IntegerDivision</c>, not in
-    /// the prelude's source.
+    /// zero (see <c>MslTranslator.IntegerDivision</c>). In <c>MslPrelude.Integers</c>, not in the
+    /// prelude's source.
     /// </summary>
     public const string NonZero = "__ms_nonzero";
 
     /// <summary>
     /// The division and remainder of a constant dividend near 2^32, which Apple's GPU compiler gets
-    /// wrong as an operator (see <c>MslTranslator.IntegerDivision</c>). In <c>MslPrelude.IntegerDivision</c>.
+    /// wrong as an operator (see <c>MslTranslator.IntegerDivision</c>). In <c>MslPrelude.Integers</c>.
     /// </summary>
     public const string DivideNearMax = "__ms_div_near_max";
 

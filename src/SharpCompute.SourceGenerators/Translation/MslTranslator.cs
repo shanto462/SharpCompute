@@ -468,10 +468,13 @@ internal sealed partial class MslTranslator
     public bool UsesVectorArithmetic { get; private set; }
 
     /// <summary>
-    /// True when an integer division or remainder goes through <c>__ms_nonzero</c>,
-    /// <c>__ms_div_near_max</c> or <c>__ms_rem_near_max</c>, so the MSL needs <c>MslPrelude.IntegerDivision</c>.
+    /// The overloads of <c>MslPrelude.Integers</c> the shader calls, as <c>name(type</c> (the helper
+    /// and the type of its first parameter: <c>__ms_nonzero(int3</c>), with the ones they call: the
+    /// MSL needs those lines of the block, and carries no other.
     /// </summary>
-    public bool UsesIntegerDivision { get; private set; }
+    public IReadOnlyCollection<string> IntegerHelpers => _integerHelpers;
+
+    private readonly SortedSet<string> _integerHelpers = new(System.StringComparer.Ordinal);
 
     /// <summary>
     /// The saturating float to integer conversions the shader calls (<c>__ms_sat_int</c>,

@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 namespace SharpCompute.SourceGenerators;
 
 /// <summary>
-/// The bit counts that are emitted as calls of the prelude's <c>__ms_popcount</c> and
+/// The bit counts that are emitted as calls of <c>MslPrelude.Integers</c>' <c>__ms_popcount</c> and
 /// <c>__ms_clz</c> instead of <c>metal::popcount</c> and <c>metal::clz</c>, to work around a
 /// miscompile in Apple's GPU compiler (the MSL, and the AIR it compiles to, are correct).
 /// </summary>
@@ -35,7 +35,7 @@ internal sealed partial class MslTranslator
 {
     /// <summary>
     /// The MSL function a bit-count intrinsic of <paramref name="method"/> is emitted as:
-    /// <paramref name="intrinsic"/>, or the prelude's helper for <c>metal::popcount</c> and for the
+    /// <paramref name="intrinsic"/>, or the helper of <c>MslPrelude.Integers</c> for <c>metal::popcount</c> and for the
     /// 32- and 64-bit <c>metal::clz</c> (see the remarks on this class).
     /// </summary>
     private string BitCountFunction(string intrinsic, IMethodSymbol method)
@@ -57,7 +57,7 @@ internal sealed partial class MslTranslator
             return intrinsic;
         }
 
-        UsesPrelude = true;
+        UseIntegerHelper(helper, type.MslName);
         return helper;
     }
 

@@ -56,30 +56,6 @@ inline long __ms_rotate_left(long x, int count) { return metal::rotate(x, long(u
 inline long __ms_rotate_right(long x, int count) { return metal::rotate(x, long((0u - uint(count)) & 63u)); }
 inline ulong __ms_rotate_left(ulong x, int count) { return metal::rotate(x, ulong(uint(count) & 63u)); }
 inline ulong __ms_rotate_right(ulong x, int count) { return metal::rotate(x, ulong((0u - uint(count)) & 63u)); }
-inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
-inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
-inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
-inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
-inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
-inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
-inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
-inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
-inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
-inline long __ms_clz(long x) { return x < 0L ? 0L : metal::clz(x); }
-inline ulong __ms_clz(ulong x) { return long(x) < 0L ? 0UL : metal::clz(x); }
-inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
-inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
-inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
-inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
-inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
-inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 inline char2 __ms_neg(char2 x) { return char2(char(-uchar(x.x)), char(-uchar(x.y))); }
 inline char3 __ms_neg(char3 x) { return char3(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z))); }
 inline char4 __ms_neg(char4 x) { return char4(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z)), char(-uchar(x.w))); }
@@ -134,53 +110,14 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
-// SharpCompute integer division (MslPrelude.IntegerDivision).
-inline int __ms_nonzero(int x) { uint u = uint(x); return int(u | (((u - 1u) & ~u) >> 31)); }
-inline int2 __ms_nonzero(int2 x) { uint2 u = uint2(x); return int2(u | (((u - 1u) & ~u) >> 31)); }
-inline int3 __ms_nonzero(int3 x) { uint3 u = uint3(x); return int3(u | (((u - 1u) & ~u) >> 31)); }
-inline int4 __ms_nonzero(int4 x) { uint4 u = uint4(x); return int4(u | (((u - 1u) & ~u) >> 31)); }
+// SharpCompute saturating float to integer conversions (MslPrelude.Conversions).
+inline ushort __ms_sat_ushort(float x) { float y = x > 0.0f ? x : 0.0f; return ushort(metal::min(y, 65535.0f)); }
+inline ushort __ms_sat_ushort(half x) { return __ms_sat_ushort(float(x)); }
+// SharpCompute integer helpers (MslPrelude.Integers).
 inline uint __ms_nonzero(uint x) { return x | (((x - 1u) & ~x) >> 31); }
-inline uint2 __ms_nonzero(uint2 x) { return x | (((x - 1u) & ~x) >> 31); }
-inline uint3 __ms_nonzero(uint3 x) { return x | (((x - 1u) & ~x) >> 31); }
-inline uint4 __ms_nonzero(uint4 x) { return x | (((x - 1u) & ~x) >> 31); }
-inline long __ms_nonzero(long x) { ulong u = ulong(x); return long(u | (((u - 1UL) & ~u) >> 63)); }
-inline long2 __ms_nonzero(long2 x) { ulong2 u = ulong2(x); return long2(u | (((u - 1UL) & ~u) >> 63)); }
-inline long3 __ms_nonzero(long3 x) { ulong3 u = ulong3(x); return long3(u | (((u - 1UL) & ~u) >> 63)); }
-inline long4 __ms_nonzero(long4 x) { ulong4 u = ulong4(x); return long4(u | (((u - 1UL) & ~u) >> 63)); }
-inline ulong __ms_nonzero(ulong x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline ulong2 __ms_nonzero(ulong2 x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline ulong3 __ms_nonzero(ulong3 x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline ulong4 __ms_nonzero(ulong4 x) { return x | (((x - 1UL) & ~x) >> 63); }
-inline char __ms_nonzero(char x) { return char(__ms_nonzero(int(x))); }
-inline char2 __ms_nonzero(char2 x) { return char2(__ms_nonzero(int2(x))); }
-inline char3 __ms_nonzero(char3 x) { return char3(__ms_nonzero(int3(x))); }
-inline char4 __ms_nonzero(char4 x) { return char4(__ms_nonzero(int4(x))); }
-inline uchar __ms_nonzero(uchar x) { return uchar(__ms_nonzero(int(x))); }
-inline uchar2 __ms_nonzero(uchar2 x) { return uchar2(__ms_nonzero(int2(x))); }
-inline uchar3 __ms_nonzero(uchar3 x) { return uchar3(__ms_nonzero(int3(x))); }
-inline uchar4 __ms_nonzero(uchar4 x) { return uchar4(__ms_nonzero(int4(x))); }
-inline short __ms_nonzero(short x) { return short(__ms_nonzero(int(x))); }
-inline short2 __ms_nonzero(short2 x) { return short2(__ms_nonzero(int2(x))); }
-inline short3 __ms_nonzero(short3 x) { return short3(__ms_nonzero(int3(x))); }
-inline short4 __ms_nonzero(short4 x) { return short4(__ms_nonzero(int4(x))); }
-inline ushort __ms_nonzero(ushort x) { return ushort(__ms_nonzero(int(x))); }
-inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(__ms_nonzero(int2(x))); }
-inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(__ms_nonzero(int3(x))); }
-inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(__ms_nonzero(int4(x))); }
-inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
-inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
-inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
-inline ulong __ms_rem_near_max(ulong a, ulong b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
-inline uint2 __ms_div_near_max(uint2 a, uint2 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint2(0u), b > a); }
-inline uint2 __ms_rem_near_max(uint2 a, uint2 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline uint3 __ms_div_near_max(uint3 a, uint3 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint3(0u), b > a); }
-inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline uint4 __ms_div_near_max(uint4 a, uint4 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint4(0u), b > a); }
-inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
-inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
-inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
 
-constant int Slots = 72;
+constant int Slots = 36;
 
 struct __GridWindow
 {
@@ -199,7 +136,6 @@ static float GpuModel_Flush(float value);
 static float4 GpuModel_Flush_1(float4 value);
 static float GpuModel_FlushTiny(float value);
 static float4 GpuModel_FlushTiny_1(float4 value);
-static half GpuModel_Fma(half a, half b, half c);
 static float3 GpuModel_Flush_2(float3 value);
 static float3 GpuModel_FlushTiny_2(float3 value);
 
@@ -225,11 +161,6 @@ static float4 GpuModel_FlushTiny_1(float4 value)
     return float4(::GpuModel_FlushTiny(value.x), ::GpuModel_FlushTiny(value.y), ::GpuModel_FlushTiny(value.z), ::GpuModel_FlushTiny(value.w));
 }
 
-static half GpuModel_Fma(half a, half b, half c)
-{
-    return metal::fma(half2(a), half2(b), half2(c)).x;
-}
-
 static float3 GpuModel_Flush_2(float3 value)
 {
     return float3(::GpuModel_Flush(value.x), ::GpuModel_Flush(value.y), ::GpuModel_Flush(value.z));
@@ -251,10 +182,17 @@ kernel void SharpCompute_Differential_Tests_Random2x1Model(
     int p = int(__tid.x * uint(::Slots));
     bool b0 = (input[int(uint(o) + 0u)] & 1UL) != 0UL;
     bool b1 = (input[int(uint(o) + 1u)] & 1UL) != 0UL;
+    uchar by1 = uchar(input[int(uint(o) + 4u)]);
+    uchar by2 = uchar(input[int(uint(o) + 5u)]);
+    char sb0 = char(input[int(uint(o) + 6u)]);
     char sb1 = char(input[int(uint(o) + 7u)]);
+    char sb2 = char(input[int(uint(o) + 8u)]);
     short sh0 = short(input[int(uint(o) + 9u)]);
     short sh1 = short(input[int(uint(o) + 10u)]);
-    short sh2 = short(input[int(uint(o) + 11u)]);
+    ushort us0 = ushort(input[int(uint(o) + 12u)]);
+    ushort us1 = ushort(input[int(uint(o) + 13u)]);
+    ushort us2 = ushort(input[int(uint(o) + 14u)]);
+    int i0 = int(input[int(uint(o) + 15u)]);
     int i1 = int(input[int(uint(o) + 16u)]);
     int i2 = int(input[int(uint(o) + 17u)]);
     uint u0 = uint(input[int(uint(o) + 18u)]);
@@ -267,172 +205,110 @@ kernel void SharpCompute_Differential_Tests_Random2x1Model(
     float f1 = as_type<float>(uint(input[int(uint(o) + 28u)]));
     float f2 = as_type<float>(uint(input[int(uint(o) + 29u)]));
     half h0 = as_type<half>(ushort(input[int(uint(o) + 30u)]));
-    half h1 = as_type<half>(ushort(input[int(uint(o) + 31u)]));
     half h2 = as_type<half>(ushort(input[int(uint(o) + 32u)]));
     float3 f3a = float3(as_type<float>(uint(input[int(uint(o) + 37u)])), as_type<float>(uint(input[int(uint(o) + 38u)])), as_type<float>(uint(input[int(uint(o) + 39u)])));
     float3 f3b = float3(as_type<float>(uint(input[int(uint(o) + 40u)])), as_type<float>(uint(input[int(uint(o) + 41u)])), as_type<float>(uint(input[int(uint(o) + 42u)])));
     float4 f4a = float4(as_type<float>(uint(input[int(uint(o) + 43u)])), as_type<float>(uint(input[int(uint(o) + 44u)])), as_type<float>(uint(input[int(uint(o) + 45u)])), as_type<float>(uint(input[int(uint(o) + 46u)])));
     float4 f4b = float4(as_type<float>(uint(input[int(uint(o) + 47u)])), as_type<float>(uint(input[int(uint(o) + 48u)])), as_type<float>(uint(input[int(uint(o) + 49u)])), as_type<float>(uint(input[int(uint(o) + 50u)])));
-    half3 h3a = half3(as_type<half>(ushort(input[int(uint(o) + 55u)])), as_type<half>(ushort(input[int(uint(o) + 56u)])), as_type<half>(ushort(input[int(uint(o) + 57u)])));
     half3 h3b = half3(as_type<half>(ushort(input[int(uint(o) + 58u)])), as_type<half>(ushort(input[int(uint(o) + 59u)])), as_type<half>(ushort(input[int(uint(o) + 60u)])));
     half4 h4b = half4(as_type<half>(ushort(input[int(uint(o) + 65u)])), as_type<half>(ushort(input[int(uint(o) + 66u)])), as_type<half>(ushort(input[int(uint(o) + 67u)])), as_type<half>(ushort(input[int(uint(o) + 68u)])));
+    int2 i2b = int2(int(input[int(uint(o) + 71u)]), int(input[int(uint(o) + 72u)]));
     int4 i4b = int4(int(input[int(uint(o) + 83u)]), int(input[int(uint(o) + 84u)]), int(input[int(uint(o) + 85u)]), int(input[int(uint(o) + 86u)]));
+    uint2 u2a = uint2(uint(input[int(uint(o) + 87u)]), uint(input[int(uint(o) + 88u)]));
     uint4 u4a = uint4(uint(input[int(uint(o) + 97u)]), uint(input[int(uint(o) + 98u)]), uint(input[int(uint(o) + 99u)]), uint(input[int(uint(o) + 100u)]));
     uint4 u4b = uint4(uint(input[int(uint(o) + 101u)]), uint(input[int(uint(o) + 102u)]), uint(input[int(uint(o) + 103u)]), uint(input[int(uint(o) + 104u)]));
     bool3 b3a = bool3((input[int(uint(o) + 109u)] & 1UL) != 0UL, (input[int(uint(o) + 110u)] & 1UL) != 0UL, (input[int(uint(o) + 111u)] & 1UL) != 0UL);
     bool3 b3b = bool3((input[int(uint(o) + 112u)] & 1UL) != 0UL, (input[int(uint(o) + 113u)] & 1UL) != 0UL, (input[int(uint(o) + 114u)] & 1UL) != 0UL);
     bool4 b4a = bool4((input[int(uint(o) + 115u)] & 1UL) != 0UL, (input[int(uint(o) + 116u)] & 1UL) != 0UL, (input[int(uint(o) + 117u)] & 1UL) != 0UL, (input[int(uint(o) + 118u)] & 1UL) != 0UL);
     bool4 b4b = bool4((input[int(uint(o) + 119u)] & 1UL) != 0UL, (input[int(uint(o) + 120u)] & 1UL) != 0UL, (input[int(uint(o) + 121u)] & 1UL) != 0UL, (input[int(uint(o) + 122u)] & 1UL) != 0UL);
-    float4 c1_v0_0 = f4b;
-    float4 c1_v0_1 = f4a;
-    bool4 c1_v0_2 = ((metal::isfinite(::GpuModel_Flush(f1)) != metal::isnan(::GpuModel_Flush(f0))) && b1) ? metal::isfinite(half4(~u4b)) : ((::GpuModel_Flush_1(c1_v0_0) > ::GpuModel_Flush_1(c1_v0_1)) ^ b4a);
-    output[int(uint(p) + 0u)] = (c1_v0_2.x) ? 1L : 0L;
-    output[int(uint(p) + 1u)] = (c1_v0_2.y) ? 1L : 0L;
-    output[int(uint(p) + 2u)] = (c1_v0_2.z) ? 1L : 0L;
-    output[int(uint(p) + 3u)] = (c1_v0_2.w) ? 1L : 0L;
-    float4 c1_v1_0 = f4b;
-    float4 c1_v1_1 = f4a;
-    bool4 c1_v1_2 = ((metal::isfinite(::GpuModel_Flush(f1)) != metal::isnan(::GpuModel_Flush(f0))) && b1) ? metal::isfinite(half4(~u4b)) : ((::GpuModel_Flush_1(c1_v1_0) > ::GpuModel_Flush_1(c1_v1_1)) ^ b4a);
-    output[int(uint(p) + 4u)] = (c1_v1_2.x) ? 1L : 0L;
-    output[int(uint(p) + 5u)] = (c1_v1_2.y) ? 1L : 0L;
-    output[int(uint(p) + 6u)] = (c1_v1_2.z) ? 1L : 0L;
-    output[int(uint(p) + 7u)] = (c1_v1_2.w) ? 1L : 0L;
-    float4 c1_v2_0 = f4b;
-    float4 c1_v2_1 = f4a;
-    bool4 c1_v2_2 = ((metal::isfinite(f1) != metal::isnan(f0)) && b1) ? metal::isfinite(half4(~u4b)) : ((c1_v2_0 > c1_v2_1) ^ b4a);
-    output[int(uint(p) + 8u)] = (c1_v2_2.x) ? 1L : 0L;
-    output[int(uint(p) + 9u)] = (c1_v2_2.y) ? 1L : 0L;
-    output[int(uint(p) + 10u)] = (c1_v2_2.z) ? 1L : 0L;
-    output[int(uint(p) + 11u)] = (c1_v2_2.w) ? 1L : 0L;
     float4 c3_v0_0 = ::GpuModel_Flush_1(::GpuModel_Flush_1(metal::select(::GpuModel_Flush_1(metal::fma(::GpuModel_Flush_1(f4a), ::GpuModel_Flush_1(f4a), ::GpuModel_Flush_1(f4a))), float4(h4b), (uint4(u4b) != uint4(u4a)))) + ::GpuModel_Flush_1(::GpuModel_Flush_1(::GpuModel_Flush_1(-f4b) - ::GpuModel_Flush_1(::GpuModel_Flush_1(::GpuModel_Flush_1(f4a) + ::GpuModel_Flush_1(float4(-1E+30f, 3.4028235E+38f, 1E-10f, -1E+30f)))))));
     float4 c3_v0_1 = f4a;
     c3_v0_1 = ::GpuModel_Flush_1(::GpuModel_Flush_1(c3_v0_1) * ::GpuModel_Flush_1(f4b));
     float4 c3_v0_2 = c3_v0_1;
     c3_v0_0 = ::GpuModel_Flush_1(::GpuModel_Flush_1(c3_v0_0) + ::GpuModel_Flush_1(metal::select(c3_v0_2, ::GpuModel_Flush_1(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f1) + ::GpuModel_Flush(f0))) + ::GpuModel_Flush_1(as_type<float4>(i4b))), (::GpuModel_Flush(f1) != ::GpuModel_Flush(f2)) ? (i4b < i4b) : (b4b ^ b4a))));
     float4 c3_v0_3 = c3_v0_0;
-    output[int(uint(p) + 12u)] = long(as_type<uint>(c3_v0_3.x));
-    output[int(uint(p) + 13u)] = long(as_type<uint>(c3_v0_3.y));
-    output[int(uint(p) + 14u)] = long(as_type<uint>(c3_v0_3.z));
-    output[int(uint(p) + 15u)] = long(as_type<uint>(c3_v0_3.w));
+    output[int(uint(p) + 0u)] = long(as_type<uint>(c3_v0_3.x));
+    output[int(uint(p) + 1u)] = long(as_type<uint>(c3_v0_3.y));
+    output[int(uint(p) + 2u)] = long(as_type<uint>(c3_v0_3.z));
+    output[int(uint(p) + 3u)] = long(as_type<uint>(c3_v0_3.w));
     float4 c3_v1_0 = ::GpuModel_Flush_1(::GpuModel_Flush_1(metal::select(::GpuModel_FlushTiny_1(metal::fma(::GpuModel_Flush_1(f4a), ::GpuModel_Flush_1(f4a), ::GpuModel_Flush_1(f4a))), float4(h4b), (uint4(u4b) != uint4(u4a)))) + ::GpuModel_Flush_1(::GpuModel_Flush_1(::GpuModel_Flush_1(-f4b) - ::GpuModel_Flush_1(::GpuModel_Flush_1(::GpuModel_Flush_1(f4a) + ::GpuModel_Flush_1(float4(-1E+30f, 3.4028235E+38f, 1E-10f, -1E+30f)))))));
     float4 c3_v1_1 = f4a;
     c3_v1_1 = ::GpuModel_FlushTiny_1(::GpuModel_Flush_1(c3_v1_1) * ::GpuModel_Flush_1(f4b));
     float4 c3_v1_2 = c3_v1_1;
     c3_v1_0 = ::GpuModel_Flush_1(::GpuModel_Flush_1(c3_v1_0) + ::GpuModel_Flush_1(metal::select(c3_v1_2, ::GpuModel_Flush_1(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f1) + ::GpuModel_Flush(f0))) + ::GpuModel_Flush_1(as_type<float4>(i4b))), (::GpuModel_Flush(f1) != ::GpuModel_Flush(f2)) ? (i4b < i4b) : (b4b ^ b4a))));
     float4 c3_v1_3 = c3_v1_0;
-    output[int(uint(p) + 16u)] = long(as_type<uint>(c3_v1_3.x));
-    output[int(uint(p) + 17u)] = long(as_type<uint>(c3_v1_3.y));
-    output[int(uint(p) + 18u)] = long(as_type<uint>(c3_v1_3.z));
-    output[int(uint(p) + 19u)] = long(as_type<uint>(c3_v1_3.w));
+    output[int(uint(p) + 4u)] = long(as_type<uint>(c3_v1_3.x));
+    output[int(uint(p) + 5u)] = long(as_type<uint>(c3_v1_3.y));
+    output[int(uint(p) + 6u)] = long(as_type<uint>(c3_v1_3.z));
+    output[int(uint(p) + 7u)] = long(as_type<uint>(c3_v1_3.w));
     float4 c3_v2_0 = ::GpuModel_Flush_1(metal::select(::GpuModel_FlushTiny_1(metal::fma(f4a, f4a, f4a)), float4(h4b), (uint4(u4b) != uint4(u4a))) + ::GpuModel_Flush_1((-f4b) - ::GpuModel_Flush_1(f4a + float4(-1E+30f, 3.4028235E+38f, 1E-10f, -1E+30f))));
     float4 c3_v2_1 = f4a;
     c3_v2_1 = ::GpuModel_FlushTiny_1(c3_v2_1 * f4b);
     float4 c3_v2_2 = c3_v2_1;
     c3_v2_0 = ::GpuModel_Flush_1(c3_v2_0 + metal::select(c3_v2_2, ::GpuModel_Flush_1(::GpuModel_Flush(f1 + f0) + as_type<float4>(i4b)), (f1 != f2) ? (i4b < i4b) : (b4b ^ b4a)));
     float4 c3_v2_3 = c3_v2_0;
-    output[int(uint(p) + 20u)] = long(as_type<uint>(c3_v2_3.x));
-    output[int(uint(p) + 21u)] = long(as_type<uint>(c3_v2_3.y));
-    output[int(uint(p) + 22u)] = long(as_type<uint>(c3_v2_3.z));
-    output[int(uint(p) + 23u)] = long(as_type<uint>(c3_v2_3.w));
+    output[int(uint(p) + 8u)] = long(as_type<uint>(c3_v2_3.x));
+    output[int(uint(p) + 9u)] = long(as_type<uint>(c3_v2_3.y));
+    output[int(uint(p) + 10u)] = long(as_type<uint>(c3_v2_3.z));
+    output[int(uint(p) + 11u)] = long(as_type<uint>(c3_v2_3.w));
     float c7_v0_0 = f0;
     c7_v0_0 = ::GpuModel_Flush(::GpuModel_Flush(c7_v0_0) + 1.0f);
     float c7_v0_1 = c7_v0_0;
     float2 c7_v0_2 = float2(c7_v0_1, ::GpuModel_Flush(metal::ceil(::GpuModel_Flush(f1))));
     float2 c7_v0_3 = c7_v0_2;
-    output[int(uint(p) + 24u)] = long(as_type<uint>(c7_v0_3.x));
-    output[int(uint(p) + 25u)] = long(as_type<uint>(c7_v0_3.y));
+    output[int(uint(p) + 12u)] = long(as_type<uint>(c7_v0_3.x));
+    output[int(uint(p) + 13u)] = long(as_type<uint>(c7_v0_3.y));
     float c7_v1_0 = f0;
     c7_v1_0 = ::GpuModel_Flush(::GpuModel_Flush(c7_v1_0) + 1.0f);
     float c7_v1_1 = c7_v1_0;
     float2 c7_v1_2 = float2(c7_v1_1, ::GpuModel_Flush(metal::ceil(::GpuModel_Flush(f1))));
     float2 c7_v1_3 = c7_v1_2;
-    output[int(uint(p) + 26u)] = long(as_type<uint>(c7_v1_3.x));
-    output[int(uint(p) + 27u)] = long(as_type<uint>(c7_v1_3.y));
+    output[int(uint(p) + 14u)] = long(as_type<uint>(c7_v1_3.x));
+    output[int(uint(p) + 15u)] = long(as_type<uint>(c7_v1_3.y));
     float c7_v2_0 = f0;
     c7_v2_0 = ::GpuModel_Flush(c7_v2_0 + 1.0f);
     float c7_v2_1 = c7_v2_0;
     float2 c7_v2_2 = float2(c7_v2_1, ::GpuModel_Flush(metal::ceil(f1)));
     float2 c7_v2_3 = c7_v2_2;
-    output[int(uint(p) + 28u)] = long(as_type<uint>(c7_v2_3.x));
-    output[int(uint(p) + 29u)] = long(as_type<uint>(c7_v2_3.y));
-    output[int(uint(p) + 30u)] = long(as_type<uint>(-f1));
-    output[int(uint(p) + 31u)] = long(as_type<uint>(-f1));
-    output[int(uint(p) + 32u)] = long(as_type<uint>(-f1));
+    output[int(uint(p) + 16u)] = long(as_type<uint>(c7_v2_3.x));
+    output[int(uint(p) + 17u)] = long(as_type<uint>(c7_v2_3.y));
+    uint c9_v0_0 = metal::min(31u, u1);
+    output[int(uint(p) + 18u)] = long(__ms_clz(c9_v0_0 & uint(__ms_rotate_right(__ms_sat_ushort(::GpuModel_Flush(f0)), int(uint(i0) * uint(by2))))));
+    uint c9_v1_0 = metal::min(31u, u1);
+    output[int(uint(p) + 19u)] = long(__ms_clz(c9_v1_0 & uint(__ms_rotate_right(__ms_sat_ushort(::GpuModel_Flush(f0)), int(uint(i0) * uint(by2))))));
+    uint c9_v2_0 = metal::min(31u, u1);
+    output[int(uint(p) + 20u)] = long(__ms_clz(c9_v2_0 & uint(__ms_rotate_right(__ms_sat_ushort(f0), int(uint(i0) * uint(by2))))));
     uint c10_v0_0 = 4294967295u;
     uint c10_v0_1 = ((c10_v0_0 == 0u) ? 0u : u0 / __ms_nonzero(c10_v0_0)) << int(u1);
     uint c10_v0_2 = uint(ushort(u1));
-    output[int(uint(p) + 33u)] = long(as_type<uint>(as_type<float>((c10_v0_2 == 0u) ? 0u : c10_v0_1 % __ms_nonzero(c10_v0_2))));
+    output[int(uint(p) + 21u)] = long(as_type<uint>(as_type<float>((c10_v0_2 == 0u) ? 0u : c10_v0_1 % __ms_nonzero(c10_v0_2))));
     uint c10_v1_0 = 4294967295u;
     uint c10_v1_1 = ((c10_v1_0 == 0u) ? 0u : u0 / __ms_nonzero(c10_v1_0)) << int(u1);
     uint c10_v1_2 = uint(ushort(u1));
-    output[int(uint(p) + 34u)] = long(as_type<uint>(as_type<float>((c10_v1_2 == 0u) ? 0u : c10_v1_1 % __ms_nonzero(c10_v1_2))));
+    output[int(uint(p) + 22u)] = long(as_type<uint>(as_type<float>((c10_v1_2 == 0u) ? 0u : c10_v1_1 % __ms_nonzero(c10_v1_2))));
     uint c10_v2_0 = 4294967295u;
     uint c10_v2_1 = ((c10_v2_0 == 0u) ? 0u : u0 / __ms_nonzero(c10_v2_0)) << int(u1);
     uint c10_v2_2 = uint(ushort(u1));
-    output[int(uint(p) + 35u)] = long(as_type<uint>(as_type<float>((c10_v2_2 == 0u) ? 0u : c10_v2_1 % __ms_nonzero(c10_v2_2))));
-    short c11_v0_0 = sh2;
-    c11_v0_0 *= uint(sh1);
-    output[int(uint(p) + 36u)] = (((int(sh0) <= int(c11_v0_0)) == metal::isnan(::GpuModel_Flush(::GpuModel_Flush(::GpuModel_Flush(f2) * ::GpuModel_Flush(f0))))) == (b0 & ((u0 >= u0) == (l2 != l1)))) ? 1L : 0L;
-    short c11_v1_0 = sh2;
-    c11_v1_0 *= uint(sh1);
-    output[int(uint(p) + 37u)] = (((int(sh0) <= int(c11_v1_0)) == metal::isnan(::GpuModel_Flush(::GpuModel_FlushTiny(::GpuModel_Flush(f2) * ::GpuModel_Flush(f0))))) == (b0 & ((u0 >= u0) == (l2 != l1)))) ? 1L : 0L;
-    short c11_v2_0 = sh2;
-    c11_v2_0 *= uint(sh1);
-    output[int(uint(p) + 38u)] = (((int(sh0) <= int(c11_v2_0)) == metal::isnan(::GpuModel_FlushTiny(f2 * f0))) == (b0 & ((u0 >= u0) == (l2 != l1)))) ? 1L : 0L;
-    half c12_v0_0 = h2;
-    bool3 c12_v0_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(f3b).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, ::GpuModel_Fma(h2, h2, c12_v0_0))));
-    output[int(uint(p) + 39u)] = (c12_v0_1.x) ? 1L : 0L;
-    output[int(uint(p) + 40u)] = (c12_v0_1.y) ? 1L : 0L;
-    output[int(uint(p) + 41u)] = (c12_v0_1.z) ? 1L : 0L;
-    half c12_v1_0 = h2;
-    bool3 c12_v1_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(::GpuModel_Flush_2(f3b)).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, c12_v1_0 + (h2 * h2))));
-    output[int(uint(p) + 42u)] = (c12_v1_1.x) ? 1L : 0L;
-    output[int(uint(p) + 43u)] = (c12_v1_1.y) ? 1L : 0L;
-    output[int(uint(p) + 44u)] = (c12_v1_1.z) ? 1L : 0L;
-    half c12_v2_0 = h2;
-    bool3 c12_v2_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(::GpuModel_Flush_2(f3b)).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, ::GpuModel_Fma(h2, h2, c12_v2_0))));
-    output[int(uint(p) + 45u)] = (c12_v2_1.x) ? 1L : 0L;
-    output[int(uint(p) + 46u)] = (c12_v2_1.y) ? 1L : 0L;
-    output[int(uint(p) + 47u)] = (c12_v2_1.z) ? 1L : 0L;
-    half c12_v3_0 = h2;
-    bool3 c12_v3_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(::GpuModel_Flush_2(f3b)).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, c12_v3_0 + (h2 * h2))));
-    output[int(uint(p) + 48u)] = (c12_v3_1.x) ? 1L : 0L;
-    output[int(uint(p) + 49u)] = (c12_v3_1.y) ? 1L : 0L;
-    output[int(uint(p) + 50u)] = (c12_v3_1.z) ? 1L : 0L;
-    half c12_v4_0 = h2;
-    bool3 c12_v4_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(::GpuModel_Flush_2(f3b)).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, ::GpuModel_Fma(h2, h2, c12_v4_0))));
-    output[int(uint(p) + 51u)] = (c12_v4_1.x) ? 1L : 0L;
-    output[int(uint(p) + 52u)] = (c12_v4_1.y) ? 1L : 0L;
-    output[int(uint(p) + 53u)] = (c12_v4_1.z) ? 1L : 0L;
-    half c12_v5_0 = h2;
-    bool3 c12_v5_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(f3b).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, c12_v5_0 + (h2 * h2))));
-    output[int(uint(p) + 54u)] = (c12_v5_1.x) ? 1L : 0L;
-    output[int(uint(p) + 55u)] = (c12_v5_1.y) ? 1L : 0L;
-    output[int(uint(p) + 56u)] = (c12_v5_1.z) ? 1L : 0L;
-    half c12_v6_0 = h2;
-    bool3 c12_v6_1 = (half3(metal::select((h1 * h3a) * metal::min(h3a, h3b), (h3b + h3b) + half3(h2), metal::isinf(f3b).zxz)) == (__ms_half_rem((h1 - h0) / h3b.z, ::GpuModel_Fma(h2, h2, c12_v6_0))));
-    output[int(uint(p) + 57u)] = (c12_v6_1.x) ? 1L : 0L;
-    output[int(uint(p) + 58u)] = (c12_v6_1.y) ? 1L : 0L;
-    output[int(uint(p) + 59u)] = (c12_v6_1.z) ? 1L : 0L;
+    output[int(uint(p) + 23u)] = long(as_type<uint>(as_type<float>((c10_v2_2 == 0u) ? 0u : c10_v2_1 % __ms_nonzero(c10_v2_2))));
     bool c14_v0_0 = metal::isnan(::GpuModel_Flush(f2));
     float3 c14_v0_1 = c14_v0_0 ? float3(metal::select(half3(half(1.0f), half(0.1f), half(0.0f)), h3b, b3a) - h4b.wyz) : (-metal::select(metal::select(f3a, f3a, b3b), ::GpuModel_Flush_2(::GpuModel_Flush_2(f3b) * ::GpuModel_Flush_2(float3(1.0f, 3.4028235E+38f, -0.5f))), !b3a));
-    output[int(uint(p) + 60u)] = long(as_type<uint>(c14_v0_1.x));
-    output[int(uint(p) + 61u)] = long(as_type<uint>(c14_v0_1.y));
-    output[int(uint(p) + 62u)] = long(as_type<uint>(c14_v0_1.z));
+    output[int(uint(p) + 24u)] = long(as_type<uint>(c14_v0_1.x));
+    output[int(uint(p) + 25u)] = long(as_type<uint>(c14_v0_1.y));
+    output[int(uint(p) + 26u)] = long(as_type<uint>(c14_v0_1.z));
     bool c14_v1_0 = metal::isnan(::GpuModel_Flush(f2));
     float3 c14_v1_1 = c14_v1_0 ? float3(metal::select(half3(half(1.0f), half(0.1f), half(0.0f)), h3b, b3a) - h4b.wyz) : (-metal::select(metal::select(f3a, f3a, b3b), ::GpuModel_FlushTiny_2(::GpuModel_Flush_2(f3b) * ::GpuModel_Flush_2(float3(1.0f, 3.4028235E+38f, -0.5f))), !b3a));
-    output[int(uint(p) + 63u)] = long(as_type<uint>(c14_v1_1.x));
-    output[int(uint(p) + 64u)] = long(as_type<uint>(c14_v1_1.y));
-    output[int(uint(p) + 65u)] = long(as_type<uint>(c14_v1_1.z));
+    output[int(uint(p) + 27u)] = long(as_type<uint>(c14_v1_1.x));
+    output[int(uint(p) + 28u)] = long(as_type<uint>(c14_v1_1.y));
+    output[int(uint(p) + 29u)] = long(as_type<uint>(c14_v1_1.z));
     bool c14_v2_0 = metal::isnan(f2);
     float3 c14_v2_1 = c14_v2_0 ? float3(metal::select(half3(half(1.0f), half(0.1f), half(0.0f)), h3b, b3a) - h4b.wyz) : (-metal::select(metal::select(f3a, f3a, b3b), ::GpuModel_FlushTiny_2(f3b * float3(1.0f, 3.4028235E+38f, -0.5f)), !b3a));
-    output[int(uint(p) + 66u)] = long(as_type<uint>(c14_v2_1.x));
-    output[int(uint(p) + 67u)] = long(as_type<uint>(c14_v2_1.y));
-    output[int(uint(p) + 68u)] = long(as_type<uint>(c14_v2_1.z));
+    output[int(uint(p) + 30u)] = long(as_type<uint>(c14_v2_1.x));
+    output[int(uint(p) + 31u)] = long(as_type<uint>(c14_v2_1.y));
+    output[int(uint(p) + 32u)] = long(as_type<uint>(c14_v2_1.z));
     float c15_v0_0 = -::GpuModel_Flush(metal::rint(::GpuModel_Flush(f1)));
-    output[int(uint(p) + 69u)] = (metal::isinf(::GpuModel_Flush(c15_v0_0))) ? 1L : 0L;
+    output[int(uint(p) + 33u)] = (metal::isinf(::GpuModel_Flush(c15_v0_0))) ? 1L : 0L;
     float c15_v1_0 = -::GpuModel_Flush(metal::rint(::GpuModel_Flush(f1)));
-    output[int(uint(p) + 70u)] = (metal::isinf(::GpuModel_Flush(c15_v1_0))) ? 1L : 0L;
+    output[int(uint(p) + 34u)] = (metal::isinf(::GpuModel_Flush(c15_v1_0))) ? 1L : 0L;
     float c15_v2_0 = -::GpuModel_Flush(metal::rint(f1));
-    output[int(uint(p) + 71u)] = (metal::isinf(c15_v2_0)) ? 1L : 0L;
+    output[int(uint(p) + 35u)] = (metal::isinf(c15_v2_0)) ? 1L : 0L;
 }

@@ -7,7 +7,7 @@ using Microsoft.CodeAnalysis.Operations;
 namespace SharpCompute.SourceGenerators;
 
 /// <summary>
-/// Integer division and remainder, emitted through the helpers of <c>MslPrelude.IntegerDivision</c>
+/// Integer division and remainder, emitted through the helpers of <c>MslPrelude.Integers</c>
 /// to work around two miscompiles in Apple's GPU compiler. In both, the MSL and the AIR it compiles
 /// to are correct; the wrong result comes from the compiler that turns AIR into GPU code.
 /// </summary>
@@ -53,7 +53,7 @@ internal sealed partial class MslTranslator
 
     /// <summary>
     /// The MSL of an integer <c>a / b</c> or <c>a % b</c> through the helpers of
-    /// <c>MslPrelude.IntegerDivision</c>, or null when <paramref name="operation"/> is none or keeps
+    /// <c>MslPrelude.Integers</c>, or null when <paramref name="operation"/> is none or keeps
     /// the native operator (a nonzero constant divisor, a program-scope initializer).
     /// </summary>
     private Expr? IntegerDivision(IBinaryOperation operation)
@@ -67,7 +67,6 @@ internal sealed partial class MslTranslator
             return null;
         }
 
-        UsesIntegerDivision = true;
         bool divide = operation.OperatorKind == BinaryOperatorKind.Divide;
 
         if (IsNearMaxConstant(operation.LeftOperand, type))
@@ -75,16 +74,54 @@ internal sealed partial class MslTranslator
             // The type of the operation names the overload: `4294967295u / v` on a uint vector divides
             // the splat of the constant.
             string helper = divide ? MslNames.DivideNearMax : MslNames.RemainderNearMax;
+            UseIntegerHelper(helper, type.MslName);
             return Call(helper, OperandOfType(operation.LeftOperand, type), OperandOfType(operation.RightOperand, type));
+        }
+
+        if (_types.Resolve(operation.RightOperand.Type) is not { } divisor)
+        {
+            return null;
         }
 
         Expr left = Expression(operation.LeftOperand);
         Expr right = Expression(operation.RightOperand);
-        return new Expr(BinaryOperand(left, Expr.Multiplicative, isRight: false) + (divide ? " / " : " % ") + Call(MslNames.NonZero, right.Text).Text, Expr.Multiplicative);
+        string text = BinaryOperand(left, Expr.Multiplicative, isRight: false) + (divide ? " / " : " % ");
+
+        if (IsNonZeroLiteral(right.Text))
+        {
+            // A constant only the generator knows, such as the length of a local array.
+            return new Expr(text + BinaryOperand(right, Expr.Multiplicative, isRight: true), Expr.Multiplicative);
+        }
+
+        UseIntegerHelper(MslNames.NonZero, divisor.MslName);
+        return new Expr(text + Call(MslNames.NonZero, right.Text).Text, Expr.Multiplicative);
     }
 
     /// <summary>
-    /// The divisor of an integer <c>t /= v</c> or <c>t %= v</c>, <c>__ms_nonzero(v)</c>, or null when
+    /// Records that the shader calls the overload of <c>MslPrelude.Integers</c>' <paramref name="helper"/>
+    /// for <paramref name="type"/> (an MSL scalar or vector name), and the overloads that one calls.
+    /// </summary>
+    private void UseIntegerHelper(string helper, string type)
+    {
+        _integerHelpers.Add(helper + "(" + type);
+
+        if (helper == MslNames.NonZero && type.TrimEnd('2', '3', '4') is "char" or "uchar" or "short" or "ushort")
+        {
+            // The 8- and 16-bit ones divide as int, as MSL promotes them: `__ms_nonzero(int3(x))`.
+            _integerHelpers.Add(helper + "(int" + type.Substring(type.TrimEnd('2', '3', '4').Length));
+        }
+        else if (helper is MslNames.DivideNearMax or MslNames.RemainderNearMax)
+        {
+            // The long ones divide the magnitudes as ulong; each divides by a nonzero divisor.
+            string unsigned = type == "long" ? "ulong" : type;
+            _integerHelpers.Add(helper + "(" + unsigned);
+            _integerHelpers.Add(MslNames.NonZero + "(" + unsigned);
+        }
+    }
+
+    /// <summary>
+    /// The divisor of an integer <c>t /= v</c> or <c>t %= v</c>, <c>__ms_nonzero(v)</c> (or <c>v</c> for a
+    /// nonzero literal), or null when
     /// <paramref name="operation"/> is none or keeps the native operator. The target is named once,
     /// as before.
     /// </summary>
@@ -100,8 +137,15 @@ internal sealed partial class MslTranslator
             return null;
         }
 
-        UsesIntegerDivision = true;
-        return Call(MslNames.NonZero, Expression(operation.Value).Text).Text;
+        string divisor = Expression(operation.Value).Text;
+
+        if (IsNonZeroLiteral(divisor))
+        {
+            return divisor;
+        }
+
+        UseIntegerHelper(MslNames.NonZero, value.MslName);
+        return Call(MslNames.NonZero, divisor).Text;
     }
 
     /// <summary><paramref name="operand"/> as <paramref name="type"/>: converted when its own type is another one.</summary>
@@ -113,6 +157,13 @@ internal sealed partial class MslTranslator
 
     private static bool IsIntegerOrIntegerVector(GpuType type) =>
         type is { Kind: GpuTypeKind.Scalar or GpuTypeKind.Vector, IsFloating: false, IsBoolean: false } && type.MslName != "bool";
+
+    /// <summary>True for the MSL of a nonzero integer literal: <c>9</c>, <c>64u</c>, <c>(-3)</c>.</summary>
+    private static bool IsNonZeroLiteral(string text)
+    {
+        string digits = text.Trim('(', ')').TrimStart('-').TrimEnd('u', 'U', 'l', 'L');
+        return digits.Length > 0 && digits.All(char.IsDigit) && digits.Any(static c => c != '0');
+    }
 
     /// <summary>True when <paramref name="divisor"/> is a compile-time constant with no zero component.</summary>
     private bool IsNonZeroConstant(IOperation divisor)
