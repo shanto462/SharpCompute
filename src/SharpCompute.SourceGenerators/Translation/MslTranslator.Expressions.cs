@@ -594,6 +594,14 @@ internal sealed partial class MslTranslator
             return sum;
         }
 
+        if (IntegerDivision(operation) is { } division)
+        {
+            // An integer `/` or `%`: `a / __ms_nonzero(b)`, or `__ms_div_near_max(c, b)` for a constant
+            // dividend near 2^32. Apple's GPU compiler miscompiles both with the native operator (see
+            // MslTranslator.IntegerDivision).
+            return division;
+        }
+
         Expr left = Expression(operation.LeftOperand);
         Expr right = Expression(operation.RightOperand);
 
@@ -727,6 +735,12 @@ internal sealed partial class MslTranslator
         if (!packed && SignedCompoundAssignment(operation, target, text, precedence) is { } wrapped)
         {
             return wrapped;
+        }
+
+        if (!packed && CompoundIntegerDivisor(operation) is { } divisor)
+        {
+            // `t /= v` on an integer: `t /= __ms_nonzero(v)` (see MslTranslator.IntegerDivision).
+            return new Expr(target.Operand(Expr.Unary) + " " + text + "= " + divisor, Expr.Assignment);
         }
 
         Expr value = Expression(operation.Value);

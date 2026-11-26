@@ -57,6 +57,28 @@ inline long __ms_rotate_left(long x, int count) { return metal::rotate(x, long(u
 inline long __ms_rotate_right(long x, int count) { return metal::rotate(x, long((0u - uint(count)) & 63u)); }
 inline ulong __ms_rotate_left(ulong x, int count) { return metal::rotate(x, ulong(uint(count) & 63u)); }
 inline ulong __ms_rotate_right(ulong x, int count) { return metal::rotate(x, ulong((0u - uint(count)) & 63u)); }
+inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
+inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
+inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
+inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
+inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
+inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
+inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 inline char2 __ms_neg(char2 x) { return char2(char(-uchar(x.x)), char(-uchar(x.y))); }
 inline char3 __ms_neg(char3 x) { return char3(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z))); }
 inline char4 __ms_neg(char4 x) { return char4(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z)), char(-uchar(x.w))); }
@@ -111,6 +133,51 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute integer division (MslPrelude.IntegerDivision).
+inline char __ms_nonzero(char x) { return char(x | (metal::clz(x) >> 3)); }
+inline char2 __ms_nonzero(char2 x) { return char2(x | (metal::clz(x) >> 3)); }
+inline char3 __ms_nonzero(char3 x) { return char3(x | (metal::clz(x) >> 3)); }
+inline char4 __ms_nonzero(char4 x) { return char4(x | (metal::clz(x) >> 3)); }
+inline uchar __ms_nonzero(uchar x) { return uchar(x | (metal::clz(x) >> 3)); }
+inline uchar2 __ms_nonzero(uchar2 x) { return uchar2(x | (metal::clz(x) >> 3)); }
+inline uchar3 __ms_nonzero(uchar3 x) { return uchar3(x | (metal::clz(x) >> 3)); }
+inline uchar4 __ms_nonzero(uchar4 x) { return uchar4(x | (metal::clz(x) >> 3)); }
+inline short __ms_nonzero(short x) { return short(x | (metal::clz(x) >> 4)); }
+inline short2 __ms_nonzero(short2 x) { return short2(x | (metal::clz(x) >> 4)); }
+inline short3 __ms_nonzero(short3 x) { return short3(x | (metal::clz(x) >> 4)); }
+inline short4 __ms_nonzero(short4 x) { return short4(x | (metal::clz(x) >> 4)); }
+inline ushort __ms_nonzero(ushort x) { return ushort(x | (metal::clz(x) >> 4)); }
+inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(x | (metal::clz(x) >> 4)); }
+inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(x | (metal::clz(x) >> 4)); }
+inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(x | (metal::clz(x) >> 4)); }
+inline int __ms_nonzero(int x) { return int(x | (metal::clz(x) >> 5)); }
+inline int2 __ms_nonzero(int2 x) { return int2(x | (metal::clz(x) >> 5)); }
+inline int3 __ms_nonzero(int3 x) { return int3(x | (metal::clz(x) >> 5)); }
+inline int4 __ms_nonzero(int4 x) { return int4(x | (metal::clz(x) >> 5)); }
+inline uint __ms_nonzero(uint x) { return uint(x | (metal::clz(x) >> 5)); }
+inline uint2 __ms_nonzero(uint2 x) { return uint2(x | (metal::clz(x) >> 5)); }
+inline uint3 __ms_nonzero(uint3 x) { return uint3(x | (metal::clz(x) >> 5)); }
+inline uint4 __ms_nonzero(uint4 x) { return uint4(x | (metal::clz(x) >> 5)); }
+inline long __ms_nonzero(long x) { return long(x | (metal::clz(x) >> 6)); }
+inline long2 __ms_nonzero(long2 x) { return long2(x | (metal::clz(x) >> 6)); }
+inline long3 __ms_nonzero(long3 x) { return long3(x | (metal::clz(x) >> 6)); }
+inline long4 __ms_nonzero(long4 x) { return long4(x | (metal::clz(x) >> 6)); }
+inline ulong __ms_nonzero(ulong x) { return ulong(x | (metal::clz(x) >> 6)); }
+inline ulong2 __ms_nonzero(ulong2 x) { return ulong2(x | (metal::clz(x) >> 6)); }
+inline ulong3 __ms_nonzero(ulong3 x) { return ulong3(x | (metal::clz(x) >> 6)); }
+inline ulong4 __ms_nonzero(ulong4 x) { return ulong4(x | (metal::clz(x) >> 6)); }
+inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
+inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
+inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
+inline ulong __ms_rem_near_max(ulong a, ulong b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
+inline uint2 __ms_div_near_max(uint2 a, uint2 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint2(0u), b > a); }
+inline uint2 __ms_rem_near_max(uint2 a, uint2 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+inline uint3 __ms_div_near_max(uint3 a, uint3 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint3(0u), b > a); }
+inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+inline uint4 __ms_div_near_max(uint4 a, uint4 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint4(0u), b > a); }
+inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
+inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
 
 constant int Stride = 88;
 
@@ -146,8 +213,8 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     int i = int(__tid.x);
     int o = int(uint(i) * uint(::Stride));
     long x = values[i];
-    long y = values[(int((uint(i) * 3u) + 1u)) % int(__c.__length_values)];
-    long z = values[(int((uint(i) * 11u) + 5u)) % int(__c.__length_values)];
+    long y = values[(int((uint(i) * 3u) + 1u)) % __ms_nonzero(int(__c.__length_values))];
+    long z = values[(int((uint(i) * 11u) + 5u)) % __ms_nonzero(int(__c.__length_values))];
     int n = counts[i];
     uchar b = uchar(x);
     uchar b2 = uchar(y);
@@ -156,7 +223,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 1u)] = long(metal::min(b, b2));
     output[int(uint(o) + 2u)] = long(metal::max(b, b2));
     output[int(uint(o) + 3u)] = long(metal::clamp(b, metal::min(b2, b3), metal::max(b2, b3)));
-    output[int(uint(o) + 4u)] = long(metal::popcount(b));
+    output[int(uint(o) + 4u)] = long(__ms_popcount(b));
     output[int(uint(o) + 5u)] = long(metal::clz(b));
     output[int(uint(o) + 6u)] = long(metal::ctz(b));
     output[int(uint(o) + 7u)] = long(metal::reverse_bits(b));
@@ -169,7 +236,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 11u)] = long(metal::min(sb, sb2));
     output[int(uint(o) + 12u)] = long(metal::max(sb, sb2));
     output[int(uint(o) + 13u)] = long(metal::clamp(sb, metal::min(sb2, sb3), metal::max(sb2, sb3)));
-    output[int(uint(o) + 14u)] = long(metal::popcount(sb));
+    output[int(uint(o) + 14u)] = long(__ms_popcount(sb));
     output[int(uint(o) + 15u)] = long(metal::clz(sb));
     output[int(uint(o) + 16u)] = long(metal::ctz(sb));
     output[int(uint(o) + 17u)] = long(metal::reverse_bits(sb));
@@ -182,7 +249,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 21u)] = long(metal::min(s, s2));
     output[int(uint(o) + 22u)] = long(metal::max(s, s2));
     output[int(uint(o) + 23u)] = long(metal::clamp(s, metal::min(s2, s3), metal::max(s2, s3)));
-    output[int(uint(o) + 24u)] = long(metal::popcount(s));
+    output[int(uint(o) + 24u)] = long(__ms_popcount(s));
     output[int(uint(o) + 25u)] = long(metal::clz(s));
     output[int(uint(o) + 26u)] = long(metal::ctz(s));
     output[int(uint(o) + 27u)] = long(metal::reverse_bits(s));
@@ -195,7 +262,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 31u)] = long(metal::min(us, us2));
     output[int(uint(o) + 32u)] = long(metal::max(us, us2));
     output[int(uint(o) + 33u)] = long(metal::clamp(us, metal::min(us2, us3), metal::max(us2, us3)));
-    output[int(uint(o) + 34u)] = long(metal::popcount(us));
+    output[int(uint(o) + 34u)] = long(__ms_popcount(us));
     output[int(uint(o) + 35u)] = long(metal::clz(us));
     output[int(uint(o) + 36u)] = long(metal::ctz(us));
     output[int(uint(o) + 37u)] = long(metal::reverse_bits(us));
@@ -205,7 +272,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 41u)] = metal::min(x, y);
     output[int(uint(o) + 42u)] = metal::max(x, y);
     output[int(uint(o) + 43u)] = metal::clamp(x, metal::min(y, z), metal::max(y, z));
-    output[int(uint(o) + 44u)] = metal::popcount(x);
+    output[int(uint(o) + 44u)] = __ms_popcount(x);
     output[int(uint(o) + 45u)] = metal::clz(x);
     output[int(uint(o) + 46u)] = metal::ctz(x);
     output[int(uint(o) + 47u)] = metal::reverse_bits(x);
@@ -218,7 +285,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 51u)] = long(metal::min(u, u2));
     output[int(uint(o) + 52u)] = long(metal::max(u, u2));
     output[int(uint(o) + 53u)] = long(metal::clamp(u, metal::min(u2, u3), metal::max(u2, u3)));
-    output[int(uint(o) + 54u)] = long(metal::popcount(u));
+    output[int(uint(o) + 54u)] = long(__ms_popcount(u));
     output[int(uint(o) + 55u)] = long(metal::clz(u));
     output[int(uint(o) + 56u)] = long(metal::ctz(u));
     output[int(uint(o) + 57u)] = long(metal::reverse_bits(u));
@@ -228,7 +295,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 61u)] = long(__ms_rotate_right(int(x), n));
     output[int(uint(o) + 62u)] = long(__ms_rotate_left(uint(x), n));
     output[int(uint(o) + 63u)] = long(__ms_rotate_right(uint(x), n));
-    output[int(uint(o) + 64u)] = long(int(metal::popcount(u)));
+    output[int(uint(o) + 64u)] = long(int(__ms_popcount(u)));
     output[int(uint(o) + 65u)] = long(int(metal::clz(u)));
     output[int(uint(o) + 66u)] = long(int(metal::ctz(u)));
     output[int(uint(o) + 67u)] = long(int(metal::ctz(x)));
@@ -248,7 +315,7 @@ kernel void SharpCompute_Tests_Shaders_IntegerIntrinsics(
     output[int(uint(o) + 81u)] = metal::clamp(x, -1000L, 1000L);
     output[int(uint(o) + 82u)] = long(metal::min(u, 1UL << 40));
     output[int(uint(o) + 83u)] = long(metal::clz(uchar(int(b) | 1)));
-    output[int(uint(o) + 84u)] = long(metal::popcount(ushort(int(us) ^ int(us2))));
+    output[int(uint(o) + 84u)] = long(__ms_popcount(ushort(int(us) ^ int(us2))));
     output[int(uint(o) + 85u)] = long(metal::abs(char(-128)));
     output[int(uint(o) + 86u)] = metal::abs(-9223372036854775807L - 1L);
     output[int(uint(o) + 87u)] = long(metal::reverse_bits(short(1)));

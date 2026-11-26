@@ -543,6 +543,23 @@ internal sealed class ShaderAnalyzer
             prelude = prelude is null ? vectorArithmetic : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + vectorArithmetic;
         }
 
+        if (translator.UsesIntegerDivision)
+        {
+            // The nonzero divisors and the near-2^32 dividends of integer division, a block of their
+            // own as well: only a shader that divides integers carries them.
+            if (ReadPrelude("IntegerDivision") is not { } integerDivision)
+            {
+                diagnostics.Report(
+                    DiagnosticDescriptors.UnsupportedMethodCall,
+                    _location,
+                    "__ms_*",
+                    "the shader divides integers, but the referenced SharpCompute assembly has no 'SharpCompute.MslPrelude.IntegerDivision' constant");
+                return translation;
+            }
+
+            prelude = prelude is null ? integerDivision : prelude.Replace("\r\n", "\n").TrimEnd('\n') + "\n" + integerDivision;
+        }
+
         int constantsSize = LayOutConstants(constants, out bool explicitConstants);
 
         // The grid window takes the first free buffer index. A shader that uses all of them still
@@ -610,7 +627,7 @@ internal sealed class ShaderAnalyzer
         return TypeResolver.AlignUp(offset, alignment);
     }
 
-    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>) from the referenced SharpCompute assembly.</summary>
+    /// <summary>Reads a constant of <c>SharpCompute.MslPrelude</c> (<c>Source</c>, <c>VectorArithmetic</c>, <c>IntegerDivision</c>) from the referenced SharpCompute assembly.</summary>
     private string? ReadPrelude(string constant) =>
         _semanticModel.Compilation.GetTypeByMetadataName("SharpCompute.MslPrelude")?
             .GetMembers(constant)
@@ -1017,7 +1034,7 @@ internal sealed class ShaderAnalyzer
 
         public bool IsPixelShader { get; }
 
-        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted.</summary>
+        /// <summary><c>MslPrelude.Source</c>, when a <c>__ms_*</c> helper is used, then <c>MslPrelude.VectorArithmetic</c>, when integer vectors are added or subtracted, then <c>MslPrelude.IntegerDivision</c>, when integers are divided.</summary>
         public string? Prelude { get; }
 
         /// <summary>The <c>constexpr sampler</c> declarations of the samplers the shader uses.</summary>

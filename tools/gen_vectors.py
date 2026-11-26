@@ -856,6 +856,104 @@ def vector_arithmetic_msl() -> list[str]:
     return lines
 
 
+# The bit counts behind Gpu.CountBits and Gpu.LeadingZeroCount (and BitOperations.PopCount and
+# LeadingZeroCount), which the generator emits instead of metal::popcount and metal::clz. Apple's GPU
+# compiler miscounts a value whose upper bits it treats as an extension of a narrower one: the
+# popcount or clz of an int that holds a sign-extended 16-bit value (int(s) of a short, (x << 16) >>
+# 16, or a remainder of two sbytes that the optimizer computes in 16 bits) counts the value as if it
+# were zero-extended, and the popcount of a short or ushort that the optimizer computes in a wider
+# register counts the junk above its 16 bits. The MSL is correct; the GPU result is not.
+# - An 8- or 16-bit popcount is a 32-bit popcount of the zero-extended value.
+# - A 32- or 64-bit popcount counts the bits of the reversed value: popcount does not depend on the
+#   order of the bits, and the reversal makes the compiler materialize every bit of the register.
+#   (A rotate by half the width does not: the compiler folds popcount(rotate(x)) to popcount(x).)
+# - A 32- or 64-bit clz is 0 for a negative value, which is what clz is for it, so it is selected on
+#   the sign; the clz of a non-negative value is right. The 8- and 16-bit clz are not affected.
+PRELUDE_POPCOUNT = "__ms_popcount"
+PRELUDE_CLZ = "__ms_clz"
+
+
+def bit_count_msl() -> list[str]:
+    """The prelude's bit counts (see PRELUDE_POPCOUNT): one overload per type Gpu counts the bits of."""
+    lines = []
+    for t in NEGATE_TYPES:
+        if t.bits < 32:
+            lines.append(f"inline {t.msl} {PRELUDE_POPCOUNT}({t.msl} x) {{ return {t.msl}(metal::popcount(uint({t.unsigned_msl}(x)))); }}")
+        else:
+            lines.append(f"inline {t.msl} {PRELUDE_POPCOUNT}({t.msl} x) {{ return metal::popcount(metal::reverse_bits(x)); }}")
+    for t in ("int", "uint"):
+        for n in (2, 3, 4):
+            v = f"{t}{n}"
+            lines.append(f"inline {v} {PRELUDE_POPCOUNT}({v} x) {{ return metal::popcount(metal::reverse_bits(x)); }}")
+    lines.append(f"inline int {PRELUDE_CLZ}(int x) {{ return x < 0 ? 0 : metal::clz(x); }}")
+    lines.append(f"inline uint {PRELUDE_CLZ}(uint x) {{ return int(x) < 0 ? 0u : metal::clz(x); }}")
+    lines.append(f"inline long {PRELUDE_CLZ}(long x) {{ return x < 0L ? 0L : metal::clz(x); }}")
+    lines.append(f"inline ulong {PRELUDE_CLZ}(ulong x) {{ return long(x) < 0L ? 0UL : metal::clz(x); }}")
+    for n in (2, 3, 4):
+        lines.append(f"inline int{n} {PRELUDE_CLZ}(int{n} x) {{ return metal::select(metal::clz(x), int{n}(0), x < 0); }}")
+        lines.append(f"inline uint{n} {PRELUDE_CLZ}(uint{n} x) {{ return metal::select(metal::clz(x), uint{n}(0u), int{n}(x) < 0); }}")
+    return lines
+
+
+# Integer division and remainder, which the generator emits through these helpers. Two miscompiles
+# in Apple's GPU compiler (the MSL, and the AIR it compiles to, are correct):
+# - A division whose divisor may be zero lets the compiler assume it is not. It computes a guarded
+#   division (`t == 0 ? 0 : x % t`, or inside `if (t != 0)`) ahead of its guard, and then uses
+#   "t is not zero" to simplify how t was computed: with `t = l == C ? 0 : abs(l)`, it drops the
+#   zero arm, so for l == C both t and the result are wrong. Guards around a chain of divisions
+#   (`t = d == 0 ? 0 : a / d`) went the same way. The divisor __ms_nonzero(t) is t, except that a
+#   zero divisor is 1: a division by zero has no C# result to keep (it throws), and a divisor that
+#   cannot be zero gives the compiler nothing to assume. The top bit of (t - 1) & ~t, computed
+#   unsigned, is set for zero only. The compilers do not fold it to t under the guard, as they do a
+#   select on t == 0 and clz(t) >> 5 (which the GPU compiler reads as t == 0). It costs four
+#   instructions: a subtraction, an and-not, a shift and an or.
+# - A 32-bit unsigned division or remainder of a constant dividend of 2^32 - 128 or more (one that
+#   rounds to 2^32 as a float) is wrong for some divisors: 4294967295u / 3 is 3579139454. A long
+#   division whose operands fit in 32 bits is narrowed to one (4294967295L % y, with y a widened
+#   uint), and so is one of the negated constant. __ms_div_near_max(c, b) divides c - b instead,
+#   which is not a constant: c / b is (c - b) / b + 1 for b <= c, and 0 for b > c (the remainder:
+#   (c - b) % b, and c). A long is divided as the magnitudes, with the sign of C#'s result.
+# These are not in the prelude's source but in a block of their own (MslPrelude.IntegerDivision),
+# which only a shader that divides integers gets.
+PRELUDE_NONZERO = "__ms_nonzero"
+PRELUDE_DIV_NEAR_MAX = "__ms_div_near_max"
+PRELUDE_REM_NEAR_MAX = "__ms_rem_near_max"
+
+
+def integer_division_msl() -> list[str]:
+    """MslPrelude.IntegerDivision: the nonzero divisors and the near-2^32 dividends (see PRELUDE_NONZERO)."""
+    lines = ["// SharpCompute integer division (MslPrelude.IntegerDivision)."]
+    # The 32- and 64-bit ones first: the 8- and 16-bit ones call the int ones. Only a compound
+    # `s /= t` divides by a small integer, which MSL promotes to int.
+    for t in sorted(NEGATE_TYPES, key=lambda t: t.bits < 32):
+        for suffix in ("", "2", "3", "4"):
+            v = f"{t.msl}{suffix}"
+            if t.bits < 32:
+                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return {v}({PRELUDE_NONZERO}(int{suffix}(x))); }}")
+                continue
+            one, top = ("1u", 31) if t.bits == 32 else ("1UL", 63)
+            if t.signed:
+                u = f"{t.unsigned_msl}{suffix}"
+                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ {u} u = {u}(x); return {v}(u | (((u - {one}) & ~u) >> {top})); }}")
+            else:
+                lines.append(f"inline {v} {PRELUDE_NONZERO}({v} x) {{ return x | (((x - {one}) & ~x) >> {top}); }}")
+    for t, zero, one in (("uint", "0u", "1u"), ("ulong", "0UL", "1UL")):
+        lines.append(f"inline {t} {PRELUDE_DIV_NEAR_MAX}({t} a, {t} b) {{ return b > a ? {zero} : (a - b) / {PRELUDE_NONZERO}(b) + {one}; }}")
+        lines.append(f"inline {t} {PRELUDE_REM_NEAR_MAX}({t} a, {t} b) {{ return b > a ? a : (a - b) % {PRELUDE_NONZERO}(b); }}")
+    for n in (2, 3, 4):
+        v = f"uint{n}"
+        lines.append(f"inline {v} {PRELUDE_DIV_NEAR_MAX}({v} a, {v} b) {{ return metal::select((a - b) / {PRELUDE_NONZERO}(b) + 1u, {v}(0u), b > a); }}")
+        lines.append(f"inline {v} {PRELUDE_REM_NEAR_MAX}({v} a, {v} b) {{ return metal::select((a - b) % {PRELUDE_NONZERO}(b), a, b > a); }}")
+    magnitude = "{0} < 0L ? 0UL - ulong({0}) : ulong({0})"
+    lines.append(
+        f"inline long {PRELUDE_DIV_NEAR_MAX}(long a, long b) {{ ulong q = {PRELUDE_DIV_NEAR_MAX}({magnitude.format('a')}, {magnitude.format('b')}); "
+        "return long((a < 0L) != (b < 0L) ? 0UL - q : q); }")
+    lines.append(
+        f"inline long {PRELUDE_REM_NEAR_MAX}(long a, long b) {{ ulong r = {PRELUDE_REM_NEAR_MAX}({magnitude.format('a')}, {magnitude.format('b')}); "
+        "return long(a < 0L ? 0UL - r : r); }")
+    return lines
+
+
 PRELUDE_ATOMICS = tuple(
     (space, t, atomic)
     for space in ("device", "threadgroup")
@@ -898,6 +996,7 @@ def prelude_msl() -> list[str]:
         mask = f"{t.bits - 1}u"
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_LEFT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}(uint(count) & {mask})); }}")
         lines.append(f"inline {t.msl} {PRELUDE_ROTATE_RIGHT}({t.msl} x, int count) {{ return metal::rotate(x, {t.msl}((0u - uint(count)) & {mask})); }}")
+    lines.extend(bit_count_msl())
     lines.extend(negate_msl())
     lines.extend(multiply_msl())
     for n, packed in PACKED_MATRICES.items():
@@ -946,6 +1045,17 @@ def gen_prelude() -> str:
     out.append("    /// </summary>")
     out.append('    public const string VectorArithmetic = """')
     out.extend("        " + line for line in vector_arithmetic_msl())
+    out.append('        """;')
+    out.append("")
+    out.append("    /// <summary>")
+    out.append("    /// The divisor of an integer division or remainder that cannot be zero (<c>__ms_nonzero</c>), and")
+    out.append("    /// the division and remainder of a constant dividend near 2^32 (<c>__ms_div_near_max</c>,")
+    out.append("    /// <c>__ms_rem_near_max</c>). The generator emits this block, after <see cref=\"Source\"/>, for a")
+    out.append("    /// shader that divides integers: Apple's GPU compiler drops the guard of a division whose")
+    out.append("    /// divisor may be zero, and divides a constant dividend that rounds to 2^32 as a float wrongly.")
+    out.append("    /// </summary>")
+    out.append('    public const string IntegerDivision = """')
+    out.extend("        " + line for line in integer_division_msl())
     out.append('        """;')
     out.append("}")
     return "\n".join(out) + "\n"

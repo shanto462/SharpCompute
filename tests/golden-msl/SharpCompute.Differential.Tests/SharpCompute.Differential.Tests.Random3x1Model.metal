@@ -57,6 +57,28 @@ inline long __ms_rotate_left(long x, int count) { return metal::rotate(x, long(u
 inline long __ms_rotate_right(long x, int count) { return metal::rotate(x, long((0u - uint(count)) & 63u)); }
 inline ulong __ms_rotate_left(ulong x, int count) { return metal::rotate(x, ulong(uint(count) & 63u)); }
 inline ulong __ms_rotate_right(ulong x, int count) { return metal::rotate(x, ulong((0u - uint(count)) & 63u)); }
+inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
+inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
+inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
+inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
+inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
+inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
+inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 inline char2 __ms_neg(char2 x) { return char2(char(-uchar(x.x)), char(-uchar(x.y))); }
 inline char3 __ms_neg(char3 x) { return char3(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z))); }
 inline char4 __ms_neg(char4 x) { return char4(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z)), char(-uchar(x.w))); }
@@ -290,7 +312,7 @@ kernel void SharpCompute_Differential_Tests_Random3x1Model(
     c9_v0_0 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v0_0) * ::GpuModel_Flush_2(float4(65504.0f, 0.1f, 0.0f, -INFINITY)));
     float4 c9_v0_1 = c9_v0_0;
     c9_v0_1 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v0_1) + ::GpuModel_Flush_2(::GpuModel_Flush_2(::GpuModel_Flush_2(f4b) - ::GpuModel_Flush_2(f4b))));
-    float3 c9_v0_2 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v0_1) + ::GpuModel_Flush(float(metal::popcount(us2)))).xzx;
+    float3 c9_v0_2 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v0_1) + ::GpuModel_Flush(float(__ms_popcount(us2)))).xzx;
     output[int(uint(p) + 15u)] = long(as_type<uint>(c9_v0_2.x));
     output[int(uint(p) + 16u)] = long(as_type<uint>(c9_v0_2.y));
     output[int(uint(p) + 17u)] = long(as_type<uint>(c9_v0_2.z));
@@ -298,7 +320,7 @@ kernel void SharpCompute_Differential_Tests_Random3x1Model(
     c9_v1_0 = ::GpuModel_FlushTiny_1(::GpuModel_Flush_2(c9_v1_0) * ::GpuModel_Flush_2(float4(65504.0f, 0.1f, 0.0f, -INFINITY)));
     float4 c9_v1_1 = c9_v1_0;
     c9_v1_1 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v1_1) + ::GpuModel_Flush_2(::GpuModel_Flush_2(::GpuModel_Flush_2(f4b) - ::GpuModel_Flush_2(f4b))));
-    float3 c9_v1_2 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v1_1) + ::GpuModel_Flush(float(metal::popcount(us2)))).xzx;
+    float3 c9_v1_2 = ::GpuModel_Flush_2(::GpuModel_Flush_2(c9_v1_1) + ::GpuModel_Flush(float(__ms_popcount(us2)))).xzx;
     output[int(uint(p) + 18u)] = long(as_type<uint>(c9_v1_2.x));
     output[int(uint(p) + 19u)] = long(as_type<uint>(c9_v1_2.y));
     output[int(uint(p) + 20u)] = long(as_type<uint>(c9_v1_2.z));
@@ -306,7 +328,7 @@ kernel void SharpCompute_Differential_Tests_Random3x1Model(
     c9_v2_0 = ::GpuModel_FlushTiny_1(c9_v2_0 * float4(65504.0f, 0.1f, 0.0f, -INFINITY));
     float4 c9_v2_1 = c9_v2_0;
     c9_v2_1 = ::GpuModel_Flush_2(c9_v2_1 + ::GpuModel_Flush_2(f4b - f4b));
-    float3 c9_v2_2 = ::GpuModel_Flush_2(c9_v2_1 + float(metal::popcount(us2))).xzx;
+    float3 c9_v2_2 = ::GpuModel_Flush_2(c9_v2_1 + float(__ms_popcount(us2))).xzx;
     output[int(uint(p) + 21u)] = long(as_type<uint>(c9_v2_2.x));
     output[int(uint(p) + 22u)] = long(as_type<uint>(c9_v2_2.y));
     output[int(uint(p) + 23u)] = long(as_type<uint>(c9_v2_2.z));

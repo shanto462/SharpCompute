@@ -57,6 +57,28 @@ inline long __ms_rotate_left(long x, int count) { return metal::rotate(x, long(u
 inline long __ms_rotate_right(long x, int count) { return metal::rotate(x, long((0u - uint(count)) & 63u)); }
 inline ulong __ms_rotate_left(ulong x, int count) { return metal::rotate(x, ulong(uint(count) & 63u)); }
 inline ulong __ms_rotate_right(ulong x, int count) { return metal::rotate(x, ulong((0u - uint(count)) & 63u)); }
+inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
+inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
+inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
+inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
+inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
+inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
+inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 inline char2 __ms_neg(char2 x) { return char2(char(-uchar(x.x)), char(-uchar(x.y))); }
 inline char3 __ms_neg(char3 x) { return char3(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z))); }
 inline char4 __ms_neg(char4 x) { return char4(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z)), char(-uchar(x.w))); }
@@ -171,7 +193,7 @@ kernel void SharpCompute_Differential_Tests_Random1x1(
     ushort c2_0 = ushort(by1);
     ushort c2_1 = us0;
     c2_1 >>= i2;
-    ushort c2_2 = metal::clamp(c2_1, metal::popcount(us2), ushort(by2));
+    ushort c2_2 = metal::clamp(c2_1, __ms_popcount(us2), ushort(by2));
     output[int(uint(p) + 2u)] = long(int(uint(__ms_math_clamp(c2_0, metal::min(c2_2, us1), metal::max(c2_2, us1))) * uint(metal::min(by2, uchar(int(uint(by2) - uint(short(32767))))))));
     int c3_0 = int(metal::ctz(int(uint(i0 << i0) - uint(metal::max(i1, i2)))));
     c3_0 = int(uint(c3_0) * 1431655765u);
@@ -203,7 +225,7 @@ kernel void SharpCompute_Differential_Tests_Random1x1(
     half2 c8_2 = half2(__ms_half_rem(half(3.0f) * h0, half(sb2)), c8_1);
     output[int(uint(p) + 12u)] = long(as_type<ushort>(c8_2.x));
     output[int(uint(p) + 13u)] = long(as_type<ushort>(c8_2.y));
-    ushort c9_0 = metal::popcount(us0);
+    ushort c9_0 = __ms_popcount(us0);
     ushort c9_1 = ushort(2);
     c9_1++;
     c9_0 -= int(c9_1);
@@ -212,7 +234,7 @@ kernel void SharpCompute_Differential_Tests_Random1x1(
     bool c10_1 = float(c10_0) < metal::fmod(f0 + f2, metal::trunc(f2));
     output[int(uint(p) + 15u)] = (c10_1) ? 1L : 0L;
     output[int(uint(p) + 16u)] = long(~(uint(uchar(u2 - 32u)) & u0));
-    half4 c12_0 = metal::log2(half4(metal::clz(i4b)));
+    half4 c12_0 = metal::log2(half4(__ms_clz(i4b)));
     output[int(uint(p) + 17u)] = long(as_type<ushort>(c12_0.x));
     output[int(uint(p) + 18u)] = long(as_type<ushort>(c12_0.y));
     output[int(uint(p) + 19u)] = long(as_type<ushort>(c12_0.z));

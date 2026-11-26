@@ -57,6 +57,28 @@ inline long __ms_rotate_left(long x, int count) { return metal::rotate(x, long(u
 inline long __ms_rotate_right(long x, int count) { return metal::rotate(x, long((0u - uint(count)) & 63u)); }
 inline ulong __ms_rotate_left(ulong x, int count) { return metal::rotate(x, ulong(uint(count) & 63u)); }
 inline ulong __ms_rotate_right(ulong x, int count) { return metal::rotate(x, ulong((0u - uint(count)) & 63u)); }
+inline char __ms_popcount(char x) { return char(metal::popcount(uint(uchar(x)))); }
+inline uchar __ms_popcount(uchar x) { return uchar(metal::popcount(uint(uchar(x)))); }
+inline short __ms_popcount(short x) { return short(metal::popcount(uint(ushort(x)))); }
+inline ushort __ms_popcount(ushort x) { return ushort(metal::popcount(uint(ushort(x)))); }
+inline int __ms_popcount(int x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint __ms_popcount(uint x) { return metal::popcount(metal::reverse_bits(x)); }
+inline long __ms_popcount(long x) { return metal::popcount(metal::reverse_bits(x)); }
+inline ulong __ms_popcount(ulong x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int2 __ms_popcount(int2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int3 __ms_popcount(int3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int4 __ms_popcount(int4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint2 __ms_popcount(uint2 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint3 __ms_popcount(uint3 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline uint4 __ms_popcount(uint4 x) { return metal::popcount(metal::reverse_bits(x)); }
+inline int __ms_clz(int x) { return x < 0 ? 0 : metal::clz(x); }
+inline uint __ms_clz(uint x) { return int(x) < 0 ? 0u : metal::clz(x); }
+inline int2 __ms_clz(int2 x) { return metal::select(metal::clz(x), int2(0), x < 0); }
+inline uint2 __ms_clz(uint2 x) { return metal::select(metal::clz(x), uint2(0u), int2(x) < 0); }
+inline int3 __ms_clz(int3 x) { return metal::select(metal::clz(x), int3(0), x < 0); }
+inline uint3 __ms_clz(uint3 x) { return metal::select(metal::clz(x), uint3(0u), int3(x) < 0); }
+inline int4 __ms_clz(int4 x) { return metal::select(metal::clz(x), int4(0), x < 0); }
+inline uint4 __ms_clz(uint4 x) { return metal::select(metal::clz(x), uint4(0u), int4(x) < 0); }
 inline char2 __ms_neg(char2 x) { return char2(char(-uchar(x.x)), char(-uchar(x.y))); }
 inline char3 __ms_neg(char3 x) { return char3(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z))); }
 inline char4 __ms_neg(char4 x) { return char4(char(-uchar(x.x)), char(-uchar(x.y)), char(-uchar(x.z)), char(-uchar(x.w))); }
@@ -166,6 +188,51 @@ template <typename T, typename V> inline V __ms_add_to(threadgroup T& target, V 
 template <typename T, typename V> inline V __ms_sub_from(thread T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(device T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
 template <typename T, typename V> inline V __ms_sub_from(threadgroup T& target, V value) { V result = __ms_sub(V(target), value); target = result; return result; }
+// SharpCompute integer division (MslPrelude.IntegerDivision).
+inline char __ms_nonzero(char x) { return char(x | (metal::clz(x) >> 3)); }
+inline char2 __ms_nonzero(char2 x) { return char2(x | (metal::clz(x) >> 3)); }
+inline char3 __ms_nonzero(char3 x) { return char3(x | (metal::clz(x) >> 3)); }
+inline char4 __ms_nonzero(char4 x) { return char4(x | (metal::clz(x) >> 3)); }
+inline uchar __ms_nonzero(uchar x) { return uchar(x | (metal::clz(x) >> 3)); }
+inline uchar2 __ms_nonzero(uchar2 x) { return uchar2(x | (metal::clz(x) >> 3)); }
+inline uchar3 __ms_nonzero(uchar3 x) { return uchar3(x | (metal::clz(x) >> 3)); }
+inline uchar4 __ms_nonzero(uchar4 x) { return uchar4(x | (metal::clz(x) >> 3)); }
+inline short __ms_nonzero(short x) { return short(x | (metal::clz(x) >> 4)); }
+inline short2 __ms_nonzero(short2 x) { return short2(x | (metal::clz(x) >> 4)); }
+inline short3 __ms_nonzero(short3 x) { return short3(x | (metal::clz(x) >> 4)); }
+inline short4 __ms_nonzero(short4 x) { return short4(x | (metal::clz(x) >> 4)); }
+inline ushort __ms_nonzero(ushort x) { return ushort(x | (metal::clz(x) >> 4)); }
+inline ushort2 __ms_nonzero(ushort2 x) { return ushort2(x | (metal::clz(x) >> 4)); }
+inline ushort3 __ms_nonzero(ushort3 x) { return ushort3(x | (metal::clz(x) >> 4)); }
+inline ushort4 __ms_nonzero(ushort4 x) { return ushort4(x | (metal::clz(x) >> 4)); }
+inline int __ms_nonzero(int x) { return int(x | (metal::clz(x) >> 5)); }
+inline int2 __ms_nonzero(int2 x) { return int2(x | (metal::clz(x) >> 5)); }
+inline int3 __ms_nonzero(int3 x) { return int3(x | (metal::clz(x) >> 5)); }
+inline int4 __ms_nonzero(int4 x) { return int4(x | (metal::clz(x) >> 5)); }
+inline uint __ms_nonzero(uint x) { return uint(x | (metal::clz(x) >> 5)); }
+inline uint2 __ms_nonzero(uint2 x) { return uint2(x | (metal::clz(x) >> 5)); }
+inline uint3 __ms_nonzero(uint3 x) { return uint3(x | (metal::clz(x) >> 5)); }
+inline uint4 __ms_nonzero(uint4 x) { return uint4(x | (metal::clz(x) >> 5)); }
+inline long __ms_nonzero(long x) { return long(x | (metal::clz(x) >> 6)); }
+inline long2 __ms_nonzero(long2 x) { return long2(x | (metal::clz(x) >> 6)); }
+inline long3 __ms_nonzero(long3 x) { return long3(x | (metal::clz(x) >> 6)); }
+inline long4 __ms_nonzero(long4 x) { return long4(x | (metal::clz(x) >> 6)); }
+inline ulong __ms_nonzero(ulong x) { return ulong(x | (metal::clz(x) >> 6)); }
+inline ulong2 __ms_nonzero(ulong2 x) { return ulong2(x | (metal::clz(x) >> 6)); }
+inline ulong3 __ms_nonzero(ulong3 x) { return ulong3(x | (metal::clz(x) >> 6)); }
+inline ulong4 __ms_nonzero(ulong4 x) { return ulong4(x | (metal::clz(x) >> 6)); }
+inline uint __ms_div_near_max(uint a, uint b) { return b > a ? 0u : (a - b) / __ms_nonzero(b) + 1u; }
+inline uint __ms_rem_near_max(uint a, uint b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
+inline ulong __ms_div_near_max(ulong a, ulong b) { return b > a ? 0UL : (a - b) / __ms_nonzero(b) + 1UL; }
+inline ulong __ms_rem_near_max(ulong a, ulong b) { return b > a ? a : (a - b) % __ms_nonzero(b); }
+inline uint2 __ms_div_near_max(uint2 a, uint2 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint2(0u), b > a); }
+inline uint2 __ms_rem_near_max(uint2 a, uint2 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+inline uint3 __ms_div_near_max(uint3 a, uint3 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint3(0u), b > a); }
+inline uint3 __ms_rem_near_max(uint3 a, uint3 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+inline uint4 __ms_div_near_max(uint4 a, uint4 b) { return metal::select((a - b) / __ms_nonzero(b) + 1u, uint4(0u), b > a); }
+inline uint4 __ms_rem_near_max(uint4 a, uint4 b) { return metal::select((a - b) % __ms_nonzero(b), a, b > a); }
+inline long __ms_div_near_max(long a, long b) { ulong q = __ms_div_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long((a < 0L) != (b < 0L) ? 0UL - q : q); }
+inline long __ms_rem_near_max(long a, long b) { ulong r = __ms_rem_near_max(a < 0L ? 0UL - ulong(a) : ulong(a), b < 0L ? 0UL - ulong(b) : ulong(b)); return long(a < 0L ? 0UL - r : r); }
 
 constant int Slots = 64;
 
@@ -279,7 +346,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     int c4_v0_2 = int(by1);
     int3 c4_v0_3 = int3(32, i1, i1);
     int3 c4_v0_4 = int3(__ms_add(uint3(uint(i2)), uint3(i3b)));
-    int3 c4_v0_5 = (ulong(metal::popcount(by1)) <= ((ul1 == 0UL) ? 0UL : c4_v0_0 / ul1)) ? ((i1 == ((c4_v0_2 == 0 || (c4_v0_1 == -2147483647 - 1 && c4_v0_2 == -1)) ? 0 : c4_v0_1 / c4_v0_2)) ? int3(::GpuModel_Flush_2(metal::abs(f3b))) : (c4_v0_3 / metal::select(c4_v0_4, int3(1), (int3(c4_v0_4) == 0) | ((int3(c4_v0_3) == -2147483647 - 1) & (int3(c4_v0_4) == -1))))) : ((int3(__ms_sub(uint3(b0 ? int3(3, 64, 1073741824) : i3a), uint3(i3a)))) | i3a);
+    int3 c4_v0_5 = (ulong(__ms_popcount(by1)) <= ((ul1 == 0UL) ? 0UL : c4_v0_0 / __ms_nonzero(ul1))) ? ((i1 == ((c4_v0_2 == 0 || (c4_v0_1 == -2147483647 - 1 && c4_v0_2 == -1)) ? 0 : c4_v0_1 / __ms_nonzero(c4_v0_2))) ? int3(::GpuModel_Flush_2(metal::abs(f3b))) : (c4_v0_3 / __ms_nonzero(metal::select(c4_v0_4, int3(1), (int3(c4_v0_4) == 0) | ((int3(c4_v0_3) == -2147483647 - 1) & (int3(c4_v0_4) == -1)))))) : ((int3(__ms_sub(uint3(b0 ? int3(3, 64, 1073741824) : i3a), uint3(i3a)))) | i3a);
     output[int(uint(p) + 12u)] = long(c4_v0_5.x);
     output[int(uint(p) + 13u)] = long(c4_v0_5.y);
     output[int(uint(p) + 14u)] = long(c4_v0_5.z);
@@ -288,7 +355,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     int c4_v1_2 = int(by1);
     int3 c4_v1_3 = int3(32, i1, i1);
     int3 c4_v1_4 = int3(__ms_add(uint3(uint(i2)), uint3(i3b)));
-    int3 c4_v1_5 = (ulong(metal::popcount(by1)) <= ((ul1 == 0UL) ? 0UL : c4_v1_0 / ul1)) ? ((i1 == ((c4_v1_2 == 0 || (c4_v1_1 == -2147483647 - 1 && c4_v1_2 == -1)) ? 0 : c4_v1_1 / c4_v1_2)) ? int3(::GpuModel_Flush_2(metal::abs(f3b))) : (c4_v1_3 / metal::select(c4_v1_4, int3(1), (int3(c4_v1_4) == 0) | ((int3(c4_v1_3) == -2147483647 - 1) & (int3(c4_v1_4) == -1))))) : ((int3(__ms_sub(uint3(b0 ? int3(3, 64, 1073741824) : i3a), uint3(i3a)))) | i3a);
+    int3 c4_v1_5 = (ulong(__ms_popcount(by1)) <= ((ul1 == 0UL) ? 0UL : c4_v1_0 / __ms_nonzero(ul1))) ? ((i1 == ((c4_v1_2 == 0 || (c4_v1_1 == -2147483647 - 1 && c4_v1_2 == -1)) ? 0 : c4_v1_1 / __ms_nonzero(c4_v1_2))) ? int3(::GpuModel_Flush_2(metal::abs(f3b))) : (c4_v1_3 / __ms_nonzero(metal::select(c4_v1_4, int3(1), (int3(c4_v1_4) == 0) | ((int3(c4_v1_3) == -2147483647 - 1) & (int3(c4_v1_4) == -1)))))) : ((int3(__ms_sub(uint3(b0 ? int3(3, 64, 1073741824) : i3a), uint3(i3a)))) | i3a);
     output[int(uint(p) + 15u)] = long(c4_v1_5.x);
     output[int(uint(p) + 16u)] = long(c4_v1_5.y);
     output[int(uint(p) + 17u)] = long(c4_v1_5.z);
@@ -297,7 +364,7 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     int c4_v2_2 = int(by1);
     int3 c4_v2_3 = int3(32, i1, i1);
     int3 c4_v2_4 = int3(__ms_add(uint3(uint(i2)), uint3(i3b)));
-    int3 c4_v2_5 = (ulong(metal::popcount(by1)) <= ((ul1 == 0UL) ? 0UL : c4_v2_0 / ul1)) ? ((i1 == ((c4_v2_2 == 0 || (c4_v2_1 == -2147483647 - 1 && c4_v2_2 == -1)) ? 0 : c4_v2_1 / c4_v2_2)) ? int3(metal::abs(f3b)) : (c4_v2_3 / metal::select(c4_v2_4, int3(1), (int3(c4_v2_4) == 0) | ((int3(c4_v2_3) == -2147483647 - 1) & (int3(c4_v2_4) == -1))))) : ((int3(__ms_sub(uint3(b0 ? int3(3, 64, 1073741824) : i3a), uint3(i3a)))) | i3a);
+    int3 c4_v2_5 = (ulong(__ms_popcount(by1)) <= ((ul1 == 0UL) ? 0UL : c4_v2_0 / __ms_nonzero(ul1))) ? ((i1 == ((c4_v2_2 == 0 || (c4_v2_1 == -2147483647 - 1 && c4_v2_2 == -1)) ? 0 : c4_v2_1 / __ms_nonzero(c4_v2_2))) ? int3(metal::abs(f3b)) : (c4_v2_3 / __ms_nonzero(metal::select(c4_v2_4, int3(1), (int3(c4_v2_4) == 0) | ((int3(c4_v2_3) == -2147483647 - 1) & (int3(c4_v2_4) == -1)))))) : ((int3(__ms_sub(uint3(b0 ? int3(3, 64, 1073741824) : i3a), uint3(i3a)))) | i3a);
     output[int(uint(p) + 18u)] = long(c4_v2_5.x);
     output[int(uint(p) + 19u)] = long(c4_v2_5.y);
     output[int(uint(p) + 20u)] = long(c4_v2_5.z);
@@ -324,9 +391,9 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     c9_v0_4 = short(uint(int(c9_v0_4)) >> i0);
     int c9_v0_5 = 65535;
     int c9_v0_6 = int(sh1);
-    int c9_v0_7 = int(uint(c9_v0_4) - uint((c9_v0_6 == 0 || (c9_v0_5 == -2147483647 - 1 && c9_v0_6 == -1)) ? 0 : c9_v0_5 % c9_v0_6));
+    int c9_v0_7 = int(uint(c9_v0_4) - uint((c9_v0_6 == 0 || (c9_v0_5 == -2147483647 - 1 && c9_v0_6 == -1)) ? 0 : c9_v0_5 % __ms_nonzero(c9_v0_6)));
     int c9_v0_8 = int(__ms_ilogb(-f0));
-    reinterpret_cast<thread uint3&>(c9_v0_1) *= uint(__ms_math_clamp((c9_v0_3 == 0 || (c9_v0_2 == -2147483647 - 1 && c9_v0_3 == -1)) ? 0 : c9_v0_2 / c9_v0_3, metal::min(c9_v0_7, c9_v0_8), metal::max(c9_v0_7, c9_v0_8)));
+    reinterpret_cast<thread uint3&>(c9_v0_1) *= uint(__ms_math_clamp((c9_v0_3 == 0 || (c9_v0_2 == -2147483647 - 1 && c9_v0_3 == -1)) ? 0 : c9_v0_2 / __ms_nonzero(c9_v0_3), metal::min(c9_v0_7, c9_v0_8), metal::max(c9_v0_7, c9_v0_8)));
     int3 c9_v0_9 = c9_v0_1;
     output[int(uint(p) + 33u)] = long(c9_v0_9.x);
     output[int(uint(p) + 34u)] = long(c9_v0_9.y);
@@ -339,9 +406,9 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     c9_v1_4 = short(uint(int(c9_v1_4)) >> i0);
     int c9_v1_5 = 65535;
     int c9_v1_6 = int(sh1);
-    int c9_v1_7 = int(uint(c9_v1_4) - uint((c9_v1_6 == 0 || (c9_v1_5 == -2147483647 - 1 && c9_v1_6 == -1)) ? 0 : c9_v1_5 % c9_v1_6));
+    int c9_v1_7 = int(uint(c9_v1_4) - uint((c9_v1_6 == 0 || (c9_v1_5 == -2147483647 - 1 && c9_v1_6 == -1)) ? 0 : c9_v1_5 % __ms_nonzero(c9_v1_6)));
     int c9_v1_8 = int(__ms_ilogb(-f0));
-    reinterpret_cast<thread uint3&>(c9_v1_1) *= uint(__ms_math_clamp((c9_v1_3 == 0 || (c9_v1_2 == -2147483647 - 1 && c9_v1_3 == -1)) ? 0 : c9_v1_2 / c9_v1_3, metal::min(c9_v1_7, c9_v1_8), metal::max(c9_v1_7, c9_v1_8)));
+    reinterpret_cast<thread uint3&>(c9_v1_1) *= uint(__ms_math_clamp((c9_v1_3 == 0 || (c9_v1_2 == -2147483647 - 1 && c9_v1_3 == -1)) ? 0 : c9_v1_2 / __ms_nonzero(c9_v1_3), metal::min(c9_v1_7, c9_v1_8), metal::max(c9_v1_7, c9_v1_8)));
     int3 c9_v1_9 = c9_v1_1;
     output[int(uint(p) + 36u)] = long(c9_v1_9.x);
     output[int(uint(p) + 37u)] = long(c9_v1_9.y);
@@ -354,9 +421,9 @@ kernel void SharpCompute_Differential_Tests_Random3x2Model(
     c9_v2_4 = short(uint(int(c9_v2_4)) >> i0);
     int c9_v2_5 = 65535;
     int c9_v2_6 = int(sh1);
-    int c9_v2_7 = int(uint(c9_v2_4) - uint((c9_v2_6 == 0 || (c9_v2_5 == -2147483647 - 1 && c9_v2_6 == -1)) ? 0 : c9_v2_5 % c9_v2_6));
+    int c9_v2_7 = int(uint(c9_v2_4) - uint((c9_v2_6 == 0 || (c9_v2_5 == -2147483647 - 1 && c9_v2_6 == -1)) ? 0 : c9_v2_5 % __ms_nonzero(c9_v2_6)));
     int c9_v2_8 = int(__ms_ilogb(-f0));
-    reinterpret_cast<thread uint3&>(c9_v2_1) *= uint(__ms_math_clamp((c9_v2_3 == 0 || (c9_v2_2 == -2147483647 - 1 && c9_v2_3 == -1)) ? 0 : c9_v2_2 / c9_v2_3, metal::min(c9_v2_7, c9_v2_8), metal::max(c9_v2_7, c9_v2_8)));
+    reinterpret_cast<thread uint3&>(c9_v2_1) *= uint(__ms_math_clamp((c9_v2_3 == 0 || (c9_v2_2 == -2147483647 - 1 && c9_v2_3 == -1)) ? 0 : c9_v2_2 / __ms_nonzero(c9_v2_3), metal::min(c9_v2_7, c9_v2_8), metal::max(c9_v2_7, c9_v2_8)));
     int3 c9_v2_9 = c9_v2_1;
     output[int(uint(p) + 39u)] = long(c9_v2_9.x);
     output[int(uint(p) + 40u)] = long(c9_v2_9.y);

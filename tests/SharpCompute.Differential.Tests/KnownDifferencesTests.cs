@@ -37,7 +37,7 @@ public class KnownDifferencesTests
     /// <c>4294967295u / x</c>: the Metal compiler's division of a constant dividend near 2^32 by a
     /// variable is wrong (3579139454 for x = 3), also through a <c>long</c> that it narrows to 32 bits.
     /// </summary>
-    [MetalFact(Skip = Unfixed)]
+    [MetalFact]
     public void ConstantDividend() => AssertSame([3], ConstantDividendRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new ConstantDividendRepro(i, o)));
 
     /// <summary><c>h / (Half)3f</c>: a half division by a constant is a multiplication by its reciprocal, one half ULP off (931 for 2794 / 3).</summary>
@@ -73,7 +73,7 @@ public class KnownDifferencesTests
     /// <c>LeadingZeroCount((uint)(short)i)</c> of a negative short is 16 instead of 0, and so is
     /// <c>LeadingZeroCount(a % b)</c> of two sbytes widened to int, -48 % 53.
     /// </summary>
-    [MetalFact(Skip = Unfixed)]
+    [MetalFact]
     public void BitsOfSmallIntegerValue() => AssertSame([1, unchecked((ulong)-2L), 255, 1747837037, unchecked((ulong)-48L), 53], BitsOfSmallIntegerRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new BitsOfSmallIntegerRepro(i, o)));
 
     /// <summary>
@@ -83,7 +83,7 @@ public class KnownDifferencesTests
     /// a chain of 32-bit divisions (<c>t = d == 0 ? 0 : a / d; t == 0 ? 0 : x % t</c>) were dropped
     /// the same way inside larger random expressions, but not in a shader of that chain alone.
     /// </summary>
-    [MetalFact(Skip = Unfixed)]
+    [MetalFact]
     public void GuardedDivisionChain() => AssertSame([2, unchecked((ulong)long.MinValue)], GuardedDivisionRepro.Slots, static (d, cpu, i, o) => Dispatch(d, cpu, new GuardedDivisionRepro(i, o)));
 
     /// <summary>

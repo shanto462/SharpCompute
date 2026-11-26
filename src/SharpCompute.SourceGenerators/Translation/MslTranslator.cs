@@ -468,6 +468,12 @@ internal sealed partial class MslTranslator
     public bool UsesVectorArithmetic { get; private set; }
 
     /// <summary>
+    /// True when an integer division or remainder goes through <c>__ms_nonzero</c>,
+    /// <c>__ms_div_near_max</c> or <c>__ms_rem_near_max</c>, so the MSL needs <c>MslPrelude.IntegerDivision</c>.
+    /// </summary>
+    public bool UsesIntegerDivision { get; private set; }
+
+    /// <summary>
     /// True when an <c>[MslAtomic]</c> call was translated, in the kernel or in a helper it reaches
     /// (helpers are only translated when called), on a buffer element or on threadgroup memory.
     /// </summary>
