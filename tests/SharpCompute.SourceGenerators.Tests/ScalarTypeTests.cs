@@ -427,7 +427,7 @@ public class ScalarTypeTests
         Assert.Equal(
             """
             float f = floats[0];
-            half h = half(f);
+            half h = __ms_to_half(f);
             longs[0] = __ms_sat_long(f);
             longs[1] = __ms_sat_long(h);
             ulongs[0] = __ms_sat_ulong(f);
@@ -499,7 +499,7 @@ public class ScalarTypeTests
             """
             int i = ints[0];
             short s = shorts[0];
-            half h = half(floats[0]);
+            half h = __ms_to_half(floats[0]);
             bytes[0] = __ms_sat_uchar(float(i));
             sbytes[0] = __ms_sat_char(h);
             ushorts[0] = __ms_sat_ushort(half(s));
@@ -560,10 +560,84 @@ public class ScalarTypeTests
     }
 
     [Fact]
-    public void ShaderWithoutAFloatToIntegerConversion_HasNoPrelude()
+    public void ShaderWithoutAFloatToIntegerOrHalfConversion_HasNoPrelude()
     {
-        ShaderDescriptor descriptor = RunBody("longs[0] = (long)ulongs[0] + bytes[0] + (long)(int)uints[0]; floats[0] = (float)(Half)floats[1] + ints[0];").Verify(Shader);
+        // Integer conversions, conversions to float, and a half of a constant within its range.
+        ShaderDescriptor descriptor = RunBody("longs[0] = (long)ulongs[0] + bytes[0] + (long)(int)uints[0]; floats[0] = (float)(Half)ints[1] + (float)(Half)0.5f + ints[0];").Verify(Shader);
 
+        Assert.DoesNotContain("__ms_", descriptor.MslSource);
+    }
+
+    /// <summary>
+    /// The Metal compiler makes a constant beyond the range of a half 65504 where it converts one
+    /// itself, and moves the conversion to the constants of a max, a min or a clamp to do so, so a
+    /// float converts to a half through a helper that selects the infinity. A constant within the
+    /// range keeps the cast. The GPU side is pinned in HalfConversionTests.
+    /// </summary>
+    [Fact]
+    public void FloatToHalf_GoesThroughTheHelper_ExceptForAConstantWithinTheRangeOfAHalf()
+    {
+        GeneratorRun run = RunBody(
+            """
+            float f = floats[0];
+            Half h = (Half)f;
+            Half inRange = (Half)0.5f;
+            Half edge = (Half)(-65519.99f);
+            Half beyond = (Half)65520f;
+            Half3 v = (Half3)new Float3(f, 1f, 2f);
+            Half3 constants = (Half3)new Float3(0.25f, -3f, 1000f);
+            Half2 huge = (Half2)new Float2(1e30f, 1f);
+            Half fromInt = (Half)ints[0];
+            floats[1] = (float)h + (float)inRange + (float)edge + (float)beyond + (float)v.X + (float)constants.Y + (float)huge.X + (float)fromInt;
+            """);
+
+        ShaderDescriptor descriptor = run.Verify(Shader);
+
+        Assert.Equal(
+            """
+            float f = floats[0];
+            half h = __ms_to_half(f);
+            half inRange = half(0.5f);
+            half edge = half(-65519.99f);
+            half beyond = __ms_to_half(65520.0f);
+            half3 v = __ms_to_half3(float3(f, 1.0f, 2.0f));
+            half3 constants = half3(float3(0.25f, -3.0f, 1000.0f));
+            half2 huge = __ms_to_half2(float2(1E+30f, 1.0f));
+            half fromInt = half(ints[0]);
+            floats[1] = float(h) + float(inRange) + float(edge) + float(beyond) + float(v.x) + float(constants.y) + float(huge.x) + float(fromInt);
+            """.ReplaceLineEndings("\n"),
+            descriptor.KernelBody);
+        Assert.Contains("inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }", descriptor.MslSource);
+        Assert.Contains(
+            "inline half3 __ms_to_half3(float3 x) { return metal::select(half3(x), metal::select(half3(INFINITY), half3(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }",
+            descriptor.MslSource);
+
+        // Only the helpers the shader calls: no conversion to an integer, and no half4.
+        Assert.DoesNotContain("__ms_sat_", descriptor.MslSource);
+        Assert.DoesNotContain("__ms_to_half4", descriptor.MslSource);
+    }
+
+    [Fact]
+    public void FloatToHalf_InAProgramScopeInitializer_IsWrittenOutAsAConstantExpression()
+    {
+        ShaderDescriptor descriptor = RunBody(
+            "floats[0] = (float)Tint.X + (float)FromBig + (float)Lanes.Y;",
+            """
+            private static readonly float Big = 1e30f;
+                private static readonly Half3 Tint = (Half3)new Float3(0.5f, 0.25f, 2f);
+                private static readonly Half FromBig = (Half)Big;
+                private static readonly Half2 Lanes = (Half2)new Float2(Big, 1f);
+            """).Verify(Shader);
+
+        // A vector of constants within the range keeps the cast.
+        Assert.Contains("constant half3 Tint = half3(float3(0.5f, 0.25f, 2.0f));", descriptor.MslSource);
+
+        // An initializer must not call a function: the selection is a constant expression, per lane for a vector.
+        Assert.Contains("constant half FromBig = (::Big >= 65520.0f ? half(INFINITY) : (::Big <= -65520.0f ? half(-INFINITY) : half(::Big)));", descriptor.MslSource);
+        Assert.Contains(
+            "constant half2 Lanes = half2(float2(::Big, 1.0f).x >= 65520.0f ? half(INFINITY) : (float2(::Big, 1.0f).x <= -65520.0f ? half(-INFINITY) : half(float2(::Big, 1.0f).x)), "
+            + "float2(::Big, 1.0f).y >= 65520.0f ? half(INFINITY) : (float2(::Big, 1.0f).y <= -65520.0f ? half(-INFINITY) : half(float2(::Big, 1.0f).y)));",
+            descriptor.MslSource);
         Assert.DoesNotContain("__ms_", descriptor.MslSource);
     }
 

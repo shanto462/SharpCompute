@@ -110,6 +110,8 @@ template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_l
 template <typename T> inline metal::simdgroup_matrix<T, 8, 8> __ms_wave_matrix_load(const threadgroup T* source, ulong stride, bool transpose) { metal::simdgroup_matrix<T, 8, 8> matrix; metal::simdgroup_load(matrix, source, stride, ulong2(0), transpose); return matrix; }
 template <typename R, typename T, typename U> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b) { metal::simdgroup_matrix<R, 8, 8> product; metal::simdgroup_multiply(product, a, b); return product; }
 template <typename R, typename T, typename U, typename V> inline metal::simdgroup_matrix<R, 8, 8> __ms_wave_matrix_multiply_accumulate(metal::simdgroup_matrix<T, 8, 8> a, metal::simdgroup_matrix<U, 8, 8> b, metal::simdgroup_matrix<V, 8, 8> c) { metal::simdgroup_matrix<R, 8, 8> sum; metal::simdgroup_multiply_accumulate(sum, a, b, c); return sum; }
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
 
 constant int Slots = 28;
 
@@ -146,7 +148,7 @@ kernel void SharpCompute_Tests_Conformance_Semantics_ScanZeroSignShader(
     float f = floats[i];
     half h = halves[i];
     float unit = f > 0.0f ? 1.0f : f < 0.0f ? -1.0f : f;
-    half unitHalf = half(unit);
+    half unitHalf = __ms_to_half(unit);
     output[int(uint(o) + 0u)] = 1u;
     output[int(uint(o) + 1u)] = as_type<uint>(metal::simd_prefix_exclusive_sum(f));
     output[int(uint(o) + 2u)] = as_type<uint>(metal::simd_prefix_inclusive_sum(f));

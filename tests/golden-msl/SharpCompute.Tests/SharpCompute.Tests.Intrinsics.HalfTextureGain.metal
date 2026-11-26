@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+
 struct __Constants
 {
     packed_half4 gain;
@@ -30,7 +33,7 @@ kernel void SharpCompute_Tests_Intrinsics_HalfTextureGain(
     uint3 __tid_in [[thread_position_in_grid]])
 {
     const uint3 __tid = __windowed ? __tid_in + uint3(__window.offset) : __tid_in;
-    half4 pixel = half4(image.read(uint2(int2(__tid.xy))));
+    half4 pixel = __ms_to_half4(image.read(uint2(int2(__tid.xy))));
     image.write(float4(pixel * __c.gain), uint2(int2(__tid.xy)));
     image.fence();
 }

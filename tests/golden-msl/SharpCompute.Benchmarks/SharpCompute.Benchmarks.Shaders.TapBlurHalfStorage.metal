@@ -3,6 +3,9 @@
 
 using namespace metal;
 
+// SharpCompute float and half conversions (MslPrelude.Conversions).
+inline half4 __ms_to_half4(float4 x) { return metal::select(half4(x), metal::select(half4(INFINITY), half4(-INFINITY), x < 0.0f), metal::abs(x) >= 65520.0f); }
+
 static_assert(sizeof(packed_half4) == 8, "SharpCompute: size of 'packed_half4' does not match its C# layout");
 
 struct __Constants
@@ -50,5 +53,5 @@ kernel void SharpCompute_Benchmarks_Shaders_TapBlurHalfStorage(
             total += w;
         }
     }
-    output[int((__tid.y * uint(__c.size)) + __tid.x)] = half4(sum / total);
+    output[int((__tid.y * uint(__c.size)) + __tid.x)] = __ms_to_half4(sum / total);
 }

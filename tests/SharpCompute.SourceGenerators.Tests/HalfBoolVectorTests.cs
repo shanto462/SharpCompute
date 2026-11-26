@@ -30,7 +30,7 @@ public class HalfBoolVectorTests
     {
         AssertKernel(
             """
-            half3 a = half3(float3(buffer[0], 1.0f, 2.0f));
+            half3 a = __ms_to_half3(float3(buffer[0], 1.0f, 2.0f));
             half3 b = a * a + half(0.5f);
             b -= a / half(2);
             b = metal::fmod(b, a);
@@ -67,7 +67,7 @@ public class HalfBoolVectorTests
         AssertKernel(
             """
             float3 f = float3(buffer[0]);
-            half3 h = half3(f);
+            half3 h = __ms_to_half3(f);
             int3 i = __ms_sat_int3(h);
             uint3 u = __ms_sat_uint3(h);
             h = half3(i) + half3(u);
@@ -94,7 +94,7 @@ public class HalfBoolVectorTests
     {
         AssertKernel(
             """
-            half3 a = half3(float3(buffer[0], 1.0f, 2.0f));
+            half3 a = __ms_to_half3(float3(buffer[0], 1.0f, 2.0f));
             half3 b = metal::sqrt(metal::abs(a));
             b = metal::mix(a, b, half(0.5f));
             b = metal::clamp(b, half(0.0f), half(1.0f));
@@ -190,7 +190,7 @@ public class HalfBoolVectorTests
     {
         AssertKernel(
             """
-            half h = half(buffer[0]);
+            half h = __ms_to_half(buffer[0]);
             half3 v = half3(h);
             half r = __ms_radians(h) + __ms_degrees(h);
             v = __ms_radians(v) + __ms_degrees(v.zyx);
@@ -233,7 +233,7 @@ public class HalfBoolVectorTests
         // overload, as before there was a Half one.
         AssertKernel(
             """
-            half h = half(buffer[0]);
+            half h = __ms_to_half(buffer[0]);
             half4 v = half4(h);
             h = metal::simd_sum(h) + metal::simd_prefix_exclusive_product(h) + metal::simd_broadcast_first(h);
             h = metal::simd_shuffle(h, ushort(2)) + metal::simd_shuffle_rotate_down(h, ushort(3)) + metal::quad_shuffle_xor(h, ushort(1));
@@ -399,6 +399,9 @@ public class HalfBoolVectorTests
 
             using namespace metal;
 
+            // SharpCompute float and half conversions (MslPrelude.Conversions).
+            inline half __ms_to_half(float x) { return metal::abs(x) >= 65520.0f ? (x < 0.0f ? half(-INFINITY) : half(INFINITY)) : half(x); }
+
             constant half3 Luma = half3(float3(0.299f, 0.587f, 0.114f));
             constant half Knee = half(0.75f);
 
@@ -469,7 +472,7 @@ public class HalfBoolVectorTests
             tile[int(__gtid.x)] = half4(color, ::Luminance(color, __c)) * __c.tint;
             metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
             half4 shared = tile[(int(__gtid.x + 1u)) & 15];
-            color = ::Curve(color * weight.xyz + shared.xyz, ::Knee) * half(__c.gain);
+            color = ::Curve(color * weight.xyz + shared.xyz, ::Knee) * __ms_to_half(__c.gain);
             colors[i] = color;
             colors[i].x = shared.w;
             Texel texel = texels[i];
@@ -545,7 +548,7 @@ public class HalfBoolVectorTests
             }
             """).Verify("Grade");
 
-        Assert.Contains("half4 pixel = half4(image.read(uint2(int2(__tid.xy))));", descriptor.KernelBody);
+        Assert.Contains("half4 pixel = __ms_to_half4(image.read(uint2(int2(__tid.xy))));", descriptor.KernelBody);
         Assert.Contains("image.write(float4(pixel * __c.gain), uint2(int2(__tid.xy)));", descriptor.KernelBody);
     }
 
@@ -575,7 +578,7 @@ public class HalfBoolVectorTests
         AssertKernel(
             """
             float3 f = float3(buffer[0], 1.0f, 2.0f);
-            half3 h = half3(f);
+            half3 h = __ms_to_half3(f);
             int3 i = __ms_sat_int3(f);
             uint3 u = __ms_sat_uint3(f);
             bool3 m = f < f * 2.0f;
@@ -704,7 +707,7 @@ public class HalfBoolVectorTests
             bool3 bright = lit > 1.0f;
             int3 i = metal::select(int3(0), int3(1), bright);
             uint3 u = metal::select(uint3(i), uint3(7u), bright);
-            half3 h = metal::select(half3(color), half3(lit), bright & (color < 0.9f));
+            half3 h = metal::select(__ms_to_half3(color), __ms_to_half3(lit), bright & (color < 0.9f));
             bool3 either = metal::select(!bright, bright, color > lit);
             lit = metal::select(lit, color, either);
             buffer[0] = lit.x + float(i.y) + float(u.z) + float(h.x);
@@ -728,7 +731,7 @@ public class HalfBoolVectorTests
         AssertKernel(
             """
             float4 f = float4(buffer[0], buffer[1], 1.0f, 2.0f);
-            half4 h = half4(f);
+            half4 h = __ms_to_half4(f);
             bool4 bad = metal::isnan(f) | metal::isinf(f) | !metal::isfinite(h);
             bool2 nan = (metal::isnan(h.xy) & metal::isinf(h.zw)) | metal::isfinite(f.xy);
             f = metal::select(f, float4(0.0f), bad);
